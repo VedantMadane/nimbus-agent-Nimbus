@@ -6,8 +6,9 @@
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { runCiTestSuite } from "./lib/ci-tests.ts";
-import { REPO_ROOT, run } from "./lib/root.ts";
+import { assertWorkspaceInstalled, REPO_ROOT, run } from "./lib/root.ts";
 
+assertWorkspaceInstalled();
 await runCiTestSuite();
 
 mkdirSync(join(REPO_ROOT, "dist"), { recursive: true });

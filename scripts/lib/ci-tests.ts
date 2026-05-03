@@ -126,6 +126,13 @@ function runCoverageGates(): void {
 
 /** Run the same test steps as `_test-suite.yml` (typecheck, lint, build, tests, coverage gates, integration, e2e, UI). */
 export async function runCiTestSuite(): Promise<void> {
+  // Required before Typecheck — vscode-extension imports @nimbus-dev/client
+  // whose exports field points at dist/index.d.ts. Without an explicit build
+  // the workspace symlink resolves but the type declarations don't exist.
+  // Mirrors the "Build @nimbus-dev/client (for vscode-extension typecheck)"
+  // step in `_test-suite.yml`.
+  run(["bun", "run", "build"], join(REPO_ROOT, "packages", "client"));
+
   run(["bun", "run", "typecheck"], REPO_ROOT);
   run(["bun", "run", "lint"], REPO_ROOT);
   run(["bun", "run", "build"], REPO_ROOT);
