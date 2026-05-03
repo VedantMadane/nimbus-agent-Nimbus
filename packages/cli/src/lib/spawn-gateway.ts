@@ -3,7 +3,6 @@ import { closeSync, existsSync, openSync, readFileSync, writeSync } from "node:f
 import { join } from "node:path";
 
 import type { CliPlatformPaths } from "../paths.ts";
-import { gatewayStatePath } from "./gateway-process.ts";
 import { resolveGatewayLaunch } from "./resolve-gateway-launch.ts";
 
 const PROFILE_FILENAME = ".nimbus-profile";
@@ -37,7 +36,10 @@ export type SpawnGatewayOptions = {
 
 /**
  * Spawns the Gateway with the same model as `nimbus start` (detached on Windows, log append).
- * Writes `gateway.json` state on success.
+ * The Gateway itself writes `gateway.json` after IPC bind so any launcher (CLI,
+ * IDE debugger, systemd) ends up with the same state file on disk; the CLI just
+ * passes the log file path via `NIMBUS_GATEWAY_LOG_PATH` so the state file
+ * records it.
  */
 export async function spawnGateway(
   paths: CliPlatformPaths,
@@ -62,6 +64,7 @@ export async function spawnGateway(
       `\n--- ${new Date().toISOString()} nimbus: spawning gateway (${launch.cmd.join(" ")}) ---\n`,
     );
     const childEnv: NodeJS.ProcessEnv = { ...process.env };
+    childEnv["NIMBUS_GATEWAY_LOG_PATH"] = logPath;
     const profile = readActiveProfileName(paths.configDir);
     if (profile !== undefined) {
       childEnv["NIMBUS_PROFILE"] = profile;
@@ -91,11 +94,5 @@ export async function spawnGateway(
     closeSync(logFd);
   }
 
-  const state = {
-    pid,
-    socketPath: paths.socketPath,
-    logPath,
-  };
-  await Bun.write(gatewayStatePath(paths), `${JSON.stringify(state, undefined, 2)}\n`);
   return { pid, logPath };
 }

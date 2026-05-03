@@ -2,14 +2,22 @@
 /**
  * Debug-oriented build: bundled JS + sourcemaps (no `bun build --compile`).
  * Run from anywhere: `bun scripts/build-debug.ts` or `scripts/linux/build-debug.sh` / `scripts/windows/build-debug.ps1`
+ *
+ * Pass `--skip-tests` to skip the CI-parity test suite (faster local iteration).
  */
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { runCiTestSuite } from "./lib/ci-tests.ts";
 import { assertWorkspaceInstalled, REPO_ROOT, run } from "./lib/root.ts";
 
+const skipTests = process.argv.slice(2).includes("--skip-tests");
+
 assertWorkspaceInstalled();
-await runCiTestSuite();
+if (skipTests) {
+  process.stdout.write("[build-debug] --skip-tests: skipping CI test suite\n");
+} else {
+  await runCiTestSuite();
+}
 
 mkdirSync(join(REPO_ROOT, "dist"), { recursive: true });
 mkdirSync(join(REPO_ROOT, "packages/cli/dist"), { recursive: true });

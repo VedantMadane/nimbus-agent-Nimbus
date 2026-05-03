@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { Logger } from "pino";
 
 import type { NimbusEmbeddingToml } from "../config/nimbus-toml.ts";
+import { processEnvGet } from "../platform/env-access.ts";
 import type { EmbeddingRuntime } from "./embedding-runtime.ts";
 import { LOCAL_EMBEDDING_MODEL_ID } from "./model.ts";
 
@@ -10,6 +11,25 @@ type Pending = {
   resolve: (v: Float32Array | null) => void;
   timer: ReturnType<typeof setTimeout>;
 };
+
+// 600s by default so a first-time MiniLM download (~22MB) finishes on slow
+// links. Override via NIMBUS_EMBEDDING_INIT_TIMEOUT_MS. On timeout we DO NOT
+// terminate the worker — calling `worker.terminate()` mid-download truncates
+// the cache and traps the next gateway start in the same loop, so we let the
+// worker keep running so the cache fills for the next start.
+const DEFAULT_EMBEDDING_INIT_TIMEOUT_MS = 600_000;
+
+function resolveEmbeddingInitTimeoutMs(): number {
+  const raw = processEnvGet("NIMBUS_EMBEDDING_INIT_TIMEOUT_MS");
+  if (raw === undefined || raw === "") {
+    return DEFAULT_EMBEDDING_INIT_TIMEOUT_MS;
+  }
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n <= 0) {
+    return DEFAULT_EMBEDDING_INIT_TIMEOUT_MS;
+  }
+  return n;
+}
 
 export async function tryCreateEmbeddingWorkerBridge(
   dbPath: string,
@@ -26,15 +46,13 @@ export async function tryCreateEmbeddingWorkerBridge(
   }
   const bridge = new EmbeddingWorkerBridge(worker, dbPath, join(dataDir, "models"), toml, logger);
   try {
-    await bridge.waitUntilReady();
+    await bridge.waitUntilReady(resolveEmbeddingInitTimeoutMs());
     return bridge;
   } catch (err) {
-    logger.warn({ err }, "embedding worker failed to initialize");
-    try {
-      worker.terminate();
-    } catch {
-      /* ignore */
-    }
+    logger.warn(
+      { err },
+      "embedding worker failed to initialize within timeout — leaving the worker running so the model download can finish for the next gateway start; embeddings disabled for this process",
+    );
     return null;
   }
 }
@@ -92,11 +110,11 @@ class EmbeddingWorkerBridge implements EmbeddingRuntime {
     });
   }
 
-  waitUntilReady(): Promise<void> {
+  waitUntilReady(timeoutMs: number): Promise<void> {
     const timeout = new Promise<void>((_, reject) => {
       setTimeout(() => {
-        reject(new Error("embedding worker init timed out"));
-      }, 180_000);
+        reject(new Error(`embedding worker init timed out after ${String(timeoutMs)}ms`));
+      }, timeoutMs);
     });
     return Promise.race([this.gate, timeout]);
   }

@@ -92,18 +92,94 @@ function formatQueryCell(value: unknown): string {
   }
 }
 
+function formatIsoLocal(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 16).replace("T", " ");
+}
+
+function formatRelative(ms: number): string {
+  const diff = Date.now() - ms;
+  const sec = Math.round(diff / 1000);
+  if (sec < 60) return `${String(sec)}s ago`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${String(min)}m ago`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `${String(hr)}h ago`;
+  const d = Math.round(hr / 24);
+  if (d < 30) return `${String(d)}d ago`;
+  const mo = Math.round(d / 30);
+  if (mo < 12) return `${String(mo)}mo ago`;
+  return `${String(Math.round(mo / 12))}y ago`;
+}
+
+function formatTimestampField(value: unknown): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return formatQueryCell(value);
+  }
+  return `${formatIsoLocal(value)} (${formatRelative(value)})`;
+}
+
+function truncate(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return `${s.slice(0, max - 1)}…`;
+}
+
+function isItemLikeRow(row: Record<string, unknown>): boolean {
+  return typeof row["title"] === "string" && typeof row["service"] === "string";
+}
+
+function printItemCard(row: Record<string, unknown>, idx: number): void {
+  const num = `${String(idx + 1)}.`;
+  const title = String(row["title"] ?? "(untitled)");
+  const meta: string[] = [];
+  if (typeof row["service"] === "string") meta.push(row["service"]);
+  if (typeof row["type"] === "string") meta.push(row["type"]);
+  if (typeof row["modified_at"] === "number") meta.push(formatTimestampField(row["modified_at"]));
+
+  console.log(`${num.padEnd(4)} ${title}`);
+  if (meta.length > 0) console.log(`     ${meta.join(" · ")}`);
+
+  const body = typeof row["body_preview"] === "string" ? row["body_preview"] : "";
+  if (body !== "" && body !== title) {
+    console.log(`     ${truncate(body.replace(/\s+/g, " "), 120)}`);
+  }
+  const url = typeof row["url"] === "string" ? row["url"] : "";
+  if (url !== "") console.log(`     ${url}`);
+  console.log("");
+}
+
+function printKvBlock(row: Record<string, unknown>, idx: number): void {
+  console.log(`── #${String(idx + 1)} ──`);
+  for (const [k, v] of Object.entries(row)) {
+    const displayValue = k.endsWith("_at") ? formatTimestampField(v) : formatQueryCell(v);
+    console.log(`  ${k}: ${displayValue}`);
+  }
+  console.log("");
+}
+
 function printRows(rows: Record<string, unknown>[], wantJson: boolean, pretty: boolean): void {
-  if (wantJson || !pretty) {
-    console.log(JSON.stringify(rows, null, wantJson ? 2 : 0));
+  if (wantJson) {
+    console.log(JSON.stringify(rows, null, 2));
+    return;
+  }
+  if (!pretty) {
+    console.log(JSON.stringify(rows));
     return;
   }
   if (rows.length === 0) {
     console.log("(no rows)");
     return;
   }
-  const keys = Object.keys(rows[0] ?? {});
-  console.log(keys.join("\t"));
-  for (const row of rows) {
-    console.log(keys.map((k) => formatQueryCell(row[k])).join("\t"));
+  const useCards = rows.every(isItemLikeRow);
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (row === undefined) continue;
+    if (useCards) {
+      printItemCard(row, i);
+    } else {
+      printKvBlock(row, i);
+    }
   }
+  console.log(
+    `(${String(rows.length)} ${rows.length === 1 ? "row" : "rows"} · use --json for raw)`,
+  );
 }

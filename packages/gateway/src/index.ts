@@ -12,6 +12,7 @@ import { createConnectorDispatcher, type McpToolListingClient } from "./connecto
 import { createNimbusEngineAgent } from "./engine/agent.ts";
 import { runAsk } from "./engine/run-ask.ts";
 import { emergencyGatewayLog } from "./platform/gateway-log-file.ts";
+import { removeGatewayStateFile, writeGatewayStateFile } from "./platform/gateway-state-file.ts";
 import { createPlatformServices } from "./platform/index.ts";
 
 const GATEWAY_VERSION = "0.1.0";
@@ -94,6 +95,7 @@ async function main(): Promise<void> {
       } catch {
         /* ignore */
       }
+      removeGatewayStateFile(platform.paths);
     }
     process.exit(0);
   };
@@ -101,6 +103,10 @@ async function main(): Promise<void> {
   process.on("SIGINT", () => void shutdown("SIGINT"));
 
   await platform.ipc.start();
+  writeGatewayStateFile(platform.paths, {
+    pid: process.pid,
+    socketPath: platform.paths.socketPath,
+  });
   process.stdout.write(`[gateway] ready (${GATEWAY_VERSION}) IPC ${platform.paths.socketPath}\n`);
 }
 
