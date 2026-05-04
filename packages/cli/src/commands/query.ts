@@ -16,6 +16,12 @@ export async function runQuery(args: string[]): Promise<void> {
 Usage:
   nimbus query --service <id> [--type <t>] [--since 7d] [--limit N] [--json | --pretty]
   nimbus query --sql "SELECT ..." [--json | --pretty]   (read-only guard)
+
+Output:
+  TTY (default)  → human-readable cards
+  piped (default)→ compact JSON, one row per array (jq-friendly)
+  --json         → pretty JSON (2-space indent), good for inspection
+  --pretty       → force cards even when piped
 `);
     return;
   }
@@ -161,7 +167,11 @@ function printRows(rows: Record<string, unknown>[], wantJson: boolean, pretty: b
     console.log(JSON.stringify(rows, null, 2));
     return;
   }
-  if (!pretty) {
+  // When neither --json nor --pretty is given, default to cards on a TTY
+  // (human-readable in cmd / PowerShell / Terminal) and to compact JSON when
+  // stdout is piped (so `nimbus query … | jq …` still works).
+  const renderAsCards = pretty || (process.stdout.isTTY === true && !pretty);
+  if (!renderAsCards) {
     console.log(JSON.stringify(rows));
     return;
   }
