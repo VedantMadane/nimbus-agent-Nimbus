@@ -1,8 +1,12 @@
 /**
  * Applies the open dependabot version bumps to package.json files in this
  * workspace. Run once, then `bun install` regenerates a single bun.lock.
+ *
+ * Filesystem access is attempt-and-recover (try `readFileSync`, treat ENOENT
+ * as "skip") rather than `existsSync`-then-read, so there's no TOCTOU window
+ * between the check and the use.
  */
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 
 type PackageJson = {
   dependencies?: Record<string, string>;
@@ -10,7 +14,20 @@ type PackageJson = {
   peerDependencies?: Record<string, string>;
 };
 
-const bumps: ReadonlyArray<{ file: string; dep: string; ver: string }> = [
+function tryReadJson(file: string): PackageJson | null {
+  let raw: string;
+  try {
+    raw = readFileSync(file, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+    throw err;
+  }
+  return JSON.parse(raw) as PackageJson;
+}
+
+const bumps: Array<{ file: string; dep: string; ver: string }> = [
   // root
   { file: "package.json", dep: "@biomejs/biome", ver: "2.4.14" },
   // cli
@@ -29,15 +46,14 @@ const bumps: ReadonlyArray<{ file: string; dep: string; ver: string }> = [
   { file: "packages/vscode-extension/package.json", dep: "marked", ver: "18.0.3" },
 ];
 
-// zod 4.4.2 across gateway + every mcp connector
-const zodFiles = ["packages/gateway/package.json"];
+// zod 4.4.2 across gateway + every mcp connector. The mcp-connectors loop
+// drives off `readdirSync` rather than a glob, so each candidate path may or
+// may not contain a package.json — `tryReadJson` handles the missing case
+// without a separate existence check.
+bumps.push({ file: "packages/gateway/package.json", dep: "zod", ver: "4.4.2" });
 for (const d of readdirSync("packages/mcp-connectors")) {
-  const p = `packages/mcp-connectors/${d}/package.json`;
-  if (existsSync(p)) zodFiles.push(p);
-}
-for (const f of zodFiles) {
-  (bumps as Array<{ file: string; dep: string; ver: string }>).push({
-    file: f,
+  bumps.push({
+    file: `packages/mcp-connectors/${d}/package.json`,
     dep: "zod",
     ver: "4.4.2",
   });
@@ -45,11 +61,11 @@ for (const f of zodFiles) {
 
 let touched = 0;
 for (const { file, dep, ver } of bumps) {
-  if (!existsSync(file)) {
+  const pkg = tryReadJson(file);
+  if (pkg === null) {
     console.warn(`  skip (missing): ${file}`);
     continue;
   }
-  const pkg = JSON.parse(readFileSync(file, "utf8")) as PackageJson;
   let changed = false;
   for (const section of ["dependencies", "devDependencies", "peerDependencies"] as const) {
     const block = pkg[section];

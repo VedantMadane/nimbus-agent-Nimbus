@@ -1,4 +1,4 @@
-import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readSync } from "node:fs";
 
 /**
  * Tails a gateway log file for progress display in the CLI spinner. The log
@@ -8,6 +8,10 @@ import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
  *
  * Partial writes are not consumed: the offset stops at the last newline so
  * a half-flushed line is picked up on the next poll once it completes.
+ *
+ * The poll opens the file with `O_RDONLY` and uses `fstat` on the same
+ * descriptor to read the size, so there's no TOCTOU window between an
+ * existence check and the subsequent open or stat.
  */
 export class GatewayLogTailer {
   private offset: number;
@@ -18,36 +22,43 @@ export class GatewayLogTailer {
 
   /** Returns the most recent complete line's preview, or `null` if nothing new. */
   pollLatest(logPath: string): string | null {
-    if (!existsSync(logPath)) {
-      return null;
-    }
-    const size = statSync(logPath).size;
-    if (size <= this.offset) {
-      return null;
-    }
-    const len = size - this.offset;
-    const buf = Buffer.alloc(len);
-    const fd = openSync(logPath, "r");
+    let fd: number;
     try {
+      fd = openSync(logPath, "r");
+    } catch (err) {
+      // File doesn't exist yet (gateway hasn't written anything) or another
+      // benign filesystem condition — treat as "no new content".
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        return null;
+      }
+      throw err;
+    }
+    try {
+      const size = fstatSync(fd).size;
+      if (size <= this.offset) {
+        return null;
+      }
+      const len = size - this.offset;
+      const buf = Buffer.alloc(len);
       readSync(fd, buf, 0, len, this.offset);
+      const text = buf.toString("utf8");
+      const lastNl = text.lastIndexOf("\n");
+      if (lastNl < 0) {
+        return null;
+      }
+      this.offset += lastNl + 1;
+      const lines = text.slice(0, lastNl).split(/\r?\n/);
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i]?.trim() ?? "";
+        if (line.length === 0) {
+          continue;
+        }
+        return extractLatestMessage(line);
+      }
+      return null;
     } finally {
       closeSync(fd);
     }
-    const text = buf.toString("utf8");
-    const lastNl = text.lastIndexOf("\n");
-    if (lastNl < 0) {
-      return null;
-    }
-    this.offset += lastNl + 1;
-    const lines = text.slice(0, lastNl).split(/\r?\n/);
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const line = lines[i]?.trim() ?? "";
-      if (line.length === 0) {
-        continue;
-      }
-      return extractLatestMessage(line);
-    }
-    return null;
   }
 }
 

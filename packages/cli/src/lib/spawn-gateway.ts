@@ -1,5 +1,5 @@
 import { type SpawnOptions, spawn } from "node:child_process";
-import { closeSync, existsSync, openSync, readFileSync, statSync, writeSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, openSync, readFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 
 import type { CliPlatformPaths } from "../paths.ts";
@@ -84,10 +84,12 @@ export async function spawnGateway(
     throw new Error("Gateway launch command is empty");
   }
   const spawnArgs = launch.cmd.slice(1);
-  // Captured before the marker write so the tailer in `nimbus start` sees
-  // the spawn marker and every subsequent gateway log line for THIS start.
-  const logStartOffset = existsSync(logPath) ? statSync(logPath).size : 0;
+  // Open the log first (creates the file if missing in `"a"` mode), then
+  // `fstat` the same descriptor to capture the offset BEFORE the marker
+  // write. Using one descriptor for both avoids the TOCTOU between an
+  // existence/stat check and the subsequent open.
   const logFd = openSync(logPath, "a");
+  const logStartOffset = fstatSync(logFd).size;
   let pid: number;
   try {
     writeSync(
