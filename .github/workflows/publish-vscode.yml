@@ -27,11 +27,16 @@ permissions:
 
 jobs:
   publish:
+    name: Publish to VS Code Marketplace + Open VSX
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # Marketplace + Open VSX publish use VSCE_PAT / OVSX_PAT secrets; neither
+    # touches the GitHub repo. The .vsix is handed to the `release` job below
+    # via an artifact, so this job stays read-only.
     permissions:
-      # Upload the .vsix as a GitHub Release asset alongside the marketplace push.
-      contents: write
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
 
     steps:
       - name: Harden Runner
@@ -135,13 +140,43 @@ jobs:
             dist/nimbus-${{ steps.version.outputs.version }}.vsix
 
       # ----------------------------------------------------------------------
-      # Mirror the .vsix on the GitHub Release so users on locked-down networks
-      # (or anyone preferring manual install) can grab it without touching either
-      # marketplace.
+      # Hand the .vsix to the release job (see below) via a workflow artifact.
+      # The release job runs with `contents: write` so this job can stay
+      # read-only — addresses CodeQL Token-Permissions on least-privilege.
+      - name: Upload .vsix as workflow artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: nimbus-vsix-${{ steps.version.outputs.version }}
+          path: dist/nimbus-${{ steps.version.outputs.version }}.vsix
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Mirror .vsix on GitHub Release
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # Only this job touches the repo (release asset upload). Scoped narrowly
+    # so the marketplace publish above never holds `contents: write`.
+    permissions:
+      contents: write
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        with:
+          egress-policy: audit
+
+      - name: Download .vsix artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: nimbus-vsix-${{ needs.publish.outputs.version }}
+          path: dist
+
       - name: Upload .vsix to GitHub Release
         uses: softprops/action-gh-release@c95fe1489396fe8a21967200391e1b9067ad0ba5 # v2.6.2
         with:
-          files: dist/nimbus-${{ steps.version.outputs.version }}.vsix
+          files: dist/nimbus-${{ needs.publish.outputs.version }}.vsix
           tag_name: ${{ github.ref_name }}
-          name: VS Code extension ${{ steps.version.outputs.version }}
+          name: VS Code extension ${{ needs.publish.outputs.version }}
           generate_release_notes: true

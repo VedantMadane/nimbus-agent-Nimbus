@@ -19,9 +19,12 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
-# Permissions are scoped per-job so neither token carries privileges
-# the other doesn't need: `build` only reads source; `deploy` only writes
-# Pages + mints the OIDC token actions/deploy-pages requires.
+# Workflow-level default is read-only so any new step inherits the safest
+# scope. Each job widens its own permissions to exactly what it needs:
+# `build` reads source, `deploy` writes Pages + mints the OIDC token
+# `actions/deploy-pages` requires.
+permissions:
+  contents: read
 
 jobs:
   build:
