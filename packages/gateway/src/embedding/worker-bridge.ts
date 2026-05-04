@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { Logger } from "pino";
 
 import type { NimbusEmbeddingToml } from "../config/nimbus-toml.ts";
+import { processEnvGet } from "../platform/env-access.ts";
 import type { EmbeddingRuntime } from "./embedding-runtime.ts";
 import { LOCAL_EMBEDDING_MODEL_ID } from "./model.ts";
 
@@ -11,12 +12,43 @@ type Pending = {
   timer: ReturnType<typeof setTimeout>;
 };
 
-export async function tryCreateEmbeddingWorkerBridge(
+// Generous upper bound for the asynchronous worker-init watchdog. The bridge
+// no longer blocks gateway startup on this; it only governs how long we wait
+// before logging an init-failure warning. Override via
+// NIMBUS_EMBEDDING_INIT_TIMEOUT_MS for first-time downloads on very slow links.
+const DEFAULT_EMBEDDING_INIT_TIMEOUT_MS = 600_000;
+
+function resolveEmbeddingInitTimeoutMs(): number {
+  const raw = processEnvGet("NIMBUS_EMBEDDING_INIT_TIMEOUT_MS");
+  if (raw === undefined || raw === "") {
+    return DEFAULT_EMBEDDING_INIT_TIMEOUT_MS;
+  }
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n <= 0) {
+    return DEFAULT_EMBEDDING_INIT_TIMEOUT_MS;
+  }
+  return n;
+}
+
+/**
+ * Constructs the embedding worker bridge and returns it immediately, without
+ * blocking on the worker's internal init (transformers.js model load + ONNX
+ * runtime setup). The bridge gracefully no-ops `embedQuery` and
+ * `scheduleItemEmbedding` until `workerReady` flips to true, and the worker
+ * runs `backfillAll()` after init so any items added during warmup are
+ * eventually embedded. If init fails, embeddings stay disabled for the life
+ * of the process; semantic search degrades to keyword search.
+ *
+ * Returns `null` only when `new Worker(...)` itself throws (the runtime can't
+ * spawn a worker), in which case `createEmbeddingRuntime` falls back to the
+ * lazy in-process runtime.
+ */
+export function tryCreateEmbeddingWorkerBridge(
   dbPath: string,
   dataDir: string,
   toml: Pick<NimbusEmbeddingToml, "chunkTokens" | "chunkOverlapTokens" | "backfillBatchSize">,
   logger: Logger,
-): Promise<EmbeddingRuntime | null> {
+): EmbeddingRuntime | null {
   let worker: Worker;
   try {
     worker = new Worker(new URL("./embedding-worker.ts", import.meta.url).href);
@@ -25,18 +57,21 @@ export async function tryCreateEmbeddingWorkerBridge(
     return null;
   }
   const bridge = new EmbeddingWorkerBridge(worker, dbPath, join(dataDir, "models"), toml, logger);
-  try {
-    await bridge.waitUntilReady();
-    return bridge;
-  } catch (err) {
-    logger.warn({ err }, "embedding worker failed to initialize");
-    try {
-      worker.terminate();
-    } catch {
-      /* ignore */
-    }
-    return null;
-  }
+  bridge
+    .waitUntilReady(resolveEmbeddingInitTimeoutMs())
+    .then(() => {
+      logger.info(
+        { msg: "embedding_worker_ready" },
+        "embedding worker initialized; semantic search is now active",
+      );
+    })
+    .catch((err: unknown) => {
+      logger.warn(
+        { err },
+        "embedding worker failed to initialize; semantic search disabled until the next gateway restart",
+      );
+    });
+  return bridge;
 }
 
 class EmbeddingWorkerBridge implements EmbeddingRuntime {
@@ -92,11 +127,11 @@ class EmbeddingWorkerBridge implements EmbeddingRuntime {
     });
   }
 
-  waitUntilReady(): Promise<void> {
+  waitUntilReady(timeoutMs: number): Promise<void> {
     const timeout = new Promise<void>((_, reject) => {
       setTimeout(() => {
-        reject(new Error("embedding worker init timed out"));
-      }, 180_000);
+        reject(new Error(`embedding worker init timed out after ${String(timeoutMs)}ms`));
+      }, timeoutMs);
     });
     return Promise.race([this.gate, timeout]);
   }

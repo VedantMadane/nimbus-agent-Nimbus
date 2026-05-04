@@ -2,7 +2,7 @@ import type { Agent } from "@mastra/core/agent";
 import pino from "pino";
 
 import { Config } from "../config.ts";
-import { GatewayAgentUnavailableError } from "./gateway-agent-error.ts";
+import { agentErrorFromCaughtError } from "./gateway-agent-error.ts";
 import { sanitizeExternalError } from "./sanitize-external-error.ts";
 
 const conversationalLog = pino({
@@ -76,14 +76,9 @@ export async function runConversationalAgent(
     const reply = await streamOut.text;
     return { reply };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (
-      msg.includes("API key") ||
-      msg.includes("401") ||
-      msg.includes("Unauthorized") ||
-      msg.includes("invalid_api_key")
-    ) {
-      throw new GatewayAgentUnavailableError();
+    const typed = agentErrorFromCaughtError(e);
+    if (typed !== null) {
+      throw typed;
     }
     conversationalLog.warn({ err: e }, "conversational agent turn failed");
     throw new Error(sanitizeExternalError(e));

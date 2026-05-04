@@ -1,6 +1,6 @@
 import { Config } from "../config.ts";
 import { processEnvGet } from "../platform/env-access.ts";
-import { GatewayAgentUnavailableError } from "./gateway-agent-error.ts";
+import { agentErrorFromHttpResponse, GatewayAgentUnavailableError } from "./gateway-agent-error.ts";
 import { extractFirstMarkdownFenceBody } from "./json-fence.ts";
 
 export type IntentClass = "file_search" | "file_organize" | "unknown";
@@ -131,7 +131,7 @@ async function llmClassify(
     });
     if (!res.ok) {
       const errBody = await res.text().catch(() => "");
-      throw new Error(`Anthropic HTTP ${String(res.status)} ${errBody.slice(0, 200)}`);
+      throw agentErrorFromHttpResponse("anthropic", res.status, errBody);
     }
     const body = (await res.json()) as {
       content?: Array<{ type?: string; text?: string }>;
@@ -162,7 +162,7 @@ async function llmClassify(
   });
   if (!res.ok) {
     const errBody = await res.text().catch(() => "");
-    throw new Error(`OpenAI HTTP ${String(res.status)} ${errBody.slice(0, 200)}`);
+    throw agentErrorFromHttpResponse("openai", res.status, errBody);
   }
   const body = (await res.json()) as {
     choices?: Array<{ message?: { content?: string } }>;
@@ -193,18 +193,24 @@ export async function classifyIntent(userText: string): Promise<ClassifiedIntent
   if (anthropicKey !== undefined && anthropicKey.length > 0) {
     try {
       return await llmClassify("anthropic", trimmed, Config.classifierModel, anthropicKey);
-    } catch {
-      throw new GatewayAgentUnavailableError();
+    } catch (e) {
+      if (e instanceof GatewayAgentUnavailableError) {
+        throw e;
+      }
+      throw new GatewayAgentUnavailableError({ reason: "network_error", provider: "anthropic" });
     }
   }
 
   if (openAiKey !== undefined && openAiKey.length > 0) {
     try {
       return await llmClassify("openai", trimmed, Config.openaiClassifierModel, openAiKey);
-    } catch {
-      throw new GatewayAgentUnavailableError();
+    } catch (e) {
+      if (e instanceof GatewayAgentUnavailableError) {
+        throw e;
+      }
+      throw new GatewayAgentUnavailableError({ reason: "network_error", provider: "openai" });
     }
   }
 
-  throw new GatewayAgentUnavailableError();
+  throw new GatewayAgentUnavailableError({ reason: "no_api_key" });
 }

@@ -93,7 +93,7 @@ export async function createEmbeddingRuntime(
   }
 
   const dbPath = join(paths.dataDir, "nimbus.db");
-  const worker = await tryCreateEmbeddingWorkerBridge(dbPath, paths.dataDir, slice, logger);
+  const worker = tryCreateEmbeddingWorkerBridge(dbPath, paths.dataDir, slice, logger);
   if (worker !== null) {
     return worker;
   }

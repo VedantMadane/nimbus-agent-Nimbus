@@ -12,12 +12,17 @@ import { createConnectorDispatcher, type McpToolListingClient } from "./connecto
 import { createNimbusEngineAgent } from "./engine/agent.ts";
 import { runAsk } from "./engine/run-ask.ts";
 import { emergencyGatewayLog } from "./platform/gateway-log-file.ts";
+import { removeGatewayStateFile, writeGatewayStateFile } from "./platform/gateway-state-file.ts";
 import { createPlatformServices } from "./platform/index.ts";
 
 const GATEWAY_VERSION = "0.1.0";
 
 async function main(): Promise<void> {
+  // Plain stdout writes (not pino) so the CLI's progress tail surfaces them
+  // regardless of NIMBUS_LOG_LEVEL.
+  process.stdout.write("[gateway] initializing platform services\n");
   const platform = await createPlatformServices();
+  process.stdout.write("[gateway] platform services ready; wiring engine\n");
   const mcp = platform.connectorMesh;
   // S8-F3 / chain C4 — the planner-side dispatcher consumes the BARE tool map
   // (structured results) so ToolExecutor / HITL gate see normal objects.
@@ -94,13 +99,19 @@ async function main(): Promise<void> {
       } catch {
         /* ignore */
       }
+      removeGatewayStateFile(platform.paths);
     }
     process.exit(0);
   };
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
   process.on("SIGINT", () => void shutdown("SIGINT"));
 
+  process.stdout.write("[gateway] binding IPC\n");
   await platform.ipc.start();
+  writeGatewayStateFile(platform.paths, {
+    pid: process.pid,
+    socketPath: platform.paths.socketPath,
+  });
   process.stdout.write(`[gateway] ready (${GATEWAY_VERSION}) IPC ${platform.paths.socketPath}\n`);
 }
 

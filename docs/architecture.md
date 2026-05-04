@@ -1,14 +1,14 @@
 # Nimbus Architecture
 
-**Version:** 0.8
+**Version:** 1.0
 **Runtime:** Bun v1.2+ / TypeScript 6.x (strict)
-**Status:** Active Design — reflects `main` as of Phase 3.5 (Observability) complete; **Phase 4 (Presence) active** (WS1–WS6 + S2 + B2-P1 + B3-P1/2 complete)
+**Status:** Phase 4 (Presence) ✅ Complete (WS1–WS6 + S2 + B2-P1 + B3-P1/2 complete)
 
 ---
 
 ## Overview
 
-Nimbus is a local-first AI agent for DevOps engineers, security practitioners, and senior developers who run systems in production. It is composed of four primary subsystems, all hosted inside a single headless **Nimbus Gateway** process. Clients — the CLI or the Tauri 2.0 desktop app — communicate with the Gateway exclusively over a local IPC socket. No subsystem is directly accessible from the client tier.
+Nimbus is a local-first AI agent for DevOps engineers, security practitioners, and senior developers who run systems in production. It is composed of four primary subsystems, all hosted inside a single headless **Nimbus Gateway** process. Clients — the CLI, the Tauri 2.0 desktop app, or the VS Code extension — communicate with the Gateway exclusively over a local IPC socket. No subsystem is directly accessible from the client tier.
 
 | Subsystem | Responsibility |
 |---|---|
@@ -995,9 +995,18 @@ const streamReq: JSONRPCRequest = {
   params: { input: "Find all PDFs I received by email last month" },
 };
 // Response: { streamId: string }
+// Notification: { method: "agent.chunk", params: { text } }
 // Notification: { method: "engine.streamToken", params: { streamId, text, meta: { modelUsed, isLocal, provider } } }
 // Notification: { method: "engine.streamDone",  params: { streamId, meta } }
 // Notification: { method: "engine.streamError", params: { streamId, error } }
+
+// Session rehydration (Phase 4 WS6)
+// engine.getSessionTranscript(params: { sessionId, limit? }) -> { turns: AgentTurn[] }
+// engine.cancelStream(params: { streamId }) -> { ok: true }
+
+// Audit & Integrity (Phase 4 WS3)
+// audit.verify(params: { full?, since? }) -> { ok: true, checkedCount, errors: [] }
+// audit.exportAll() -> { auditEntries: [] }
 
 // Consent gate — Gateway emits a consent request; client surfaces it to the user
 // Gateway → Client: { method: "consent.request", params: { actionId, prompt, details } }
@@ -1139,6 +1148,14 @@ CREATE TABLE sub_task_results (
     created_at   INTEGER NOT NULL
 );
 CREATE INDEX idx_str_session ON sub_task_results(session_id, task_index);
+
+-- Workflow dry run and params override (Phase 4 WS5-D — V23 migration)
+ALTER TABLE workflow_run ADD COLUMN dry_run INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE workflow_run ADD COLUMN params_override_json TEXT;
+
+-- Audit session rehydration (Phase 4 WS6 — V24 migration)
+ALTER TABLE audit_log ADD COLUMN session_id TEXT;
+CREATE INDEX idx_audit_log_session_id ON audit_log(session_id);
 
 -- Extension registry (mirrors the extensions SQLite schema in Subsystem 4)
 CREATE TABLE extensions (

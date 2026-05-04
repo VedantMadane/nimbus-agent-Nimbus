@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
 set -euo pipefail
-exec bun "$(dirname "$0")/../build-release.ts"
+exec bun "$(dirname "$0")/../build-release.ts" "$@"

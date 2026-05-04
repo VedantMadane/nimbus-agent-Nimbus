@@ -96,7 +96,7 @@ async function classifyIntentForAsk(input: string): Promise<ClassifiedIntent> {
     if (e instanceof GatewayAgentUnavailableError) {
       throw e;
     }
-    throw new GatewayAgentUnavailableError();
+    throw new GatewayAgentUnavailableError({ reason: "unknown" });
   }
 }
 

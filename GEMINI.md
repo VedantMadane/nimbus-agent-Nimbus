@@ -5,7 +5,7 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict  
 **Linter:** Biome  
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)  
-**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence 🔵 Active (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C ✅ · WS5-D ✅ · WS6 ✅ · S2 graph-aware watchers ✅ · B3 Phase 1 ✅ · B3 Phase 2 ✅)
+**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence ✅ Complete (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C ✅ · WS5-D ✅ · WS6 ✅ · S2 graph-aware watchers ✅ · B3 Phase 1 ✅ · B3 Phase 2 ✅)
 
 Companion context for other agents: [`CLAUDE.md`](./CLAUDE.md) (same project facts; keep both files aligned when changing commands, roadmap rows, or non-negotiables).
 
@@ -76,6 +76,8 @@ runs. See `docs/structure-audit/baseline.md` for current findings.
 | `packages/gateway/src/automation/graph-predicate.ts` | Graph predicate types, parser, evaluator; `parseGraphPredicate` / `itemMatchesGraphPredicate` / `countItemsMatchingGraphPredicate` / `listCandidateGraphRelations` |
 | `packages/gateway/src/automation/watcher-engine.ts` | Watcher evaluation loop; applies `graph_predicate_json` as a post-filter when `[automation].graph_conditions = true` |
 | `packages/gateway/src/index/watcher-graph-v22-sql.ts` | V22 migration — `watcher.graph_predicate_json` column |
+| `packages/gateway/src/index/workflow-run-columns-v23-sql.ts` | V23 migration — `dry_run` and `params_override_json` columns |
+| `packages/gateway/src/index/audit-session-v24-sql.ts` | V24 migration — `audit_log.session_id` column |
 | `packages/gateway/src/sync/connectivity.ts` | Network connectivity probe — guards the sync scheduler against consuming backoff on offline events |
 | `packages/gateway/src/db/verify.ts` | `nimbus db verify` — non-destructive index integrity checks (integrity_check, FTS5, vec rowid, FK, schema version) |
 | `packages/gateway/src/db/repair.ts` | `nimbus db repair` — targeted recovery actions; writes audit log entry |
