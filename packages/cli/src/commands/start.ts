@@ -3,6 +3,7 @@ import { unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { spinner } from "@clack/prompts";
 import { IPCClient } from "../ipc-client/index.ts";
+import { GatewayLogTailer, truncatePreview } from "../lib/gateway-log-tail.ts";
 import {
   ensureGatewayDirs,
   gatewayStatePath,
@@ -14,11 +15,13 @@ import { getCliPlatformPaths } from "../paths.ts";
 
 const ONBOARDING_MARKER = ".nimbus-post-start-onboarding";
 const SOCKET_PROBE_TIMEOUT_MS = 2000;
-// 240s comfortably exceeds the embedding worker's internal 180s init timeout
-// (packages/gateway/src/embedding/worker-bridge.ts), so a worker that gives up
-// with "embedding worker failed to initialize" still lets the gateway bind IPC
-// before we declare failure here.
-const DEFAULT_READY_WAIT_TIMEOUT_MS = 240_000;
+// Generous upper bound for everything `createPlatformServices()` does before
+// IPC binds: DB migrations, MCP mesh spawn, sync scheduler init. The
+// embedding worker no longer blocks here — it inits in the background and
+// the bridge gracefully no-ops calls until ready (see worker-bridge.ts).
+// First-run DB migrations on a populated index are the slowest realistic
+// step at the moment; 60s is plenty.
+const DEFAULT_READY_WAIT_TIMEOUT_MS = 60_000;
 const READY_POLL_INTERVAL_MS = 250;
 
 function resolveReadyWaitTimeoutMs(): number {
@@ -58,6 +61,7 @@ async function waitForGatewayReady(
   socketPath: string,
   pid: number,
   deadlineMs: number,
+  onTick?: (elapsedMs: number) => void,
 ): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < deadlineMs) {
@@ -67,6 +71,7 @@ async function waitForGatewayReady(
     if (await probeSocketReachable(socketPath, READY_POLL_INTERVAL_MS)) {
       return true;
     }
+    onTick?.(Date.now() - start);
     await sleep(READY_POLL_INTERVAL_MS);
   }
   return false;
@@ -160,10 +165,12 @@ export async function runStart(args: string[]): Promise<void> {
 
   let pid: number | undefined;
   let logPath: string | undefined;
+  let logStartOffset = 0;
   try {
     const spawned = await spawnGateway(paths);
     pid = spawned.pid;
     logPath = spawned.logPath;
+    logStartOffset = spawned.logStartOffset;
   } catch (e) {
     s.stop("Could not start Gateway");
     const msg = e instanceof Error ? e.message : String(e);
@@ -174,7 +181,18 @@ export async function runStart(args: string[]): Promise<void> {
 
   s.message("Waiting for Gateway IPC");
   const readyTimeoutMs = resolveReadyWaitTimeoutMs();
-  const ready = await waitForGatewayReady(paths.socketPath, pid, readyTimeoutMs);
+  const tailer = new GatewayLogTailer(logStartOffset);
+  let lastPreview = "";
+  const tailedLogPath = logPath;
+  const ready = await waitForGatewayReady(paths.socketPath, pid, readyTimeoutMs, (elapsedMs) => {
+    const next = tailer.pollLatest(tailedLogPath);
+    if (next !== null && next.length > 0) {
+      lastPreview = next;
+    }
+    const elapsedSec = Math.round(elapsedMs / 1000);
+    const suffix = lastPreview === "" ? "" : ` — ${truncatePreview(lastPreview)}`;
+    s.message(`Waiting for Gateway IPC (${String(elapsedSec)}s)${suffix}`);
+  });
   if (!ready) {
     s.stop("Gateway did not become ready");
     const stillAlive = isProcessAlive(pid);

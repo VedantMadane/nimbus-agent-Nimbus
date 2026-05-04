@@ -91,6 +91,7 @@ async function createLocalIndexWithEmbeddingRuntime(
   rt: EmbeddingRuntime;
 }> {
   const tomlEmbedding = loadNimbusEmbeddingFromPath(activeTomlPath);
+  process.stdout.write("[gateway] starting embedding runtime\n");
   const embeddingRuntime = await createEmbeddingRuntime(
     db,
     paths,

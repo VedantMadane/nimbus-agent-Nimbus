@@ -18,7 +18,11 @@ import { createPlatformServices } from "./platform/index.ts";
 const GATEWAY_VERSION = "0.1.0";
 
 async function main(): Promise<void> {
+  // Plain stdout writes (not pino) so the CLI's progress tail surfaces them
+  // regardless of NIMBUS_LOG_LEVEL.
+  process.stdout.write("[gateway] initializing platform services\n");
   const platform = await createPlatformServices();
+  process.stdout.write("[gateway] platform services ready; wiring engine\n");
   const mcp = platform.connectorMesh;
   // S8-F3 / chain C4 — the planner-side dispatcher consumes the BARE tool map
   // (structured results) so ToolExecutor / HITL gate see normal objects.
@@ -102,6 +106,7 @@ async function main(): Promise<void> {
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
   process.on("SIGINT", () => void shutdown("SIGINT"));
 
+  process.stdout.write("[gateway] binding IPC\n");
   await platform.ipc.start();
   writeGatewayStateFile(platform.paths, {
     pid: process.pid,

@@ -12,11 +12,10 @@ type Pending = {
   timer: ReturnType<typeof setTimeout>;
 };
 
-// 600s by default so a first-time MiniLM download (~22MB) finishes on slow
-// links. Override via NIMBUS_EMBEDDING_INIT_TIMEOUT_MS. On timeout we DO NOT
-// terminate the worker — calling `worker.terminate()` mid-download truncates
-// the cache and traps the next gateway start in the same loop, so we let the
-// worker keep running so the cache fills for the next start.
+// Generous upper bound for the asynchronous worker-init watchdog. The bridge
+// no longer blocks gateway startup on this; it only governs how long we wait
+// before logging an init-failure warning. Override via
+// NIMBUS_EMBEDDING_INIT_TIMEOUT_MS for first-time downloads on very slow links.
 const DEFAULT_EMBEDDING_INIT_TIMEOUT_MS = 600_000;
 
 function resolveEmbeddingInitTimeoutMs(): number {
@@ -31,12 +30,25 @@ function resolveEmbeddingInitTimeoutMs(): number {
   return n;
 }
 
-export async function tryCreateEmbeddingWorkerBridge(
+/**
+ * Constructs the embedding worker bridge and returns it immediately, without
+ * blocking on the worker's internal init (transformers.js model load + ONNX
+ * runtime setup). The bridge gracefully no-ops `embedQuery` and
+ * `scheduleItemEmbedding` until `workerReady` flips to true, and the worker
+ * runs `backfillAll()` after init so any items added during warmup are
+ * eventually embedded. If init fails, embeddings stay disabled for the life
+ * of the process; semantic search degrades to keyword search.
+ *
+ * Returns `null` only when `new Worker(...)` itself throws (the runtime can't
+ * spawn a worker), in which case `createEmbeddingRuntime` falls back to the
+ * lazy in-process runtime.
+ */
+export function tryCreateEmbeddingWorkerBridge(
   dbPath: string,
   dataDir: string,
   toml: Pick<NimbusEmbeddingToml, "chunkTokens" | "chunkOverlapTokens" | "backfillBatchSize">,
   logger: Logger,
-): Promise<EmbeddingRuntime | null> {
+): EmbeddingRuntime | null {
   let worker: Worker;
   try {
     worker = new Worker(new URL("./embedding-worker.ts", import.meta.url).href);
@@ -45,16 +57,21 @@ export async function tryCreateEmbeddingWorkerBridge(
     return null;
   }
   const bridge = new EmbeddingWorkerBridge(worker, dbPath, join(dataDir, "models"), toml, logger);
-  try {
-    await bridge.waitUntilReady(resolveEmbeddingInitTimeoutMs());
-    return bridge;
-  } catch (err) {
-    logger.warn(
-      { err },
-      "embedding worker failed to initialize within timeout — leaving the worker running so the model download can finish for the next gateway start; embeddings disabled for this process",
-    );
-    return null;
-  }
+  bridge
+    .waitUntilReady(resolveEmbeddingInitTimeoutMs())
+    .then(() => {
+      logger.info(
+        { msg: "embedding_worker_ready" },
+        "embedding worker initialized; semantic search is now active",
+      );
+    })
+    .catch((err: unknown) => {
+      logger.warn(
+        { err },
+        "embedding worker failed to initialize; semantic search disabled until the next gateway restart",
+      );
+    });
+  return bridge;
 }
 
 class EmbeddingWorkerBridge implements EmbeddingRuntime {

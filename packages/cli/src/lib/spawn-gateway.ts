@@ -1,5 +1,5 @@
 import { type SpawnOptions, spawn } from "node:child_process";
-import { closeSync, existsSync, openSync, readFileSync, writeSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, statSync, writeSync } from "node:fs";
 import { join } from "node:path";
 
 import type { CliPlatformPaths } from "../paths.ts";
@@ -29,6 +29,34 @@ function readActiveProfileName(configDir: string): string | undefined {
   }
 }
 
+/**
+ * Bun honors these env vars to launch its built-in inspector. When `nimbus
+ * start` runs under VS Code's auto-attach, these are set on the CLI and
+ * inheriting them in the gateway child causes the child to try to listen on
+ * the same port the parent CLI already grabbed — failing with EADDRINUSE
+ * before IPC is bound. The gateway is meant to be a detached background
+ * process; users who want to debug it should run the gateway binary directly
+ * under their debugger of choice.
+ */
+const BUN_INSPECTOR_ENV_KEYS: readonly string[] = [
+  "BUN_INSPECT",
+  "BUN_INSPECT_BRK",
+  "BUN_INSPECT_NOTIFY",
+  "BUN_INSPECT_PRELOAD",
+  "BUN_INSPECT_CONNECT_TO",
+  "BUN_INSPECT_DISABLE",
+  "NODE_INSPECT_RESUME_ON_START",
+  "NODE_OPTIONS",
+];
+
+export function stripInspectorEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = { ...env };
+  for (const k of BUN_INSPECTOR_ENV_KEYS) {
+    delete out[k];
+  }
+  return out;
+}
+
 export type SpawnGatewayOptions = {
   /** Merged into the child environment (overrides duplicate keys). */
   readonly extraEnv?: Readonly<Record<string, string>>;
@@ -44,7 +72,7 @@ export type SpawnGatewayOptions = {
 export async function spawnGateway(
   paths: CliPlatformPaths,
   opts: SpawnGatewayOptions = {},
-): Promise<{ pid: number; logPath: string }> {
+): Promise<{ pid: number; logPath: string; logStartOffset: number }> {
   const launch = resolveGatewayLaunch(process.execPath, import.meta.url);
   if (!launch.ok) {
     throw new Error(launch.message);
@@ -56,6 +84,9 @@ export async function spawnGateway(
     throw new Error("Gateway launch command is empty");
   }
   const spawnArgs = launch.cmd.slice(1);
+  // Captured before the marker write so the tailer in `nimbus start` sees
+  // the spawn marker and every subsequent gateway log line for THIS start.
+  const logStartOffset = existsSync(logPath) ? statSync(logPath).size : 0;
   const logFd = openSync(logPath, "a");
   let pid: number;
   try {
@@ -63,7 +94,7 @@ export async function spawnGateway(
       logFd,
       `\n--- ${new Date().toISOString()} nimbus: spawning gateway (${launch.cmd.join(" ")}) ---\n`,
     );
-    const childEnv: NodeJS.ProcessEnv = { ...process.env };
+    const childEnv: NodeJS.ProcessEnv = stripInspectorEnv(process.env);
     childEnv["NIMBUS_GATEWAY_LOG_PATH"] = logPath;
     const profile = readActiveProfileName(paths.configDir);
     if (profile !== undefined) {
@@ -94,5 +125,5 @@ export async function spawnGateway(
     closeSync(logFd);
   }
 
-  return { pid, logPath };
+  return { pid, logPath, logStartOffset };
 }
