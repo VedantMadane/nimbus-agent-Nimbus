@@ -261,16 +261,70 @@ Gateway binaries built with `bun build --compile` bundle JavaScript into a singl
 
 Once installed, run **`nimbus doctor`** — it checks every prerequisite above and prints actionable remediation for anything missing.
 
-### Option A — Pre-built Binaries
+### Install
 
-Download from [GitHub Releases](https://github.com/asafgolombek/Nimbus/releases):
+#### Linux (`.deb`)
 
-| Asset | Purpose |
-|---|---|
-| `nimbus-gateway-{os}-x64` | Headless Gateway process |
-| `nimbus-cli-{os}-x64` | `nimbus` terminal command |
+```bash
+curl -L https://github.com/asafgolombek/Nimbus/releases/latest/download/nimbus_amd64.deb -o nimbus.deb
+curl -L https://github.com/asafgolombek/Nimbus/releases/latest/download/nimbus_amd64.deb.asc -o nimbus.deb.asc
+gpg --keyserver keys.openpgp.org --recv-keys <FINGERPRINT>
+gpg --verify nimbus.deb.asc nimbus.deb
+sudo dpkg -i nimbus.deb
+```
 
-Linux/macOS: `chmod +x nimbus-gateway-* nimbus-cli-*`. Optionally rename the CLI to `nimbus` and add to `PATH`.
+The `.deb` installs `nimbus` and `nimbus-gateway` wrappers under `/usr/local/bin` — already on `PATH` for any Debian/Ubuntu user.
+
+#### macOS / Linux (tarball)
+
+```bash
+curl -L https://github.com/asafgolombek/Nimbus/releases/latest/download/nimbus-macos-arm64.tar.gz -o nimbus.tar.gz
+tar -xzf nimbus.tar.gz
+cd nimbus-*
+./install.sh --yes
+# Open a new shell, then:
+nimbus --version
+```
+
+The bundled `install.sh` copies the binaries to `~/.local/bin` and adds a sentinel-wrapped block to your shell rc file so PATH picks up automatically. No sudo required. Run `./uninstall.sh --yes` to reverse.
+
+#### Windows (zip)
+
+```powershell
+Invoke-WebRequest https://github.com/asafgolombek/Nimbus/releases/latest/download/nimbus-windows-x64.zip -OutFile nimbus.zip
+Expand-Archive nimbus.zip
+cd (Get-ChildItem nimbus-*).Name
+.\install.ps1 -Yes
+# Open a new shell, then:
+nimbus --version
+```
+
+The bundled `install.ps1` (PowerShell 7+) copies the binaries to `%LOCALAPPDATA%\Programs\Nimbus\bin` and adds it to your User PATH via the `.NET` registry API (no admin required, no `setx` truncation risk). Run `.\uninstall.ps1 -Yes` to reverse.
+
+#### AppImage (Linux)
+
+```bash
+curl -L https://github.com/asafgolombek/Nimbus/releases/latest/download/Nimbus-x86_64.AppImage -o Nimbus.AppImage
+chmod +x Nimbus.AppImage
+# Run directly:
+./Nimbus.AppImage --version
+# OR install the bundled wrapper to ~/.local/bin so it's on PATH:
+./install.sh --yes
+```
+
+#### Verify the download
+
+Every release ships a GPG-signed `SHA256SUMS.asc`:
+
+```bash
+curl -L https://github.com/asafgolombek/Nimbus/releases/latest/download/SHA256SUMS -o SHA256SUMS
+curl -L https://github.com/asafgolombek/Nimbus/releases/latest/download/SHA256SUMS.asc -o SHA256SUMS.asc
+gpg --keyserver keys.openpgp.org --recv-keys <FINGERPRINT>
+gpg --verify SHA256SUMS.asc SHA256SUMS
+sha256sum --check --ignore-missing SHA256SUMS
+```
+
+The fingerprint is published at [`docs/release/SIGNING-KEY.asc`](docs/release/SIGNING-KEY.asc) and in the [Security Policy](docs/SECURITY.md).
 
 ### Option B — Build from Source
 
