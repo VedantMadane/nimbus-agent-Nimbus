@@ -3,12 +3,11 @@ import starlight from "@astrojs/starlight";
 import { defineConfig } from "astro/config";
 import starlightLinksValidator from "starlight-links-validator";
 
-// GitHub Pages publishes this site at https://asafgolombek.github.io/Nimbus/
-// — the `base` prefix makes Starlight emit asset URLs and internal links
-// under that subpath so they resolve when served from project-pages.
+// The site is published at https://nimbus-agent.dev/
+// — base '/' serves from the apex of the custom domain.
 export default defineConfig({
-  site: "https://asafgolombek.github.io",
-  base: "/Nimbus/",
+  site: "https://nimbus-agent.dev",
+  base: "/",
   integrations: [
     starlight({
       title: "Nimbus",
