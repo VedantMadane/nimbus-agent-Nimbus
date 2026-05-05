@@ -68,12 +68,68 @@ function parseEmbeddingsEnabled(): boolean {
 
 const searchServicePriorityMap: ReadonlyMap<string, number> = parseSearchPriorityJson();
 
+const HARDCODED_AGENT_MODEL_DEFAULT = "claude-sonnet-4-6";
+const HARDCODED_CLASSIFIER_MODEL_DEFAULT = "claude-haiku-4-5-20251001";
+
+let tomlAgentModel: string | undefined;
+let tomlClassifierModel: string | undefined;
+
+/**
+ * TOML-side overrides for the engine's agent and classifier models. Sourced
+ * from `[llm]` in `nimbus.toml` (`remote_model`, `classifier_model`) and
+ * applied at gateway assembly time.
+ *
+ * Resolution priority: env var > TOML > hardcoded default.
+ */
+export type LlmTomlOverrides = {
+  agentModel?: string;
+  classifierModel?: string;
+};
+
+/**
+ * Apply `[llm]` overrides loaded from `nimbus.toml`. Idempotent — calling
+ * again replaces the previous overrides. Env vars always win regardless of
+ * TOML, so this only takes effect when `NIMBUS_AGENT_MODEL` /
+ * `NIMBUS_CLASSIFIER_MODEL` are unset.
+ */
+export function applyLlmTomlOverrides(overrides: LlmTomlOverrides): void {
+  tomlAgentModel =
+    typeof overrides.agentModel === "string" && overrides.agentModel !== ""
+      ? overrides.agentModel
+      : undefined;
+  tomlClassifierModel =
+    typeof overrides.classifierModel === "string" && overrides.classifierModel !== ""
+      ? overrides.classifierModel
+      : undefined;
+}
+
+function envOrUndefined(name: string): string | undefined {
+  const v = processEnvGet(name);
+  return v !== undefined && v !== "" ? v : undefined;
+}
+
+/** Resolve the effective agent (Mastra) model, honoring env > TOML > default. */
+export function getEffectiveAgentModel(): string {
+  return envOrUndefined("NIMBUS_AGENT_MODEL") ?? tomlAgentModel ?? HARDCODED_AGENT_MODEL_DEFAULT;
+}
+
+/** Resolve the effective Anthropic classifier model, honoring env > TOML > default. */
+export function getEffectiveClassifierModel(): string {
+  return (
+    envOrUndefined("NIMBUS_CLASSIFIER_MODEL") ??
+    tomlClassifierModel ??
+    HARDCODED_CLASSIFIER_MODEL_DEFAULT
+  );
+}
+
 /**
  * Central env-driven config. Never hardcode provider model ids in call sites.
+ *
+ * Note: agent and Anthropic-classifier model ids are not on this object —
+ * use {@link getEffectiveAgentModel} / {@link getEffectiveClassifierModel}
+ * so TOML overrides are honored.
  */
 export const Config = {
-  agentModel: processEnvGet("NIMBUS_AGENT_MODEL") ?? "claude-sonnet-4-20250514",
-  classifierModel: processEnvGet("NIMBUS_CLASSIFIER_MODEL") ?? "claude-3-5-haiku-20241022",
   /** Used when only `OPENAI_API_KEY` is set (Anthropic model ids are invalid on OpenAI). */
   openaiClassifierModel: processEnvGet("NIMBUS_OPENAI_CLASSIFIER_MODEL") ?? "gpt-4o-mini",
   /**

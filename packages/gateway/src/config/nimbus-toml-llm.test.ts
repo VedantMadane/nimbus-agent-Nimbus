@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   DEFAULT_NIMBUS_LLM_TOML,
   loadNimbusLlmFromPath,
+  loadNimbusLlmPartialFromPath,
   parseNimbusTomlLlmSection,
 } from "./nimbus-toml.ts";
 
@@ -26,6 +27,13 @@ describe("parseNimbusTomlLlmSection", () => {
   test("parses remote_model string", () => {
     const src = `[llm]\nremote_model = "claude-sonnet-4-6"\n`;
     expect(parseNimbusTomlLlmSection(src)).toEqual({ remoteModel: "claude-sonnet-4-6" });
+  });
+
+  test("parses classifier_model string", () => {
+    const src = `[llm]\nclassifier_model = "claude-haiku-4-5-20251001"\n`;
+    expect(parseNimbusTomlLlmSection(src)).toEqual({
+      classifierModel: "claude-haiku-4-5-20251001",
+    });
   });
 
   test("parses local_model string", () => {
@@ -109,5 +117,25 @@ describe("loadNimbusLlmFromPath", () => {
     expect(result.preferLocal).toBe(false);
     expect(result.maxAgentDepth).toBe(2);
     expect(result.enforceAirGap).toBe(false); // default preserved
+  });
+});
+
+describe("loadNimbusLlmPartialFromPath", () => {
+  test("returns empty object when file does not exist", () => {
+    expect(loadNimbusLlmPartialFromPath("/nonexistent/nimbus.toml")).toEqual({});
+  });
+
+  test("returns only explicitly-set keys (no defaults)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-llm-partial-"));
+    const tomlPath = join(dir, "nimbus.toml");
+    writeFileSync(tomlPath, `[llm]\nremote_model = "claude-opus-4-7"\n`);
+    expect(loadNimbusLlmPartialFromPath(tomlPath)).toEqual({ remoteModel: "claude-opus-4-7" });
+  });
+
+  test("returns empty object when [llm] section is absent", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-llm-partial-"));
+    const tomlPath = join(dir, "nimbus.toml");
+    writeFileSync(tomlPath, `[embedding]\nenabled = true\n`);
+    expect(loadNimbusLlmPartialFromPath(tomlPath)).toEqual({});
   });
 });

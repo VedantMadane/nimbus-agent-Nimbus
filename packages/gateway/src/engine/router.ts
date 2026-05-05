@@ -1,4 +1,4 @@
-import { Config } from "../config.ts";
+import { Config, getEffectiveClassifierModel } from "../config.ts";
 import { processEnvGet } from "../platform/env-access.ts";
 import { agentErrorFromHttpResponse, GatewayAgentUnavailableError } from "./gateway-agent-error.ts";
 import { extractFirstMarkdownFenceBody } from "./json-fence.ts";
@@ -192,7 +192,7 @@ export async function classifyIntent(userText: string): Promise<ClassifiedIntent
 
   if (anthropicKey !== undefined && anthropicKey.length > 0) {
     try {
-      return await llmClassify("anthropic", trimmed, Config.classifierModel, anthropicKey);
+      return await llmClassify("anthropic", trimmed, getEffectiveClassifierModel(), anthropicKey);
     } catch (e) {
       if (e instanceof GatewayAgentUnavailableError) {
         throw e;

@@ -9,10 +9,11 @@ import { loadNimbusFilesystemRootsFromConfigDir } from "../config/filesystem-tom
 import {
   loadNimbusAutomationFromConfigDir,
   loadNimbusEmbeddingFromPath,
+  loadNimbusLlmPartialFromPath,
   resolveNimbusTomlForProfile,
 } from "../config/nimbus-toml.ts";
 import { loadNimbusSessionFromPath } from "../config/session-toml.ts";
-import { Config } from "../config.ts";
+import { applyLlmTomlOverrides, Config } from "../config.ts";
 import { defaultSyncIntervalMsForService } from "../connectors/connector-catalog.ts";
 import {
   migrateToPerServiceOAuthKeys,
@@ -253,6 +254,15 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   const rateLimiter = new ProviderRateLimiter();
   const activeTomlPath = resolveNimbusTomlForProfile(paths.configDir);
   const sessionToml = loadNimbusSessionFromPath(activeTomlPath);
+  const llmTomlPartial = loadNimbusLlmPartialFromPath(activeTomlPath);
+  const llmOverrides: { agentModel?: string; classifierModel?: string } = {};
+  if (llmTomlPartial.remoteModel !== undefined) {
+    llmOverrides.agentModel = llmTomlPartial.remoteModel;
+  }
+  if (llmTomlPartial.classifierModel !== undefined) {
+    llmOverrides.classifierModel = llmTomlPartial.classifierModel;
+  }
+  applyLlmTomlOverrides(llmOverrides);
 
   const { localIndex, scheduleItemEmbedding, rt } = await createLocalIndexWithEmbeddingRuntime(
     db,

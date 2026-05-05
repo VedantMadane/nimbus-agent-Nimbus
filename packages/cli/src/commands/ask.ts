@@ -81,7 +81,14 @@ export async function runAsk(args: string[]): Promise<void> {
       invokeParams["agent"] = agent;
     }
     const result = await client.call<{ reply: string }>("agent.invoke", invokeParams);
-    if (typeof result.reply === "string" && result.reply.length > 0) {
+    // When streaming, `agent.chunk` notifications already wrote the live output to
+    // stdout (see registerAgentChunkStdout). Printing result.reply again would duplicate
+    // every reply the engine emits via sendChunk.
+    if (
+      invokeParams["stream"] !== true &&
+      typeof result.reply === "string" &&
+      result.reply.length > 0
+    ) {
       process.stdout.write(`\n${result.reply}\n`);
     }
     if (sessionId !== undefined) {

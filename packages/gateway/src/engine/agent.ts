@@ -3,7 +3,7 @@ import { Agent } from "@mastra/core/agent";
 import { createTool } from "@mastra/core/tools";
 
 import { redactAuditPayload } from "../audit/format-audit-payload.ts";
-import { Config } from "../config.ts";
+import { Config, getEffectiveAgentModel } from "../config.ts";
 import { CONNECTOR_SERVICE_IDS } from "../connectors/connector-catalog.ts";
 import { getConnectorHealth } from "../connectors/health.ts";
 import type { IndexSearchQuery, LocalIndex, TraverseGraphOptions } from "../index/local-index.ts";
@@ -44,6 +44,19 @@ function clipToolString(s: string, max = MAX_TOOL_STRING_LEN): string {
   return s.length > max ? s.slice(0, max) : s;
 }
 
+/**
+ * Mastra's `ModelRouterLanguageModel` requires `"<provider>/<model>"`. We accept bare
+ * Anthropic/OpenAI ids in env/TOML for ergonomics, then prefix here. Unknown families
+ * pass through so Mastra's own error message guides the user.
+ */
+function toMastraModelId(modelId: string): string {
+  const s = modelId.trim();
+  if (s.includes("/")) return s;
+  if (/^claude-/i.test(s)) return `anthropic/${s}`;
+  if (/^(gpt-|o1-|o3-|o4-)/i.test(s)) return `openai/${s}`;
+  return s;
+}
+
 function isStringArray(xs: unknown): xs is string[] {
   return Array.isArray(xs) && xs.every((x) => typeof x === "string");
 }
@@ -68,7 +81,7 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
   agent: Agent;
   agentsByName: { nimbus: Agent; devops: Agent; research: Agent };
 } {
-  const model = deps.agentModel ?? Config.agentModel;
+  const model = toMastraModelId(deps.agentModel ?? getEffectiveAgentModel());
   const contextWindowItems = deps.contextWindowItems ?? Config.engineContextWindowItems;
   const searchPriority = deps.searchServicePriority ?? Config.searchServicePriorityMap;
 

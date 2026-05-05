@@ -250,10 +250,10 @@ Gateway binaries built with `bun build --compile` bundle JavaScript into a singl
 
 | Feature | Requirement | How to install |
 |---|---|---|
-| **Local LLM (Ollama)** | [Ollama](https://ollama.com/download) running on `localhost:11434`, plus at least one pulled model (e.g. `ollama pull llama3.1:8b`) | Override the host with `OLLAMA_HOST` or `[llm.ollama_host]` in `nimbus.toml`. |
-| **Local LLM (llama.cpp)** | A `llama-server` HTTP endpoint reachable from the Gateway | Configure under `[llm.llamacpp]` — see `docs/architecture.md`. |
-| **Cloud LLM (Anthropic)** | Anthropic API key | `nimbus config set llm.provider anthropic`; export `ANTHROPIC_API_KEY=…` (or set `[llm].api_key` in `nimbus.toml`). |
-| **Cloud LLM (OpenAI)** | OpenAI API key | `nimbus config set llm.provider openai`; export `OPENAI_API_KEY=…`. |
+| **Local LLM (Ollama)** | [Ollama](https://ollama.com/download) running on `localhost:11434`, plus at least one pulled model (e.g. `ollama pull llama3.1:8b`) | Default endpoint: `http://127.0.0.1:11434`. Set the local model with `nimbus config set llm.local_model llama3.1:8b`. |
+| **Local LLM (llama.cpp)** | A `llama-server` HTTP endpoint reachable from the Gateway | `nimbus config set llm.llamacpp_server_path /usr/local/bin/llama-server` — see `docs/architecture.md`. |
+| **Cloud LLM (Anthropic)** | Anthropic API key | Export `ANTHROPIC_API_KEY=…` in the Gateway's environment, then `nimbus config set llm.remote_model claude-sonnet-4-6` (provider is inferred from the model id; `claude-*` → Anthropic). |
+| **Cloud LLM (OpenAI)** | OpenAI API key | Export `OPENAI_API_KEY=…`, then `nimbus config set llm.remote_model gpt-4o` (provider is inferred; `gpt-*` / `o1-*` / `o3-*` / `o4-*` → OpenAI). |
 | **Voice — STT (`nimbus voice listen`)** | `whisper-cli` (whisper.cpp) on PATH, plus `ffmpeg` for audio capture | Build whisper.cpp from source or install via `brew install whisper-cpp`; `ffmpeg` via your distro/`brew`. Set `voice.whisper_path` if not on PATH. |
 | **Voice — TTS** | macOS: `say` (built-in). Windows: PowerShell SAPI (built-in). Linux: `espeak-ng` (preferred) or `spd-say` | `sudo apt install espeak-ng` / `brew install espeak-ng`. |
 | **Wake-word loop** | Same as STT, plus a microphone configured at the OS level | Verify with `nimbus doctor` — voice section appears when `[voice].enabled = true`. |
@@ -301,20 +301,22 @@ The first time the Gateway starts it creates a default `nimbus.toml` in the plat
 | macOS | `~/Library/Application Support/Nimbus/nimbus.toml` | `~/Library/Application Support/Nimbus/data` |
 | Linux | `~/.config/nimbus/nimbus.toml` | `~/.local/share/nimbus` |
 
-Override either with `NIMBUS_CONFIG_DIR` / `NIMBUS_DATA_DIR` if you need separate trees per profile or per environment. All keys can be overridden with `NIMBUS_`-prefixed env vars (e.g. `NIMBUS_LLM_PROVIDER`, `NIMBUS_SYNC_INTERVAL_SECONDS`).
+Override either with `NIMBUS_CONFIG_DIR` / `NIMBUS_DATA_DIR` if you need separate trees per profile or per environment. Most TOML keys also have a corresponding `NIMBUS_`-prefixed env var override that wins over the file (e.g. `NIMBUS_AGENT_MODEL`, `NIMBUS_CLASSIFIER_MODEL`, `NIMBUS_TELEMETRY_ENABLED`) — see [`cli-reference.md`](./cli-reference.md#environment-variables).
 
-Pick an LLM provider before running your first `nimbus ask` — without one, the agent has no reasoning surface:
+Pick an LLM before running your first `nimbus ask` — without one, the agent has no reasoning surface. The provider is inferred from the model id: `claude-*` → Anthropic, `gpt-*` / `o1-*` / `o3-*` / `o4-*` → OpenAI, anything else falls through to the local provider.
 
 ```bash
-# Cloud (default — fastest path to a working install)
+# Cloud (default — fastest path to a working install).
+# Defaults are claude-sonnet-4-6 (agent) + claude-haiku-4-5-20251001 (classifier);
+# only set these if you want to override.
 export ANTHROPIC_API_KEY=sk-ant-…
-nimbus config set llm.provider anthropic
-nimbus config set llm.model claude-sonnet-4-6
+nimbus config set llm.remote_model      claude-sonnet-4-6
+nimbus config set llm.classifier_model  claude-haiku-4-5-20251001
 
 # OR fully local (no network calls; requires Ollama running)
 ollama pull llama3.1:8b
-nimbus config set llm.provider ollama
-nimbus config set llm.model llama3.1:8b
+nimbus config set llm.local_model llama3.1:8b
+nimbus config set llm.prefer_local true
 ```
 
 See [`docs/cli-reference.md`](./cli-reference.md#configuration-file) for the full `nimbus.toml` schema.
