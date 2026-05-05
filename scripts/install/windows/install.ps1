@@ -67,18 +67,24 @@ if (-not $alreadyPresent) {
   [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
 
   # Broadcast WM_SETTINGCHANGE so already-open Explorer / shells pick up the new value.
-  $signature = @'
+  # Wrapped in try/catch: Add-Type is blocked under Constrained Language Mode (WDAC/AppLocker).
+  # PATH is already written to the registry; only the live-session refresh is missing on failure.
+  try {
+    $signature = @'
 [DllImport("user32.dll", SetLastError=true, CharSet=CharSet.Auto)]
 public static extern IntPtr SendMessageTimeout(
   IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam,
   uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
 '@
-  $type = Add-Type -MemberDefinition $signature -Name 'NimbusEnvBroadcast' -Namespace Win32 -PassThru
-  [UIntPtr]$result = [UIntPtr]::Zero
-  $HWND_BROADCAST = [IntPtr]0xffff
-  $WM_SETTINGCHANGE = 0x001A
-  $SMTO_ABORTIFHUNG = 0x0002
-  $type::SendMessageTimeout($HWND_BROADCAST, $WM_SETTINGCHANGE, [UIntPtr]::Zero, "Environment", $SMTO_ABORTIFHUNG, 5000, [ref]$result) | Out-Null
+    $type = Add-Type -MemberDefinition $signature -Name 'NimbusEnvBroadcast' -Namespace Win32 -PassThru
+    [UIntPtr]$result = [UIntPtr]::Zero
+    $HWND_BROADCAST = [IntPtr]0xffff
+    $WM_SETTINGCHANGE = 0x001A
+    $SMTO_ABORTIFHUNG = 0x0002
+    $type::SendMessageTimeout($HWND_BROADCAST, $WM_SETTINGCHANGE, [UIntPtr]::Zero, "Environment", $SMTO_ABORTIFHUNG, 5000, [ref]$result) | Out-Null
+  } catch {
+    Write-Warning "Could not broadcast environment change (likely Constrained Language Mode). PATH was updated successfully — open a new shell to pick it up."
+  }
 }
 
 Write-Host ""
