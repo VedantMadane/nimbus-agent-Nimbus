@@ -1,0 +1,237 @@
+---
+title: Install
+description: Install Nimbus on Windows, macOS, or Linux. Per-user, no admin required.
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+Nimbus installs per-user — no administrator or sudo access required on any
+platform. The installer places the `nimbus` binary on your PATH, creates a
+data directory, and configures the Gateway to autostart with your session.
+
+---
+
+## Quick install — pick your platform
+
+<Tabs>
+  <TabItem label="Linux (.deb)">
+
+Import the Nimbus signing key, then download and run the install script:
+
+```bash
+# Import the signing key (fingerprint cross-checked in scripts/release/nimbus-verify.sh)
+gpg --keyserver keys.openpgp.org --recv-keys 5A20457CCD8B53FFAA945240886ADA6B487CAB6E
+
+# Download and run the installer
+curl -fsSL https://github.com/nimbus-agent/Nimbus/releases/latest/download/install.sh \
+  -o /tmp/nimbus-install.sh
+# Inspect the script before running it (recommended):
+# less /tmp/nimbus-install.sh
+bash /tmp/nimbus-install.sh
+```
+
+The install script detects your architecture (`amd64` / `arm64`), downloads the
+matching `.deb` package, verifies the GPG signature and SHA-256 hash, then
+installs it with `dpkg`.
+
+After installation:
+
+```bash
+nimbus --version
+```
+
+  </TabItem>
+  <TabItem label="macOS">
+
+Download and run the install script:
+
+```bash
+curl -fsSL https://github.com/nimbus-agent/Nimbus/releases/latest/download/install.sh \
+  -o /tmp/nimbus-install.sh
+# Inspect the script before running it (recommended):
+# less /tmp/nimbus-install.sh
+bash /tmp/nimbus-install.sh
+```
+
+The script downloads a signed `SHA256SUMS.asc` manifest and verifies the
+tarball hash before extracting. **Gatekeeper note:** macOS will display an
+"unverified developer" warning the first time the `nimbus` binary runs. See
+[First-run setup](/user-guide/first-run-setup/) for the one-time bypass step.
+
+After installation:
+
+```bash
+nimbus --version
+```
+
+  </TabItem>
+  <TabItem label="Windows">
+
+Open **PowerShell** (no administrator required) and run:
+
+```powershell
+irm https://github.com/nimbus-agent/Nimbus/releases/latest/download/install.ps1 |
+  Invoke-Expression
+```
+
+Or download first and inspect before running (recommended):
+
+```powershell
+# Download
+Invoke-WebRequest `
+  -Uri "https://github.com/nimbus-agent/Nimbus/releases/latest/download/install.ps1" `
+  -OutFile "$env:TEMP\nimbus-install.ps1"
+
+# Inspect
+notepad "$env:TEMP\nimbus-install.ps1"
+
+# Run
+& "$env:TEMP\nimbus-install.ps1"
+```
+
+**SmartScreen note:** Windows may show an "unrecognised app" warning. Click
+**More info → Run anyway**. The `SHA256SUMS.asc` GPG manifest is your
+cryptographic integrity proof — see [Verify your download](/user-guide/verify-your-download/)
+for details.
+
+After installation, open a **new** PowerShell window:
+
+```powershell
+nimbus --version
+```
+
+  </TabItem>
+</Tabs>
+
+---
+
+## What the installer does
+
+The installer is non-privileged and idempotent on all three platforms.
+
+### Linux
+
+| Item | Location |
+|---|---|
+| `nimbus` binary | `~/.local/bin/nimbus` |
+| Gateway data dir | `~/.local/share/nimbus/` |
+| Shell PATH update | Sentinel marker block added to `~/.bashrc`, `~/.zshrc`, `~/.profile` |
+| Autostart | `~/.config/systemd/user/nimbus-gateway.service` (if systemd available) |
+
+The installer checks for the sentinel block before writing — it will not
+duplicate PATH entries.
+
+### macOS
+
+| Item | Location |
+|---|---|
+| `nimbus` binary | `~/.local/bin/nimbus` |
+| Gateway data dir | `~/Library/Application Support/nimbus/` |
+| Shell PATH update | Sentinel marker block added to `~/.zshrc` (and `~/.bash_profile` if present) |
+| Autostart | `~/Library/LaunchAgents/dev.nimbus-agent.gateway.plist` |
+
+### Windows
+
+| Item | Location |
+|---|---|
+| `nimbus.exe`, `nimbus-gateway.exe` | `%LOCALAPPDATA%\Programs\Nimbus\bin\` |
+| Gateway data dir | `%LOCALAPPDATA%\nimbus\` |
+| PATH update | User `PATH` registry key under `HKCU\Environment` |
+| Autostart | `HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run` |
+
+The installer performs a case-insensitive PATH segment check before writing —
+it will not add a duplicate entry if `Nimbus\bin` is already present.
+
+---
+
+## Re-running the installer
+
+Both `install.sh` and `install.ps1` are **idempotent**. Running them again
+after a successful install:
+
+- Detects the existing installation and upgrades binaries in place.
+- Does not create duplicate PATH entries (Linux/macOS: checks for the sentinel
+  marker block; Windows: performs the case-insensitive segment check before
+  writing).
+- Does not overwrite your existing data directory or configuration.
+
+To force a fresh install, remove the existing binaries and data directory
+first, then re-run the script.
+
+---
+
+## Uninstall
+
+The release tarball includes a companion uninstall script that reverses every
+change the installer makes:
+
+<Tabs>
+  <TabItem label="Linux / macOS">
+
+```bash
+curl -fsSL https://github.com/nimbus-agent/Nimbus/releases/latest/download/uninstall.sh \
+  | bash
+```
+
+  </TabItem>
+  <TabItem label="Windows">
+
+```powershell
+irm https://github.com/nimbus-agent/Nimbus/releases/latest/download/uninstall.ps1 |
+  Invoke-Expression
+```
+
+  </TabItem>
+</Tabs>
+
+The uninstaller removes binaries, the autostart entry, and the PATH
+modification. It does **not** delete your data directory (`~/.local/share/nimbus/`
+on Linux, `~/Library/Application Support/nimbus/` on macOS,
+`%LOCALAPPDATA%\nimbus\` on Windows) — your indexed data and credentials are
+preserved. Delete that directory manually if you want a complete removal.
+
+---
+
+## Verify your download
+
+Before running the installer, you can cross-check the GPG signature and
+SHA-256 hash of every release artefact. This confirms the bytes you downloaded
+are the bytes the maintainer signed.
+
+See the full walkthrough: [Verify your download](/user-guide/verify-your-download/).
+
+---
+
+## AppImage (Linux alternative)
+
+If you prefer a portable single-file executable that does not require `dpkg`,
+use the AppImage:
+
+```bash
+# Download
+curl -fsSL \
+  https://github.com/nimbus-agent/Nimbus/releases/latest/download/Nimbus-x86_64.AppImage \
+  -o ~/bin/nimbus
+chmod +x ~/bin/nimbus
+
+# Verify GPG sidecar signature
+curl -fsSL \
+  https://github.com/nimbus-agent/Nimbus/releases/latest/download/Nimbus-x86_64.AppImage.asc \
+  -o /tmp/nimbus.asc
+gpg --keyserver keys.openpgp.org --recv-keys 5A20457CCD8B53FFAA945240886ADA6B487CAB6E
+gpg --verify /tmp/nimbus.asc ~/bin/nimbus
+
+# Run
+nimbus --version
+```
+
+The AppImage is self-contained — no installation step required. PATH
+management and autostart are your responsibility when using this method.
+
+---
+
+## Next steps
+
+Once `nimbus --version` prints a version number, continue to
+[First-run setup](/user-guide/first-run-setup/) to launch the desktop app and
+connect your first service.
