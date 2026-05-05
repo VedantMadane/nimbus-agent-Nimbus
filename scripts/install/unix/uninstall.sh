@@ -34,7 +34,7 @@ rm -f "${INSTALL_DIR}/nimbus" "${INSTALL_DIR}/nimbus-gateway"
 
 for rc in "${HOME}/.zshrc" "${HOME}/.bash_profile" "${HOME}/.bashrc" "${HOME}/.profile"; do
   [ -f "$rc" ] || continue
-  if grep -qF "$BEGIN_MARKER" "$rc"; then
+  if grep -qF "$BEGIN_MARKER" "$rc" 2>/dev/null && grep -qF "$END_MARKER" "$rc" 2>/dev/null; then
     awk -v b="$BEGIN_MARKER" -v e="$END_MARKER" '
       $0==b {skip=1; next}
       skip && $0==e {skip=0; next}

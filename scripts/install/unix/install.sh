@@ -43,22 +43,25 @@ if [ ! -x "$NIMBUS_SRC" ] || [ ! -x "$GATEWAY_SRC" ]; then
   exit 1
 fi
 
-# Detect rc files to update.
-RC_FILES=""
-[ -f "${HOME}/.zshrc" ] && RC_FILES="${RC_FILES} ${HOME}/.zshrc"
-[ -f "${HOME}/.bash_profile" ] && RC_FILES="${RC_FILES} ${HOME}/.bash_profile"
-[ -f "${HOME}/.bashrc" ] && RC_FILES="${RC_FILES} ${HOME}/.bashrc"
+# Detect rc files to update — use positional parameters to preserve paths with spaces.
+set --
+[ -f "${HOME}/.zshrc" ] && set -- "$@" "${HOME}/.zshrc"
+[ -f "${HOME}/.bash_profile" ] && set -- "$@" "${HOME}/.bash_profile"
+[ -f "${HOME}/.bashrc" ] && set -- "$@" "${HOME}/.bashrc"
 # If none exist, default to ~/.profile (POSIX-portable login shell file).
-if [ -z "$RC_FILES" ]; then
-  RC_FILES="${HOME}/.profile"
+if [ "$#" -eq 0 ]; then
+  set -- "${HOME}/.profile"
 fi
 
 cat <<EOF
 About to install Nimbus:
   Binaries:  ${NIMBUS_SRC}, ${GATEWAY_SRC}
   → into:    ${INSTALL_DIR}/
-  Update PATH in:${RC_FILES}
+  Update PATH in:
 EOF
+for rc in "$@"; do
+  printf "    %s\n" "$rc"
+done
 
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "(--dry-run; no changes made)"
@@ -97,11 +100,11 @@ BLOCK="${BEGIN_MARKER}
 export PATH=\"${INSTALL_DIR}:\$PATH\"
 ${END_MARKER}"
 
-for rc in $RC_FILES; do
+for rc in "$@"; do
   # Create rc file if missing.
   [ -f "$rc" ] || touch "$rc"
   # Strip any pre-existing nimbus block.
-  if grep -qF "$BEGIN_MARKER" "$rc" 2>/dev/null; then
+  if grep -qF "$BEGIN_MARKER" "$rc" 2>/dev/null && grep -qF "$END_MARKER" "$rc" 2>/dev/null; then
     awk -v b="$BEGIN_MARKER" -v e="$END_MARKER" '
       $0==b {skip=1; next}
       skip && $0==e {skip=0; next}
