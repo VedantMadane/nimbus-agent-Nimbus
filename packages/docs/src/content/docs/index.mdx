@@ -1,16 +1,48 @@
 ---
-title: Nimbus
-description: Local-first AI agent framework — documentation hub
+title: What is Nimbus
+description: Local-first AI agent framework for engineers running production systems.
+template: splash
+hero:
+  tagline: Your local-first AI agent. Indexes your services. Acts on your behalf — only with your consent.
+  actions:
+    - text: Install
+      link: /user-guide/install/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/nimbus-agent/Nimbus
+      icon: external
 ---
 
-Nimbus keeps the machine as the source of truth: a local SQLite index, MCP connectors, and a structural HITL consent gate.
+## Why Nimbus
 
-:::note[Documentation tip]
-This site tracks the **repository `main` branch** (unreleased). Versioned snapshots are added at release tags; until then, cross-check critical behaviour with the root `docs/` tree in your checkout.
-:::
+Nimbus is a headless agent framework that runs on **your** machine. It maintains
+a private SQLite index of your data across the services you already use — Google
+Drive, Gmail, GitHub, Slack, Linear, Jira, and more — and executes multi-step
+workflows on your behalf.
 
-Use the sidebar to open **Getting started** for install and first-run steps on Windows, macOS, and Linux.
+Three things make it different:
 
-## More documentation
+- **Local-first.** Your machine is the source of truth. The cloud is a
+  connector, never a backend. Nimbus runs offline.
+- **HITL is structural.** Any action that writes data — sending a message,
+  deleting a file, creating an issue — pauses for your explicit consent. The
+  consent gate is in the executor, not the prompt; it cannot be bypassed.
+- **No plaintext credentials.** Vault-only storage (Windows DPAPI, macOS
+  Keychain, Linux libsecret). Credentials never appear in logs, config files,
+  or IPC payloads.
 
-The canonical **roadmap**, **Phase 3.5 plan**, **architecture**, and **security** docs live in the `docs/` folder at the repository root (next to `packages/`). Open that tree in your checkout — this Starlight site will grow to mirror those sources over time.
+## Get started
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+<CardGrid>
+  <LinkCard title="Install" href="/user-guide/install/" description="Windows, macOS, Linux. Per-user, no admin." />
+  <LinkCard title="Connect a service" href="/user-guide/connect-your-first-service/" description="OAuth into your first cloud service in under a minute." />
+  <LinkCard title="Your first query" href="/user-guide/your-first-query/" description="CLI and Tauri desktop, side-by-side." />
+  <LinkCard title="HITL & safety" href="/user-guide/hitl-and-safety/" description="What gets gated. What doesn't. Why." />
+</CardGrid>
+
+## License
+
+Gateway, CLI, and connectors: AGPL-3.0. SDK and client library: MIT.

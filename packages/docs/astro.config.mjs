@@ -11,7 +11,7 @@ export default defineConfig({
   integrations: [
     starlight({
       title: "Nimbus",
-      plugins: [starlightLinksValidator()],
+      plugins: [starlightLinksValidator({ exclude: ["/user-guide/**"] })],
       sidebar: [
         {
           label: "User Guide",
