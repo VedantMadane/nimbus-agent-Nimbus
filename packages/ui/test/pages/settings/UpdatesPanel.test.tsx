@@ -34,7 +34,7 @@ beforeEach(() => {
   updaterGetStatusMock.mockResolvedValue({
     state: "idle",
     currentVersion: "0.1.0",
-    configUrl: "https://updates.nimbus.dev/manifest.json",
+    configUrl: "https://updates.nimbus-agent.dev/manifest.json",
   });
 });
 

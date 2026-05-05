@@ -473,14 +473,14 @@ provider = "local"              # local | openai
 
 [telemetry]
 enabled = false
-endpoint = "https://telemetry.nimbus.dev/v1/collect"
+endpoint = "https://telemetry.nimbus-agent.dev/v1/collect"
 
 [filesystem]
 # roots = ["/home/user/projects", "/home/user/documents"]
 
 [updater]
 # enabled = true
-# url = "https://releases.nimbus.dev/latest.json"
+# url = "https://releases.nimbus-agent.dev/latest.json"
 
 [lan]
 # enabled = false

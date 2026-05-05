@@ -16,7 +16,7 @@ Manual: download the `.vsix` from the GitHub Release and run `code --install-ext
 
 ## Requires
 
-A running Nimbus Gateway. See https://nimbus.dev/install for setup.
+A running Nimbus Gateway. See https://nimbus-agent.dev/install for setup.
 
 ## License
 
