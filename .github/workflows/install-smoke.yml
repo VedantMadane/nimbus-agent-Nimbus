@@ -1,0 +1,119 @@
+name: install-smoke
+
+on:
+  pull_request:
+    paths:
+      - "scripts/install/**"
+      - "scripts/package-linux-installers.ts"
+      - ".github/workflows/install-smoke.yml"
+      - ".github/workflows/release.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: ${{ matrix.os }} install smoke
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2022]
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/setup-nimbus-ci
+        with:
+          verify-lock: "false"
+
+      - name: Build Gateway + CLI
+        run: bun run build
+
+      # Build outputs:
+      #   CLI:     packages/cli/dist/nimbus      (Unix)
+      #            packages/cli/dist/nimbus.exe  (Windows — Bun appends .exe automatically)
+      #   Gateway: dist/nimbus-gateway           (Unix, repo root dist/)
+      #            dist/nimbus-gateway.exe       (Windows, repo root dist/)
+
+      - name: Stage a fake release dir (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          STAGE="$RUNNER_TEMP/stage"
+          mkdir -p "$STAGE"
+          # Copy real built binaries into the staging dir at the same level as the install script
+          cp packages/cli/dist/nimbus         "$STAGE/nimbus"
+          cp dist/nimbus-gateway              "$STAGE/nimbus-gateway"
+          chmod +x "$STAGE/nimbus" "$STAGE/nimbus-gateway"
+          cp scripts/install/unix/install.sh   "$STAGE/"
+          cp scripts/install/unix/uninstall.sh "$STAGE/"
+          chmod +x "$STAGE/install.sh" "$STAGE/uninstall.sh"
+          echo "STAGE=$STAGE" >> "$GITHUB_ENV"
+
+      - name: Run install.sh + verify (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          # Use a sandboxed HOME so the smoke test doesn't pollute the runner's
+          # actual rc files. Then source the rc file the installer wrote
+          # so we can invoke `nimbus` directly.
+          export HOME="$RUNNER_TEMP/fake-home"
+          mkdir -p "$HOME"
+          "$STAGE/install.sh" --yes
+          for rc in "$HOME/.zshrc" "$HOME/.bash_profile" "$HOME/.bashrc" "$HOME/.profile"; do
+            if [ -f "$rc" ]; then
+              # shellcheck disable=SC1090
+              . "$rc"
+              break
+            fi
+          done
+          nimbus --version
+          "$STAGE/uninstall.sh" --yes
+          if [ -e "$HOME/.local/bin/nimbus" ]; then
+            echo "::error::uninstall did not remove the binary"
+            exit 1
+          fi
+
+      - name: Stage a fake release dir (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $stage = Join-Path $env:RUNNER_TEMP "stage"
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+          Copy-Item packages\cli\dist\nimbus.exe             $stage\
+          Copy-Item dist\nimbus-gateway.exe                  $stage\
+          Copy-Item scripts\install\windows\install.ps1      $stage\
+          Copy-Item scripts\install\windows\uninstall.ps1    $stage\
+          "STAGE=$stage" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Run install.ps1 + verify (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Sandbox LOCALAPPDATA so the smoke test doesn't write to the runner's
+          # real install dir. The PATH update still hits HKCU\Environment for
+          # the user the runner runs as — that's accepted because runners are
+          # disposable.
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP "fake-localappdata"
+          New-Item -ItemType Directory -Path $env:LOCALAPPDATA -Force | Out-Null
+          & "$env:STAGE\install.ps1" -Yes
+          $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+          $env:PATH = "$userPath;$env:PATH"
+          nimbus --version
+          & "$env:STAGE\uninstall.ps1" -Yes
+          $installed = Test-Path "$env:LOCALAPPDATA\Programs\Nimbus\bin\nimbus.exe"
+          if ($installed) {
+            Write-Error "uninstall did not remove the binary"
+            exit 1
+          }
