@@ -268,7 +268,7 @@ Once installed, run **`nimbus doctor`** — it checks every prerequisite above a
 ```bash
 curl -L https://github.com/asafgolombek/Nimbus/releases/latest/download/nimbus_amd64.deb -o nimbus.deb
 curl -L https://github.com/asafgolombek/Nimbus/releases/latest/download/nimbus_amd64.deb.asc -o nimbus.deb.asc
-gpg --keyserver keys.openpgp.org --recv-keys <FINGERPRINT>
+gpg --keyserver keys.openpgp.org --recv-keys 5A20457CCD8B53FFAA945240886ADA6B487CAB6E
 gpg --verify nimbus.deb.asc nimbus.deb
 sudo dpkg -i nimbus.deb
 ```
@@ -319,7 +319,7 @@ Every release ships a GPG-signed `SHA256SUMS.asc`:
 ```bash
 curl -L https://github.com/asafgolombek/Nimbus/releases/latest/download/SHA256SUMS -o SHA256SUMS
 curl -L https://github.com/asafgolombek/Nimbus/releases/latest/download/SHA256SUMS.asc -o SHA256SUMS.asc
-gpg --keyserver keys.openpgp.org --recv-keys <FINGERPRINT>
+gpg --keyserver keys.openpgp.org --recv-keys 5A20457CCD8B53FFAA945240886ADA6B487CAB6E
 gpg --verify SHA256SUMS.asc SHA256SUMS
 sha256sum --check --ignore-missing SHA256SUMS
 ```
