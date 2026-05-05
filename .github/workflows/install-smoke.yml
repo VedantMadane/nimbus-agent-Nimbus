@@ -38,7 +38,7 @@ jobs:
           verify-lock: "false"
 
       - name: Build Gateway + CLI
-        run: bun run build
+        run: bun run --filter '@nimbus/gateway' --filter '@nimbus/cli' build
 
       # Build outputs:
       #   CLI:     packages/cli/dist/nimbus      (Unix)
@@ -80,10 +80,19 @@ jobs:
           done
           nimbus --version
           "$STAGE/uninstall.sh" --yes
-          if [ -e "$HOME/.local/bin/nimbus" ]; then
-            echo "::error::uninstall did not remove the binary"
-            exit 1
-          fi
+          for bin in nimbus nimbus-gateway; do
+            if [ -e "$HOME/.local/bin/$bin" ]; then
+              echo "::error::uninstall did not remove $bin"
+              exit 1
+            fi
+          done
+          # Verify the marker block is gone from any rc file install.sh wrote to
+          for rc in "$HOME/.zshrc" "$HOME/.bash_profile" "$HOME/.bashrc" "$HOME/.profile"; do
+            if [ -f "$rc" ] && grep -qF "# >>> nimbus PATH >>>" "$rc"; then
+              echo "::error::uninstall did not strip the PATH marker block from $rc"
+              exit 1
+            fi
+          done
 
       - name: Stage a fake release dir (Windows)
         if: runner.os == 'Windows'
@@ -112,8 +121,14 @@ jobs:
           $env:PATH = "$userPath;$env:PATH"
           nimbus --version
           & "$env:STAGE\uninstall.ps1" -Yes
-          $installed = Test-Path "$env:LOCALAPPDATA\Programs\Nimbus\bin\nimbus.exe"
-          if ($installed) {
-            Write-Error "uninstall did not remove the binary"
+          foreach ($bin in @("nimbus.exe","nimbus-gateway.exe")) {
+            if (Test-Path "$env:LOCALAPPDATA\Programs\Nimbus\bin\$bin") {
+              Write-Error "uninstall did not remove $bin"
+              exit 1
+            }
+          }
+          $userPath = [Environment]::GetEnvironmentVariable("PATH","User")
+          if ($userPath -and (($userPath -split ";") | Where-Object { $_ -ieq "$env:LOCALAPPDATA\Programs\Nimbus\bin" })) {
+            Write-Error "uninstall did not remove the PATH segment"
             exit 1
           }
