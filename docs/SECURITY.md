@@ -369,8 +369,7 @@ Verifying a release on any platform follows the same `SHA256SUMS.asc` workflow d
 **Project GPG fingerprint (v0.1.0 and later):**
 
 ```
-PLACEHOLDER — real fingerprint lands when docs/release/v0.1.0-prerequisites.md §3 is completed by the maintainer.
-Until then, releases are signed with a development test key; DO NOT install v0.1.0-rc releases in production.
+5A20 457C CD8B 53FF AA94 5240 886A DA6B 487C AB6E
 ```
 
 **Cross-check this fingerprint against four sources** — if any two disagree, **do not install**; open a private security issue per "Reporting a Vulnerability" above:
@@ -383,9 +382,9 @@ Until then, releases are signed with a development test key; DO NOT install v0.1
 **To import the key from a keyserver:**
 
 ```bash
-gpg --keyserver keys.openpgp.org --recv-keys <FINGERPRINT>
+gpg --keyserver keys.openpgp.org --recv-keys 5A20457CCD8B53FFAA945240886ADA6B487CAB6E
 # or
-gpg --keyserver keyserver.ubuntu.com --recv-keys <FINGERPRINT>
+gpg --keyserver keyserver.ubuntu.com --recv-keys 5A20457CCD8B53FFAA945240886ADA6B487CAB6E
 ```
 
 **First-time users:** the `nimbus-verify.sh` / `nimbus-verify.ps1` helper scripts print the fingerprint they imported before running `gpg --verify`. Match that printed value against this file, the README, and a keyserver lookup before allowing the script to touch your keyring. See [`docs/verify-release-integrity.md`](verify-release-integrity.md) for the full walkthrough.

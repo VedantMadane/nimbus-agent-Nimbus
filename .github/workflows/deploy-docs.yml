@@ -87,3 +87,25 @@ jobs:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+
+      - name: Smoke check custom domain
+        run: |
+          set -e
+          # Wait up to 60s for DNS / GitHub Pages to settle.
+          response="000"
+          for i in $(seq 1 12); do
+            response=$(curl -sSL -o /tmp/index.html -w "%{http_code}" https://nimbus-agent.dev/ || echo "000")
+            if [ "$response" = "200" ]; then
+              break
+            fi
+            sleep 5
+          done
+          if [ "$response" != "200" ]; then
+            echo "::error::Custom domain failed to respond 200 after 60s (got $response)"
+            exit 1
+          fi
+          if ! grep -q "Nimbus" /tmp/index.html; then
+            echo "::error::Deployed page does not contain expected 'Nimbus' string"
+            exit 1
+          fi
+          echo "✓ https://nimbus-agent.dev/ responded 200 with expected content"

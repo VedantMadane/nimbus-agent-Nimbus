@@ -1,0 +1,168 @@
+---
+title: Connect your first service
+description: Authorise Nimbus to read from one of your cloud services and watch the local index light up.
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+Nimbus indexes your data locally — but first it needs permission to read from
+your cloud services. This page walks through adding your first connector,
+using Google Drive as the worked example.
+
+---
+
+## Pick a service
+
+For a first connector, **Google Drive** or **GitHub** are the easiest starting
+points. Both have straightforward OAuth flows and produce visible index activity
+within seconds of authorisation.
+
+Nimbus supports the following services:
+
+| Category | Services |
+|---|---|
+| File storage | Google Drive, OneDrive, filesystem (opt-in roots) |
+| Email & calendar | Gmail, Outlook |
+| Messaging | Slack, Microsoft Teams |
+| Photos | Google Photos |
+| Source control | GitHub, GitLab, Bitbucket |
+| Project tracking | Linear, Jira, Notion, Confluence |
+| CI/CD | GitHub Actions, GitLab CI, CircleCI, Jenkins |
+| Incident management | PagerDuty |
+| Observability | Sentry, Grafana, Datadog, New Relic |
+| Infrastructure | Kubernetes, AWS, Azure, GCP, IaC tools (Terraform, Pulumi, CloudFormation) |
+
+For per-service setup details, scopes, and known limitations, see the
+[Connectors reference](/user-guide/connectors/).
+
+---
+
+## Worked example: Google Drive
+
+### 1. Open the Connectors panel
+
+In the Nimbus desktop app, click **Settings** in the sidebar (or press `S`),
+then select **Connectors**.
+
+### 2. Add the connector
+
+Click the **Google Drive** tile. If no connector is configured yet, you can
+also reach this from the onboarding wizard on first launch.
+
+### 3. Authenticate
+
+Click **Authenticate**. Nimbus opens your system browser to Google's OAuth
+consent screen. The scopes requested are read-only by default:
+
+| Scope | Purpose |
+|---|---|
+| `drive.readonly` | List files and folders; read metadata |
+| `drive.file` (exported text types only) | Read document text for indexable formats |
+
+Write and delete scopes are **never requested** unless you explicitly enable a
+write tool that triggers a HITL-gated action. Nimbus requests the minimum scope
+set required for the tools you have actually enabled.
+
+### 4. Approve and return
+
+Approve the scopes on the Google consent screen. Your browser will show:
+
+> "You may close this window."
+
+Switch back to Nimbus. The Google Drive connector tile now shows a green health
+dot and the status **Connected**.
+
+{/* TODO: screenshot — Connectors panel with a connected Google Drive tile */}
+
+---
+
+## What gets indexed
+
+Once connected, the initial sync starts immediately. The following metadata is
+indexed for every file:
+
+- File path and name
+- MIME type
+- Last-modified timestamp
+- File size
+- Owner display name
+
+**Text content** is also indexed for indexable types: Markdown, plain text,
+Google Docs (exported as plain text), Google Sheets (cell values), and Google
+Slides (speaker notes + slide text). This is what enables semantic search — "find
+the Q3 planning doc" resolves to the right file even if you don't remember its
+exact name.
+
+For **Google Photos**, only metadata is indexed: album name, capture timestamp,
+and location (if you opt in to location data in the connector settings).
+
+---
+
+## What does NOT get indexed
+
+| Not indexed | Reason |
+|---|---|
+| File permissions and sharing settings | Phase 5+ feature |
+| Binary file content (images, PDFs, compiled artefacts) | Not text-extractable without a conversion step |
+| Trashed / deleted files | Not surfaced by the Drive API delta feed |
+| Files in shared drives you do not have read access to | Access is validated at OAuth time |
+
+---
+
+## Sync schedule
+
+| Sync type | When |
+|---|---|
+| Initial sync | Runs immediately after a successful OAuth handshake |
+| Incremental sync | Every 60 seconds by default |
+| Delta sync | Drive, Gmail, and OneDrive use the API's native change token — only changed items are fetched |
+
+You can adjust the per-connector sync interval in **Settings → Connectors →
+(connector name) → Sync interval**. The minimum supported value is 60 seconds.
+
+---
+
+## Authorising more services
+
+Repeat the same flow for each additional service. Multiple connectors sync in
+parallel; the dashboard shows a per-connector item count and a last-synced
+timestamp. There is no limit to the number of connectors you can configure.
+
+---
+
+## Disconnecting or removing a connector
+
+To remove a connector:
+
+1. **Settings → Connectors → (connector name) → Remove**
+2. Nimbus shows a confirmation dialog listing what will be deleted:
+   the stored OAuth credential (from the system vault) and all indexed items
+   from that service.
+3. Because this is a destructive operation, a **HITL consent prompt** fires
+   before any data is removed. Approve to proceed; reject to cancel.
+
+The removal cascade deletes the vault credential first, then the indexed items.
+If you reconnect the same service later, a fresh initial sync re-populates the
+index.
+
+---
+
+## Where to next
+
+<CardGrid>
+  <LinkCard
+    title="Your first query"
+    href="/user-guide/your-first-query/"
+    description="Ask Nimbus a question against your indexed data from the desktop app or CLI."
+  />
+  <LinkCard
+    title="HITL & safety"
+    href="/user-guide/hitl-and-safety/"
+    description="What actions are gated, what the consent dialog looks like, and how the audit log works."
+  />
+  <LinkCard
+    title="Connectors reference"
+    href="/user-guide/connectors/"
+    description="Per-service setup, scopes, sync behaviour, and known limitations."
+  />
+</CardGrid>

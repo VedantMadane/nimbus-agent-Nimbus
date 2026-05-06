@@ -1,0 +1,184 @@
+---
+title: VS Code extension
+description: Ask Nimbus, search your indexed data, and approve agent actions — all from your editor.
+---
+
+import { Aside, Tabs, TabItem, CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+The Nimbus VS Code extension (`nimbus-agent.nimbus`) connects your editor to
+the local Nimbus Gateway over JSON-RPC. It exposes the same agent, the same
+local index, and the same HITL consent gate as the Tauri desktop app — surfaced
+inside VS Code as a chat side-panel, a set of Command Palette entries, and an
+inline approval UI.
+
+The extension is available on the VS Code Marketplace and Open VSX, so it
+works in VS Code, [Cursor](https://cursor.sh/), and
+[VSCodium](https://vscodium.com/) without any per-IDE configuration.
+
+---
+
+## Install
+
+<Tabs>
+  <TabItem label="VS Code Marketplace">
+    Open the Extensions sidebar (`Ctrl+Shift+X` / `Cmd+Shift+X`) and search
+    for **Nimbus**, or install from the terminal:
+
+    ```bash
+    code --install-extension nimbus-agent.nimbus
+    ```
+
+    Alternatively, use the Marketplace quick-install link:
+    `ext install nimbus-agent.nimbus`
+  </TabItem>
+  <TabItem label="Open VSX (Cursor / VSCodium)">
+    Cursor and VSCodium pull from Open VSX by default. The same extension ID
+    works:
+
+    ```bash
+    # Cursor
+    cursor --install-extension nimbus-agent.nimbus
+
+    # VSCodium
+    codium --install-extension nimbus-agent.nimbus
+    ```
+
+    Or search "Nimbus" in the Extensions sidebar.
+  </TabItem>
+  <TabItem label="Manual (.vsix)">
+    Download the `.vsix` file from the
+    [GitHub Release](https://github.com/asafgolombek/Nimbus/releases) for your
+    target version, then install it:
+
+    ```bash
+    code --install-extension nimbus-<ver>.vsix
+    ```
+
+    Useful for air-gapped machines or pinning a specific version.
+  </TabItem>
+</Tabs>
+
+---
+
+## Prerequisites
+
+A running Nimbus Gateway is required. The extension auto-detects the IPC
+socket path from `gateway.json` in the platform config directory, or via the
+platform default. If you have moved the socket, override it with
+`nimbus.socketPath` in VS Code settings (see [Settings](#settings) below).
+
+<Aside type="tip">
+If the Gateway is not running when you open VS Code, set
+`nimbus.autoStartGateway = true` to have the extension spawn `nimbus start`
+automatically.
+</Aside>
+
+---
+
+## Commands
+
+All commands are accessible from the Command Palette (`Ctrl+Shift+P` /
+`Cmd+Shift+P`) under the `Nimbus` category.
+
+| Command | Palette entry | Description |
+|---|---|---|
+| `nimbus.ask` | **Nimbus: Ask** | Opens the chat side-panel. Tokens stream in as the agent responds. |
+| `nimbus.askAboutSelection` | **Nimbus: Ask About Selection** | Prefills the chat with the current editor selection as context. Requires an active text selection. |
+| `nimbus.search` | **Nimbus: Search** | Opens a Quick Pick search box across your local Nimbus index. |
+| `nimbus.searchSelection` | **Nimbus: Search Selection** | Uses the current editor selection as the search query. Requires an active text selection. |
+| `nimbus.runWorkflow` | **Nimbus: Run Workflow** | Lists saved workflows; select one to run it. HITL consent cards appear inline if any step requires approval. |
+| `nimbus.newConversation` | **Nimbus: New Conversation** | Resets the chat panel, clearing the current turn history. |
+| `nimbus.startGateway` | **Nimbus: Start Gateway** | Spawns `nimbus start` if the Gateway is unreachable. Equivalent to enabling `nimbus.autoStartGateway`. |
+| `nimbus.reconnect` | **Nimbus: Reconnect to Gateway** | Re-establishes the JSON-RPC IPC connection. Use this after manually restarting the Gateway. |
+
+---
+
+## Inline HITL
+
+When the Nimbus agent needs approval to perform a write action (file edit,
+API call, message send, etc.), a consent request is raised through the same
+HITL gate used by the Tauri app and the CLI.
+
+- **Chat panel focused** — the consent request appears as a card inside the
+  chat panel with **Approve** and **Reject** buttons. Approving or rejecting
+  sends the response back to the agent and the workflow continues.
+- **Panel hidden or editor not focused** — the request falls back to a VS Code
+  information-message toast with the same **Approve** / **Reject** buttons. Set
+  `nimbus.hitlAlwaysModal = true` to render it as a blocking modal instead of a
+  dismissible toast.
+
+<Aside type="caution">
+Consent requests time out if left unresponded. The timeout is configured
+on the Gateway side; the extension respects it and marks the request as
+expired if the connection drops before you respond.
+</Aside>
+
+---
+
+## Status bar
+
+A status-bar item in the bottom bar shows:
+
+- **Active profile** — the name of the currently active Nimbus profile.
+- **Connector health dot** — green (all healthy), amber (degraded), or red
+  (error / disconnected).
+
+Click the status-bar item to open the **Nimbus** output channel
+(`Nimbus: Open Logs`), which streams Gateway connection events, IPC errors,
+and diagnostics at the configured `nimbus.logLevel` verbosity.
+
+The status bar polls the Gateway every `nimbus.statusBarPollMs` milliseconds
+(default 30 000 ms). Reduce the interval to see health changes faster, at the
+cost of slightly more IPC traffic.
+
+---
+
+## Settings
+
+All settings are available in **File → Preferences → Settings** under the
+**Nimbus** section, or directly in `settings.json`.
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `nimbus.socketPath` | `string` | `""` | Override the Gateway IPC socket path. Leave empty to auto-detect via `gateway.json` or the platform default. |
+| `nimbus.autoStartGateway` | `boolean` | `false` | When `true`, the extension spawns `nimbus start` if the Gateway socket is unreachable on startup. |
+| `nimbus.statusBarPollMs` | `number` | `30000` | Polling interval in milliseconds for connector health updates. Minimum `5000`. |
+| `nimbus.transcriptHistoryLimit` | `number` | `50` | How many turns to rehydrate from `engine.getSessionTranscript` when the Webview reloads (e.g. after window reload). Range 1–500. |
+| `nimbus.askAgent` | `string` | `""` | Optional default agent name passed to `askStream`. Leave blank to use the Gateway default. |
+| `nimbus.hitlAlwaysModal` | `boolean` | `false` | When `true`, out-of-chat HITL consent requests render as a blocking modal instead of a non-modal toast. |
+| `nimbus.logLevel` | `string` | `"info"` | Output channel verbosity. One of `error`, `warn`, `info`, `debug`. Stream errors always log at `error` regardless. |
+
+---
+
+## Editor context-menu integration
+
+Right-clicking on a text selection in the editor opens a context menu with a
+**Nimbus** group containing two entries:
+
+- **Ask About Selection** — opens the chat panel with the selection pre-filled.
+- **Search Selection** — runs a Nimbus index search for the selected text.
+
+Both entries are only visible when there is an active text selection
+(`editorHasSelection`).
+
+---
+
+## Where to next
+
+<CardGrid>
+  <LinkCard
+    title="Your first query"
+    href="/user-guide/your-first-query/"
+    description="Learn the basics of querying the Nimbus agent."
+  />
+  <LinkCard
+    title="HITL & safety"
+    href="/user-guide/hitl-and-safety/"
+    description="How the consent gate works and which actions require approval."
+  />
+  <LinkCard
+    title="VS Code Marketplace"
+    href="https://marketplace.visualstudio.com/items?itemName=nimbus-agent.nimbus"
+    description="View the extension listing on the VS Code Marketplace."
+  />
+</CardGrid>

@@ -39,9 +39,8 @@ param(
 $ErrorActionPreference = "Stop"
 
 # ---- Configuration ---------------------------------------------------------
-# TRUSTED_FINGERPRINTS placeholder. Real values land when prerequisites §3 completes.
 $TrustedFingerprints = @(
-  "0000000000000000000000000000000000000000"
+  "5A20457CCD8B53FFAA945240886ADA6B487CAB6E"
 )
 $GithubRepo = "asafgolombek/Nimbus"
 

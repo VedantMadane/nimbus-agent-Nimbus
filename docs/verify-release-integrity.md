@@ -67,7 +67,7 @@ If you don't trust the helper script, run the same checks yourself:
 
 ```bash
 # By fingerprint — fill in the value from docs/SECURITY.md
-gpg --keyserver keys.openpgp.org --recv-keys <FINGERPRINT>
+gpg --keyserver keys.openpgp.org --recv-keys 5A20457CCD8B53FFAA945240886ADA6B487CAB6E
 # or from the repo's committed key body:
 gpg --import docs/release/SIGNING-KEY.asc
 ```

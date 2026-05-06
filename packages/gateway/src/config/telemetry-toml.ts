@@ -10,7 +10,7 @@ export type NimbusTelemetryToml = {
 
 export const DEFAULT_NIMBUS_TELEMETRY_TOML: NimbusTelemetryToml = {
   enabled: false,
-  endpoint: "https://telemetry.nimbus.dev/v1/ingest",
+  endpoint: "https://telemetry.nimbus-agent.dev/v1/ingest",
   flushIntervalSeconds: 3600,
 };
 

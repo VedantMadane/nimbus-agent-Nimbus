@@ -30,6 +30,7 @@ jobs:
     name: Publish to VS Code Marketplace + Open VSX
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    environment: release
     # Marketplace + Open VSX publish use VSCE_PAT / OVSX_PAT secrets; neither
     # touches the GitHub repo. The .vsix is handed to the `release` job below
     # via an artifact, so this job stays read-only.

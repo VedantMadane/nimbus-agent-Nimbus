@@ -1,0 +1,178 @@
+---
+title: Connectors
+description: Cloud services Nimbus indexes — and how to connect them.
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+A **connector** is an MCP server that the Nimbus Gateway spawns on demand to fetch data from a third-party service. Each connector handles its own authentication (OAuth PKCE or a stored API key / PAT), exposes the standard `list` / `get` / `search` tool surface (write tools such as `create`, `update`, `move`, and `delete` are available on some connectors but are always gated by HITL consent), and writes its results into your local SQLite index. **The Gateway never calls cloud APIs directly** — every cloud touchpoint goes through a connector process.
+
+---
+
+## Supported services
+
+The table below covers every connector that ships in the current release. The **Sync interval** column shows the default cadence; you can override it per connector in Settings → Connectors (minimum 60 s, enforced inline). The **Auth** column summarises how credentials are stored — all of them end up in the OS-native Vault (DPAPI on Windows, Keychain on macOS, libsecret on Linux) and are never written to disk in plaintext.
+
+### File and mail
+
+| Service | Default sync | Auth | Per-connector docs |
+|---|---|---|---|
+| Google Drive | 30 min | OAuth PKCE (Google) | [Connectors overview](/connectors/overview/) |
+| Gmail | 5 min | OAuth PKCE (Google) | [Connectors overview](/connectors/overview/) |
+| Google Photos | 6 h | OAuth PKCE (Google) | [Connectors overview](/connectors/overview/) |
+| OneDrive | 30 min | OAuth PKCE (Microsoft) | [Connectors overview](/connectors/overview/) |
+| Outlook | 5 min | OAuth PKCE (Microsoft) | [Connectors overview](/connectors/overview/) |
+
+### Communication
+
+| Service | Default sync | Auth | Per-connector docs |
+|---|---|---|---|
+| Slack | 5 min | OAuth PKCE (Slack) | [Connectors overview](/connectors/overview/) |
+| Microsoft Teams | 5 min | OAuth PKCE (Microsoft) | [Connectors overview](/connectors/overview/) |
+| Discord | 5 min | Bot token (opt-in) | [Connectors overview](/connectors/overview/) |
+
+### Source control
+
+| Service | Default sync | Auth | Per-connector docs |
+|---|---|---|---|
+| GitHub | 1 min | Personal Access Token (PAT) | [Connectors overview](/connectors/overview/) |
+| GitLab | 1 min | Personal Access Token (PAT) | [Connectors overview](/connectors/overview/) |
+| Bitbucket | 1 min | App password (username + token) | [Connectors overview](/connectors/overview/) |
+
+### Project tracking
+
+| Service | Default sync | Auth | Per-connector docs |
+|---|---|---|---|
+| Linear | 1 min | API key | [Connectors overview](/connectors/overview/) |
+| Jira | 1 min | Email + API token + base URL | [Connectors overview](/connectors/overview/) |
+| Notion | 5 min | OAuth PKCE (Notion) | [Connectors overview](/connectors/overview/) |
+| Confluence | 10 min | Email + API token + base URL | [Connectors overview](/connectors/overview/) |
+
+### CI / CD
+
+| Service | Default sync | Auth | Per-connector docs |
+|---|---|---|---|
+| GitHub Actions | 1 min | Same PAT as GitHub | [Connectors overview](/connectors/overview/) |
+| GitLab CI | 1 min | Same PAT as GitLab | [Connectors overview](/connectors/overview/) |
+| CircleCI | 90 s | Personal API token | [Connectors overview](/connectors/overview/) |
+| Jenkins | 2 min | Base URL + username + API token | [Connectors overview](/connectors/overview/) |
+
+### Observability
+
+| Service | Default sync | Auth | Per-connector docs |
+|---|---|---|---|
+| Grafana | 2 min | Base URL + API token | [Connectors overview](/connectors/overview/) |
+| Sentry | 2 min | Auth token + org slug | [Connectors overview](/connectors/overview/) |
+| New Relic | 2 min | User API key + account ID | [Connectors overview](/connectors/overview/) |
+| Datadog | 2 min | API key + application key | [Connectors overview](/connectors/overview/) |
+
+### Infrastructure
+
+| Service | Default sync | Auth | Per-connector docs |
+|---|---|---|---|
+| Kubernetes | 2 min | kubeconfig file path | [Connectors overview](/connectors/overview/) |
+| AWS | 2 min | Access key + secret + region (or named profile) | [Connectors overview](/connectors/overview/) |
+| Azure | 2 min | Service principal (tenant + client ID + secret) | [Connectors overview](/connectors/overview/) |
+| GCP | 2 min | Service account JSON key path | [Connectors overview](/connectors/overview/) |
+| IaC (Terraform / Pulumi) | 2 min | Opt-in for local CLI detection | [Connectors overview](/connectors/overview/) |
+
+### Incident management
+
+| Service | Default sync | Auth | Per-connector docs |
+|---|---|---|---|
+| PagerDuty | 2 min | REST API token | [Connectors overview](/connectors/overview/) |
+
+### Local filesystem
+
+| Service | Default sync | Auth | Per-connector docs |
+|---|---|---|---|
+| Filesystem | On change | None (opt-in via `[[filesystem.roots]]`) | [Connectors overview](/connectors/overview/) |
+
+The filesystem connector is disabled by default. Enable it by adding one or more `[[filesystem.roots]]` blocks to `nimbus.toml`.
+
+---
+
+## How auth works
+
+Nimbus follows a strict **credential-injection model**:
+
+1. You authenticate a service via `nimbus connector auth <service>` (or Settings → Connectors → Connect). Nimbus runs the OAuth PKCE flow in a browser window or prompts you for a PAT / API key at the terminal.
+2. The Gateway stores the credential in the OS-native Vault under a service-scoped key. **No credential is ever written to disk in plaintext or included in a log line.**
+3. When the Gateway spawns a connector process, it reads the credential from the Vault and injects it as an environment variable into the connector's process environment. The connector reads `process.env` — it has no Vault access of its own.
+4. When you switch profiles, Nimbus re-binds the Vault namespace for the new profile and re-spawns each connector with the correct credentials.
+
+---
+
+## Connector health
+
+Every connector reports one of six health states:
+
+| State | Meaning |
+|---|---|
+| `healthy` | Last sync succeeded within the expected window. |
+| `degraded` | Sync is failing intermittently; partial data may be stale. |
+| `error` | Sync has failed enough times to reach the error threshold. |
+| `rate_limited` | The upstream API returned a rate-limit response; connector is backing off. |
+| `unauthenticated` | The stored token is expired or missing; re-auth required. |
+| `paused` | Connector is manually paused or waiting for a scheduled window. |
+
+The Tauri app tray reflects the **worst state across all connectors**. The CLI shows per-connector state:
+
+```
+nimbus connector list
+```
+
+```
+github          healthy   last sync 43s ago
+gitlab          healthy   last sync 1m ago
+slack           degraded  last sync 11m ago  (rate limited, retrying in 4m)
+jira            unauthenticated  → re-auth: nimbus connector auth jira
+```
+
+---
+
+## Sync intervals
+
+Each connector runs on its default sync cadence (shown in the tables above). Connectors that support delta APIs — Google Drive, Gmail, OneDrive, Outlook — only fetch changes since the last sync token, so each incremental sync is fast regardless of the total corpus size.
+
+Override the interval per connector in **Settings → Connectors** — click the connector row and adjust the interval field. The minimum is **60 seconds**, enforced inline; you cannot set a shorter cadence.
+
+---
+
+## Adding a connector
+
+See [Connect your first service](/user-guide/connect-your-first-service/) for the full OAuth flow walkthrough, including how to handle the browser redirect on Windows and WSL.
+
+---
+
+## Removing a connector
+
+Go to **Settings → Connectors**, click the connector row, and choose **Remove**. The remove action is HITL-gated — you will be prompted to approve it before anything is deleted. On approval, Nimbus:
+
+1. Removes the connector's Vault credentials (OAuth tokens or API keys).
+2. Deletes all indexed items that came from that service.
+3. Removes the connector's sync state and scheduler entry.
+
+The action is logged in the audit log and can be reviewed with `nimbus audit verify`.
+
+---
+
+## Where to next
+
+<CardGrid>
+  <LinkCard
+    title="Connect your first service"
+    description="Step-by-step OAuth flow for your first connector."
+    href="/user-guide/connect-your-first-service/"
+  />
+  <LinkCard
+    title="Profiles"
+    description="Separate work and personal connectors with named profiles."
+    href="/user-guide/profiles/"
+  />
+  <LinkCard
+    title="HITL & safety"
+    description="How Nimbus asks for your approval before any write action."
+    href="/user-guide/hitl-and-safety/"
+  />
+</CardGrid>
