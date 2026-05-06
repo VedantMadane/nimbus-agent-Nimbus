@@ -281,7 +281,7 @@ Commercial license also available now for organizations that need to embed Nimbu
 
 ---
 
-## Phase 4 — Presence 🔵
+## Phase 4 — Presence ✅
 
 **Goal:** Give Nimbus a face, a local AI backbone that requires no cloud API key, and the trust foundations needed for a public `v0.1.0` release.
 

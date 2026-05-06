@@ -11,7 +11,7 @@
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple)](https://modelcontextprotocol.io)
 [![Platforms](https://img.shields.io/badge/platforms-Windows_%7C_macOS_%7C_Linux-blue)]()
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](../LICENSE)
-[![Status: Phase 4](https://img.shields.io/badge/status-Phase_4_Active-blue)]()
+[![Status: Phase 4 Complete](https://img.shields.io/badge/status-Phase_4_Complete-brightgreen)]()
 
 </div>
 
@@ -645,8 +645,9 @@ Nimbus uses phases, not calendar dates. A phase completes when its acceptance cr
 | 2 | The Bridge (15 connectors) | ✅ Complete |
 | 3 | Intelligence (semantic search, CI/CD, cloud) | ✅ Complete |
 | 3.5 | Observability (health model, query API, recovery, telemetry, docs) | ✅ Complete |
-| 4 | Presence (Tauri UI, local LLM, v0.1.0 release) | 🔵 Active |
-| 5–9 | Extended Surface → Enterprise | Planned |
+| 4 | Presence (Tauri UI, local LLM, v0.1.0 release) | ✅ Complete |
+| 5 | The Extended Surface | 🔵 Active |
+| 6–9 | Team → Enterprise | Planned |
 
 See [`roadmap.md`](./roadmap.md) for full acceptance criteria and sequencing.
 
