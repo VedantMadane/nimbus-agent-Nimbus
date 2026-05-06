@@ -123,7 +123,15 @@ const NON_S8_THRESHOLDS: readonly SloThreshold[] = [
     refMax: 300,
     ghaMax: 1_500,
     gated: true,
-    noiseFloorPct: 25,
+    // 2026-05-06: bumped `noiseFloorPct` from 25 % → 40 % to match S11-b's
+    // existing 40 % floor. Both surfaces share the same Bun process-spawn
+    // overhead path on the same `windows-2025` runner, so they exhibit the
+    // same ≈18-25 % p95-to-p95 noise envelope. The 25 % floor was tripping
+    // delta-fail on Windows for docs-only PRs (e.g. ffa0733 vs b7dd19d
+    // showed +41.3 % S11-a-cold drift with zero relevant code change).
+    // S11-b was already adjusted on 2026-04-30 for the same reason; this
+    // closes the matching gap on S11-a-cold.
+    noiseFloorPct: 40,
     noiseFloorAbs: 50,
     noiseFloorAbsUnit: "ms",
   },
