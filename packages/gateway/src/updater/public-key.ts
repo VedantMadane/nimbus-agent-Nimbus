@@ -10,7 +10,7 @@
  */
 import { processEnvGet } from "../platform/env-access.ts";
 
-export const UPDATER_PUBLIC_KEY_BASE64 = "aHCEta3sioGdbjyRtS0TdSowop//jqaBr3MqDVb7nSc=";
+export const UPDATER_PUBLIC_KEY_BASE64 = "U7/GT29afUsu28rHK0B1OBgHVub9fX4iCaC8zMCh6Bk=";
 
 export function loadUpdaterPublicKey(): Uint8Array {
   const override = processEnvGet("NIMBUS_DEV_UPDATER_PUBLIC_KEY");

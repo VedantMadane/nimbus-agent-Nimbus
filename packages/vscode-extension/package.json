@@ -34,7 +34,7 @@
   "bugs": {
     "url": "https://github.com/asafgolombek/Nimbus/issues"
   },
-  "homepage": "https://nimbus.dev/vscode",
+  "homepage": "https://nimbus-agent.dev/vscode",
   "activationEvents": [
     "onStartupFinished"
   ],

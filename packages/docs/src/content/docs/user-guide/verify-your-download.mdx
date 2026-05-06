@@ -1,0 +1,227 @@
+---
+title: Verify your download
+description: Cross-check the GPG fingerprint and SHA-256 hashes of your Nimbus release before installing.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+Every Nimbus release ships with a GPG-signed manifest (`SHA256SUMS.asc`).
+Verifying your download takes under a minute and guarantees the bytes you
+received are the bytes the maintainer signed.
+
+---
+
+## Why verify
+
+**Supply-chain integrity.** When you download a binary from GitHub, you are
+trusting the release pipeline that built it and the GitHub infrastructure that
+stored it. GPG verification adds an out-of-band guarantee: the maintainer
+signed the SHA-256 hash of each artefact with a private key that has never
+left their workstation. If _anyone_ — a compromised CI runner, a GitHub
+account takeover, or a network attacker — modified the binary after it was
+signed, the signature check fails.
+
+**Detection.** To produce a valid `SHA256SUMS.asc` over a tampered binary, an
+attacker would need the Nimbus release private key. Without it, they cannot
+forge the signature. The check is therefore not a speed bump — it is a hard
+cryptographic boundary.
+
+---
+
+## The Nimbus signing fingerprint
+
+The project uses a single Ed25519 key for all v0.1.0+ releases. The full
+fingerprint in spaced 4-char groups (for visual cross-checking):
+
+```
+5A20 457C CD8B 53FF AA94 5240 886A DA6B 487C AB6E
+```
+
+Unspaced (for use in commands):
+
+```
+5A20457CCD8B53FFAA945240886ADA6B487CAB6E
+```
+
+<Aside type="caution" title="Cross-check from at least two independent sources">
+A fingerprint shown in only one place cannot be trusted on its own — an
+attacker who controls that one page controls the fingerprint. Cross-check
+against **at least two** of the following before adding the key to your
+keyring:
+
+1. This page (nimbus-agent.dev/user-guide/verify-your-download/)
+2. The project `docs/SECURITY.md` in the GitHub repository
+3. The ASCII-armoured key block at `docs/release/SIGNING-KEY.asc` in the repo
+4. The keyserver: [keys.openpgp.org — 5A20457CCD8B53FFAA945240886ADA6B487CAB6E](https://keys.openpgp.org/vks/v1/by-fingerprint/5A20457CCD8B53FFAA945240886ADA6B487CAB6E)
+</Aside>
+
+---
+
+## One-shot verification using the bundled helper
+
+The release tarball includes `scripts/release/nimbus-verify.sh`
+(`nimbus-verify.ps1` on Windows). Pass `--version` to download and verify a
+specific release, or pass the path to a local artefact.
+
+**Linux / macOS:**
+
+```bash
+# Download the helper (it is also bundled in the release tarball)
+curl -fsSL https://github.com/nimbus-agent/Nimbus/releases/latest/download/nimbus-verify.sh \
+  -o nimbus-verify.sh
+chmod +x nimbus-verify.sh
+
+# Verify the latest release artefacts
+./nimbus-verify.sh --version 0.1.0
+```
+
+**Windows (PowerShell):**
+
+```powershell
+Invoke-WebRequest `
+  -Uri "https://github.com/nimbus-agent/Nimbus/releases/latest/download/nimbus-verify.ps1" `
+  -OutFile "nimbus-verify.ps1"
+
+.\nimbus-verify.ps1 -Version 0.1.0
+```
+
+The helper script:
+
+1. Imports the key from `keys.openpgp.org` (printing the fingerprint it
+   received — **compare this against the value above before proceeding**).
+2. Downloads `SHA256SUMS` and `SHA256SUMS.asc` from the GitHub release.
+3. Runs `gpg --verify SHA256SUMS.asc SHA256SUMS`.
+4. Runs `sha256sum --check --ignore-missing SHA256SUMS` against the artefacts
+   in the current directory (or the ones matching `--version`).
+
+If all checks pass, the script exits 0 and prints a green summary. Any
+failure causes a non-zero exit and an error message — **do not install** until
+you understand and resolve the failure.
+
+---
+
+## Manual verification
+
+If you prefer not to run the helper script, the same steps can be performed
+manually.
+
+### Step 1: Download the manifest and signature
+
+```bash
+curl -L \
+  https://github.com/nimbus-agent/Nimbus/releases/latest/download/SHA256SUMS \
+  -o SHA256SUMS
+curl -L \
+  https://github.com/nimbus-agent/Nimbus/releases/latest/download/SHA256SUMS.asc \
+  -o SHA256SUMS.asc
+```
+
+### Step 2: Import the signing key
+
+```bash
+gpg --keyserver keys.openpgp.org \
+    --recv-keys 5A20457CCD8B53FFAA945240886ADA6B487CAB6E
+```
+
+Visually confirm the fingerprint printed by gpg matches `5A20 457C CD8B 53FF AA94 5240 886A DA6B 487C AB6E`.
+
+### Step 3: Verify the manifest signature
+
+```bash
+gpg --verify SHA256SUMS.asc SHA256SUMS
+```
+
+A successful run produces output in this shape (line order may vary):
+
+```
+gpg: Signature made Mon 05 May 2026 00:00:00 UTC
+gpg:                using EDDSA key 5A20457CCD8B53FFAA945240886ADA6B487CAB6E
+gpg: Good signature from "Nimbus Agent Release Signing <release@nimbus-agent.dev>" [unknown]
+gpg: WARNING: This key is not certified with a trusted signature!
+gpg:          There is no indication that the signature belongs to the owner.
+Primary key fingerprint: 5A20 457C CD8B 53FF AA94 5240 886A DA6B 487C AB6E
+```
+
+The `WARNING` about trusted signature is expected — it means the key is not
+in your personal trust web (which is fine for a project key). What matters is:
+
+- `Good signature` — the signature is cryptographically valid.
+- The fingerprint on the last line matches the value you cross-checked above.
+
+If you see `BAD signature` or a different fingerprint, **stop and do not
+install**. Open a private security report instead (see the project
+`SECURITY.md`).
+
+### Step 4: Verify artefact hashes
+
+```bash
+# Download the artefact(s) you plan to install into the same directory, then:
+sha256sum --check --ignore-missing SHA256SUMS
+```
+
+The `--ignore-missing` flag skips lines in the manifest that refer to
+artefacts you did not download (e.g., other platform packages). Expected
+output for each checked file:
+
+```
+nimbus_amd64.deb: OK
+```
+
+Any `FAILED` line means the file content does not match the signed hash —
+**do not install**.
+
+---
+
+## Linux per-artefact signatures
+
+In addition to the manifest, each Linux artefact ships with an individual GPG
+`.asc` sidecar. This lets you verify a single file without downloading
+`SHA256SUMS`:
+
+```bash
+# .deb
+curl -L \
+  https://github.com/nimbus-agent/Nimbus/releases/latest/download/nimbus_amd64.deb \
+  -o nimbus.deb
+curl -L \
+  https://github.com/nimbus-agent/Nimbus/releases/latest/download/nimbus_amd64.deb.asc \
+  -o nimbus.deb.asc
+gpg --verify nimbus.deb.asc nimbus.deb
+
+# AppImage
+curl -L \
+  https://github.com/nimbus-agent/Nimbus/releases/latest/download/Nimbus-x86_64.AppImage \
+  -o Nimbus.AppImage
+curl -L \
+  https://github.com/nimbus-agent/Nimbus/releases/latest/download/Nimbus-x86_64.AppImage.asc \
+  -o Nimbus.AppImage.asc
+gpg --verify Nimbus.AppImage.asc Nimbus.AppImage
+```
+
+---
+
+## macOS and Windows note
+
+v0.1.0 ships **without** platform-native code-signing (no notarised macOS
+`.pkg`, no Authenticode-signed Windows installer). This is an explicit project
+decision deferred to a later point release — see `docs/SECURITY.md` in the
+repository for the full rationale.
+
+The GPG-signed `SHA256SUMS.asc` manifest is the cross-platform integrity
+proof for all platforms. When you first run the Nimbus binary on macOS,
+Gatekeeper will show an "unverified developer" dialog. On Windows, SmartScreen
+may show an "unrecognised app" warning. Both are expected and are documented
+in the first-run setup guide.
+
+---
+
+## What to do if verification fails
+
+- **Do not install** the binary.
+- Confirm you downloaded the latest release from
+  [github.com/nimbus-agent/Nimbus/releases](https://github.com/nimbus-agent/Nimbus/releases).
+- Re-download the artefact — transient network errors can corrupt a download.
+- Cross-check the fingerprint against the four sources listed above.
+- If the fingerprint itself differs across sources, open a **private security
+  report** via the project's security disclosure process (see `SECURITY.md` in
+  the GitHub repository). Do not open a public issue.

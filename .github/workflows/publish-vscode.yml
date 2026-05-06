@@ -29,6 +29,7 @@ jobs:
   publish:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    environment: release
     permissions:
       # Upload the .vsix as a GitHub Release asset alongside the marketplace push.
       contents: write

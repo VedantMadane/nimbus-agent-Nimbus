@@ -758,7 +758,7 @@ The Extension Registry is Nimbus's plugin system. Third-party developers publish
 
 ```json
 {
-  "$schema": "https://nimbus.dev/schemas/extension/v1.json",
+  "$schema": "https://nimbus-agent.dev/schemas/extension/v1.json",
   "id": "com.example.notion",
   "displayName": "Notion",
   "version": "1.0.0",
@@ -825,7 +825,7 @@ server.start();
 
 ### Extension Marketplace — Tauri UI
 
-The Tauri desktop application ships an Extension Marketplace panel. It is not a cloud service. The registry index is a JSON file fetched from `https://registry.nimbus.dev/index.json` and cached locally. All installation, validation, and loading is performed by the local Gateway.
+The Tauri desktop application ships an Extension Marketplace panel. It is not a cloud service. The registry index is a JSON file fetched from `https://registry.nimbus-agent.dev/index.json` and cached locally. All installation, validation, and loading is performed by the local Gateway.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -1171,7 +1171,7 @@ CREATE TABLE extensions (
     enabled         INTEGER NOT NULL DEFAULT 1,
     last_sync_at    INTEGER,
     last_error      TEXT,
-    registry_source TEXT               -- "npm" | "local" | "registry.nimbus.dev"
+    registry_source TEXT               -- "npm" | "local" | "registry.nimbus-agent.dev"
 );
 ```
 
