@@ -1,0 +1,228 @@
+---
+title: Troubleshooting
+description: Diagnose Nimbus when something's not working — health checks, integrity verification, log locations.
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+When something is not working right, start with the fast built-in checks and work toward more detailed diagnostics only if you need them.
+
+---
+
+## First step: `nimbus doctor`
+
+`nimbus doctor` is the quickest health check. Run it any time something feels off — it covers the most common failure modes and tells you exactly what to fix.
+
+```
+nimbus doctor
+```
+
+**What it checks:**
+
+- **Bun version** — confirms Bun ≥ 1.2 is installed.
+- **Vault** — on Linux, verifies `secret-tool` is on PATH; on Windows and macOS, confirms the OS-native store is reachable.
+- **Voice binaries** — if `[voice]` is enabled in `nimbus.toml`, checks that `whisper-cli` (or the configured `whisper_path`) is on PATH and that the configured Piper binary and model file are present.
+- **Gateway process** — checks that the Gateway is running and that the IPC socket is reachable.
+- **Config** — calls `config.validate` to surface any schema errors or warnings in `nimbus.toml`.
+- **Index** — reports the total number of indexed items; warns if the count is zero (meaning the initial sync has not yet completed).
+- **Connector health** — lists every registered connector with its current health state.
+
+**Representative output:**
+
+```
+Runtime: Bun 1.2.14
+[ok] Bun version meets minimum.
+Data dir: C:\Users\alice\AppData\Local\Nimbus\data
+Gateway state file: C:\Users\alice\AppData\Local\Nimbus\data\gateway.json
+[ok] Vault: OS-native store (win32) — no Linux secret-tool check.
+[ok] Gateway: IPC OK (uptime ~312s).
+[ok] Config: valid.
+[ok] Index: 48201 items.
+Connector health:
+  [ok] github: healthy
+  [ok] slack: healthy
+  [warn] jira: degraded
+```
+
+Exit code 0 = all green. 1 = warnings only. 2 = at least one failure.
+
+---
+
+## Detailed snapshot: `nimbus diag`
+
+`nimbus diag` captures a full system snapshot. It is the canonical attachment for bug reports.
+
+```bash
+nimbus diag             # pretty-printed JSON to stdout
+nimbus diag --json      # same (explicit flag)
+```
+
+The snapshot includes vault status, active profile, the full connector list with health state and last-sync timestamp, index metrics (item counts, embedding coverage, DB size on disk), and recent errors.
+
+**For bug reports:**
+
+```bash
+nimbus diag --json > diag.json
+```
+
+Attach `diag.json` when filing an issue at [github.com/nimbus-agent/Nimbus/issues](https://github.com/nimbus-agent/Nimbus/issues).
+
+**Slow-query log:**
+
+```bash
+nimbus diag slow-queries                   # last 50 queries that exceeded the threshold
+nimbus diag slow-queries --limit 20        # top 20
+nimbus diag slow-queries --since 24h       # last 24 hours only
+```
+
+The default slow-query threshold is 100 ms. Queries are logged to the `query_latency_log` table in the index. If you see recurring slow queries, run `nimbus db verify` next.
+
+---
+
+## Index integrity: `nimbus db verify`
+
+`nimbus db verify` runs non-destructive checks against the local SQLite index. Nothing is written to the database.
+
+```
+nimbus db verify
+```
+
+**Checks performed (in order):**
+
+| Check | What it tests |
+|---|---|
+| `integrity_check` | SQLite page-level corruption (`PRAGMA integrity_check`) |
+| `fts5_consistency` | FTS5 shadow table consistency (the internal `integrity-check` command) |
+| `vec_rowid_mismatch` | `vec_items_384` row count vs `embedding_chunk` row count |
+| `orphaned_sync_tokens` | `sync_state` rows with no matching `scheduler_state` entry |
+| `schema_version` | Latest `_schema_migrations` row vs expected target version |
+| `foreign_key_integrity` | `PRAGMA foreign_key_check` |
+
+Exit code 0 = all checks pass. Exit code 1 = at least one finding.
+
+Run `nimbus db verify` after any unexpected shutdown or if `nimbus doctor` reports index anomalies.
+
+---
+
+## Repair: `nimbus db repair`
+
+When `nimbus db verify` reports findings, `nimbus db repair` runs targeted recovery actions. It will not make destructive changes without explicit confirmation.
+
+```bash
+nimbus db repair          # shows what would be done, prompts before each action
+nimbus db repair --yes    # runs all applicable actions without prompting
+```
+
+**Repair actions:**
+
+| Finding | Action taken |
+|---|---|
+| `vec_rowid_mismatch` | Deletes orphaned `vec_items_384` rows; resets affected connector cursors so embeddings re-queue |
+| `fts5_consistency` | Rebuilds the FTS5 index (`INSERT INTO item_fts(item_fts) VALUES('rebuild')`) |
+| `orphaned_sync_tokens` | Deletes `sync_state` rows whose connector is no longer registered |
+| `foreign_key_integrity` | Cascade-deletes rows that violate foreign-key constraints |
+
+Every repair action is written to the `audit_log` table with `action = 'db.repair'`. You can review repair history with `nimbus audit verify`.
+
+---
+
+## Snapshots and backups
+
+The Gateway takes automatic pre-migration backups before every schema migration. You can also take and restore manual snapshots:
+
+```bash
+nimbus db snapshot                  # take a manual snapshot now
+nimbus db snapshots list            # list manual snapshots
+nimbus db backups list              # list automatic pre-migration backups
+nimbus db restore <snapshot-path>   # restore from a snapshot file
+nimbus db prune                     # remove old snapshots (prompts before deleting)
+nimbus db prune --yes               # prune without prompting
+```
+
+Snapshots live in `<dataDir>/snapshots/` and pre-migration backups in `<dataDir>/backups/`. See [Log locations](#log-locations) below for the platform-specific `dataDir`.
+
+---
+
+## Common problems
+
+| Symptom | Likely cause | What to try |
+|---|---|---|
+| Gateway won't start | Port or socket already in use; stale lock file | Run `nimbus stop` to clear the stale state; check for another Nimbus process with `nimbus doctor` |
+| Connector shows `unauthenticated` | OAuth token expired or was revoked | Re-auth via Settings → Connectors → Connect, or `nimbus connector auth <service>` |
+| `nimbus ask` returns "no results" | Indexer hasn't completed initial sync | Run `nimbus connector list` to see sync state; wait for the first sync to finish or trigger one manually with `nimbus connector sync <service>` |
+| Tauri app banner "Gateway is not running" | Gateway process exited or was not started | Run `nimbus start` from a terminal; or click "Start Gateway" in the banner |
+| Voice doesn't transcribe | `whisper-cli` not on PATH; or `whisper_path` in `nimbus.toml` points to a missing binary | Run `nimbus doctor` — it checks voice binary paths; update `[voice] whisper_path` if needed |
+| Slow queries accumulate | Large index without FTS5 vacuum; vec alignment drift | Run `nimbus diag slow-queries` to identify culprits; then `nimbus db verify` and `nimbus db repair --yes` if findings are reported |
+| `nimbus connector sync` hangs | Rate-limit or network timeout on the upstream API | Check `nimbus connector list` for `rate_limited` state; wait for backoff to expire; verify connectivity |
+
+---
+
+## Log locations
+
+The Gateway writes a structured JSON log file per calendar day. The file basename is `gateway-YYYY-MM-DD.log`.
+
+| Platform | Log directory |
+|---|---|
+| Windows | `%LOCALAPPDATA%\Nimbus\data\logs\` |
+| macOS | `~/Library/Application Support/Nimbus/logs/` |
+| Linux | `~/.local/share/nimbus/logs/` (or `$XDG_DATA_HOME/nimbus/logs/` if `XDG_DATA_HOME` is set) |
+
+The CLI also writes a per-day log (`cli-YYYY-MM-DD.log`) to the same directory.
+
+Log lines are newline-delimited JSON (Pino format). To read them in a readable form:
+
+```bash
+# macOS / Linux
+cat "$(nimbus diag --json | jq -r '.logDir')/gateway-$(date +%Y-%m-%d).log" | npx pino-pretty
+
+# Windows PowerShell
+Get-Content "$env:LOCALAPPDATA\Nimbus\data\logs\gateway-$(Get-Date -Format 'yyyy-MM-dd').log"
+```
+
+Credential fields (`*.token`, `*.secret`, `oauth.*`) are redacted by the logger before they reach disk — you will see `[Redacted]` in their place.
+
+---
+
+## WSL note
+
+If you are running Nimbus **inside WSL on Windows**, the Linux installer places `nimbus` under `~/.local/bin` inside the WSL filesystem. The Windows side (PowerShell, cmd) cannot see that binary unless you also install Nimbus natively on Windows.
+
+The two installations are **separate and independent** — different Vault, different SQLite index, different `nimbus.toml`. If you want Nimbus available in both environments you need to install it in both. This is by design: WSL and the Windows host do not share credential stores.
+
+---
+
+## Filing an issue
+
+[github.com/nimbus-agent/Nimbus/issues](https://github.com/nimbus-agent/Nimbus/issues)
+
+Include the output of:
+
+```bash
+nimbus diag --json > diag.json
+```
+
+The JSON snapshot contains vault status, connector health, index metrics, and recent errors — everything needed to diagnose most problems without back-and-forth.
+
+Do **not** include log files in a public issue unless you have reviewed them for sensitive data; the logger redacts credentials, but your log lines may contain file paths or message previews that you prefer to keep private.
+
+---
+
+## Where to next
+
+<CardGrid>
+  <LinkCard
+    title="FAQ"
+    description="Frequently asked questions about Nimbus."
+    href="/user-guide/faq/"
+  />
+  <LinkCard
+    title="HITL & safety"
+    description="How Nimbus asks for your approval before any write action."
+    href="/user-guide/hitl-and-safety/"
+  />
+  <LinkCard
+    title="Verify your download"
+    description="Confirm the binary you downloaded is the genuine release."
+    href="/user-guide/verify-your-download/"
+  />
+</CardGrid>
