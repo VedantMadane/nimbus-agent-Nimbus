@@ -3,7 +3,14 @@ name: Release
 on:
   push:
     tags:
+      # Production releases (vN.N.N) get marked Latest and feed the auto-update manifest.
       - "v[0-9]+.[0-9]+.[0-9]+"
+      # Pre-release tags (vN.N.N-rcN, -beta.N, -alpha.N, …) exercise the same
+      # signing + packaging pipeline but are flipped to GitHub Pre-release via
+      # the `contains(github.ref_name, '-')` check on the publish-release job.
+      # The update-manifest job is also gated on the non-prerelease form so rc
+      # builds do not consume CI minutes producing a manifest no one reaches.
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
 
 concurrency:
   group: release-${{ github.ref }}
@@ -414,6 +421,11 @@ jobs:
   update-manifest:
     name: Publish updater manifest
     needs: publish-release
+    # Skip for pre-release tags: production updater URL points at
+    # `releases/latest/download/latest.json` which only resolves to the
+    # non-prerelease "Latest" GitHub Release. Building a manifest for rc/
+    # beta/alpha tags burns CI minutes producing an asset nobody reaches.
+    if: ${{ !contains(github.ref_name, '-') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: release
