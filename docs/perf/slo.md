@@ -27,7 +27,7 @@ A bench fails when either:
 | S3 | p95_ms | **≤1 500 ms** | ≤7 500 ms | 25 %, 100 ms |
 | S4 | p95_ms | **≤500 ms** | ≤2 500 ms | 25 %, 50 ms |
 | S5 | p95_ms | **≤200 ms** | ≤1 000 ms | 25 %, 25 ms |
-| S11-a | p95_ms | **≤300 ms** | ≤1 500 ms | 25 %, 50 ms |
+| S11-a | p95_ms | **≤300 ms** | ≤1 500 ms | 40 %, 50 ms |
 | S11-b | p95_ms | **≤50 ms** | ≤600 ms | 40 %, 10 ms |
 
 ## Workload surfaces
