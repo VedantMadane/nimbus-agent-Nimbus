@@ -128,3 +128,23 @@ linuxTest("substitutes {{VERSION}} placeholder in desktop entry", () => {
   expect(desktop).toContain("X-AppImage-Version=0.1.0-rc1");
   expect(desktop).not.toContain("{{VERSION}}");
 });
+
+linuxTest("tarball contains install.sh and uninstall.sh", () => {
+  const r = runInstaller(["--skip-appimage"]);
+  expect(r.status).toBe(0);
+  const tarballPath = join(outDir, "nimbus-headless-linux-amd64-v0.1.0-rc1.tar.gz");
+  expect(existsSync(tarballPath)).toBe(true);
+  const tarList = spawnSync("/usr/bin/tar", ["-tzf", tarballPath], {
+    encoding: "utf8",
+  });
+  expect(tarList.status).toBe(0);
+  expect(tarList.stdout).toContain("install.sh");
+  expect(tarList.stdout).toContain("uninstall.sh");
+});
+
+linuxTest("AppImage output dir contains sibling install.sh and uninstall.sh", () => {
+  const r = runInstaller(["--appimagetool", stubToolPath]);
+  expect(r.status).toBe(0);
+  expect(existsSync(join(outDir, "install.sh"))).toBe(true);
+  expect(existsSync(join(outDir, "uninstall.sh"))).toBe(true);
+});

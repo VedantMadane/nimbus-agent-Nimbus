@@ -291,7 +291,9 @@ jobs:
           cp dist/nimbus-cli-macos-x64/nimbus-cli-macos-x64         dist/stage-macos-x64/
           cp scripts/release/archive-contents/README-QUICKSTART.txt dist/stage-macos-x64/
           cp scripts/release/archive-contents/LICENSE-AGPL.txt      dist/stage-macos-x64/
-          chmod +x dist/stage-macos-x64/nimbus-*
+          cp scripts/install/unix/install.sh                         dist/stage-macos-x64/
+          cp scripts/install/unix/uninstall.sh                       dist/stage-macos-x64/
+          chmod +x dist/stage-macos-x64/nimbus-* dist/stage-macos-x64/install.sh dist/stage-macos-x64/uninstall.sh
           tar -czf dist/archives/nimbus-headless-macos-x64.tar.gz -C dist/stage-macos-x64 .
 
           # macOS arm64 tarball
@@ -300,7 +302,9 @@ jobs:
           cp dist/nimbus-cli-macos-arm64/nimbus-cli-macos-arm64         dist/stage-macos-arm64/
           cp scripts/release/archive-contents/README-QUICKSTART.txt     dist/stage-macos-arm64/
           cp scripts/release/archive-contents/LICENSE-AGPL.txt          dist/stage-macos-arm64/
-          chmod +x dist/stage-macos-arm64/nimbus-*
+          cp scripts/install/unix/install.sh                             dist/stage-macos-arm64/
+          cp scripts/install/unix/uninstall.sh                           dist/stage-macos-arm64/
+          chmod +x dist/stage-macos-arm64/nimbus-* dist/stage-macos-arm64/install.sh dist/stage-macos-arm64/uninstall.sh
           tar -czf dist/archives/nimbus-headless-macos-arm64.tar.gz -C dist/stage-macos-arm64 .
 
           # Windows x64 zip
@@ -309,6 +313,8 @@ jobs:
           cp dist/nimbus-cli-windows-x64/nimbus-cli-windows-x64.exe         dist/stage-windows-x64/
           cp scripts/release/archive-contents/README-QUICKSTART.txt         dist/stage-windows-x64/
           cp scripts/release/archive-contents/LICENSE-AGPL.txt              dist/stage-windows-x64/
+          cp scripts/install/windows/install.ps1                             dist/stage-windows-x64/
+          cp scripts/install/windows/uninstall.ps1                           dist/stage-windows-x64/
           (cd dist/stage-windows-x64 && zip -r ../archives/nimbus-headless-windows-x64.zip .)
 
           # Cleanup

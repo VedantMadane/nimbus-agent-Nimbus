@@ -125,12 +125,25 @@ function buildTarball(): string {
     `Nimbus headless bundle (Linux x64)\n\nAdd the bin/ directory to PATH, or symlink bin/nimbus and bin/nimbus-gateway into /usr/local/bin.\n`,
     "utf8",
   );
+
+  // Bundle install scripts at the top level of the tarball so users can run
+  // ./install.sh immediately after extracting the archive.
+  const installSrcDir = join(repoRoot, "scripts", "install", "unix");
+  copyFileSync(join(installSrcDir, "install.sh"), join(tarStage, "install.sh"));
+  copyFileSync(join(installSrcDir, "uninstall.sh"), join(tarStage, "uninstall.sh"));
+  chmodSync(join(tarStage, "install.sh"), 0o755);
+  chmodSync(join(tarStage, "uninstall.sh"), 0o755);
+
   const tgzName = `nimbus-headless-linux-amd64-v${version}.tar.gz`;
   const tgzPath = join(outRoot, tgzName);
-  const tar = spawnSync(TAR_BIN, ["-czf", tgzPath, "-C", tarStage, "bin", "README.txt"], {
-    stdio: "inherit",
-    cwd: repoRoot,
-  });
+  const tar = spawnSync(
+    TAR_BIN,
+    ["-czf", tgzPath, "-C", tarStage, "bin", "README.txt", "install.sh", "uninstall.sh"],
+    {
+      stdio: "inherit",
+      cwd: repoRoot,
+    },
+  );
   if (tar.status !== 0) {
     process.exit(tar.status ?? 1);
   }
@@ -261,4 +274,16 @@ if (!skipAppImage) {
   }
   const appImagePath = buildAppImage(toolPath);
   console.log(`  ${appImagePath}`);
+
+  // Emit install scripts as siblings to the .AppImage so users who download
+  // just the AppImage can run ./install.sh from the same directory.
+  const installSrcDir = join(repoRoot, "scripts", "install", "unix");
+  const appImageInstall = join(outRoot, "install.sh");
+  const appImageUninstall = join(outRoot, "uninstall.sh");
+  copyFileSync(join(installSrcDir, "install.sh"), appImageInstall);
+  copyFileSync(join(installSrcDir, "uninstall.sh"), appImageUninstall);
+  chmodSync(appImageInstall, 0o755);
+  chmodSync(appImageUninstall, 0o755);
+  console.log(`  ${appImageInstall}`);
+  console.log(`  ${appImageUninstall}`);
 }
