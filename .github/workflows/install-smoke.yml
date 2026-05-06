@@ -78,7 +78,9 @@ jobs:
               break
             fi
           done
-          nimbus --version
+          # Smoke: invoke a no-arg command that doesn't require a running Gateway.
+          # `nimbus --version` does NOT exist; `--help` is in HELP_ALIASES (cli/index.ts).
+          nimbus --help
           "$STAGE/uninstall.sh" --yes
           for bin in nimbus nimbus-gateway; do
             if [ -e "$HOME/.local/bin/$bin" ]; then
@@ -119,7 +121,8 @@ jobs:
           & "$env:STAGE\install.ps1" -Yes
           $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
           $env:PATH = "$userPath;$env:PATH"
-          nimbus --version
+          # Smoke: `--version` is NOT a valid nimbus flag; `--help` is in HELP_ALIASES.
+          nimbus --help
           & "$env:STAGE\uninstall.ps1" -Yes
           foreach ($bin in @("nimbus.exe","nimbus-gateway.exe")) {
             if (Test-Path "$env:LOCALAPPDATA\Programs\Nimbus\bin\$bin") {
