@@ -866,9 +866,10 @@ The Model Router sits between the IPC layer and the Engine. It selects the infer
 
 | Backend | Discovery | `nimbus.toml` key |
 |---|---|---|
-| Ollama | `OLLAMA_HOST` env or `localhost:11434` | `[llm.ollama_host]` |
-| llama.cpp (GGUF) | Direct file path | `[llm.gguf_path]` |
-| Anthropic (remote) | `ANTHROPIC_API_KEY` in Vault | `[llm.provider] = "anthropic"` |
+| Ollama | Default `http://127.0.0.1:11434` | `[llm].local_model` (e.g. `"llama3.2"`); `prefer_local = true` to route to it |
+| llama.cpp (GGUF) | `llama-server` HTTP endpoint | `[llm].llamacpp_server_path` |
+| Anthropic (remote) | `ANTHROPIC_API_KEY` in env | `[llm].remote_model = "claude-sonnet-4-6"` (provider inferred from `claude-*` prefix) |
+| OpenAI (remote) | `OPENAI_API_KEY` in env | `[llm].remote_model = "gpt-4o"` (provider inferred from `gpt-*` / `o1-*` / `o3-*` / `o4-*` prefix) |
 
 Model lifecycle (list, pull, load, unload, status) is managed via the `llm.*` IPC method namespace (`llm.listModels`, `llm.getStatus`, `llm.pullModel`, `llm.loadModel`, `llm.unloadModel`, `llm.setDefault`, `llm.getRouterStatus`). The router dispatches to a loaded backend or falls back per the table above; it never calls an LLM provider API directly.
 

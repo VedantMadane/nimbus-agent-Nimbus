@@ -396,7 +396,7 @@ Read a single configuration value.
 ```bash
 nimbus config get sync.intervalSeconds
 nimbus config get telemetry.enabled
-nimbus config get llm.provider
+nimbus config get llm.remote_model
 ```
 
 ---
@@ -408,8 +408,11 @@ Set a configuration value. Changes take effect on the next Gateway restart for G
 ```bash
 nimbus config set sync.intervalSeconds 300
 nimbus config set telemetry.enabled false
-nimbus config set llm.provider anthropic
+nimbus config set llm.remote_model      claude-sonnet-4-6
+nimbus config set llm.classifier_model  claude-haiku-4-5-20251001
 ```
+
+The provider is inferred from the model id: `claude-*` → Anthropic, `gpt-*` / `o1-*` / `o3-*` / `o4-*` → OpenAI. Already-prefixed forms (`anthropic/...`, `openai/...`) are accepted as-is.
 
 ---
 
@@ -458,16 +461,21 @@ Key sections:
 
 ```toml
 [llm]
-provider = "anthropic"          # anthropic | openai
-model = "claude-sonnet-4-6"
-
-[sync]
-intervalSeconds = 300
-maxConcurrentSyncs = 3
-retentionDays = 90
-catchUpOnRestart = true
+# Conversational agent (Mastra). Provider is inferred from the model id:
+# claude-* → Anthropic; gpt-*/o1-*/o3-*/o4-* → OpenAI.
+remote_model       = "claude-sonnet-4-6"
+# Cheaper/faster model used by the intent classifier. May differ from remote_model.
+classifier_model   = "claude-haiku-4-5-20251001"
+# Local-LLM routing (Phase 4 LLM router).
+prefer_local       = true
+local_model        = "llama3.2"
+# llamacpp_server_path = "/usr/local/bin/llama-server"
+# enforce_air_gap   = false
+# max_agent_depth   = 3              # 1–10
+# max_tool_calls_per_session = 20    # 1–200
 
 [embedding]
+enabled = true
 provider = "local"              # local | openai
 # model = "all-MiniLM-L6-v2"
 
@@ -485,9 +493,12 @@ endpoint = "https://telemetry.nimbus-agent.dev/v1/collect"
 [lan]
 # enabled = false
 # port = 7475
+
+[automation]
+# graph_conditions = true
 ```
 
-**Environment variable overrides:** All keys can be overridden with `NIMBUS_` prefixed env vars. Examples: `NIMBUS_LLM_PROVIDER`, `NIMBUS_SYNC_INTERVAL_SECONDS`, `NIMBUS_TELEMETRY_ENABLED`.
+**Environment variable overrides:** Most TOML keys have a corresponding `NIMBUS_`-prefixed env var that wins over the file. Examples: `NIMBUS_AGENT_MODEL` (overrides `[llm].remote_model`), `NIMBUS_CLASSIFIER_MODEL` (overrides `[llm].classifier_model`), `NIMBUS_TELEMETRY_ENABLED`. See the [Environment Variables](#environment-variables) table at the end of this document for the full list.
 
 ---
 
@@ -1156,9 +1167,9 @@ nimbus lan remove-peer abc123
 
 | Variable | Purpose |
 |---|---|
-| `NIMBUS_LLM_PROVIDER` | Override `[llm].provider` |
-| `NIMBUS_LLM_MODEL` | Override `[llm].model` |
-| `NIMBUS_AGENT_MODEL` | LLM model used by the agent (default: `claude-sonnet-4-6`) |
+| `NIMBUS_AGENT_MODEL` | Override `[llm].remote_model` — model id for the conversational agent (default: `claude-sonnet-4-6`). Bare ids work; provider is inferred from `claude-*` / `gpt-*` / `o1-*` / `o3-*` / `o4-*` prefix. |
+| `NIMBUS_CLASSIFIER_MODEL` | Override `[llm].classifier_model` — Anthropic model used by the intent classifier (default: `claude-haiku-4-5-20251001`). |
+| `NIMBUS_OPENAI_CLASSIFIER_MODEL` | OpenAI model used by the classifier when only `OPENAI_API_KEY` is set (default: `gpt-4o-mini`). |
 | `NIMBUS_SYNC_INTERVAL_SECONDS` | Override `[sync].intervalSeconds` |
 | `NIMBUS_TELEMETRY_ENABLED` | Override `[telemetry].enabled` |
 | `NIMBUS_TELEMETRY_ENDPOINT` | Override `[telemetry].endpoint` |

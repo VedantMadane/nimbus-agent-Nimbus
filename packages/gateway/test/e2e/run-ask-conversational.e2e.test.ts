@@ -106,7 +106,12 @@ describe("runAsk conversational routing (e2e-style)", () => {
     expect(r.reply).toContain("move");
   });
 
-  test("low-confidence unknown uses clarification reply (not agent)", async () => {
+  test("low-confidence unknown routes to agent when one is available", async () => {
+    // Previously this returned the static LOW_CONFIDENCE_REPLY ("I am not sure …"),
+    // which masked the conversational agent for any non-file query whenever the
+    // classifier produced borderline confidence. With an agent attached, route to
+    // it regardless of confidence — it can answer general questions or degrade
+    // gracefully if the index is empty.
     mock.module(routerModuleAbs, () => ({
       classifyIntent: async () => ({
         intent: "unknown" as const,
@@ -118,7 +123,7 @@ describe("runAsk conversational routing (e2e-style)", () => {
 
     const { runAsk } = await import(runAskModuleAbs);
 
-    const generate = mock(async () => ({ text: "should-not-run" }));
+    const generate = mock(async () => ({ text: "from-mock-agent" }));
     const agent = { generate } as unknown as Agent;
 
     const r = await runAsk({
@@ -128,8 +133,32 @@ describe("runAsk conversational routing (e2e-style)", () => {
       conversationalAgent: agent,
     });
 
+    expect(r.reply).toBe("from-mock-agent");
+    expect(generate).toHaveBeenCalled();
+  });
+
+  test("low-confidence unknown without agent still hits planner reply (test-only path)", async () => {
+    // The planner's LOW_CONFIDENCE_REPLY remains as a fallback for callers that
+    // don't pass a conversationalAgent — currently only test fixtures and any
+    // future headless invocation that opts out of the Mastra path.
+    mock.module(routerModuleAbs, () => ({
+      classifyIntent: async () => ({
+        intent: "unknown" as const,
+        entities: {},
+        requiresHITL: false,
+        confidence: 0.4,
+      }),
+    }));
+
+    const { runAsk } = await import(runAskModuleAbs);
+
+    const r = await runAsk({
+      ...baseParams(() => {
+        /* noop */
+      }),
+    });
+
     expect(r.reply).toContain("not sure");
-    expect(generate).not.toHaveBeenCalled();
   });
 
   test("file_search still uses executor path when pattern present", async () => {

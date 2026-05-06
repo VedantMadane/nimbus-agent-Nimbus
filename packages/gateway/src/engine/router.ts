@@ -1,4 +1,4 @@
-import { Config } from "../config.ts";
+import { Config, getEffectiveClassifierModel } from "../config.ts";
 import { processEnvGet } from "../platform/env-access.ts";
 import { agentErrorFromHttpResponse, GatewayAgentUnavailableError } from "./gateway-agent-error.ts";
 import { extractFirstMarkdownFenceBody } from "./json-fence.ts";
@@ -32,6 +32,22 @@ function resolveAnthropicModelId(configured: string): string {
     return s.slice("anthropic/".length);
   }
   return s;
+}
+
+// Model identifiers are short, ASCII, drawn from a tiny alphabet by every
+// known provider (claude-3-5-sonnet-20241022, gpt-4o-mini, etc.). Validate
+// before sending to the provider API so a tampered nimbus.toml cannot smuggle
+// arbitrary content into the outbound request body. Also breaks the CodeQL
+// js/file-access-to-http taint flow (regex test is a recognised sanitiser).
+const SAFE_MODEL_NAME_RE = /^[A-Za-z0-9._/:-]{1,128}$/;
+
+function assertSafeModelName(model: string): string {
+  if (!SAFE_MODEL_NAME_RE.test(model)) {
+    throw new Error(
+      `Refusing to call provider API with malformed model name (got ${model.length} chars; expected /^[A-Za-z0-9._/:-]{1,128}$/). Check nimbus.toml [llm].classifier_model or NIMBUS_CLASSIFIER_MODEL.`,
+    );
+  }
+  return model;
 }
 
 function parseClassifierJsonObject(
@@ -123,7 +139,7 @@ async function llmClassify(
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: resolveAnthropicModelId(model),
+        model: assertSafeModelName(resolveAnthropicModelId(model)),
         max_tokens: 512,
         system: CLASSIFIER_SYSTEM_PROMPT_ANTHROPIC,
         messages: [{ role: "user", content: trimmed }],
@@ -143,7 +159,7 @@ async function llmClassify(
     return classifiedFromObject(o);
   }
 
-  const m = model.replace(/^openai\//, "");
+  const m = assertSafeModelName(model.replace(/^openai\//, ""));
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -192,7 +208,7 @@ export async function classifyIntent(userText: string): Promise<ClassifiedIntent
 
   if (anthropicKey !== undefined && anthropicKey.length > 0) {
     try {
-      return await llmClassify("anthropic", trimmed, Config.classifierModel, anthropicKey);
+      return await llmClassify("anthropic", trimmed, getEffectiveClassifierModel(), anthropicKey);
     } catch (e) {
       if (e instanceof GatewayAgentUnavailableError) {
         throw e;
