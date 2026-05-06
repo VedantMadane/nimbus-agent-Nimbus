@@ -1,13 +1,39 @@
 ---
 title: FAQ
-description: Common questions about Nimbus behaviour, data, and trust
+description: Common questions about Nimbus privacy, offline use, licensing, and behaviour
 ---
 
-### Why does my connector show “degraded” or “error”?
+### Is Nimbus really local? What does it send out?
+
+By default the only outbound traffic Nimbus generates is connector OAuth flows (one token exchange per service when you first connect) and the periodic API calls each connector makes to sync metadata from that service. Nothing else leaves your machine as part of normal operation.
+
+Telemetry is **opt-in and disabled by default** (`[telemetry] enabled = false` in `nimbus.toml`). When enabled it sends aggregate counters only — sync durations, error rates, query latency percentiles. No content, no file names, no identifiers are ever included in telemetry payloads.
+
+Air-gap mode (`[llm] enforce_air_gap = true`) blocks all outbound HTTP for the duration of an `ask` round-trip, including connector API calls. This makes Nimbus operate entirely on already-indexed data. A local LLM (Ollama or llama.cpp) is required to make air-gap mode useful — without one, queries fall back to the configured remote provider and `enforce_air_gap` prevents that call from completing.
+
+### Can I run Nimbus offline?
+
+Yes — with a local LLM. Install Ollama or llama.cpp, configure the model in `nimbus.toml`, and Nimbus will route all inference locally. Connector sync pauses automatically while the machine is offline and resumes on reconnect without data loss. Queries against already-indexed data continue working in full during an outage. The Tauri desktop UI shows an offline banner so you always know the current network state.
+
+### What's the difference between Nimbus and ChatGPT or Claude?
+
+Nimbus indexes *your* data — files, email, calendar, PRs, Slack threads, and more — and keeps that index entirely on your machine. ChatGPT and Claude have no access to your private data by default and run entirely in the cloud. When you ask Nimbus a question about your work, it retrieves relevant context from your local index and passes it to an LLM as part of the reasoning step; the LLM never has standing access to your data outside that round-trip.
+
+Nimbus uses an LLM (local or remote) as its reasoning engine, but the agent loop, the local index, the credential store (OS keychain), and the HITL consent gate all run on your machine. You can swap the LLM, restrict it to local-only, or enable air-gap mode without changing how your data is stored or indexed.
+
+### Is the AGPL going to affect my company?
+
+The AGPL-3.0 license applies to the Gateway, CLI, and first-party MCP connectors. If your company modifies those components and runs them as a network-accessible service — internal or external — you must publish the modified source under AGPL-3.0. Using an unmodified build of Nimbus internally (the normal case) does not trigger any AGPL publication obligation.
+
+The SDK (`@nimbus-dev/sdk`) and client library (`@nimbus-dev/client`) are MIT-licensed. Extensions, integrations, and tools built against those packages can be released under any license, including proprietary. The [LICENSE](https://github.com/nimbus-agent/nimbus/blob/main/LICENSE) file in the repository root has the full text for both licenses.
+
+---
+
+### Why does my connector show "degraded" or "error"?
 
 The Gateway tracks connector health in the local index. A connector moves to **degraded** or **error** when sync fails repeatedly, auth is invalid, or the service returns errors. Use `nimbus connector list`, `nimbus connector status <name>`, and `nimbus connector history <name>` for detail. Re-auth with `nimbus connector auth <name>` when the state is **unauthenticated**.
 
-### How do I reset a connector’s auth?
+### How do I reset a connector's auth?
 
 Remove the connector (which deletes vault keys and index rows for that service), then authenticate again:
 
@@ -22,7 +48,7 @@ Metadata only in SQLite (titles, paths, IDs, sync cursors, audit entries, embedd
 
 ### How do I uninstall completely?
 
-Stop the Gateway, remove your OS keystore entries for Nimbus (platform-specific), and delete the Nimbus data directory (`%APPDATA%\\Nimbus` on Windows, `~/Library/Application Support/Nimbus` on macOS, `~/.config/nimbus` on Linux unless overridden).
+Stop the Gateway, remove your OS keystore entries for Nimbus (platform-specific), and delete the Nimbus data directory (`%APPDATA%\Nimbus` on Windows, `~/Library/Application Support/Nimbus` on macOS, `~/.config/nimbus` on Linux unless overridden).
 
 ### What is HITL?
 

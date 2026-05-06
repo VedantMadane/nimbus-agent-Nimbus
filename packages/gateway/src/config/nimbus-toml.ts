@@ -191,6 +191,8 @@ export function loadNimbusEmbeddingFromConfigDir(configDir: string): NimbusEmbed
 export type NimbusLlmToml = {
   preferLocal: boolean;
   remoteModel: string;
+  /** Cheaper/faster model used by the engine intent classifier. May differ from {@link remoteModel}. */
+  classifierModel: string;
   localModel: string;
   llamacppServerPath: string;
   minReasoningParams: number;
@@ -202,6 +204,7 @@ export type NimbusLlmToml = {
 export const DEFAULT_NIMBUS_LLM_TOML: NimbusLlmToml = {
   preferLocal: true,
   remoteModel: "claude-sonnet-4-6",
+  classifierModel: "claude-haiku-4-5-20251001",
   localModel: "llama3.2",
   llamacppServerPath: "",
   minReasoningParams: 7,
@@ -219,6 +222,9 @@ function applyNimbusLlmKey(out: Partial<NimbusLlmToml>, key: string, valRaw: str
     }
     case "remote_model":
       out.remoteModel = parseString(valRaw);
+      break;
+    case "classifier_model":
+      out.classifierModel = parseString(valRaw);
       break;
     case "local_model":
       out.localModel = parseString(valRaw);
@@ -285,6 +291,25 @@ export function loadNimbusLlmFromPath(tomlPath: string): NimbusLlmToml {
     });
   } catch {
     return structuredClone(DEFAULT_NIMBUS_LLM_TOML);
+  }
+}
+
+/**
+ * Load only the keys the user explicitly set in `[llm]`. Returns an empty
+ * object when the file is missing, unreadable, or has no `[llm]` section.
+ *
+ * Use this when the caller wants to distinguish "user wrote it" from
+ * "defaulted" — e.g. to layer on top of an env-var resolution chain.
+ */
+export function loadNimbusLlmPartialFromPath(tomlPath: string): Partial<NimbusLlmToml> {
+  if (!existsSync(tomlPath)) {
+    return {};
+  }
+  try {
+    const raw = readFileSync(tomlPath, "utf8");
+    return parseNimbusTomlLlmSection(raw);
+  } catch {
+    return {};
   }
 }
 

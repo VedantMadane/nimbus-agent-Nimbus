@@ -351,6 +351,12 @@ bun run package:installers:linux -- --version 0.1.0
 # NIMBUS_LAN_PORT=<port>             override LAN TCP listen port (default: 7475)
 # NIMBUS_DEV_UPDATER_PUBLIC_KEY=<base64>  override embedded Ed25519 public key (tests only)
 
+# LLM model selection — resolution priority: env > [llm] TOML > hardcoded default.
+# Bare model ids work; the engine auto-prefixes for Mastra (claude-* → anthropic/..., gpt-* / o1-* / o3-* / o4-* → openai/...).
+# NIMBUS_AGENT_MODEL=claude-sonnet-4-6              overrides [llm].remote_model       (Mastra agent)
+# NIMBUS_CLASSIFIER_MODEL=claude-haiku-4-5-20251001 overrides [llm].classifier_model   (Anthropic intent classifier)
+# NIMBUS_OPENAI_CLASSIFIER_MODEL=gpt-4o-mini        OpenAI classifier when ANTHROPIC_API_KEY is unset
+
 # Docs site (packages/docs)
 bun run docs:build                     # from repo root (workspace filter)
 cd packages/docs && bunx astro build   # build static docs site

@@ -9,10 +9,8 @@ set -eo pipefail
 # SHA256SUMS.asc signature. During key rotation, this array carries BOTH old
 # and new fingerprints for one release, then narrows to the new one.
 #
-# NOTE: these are PLACEHOLDER fingerprints until the maintainer completes
-# docs/release/v0.1.0-prerequisites.md §3 and commits the real values here.
 TRUSTED_FINGERPRINTS=(
-  "0000000000000000000000000000000000000000"
+  "5A20457CCD8B53FFAA945240886ADA6B487CAB6E"
 )
 DEFAULT_KEYSERVER="keys.openpgp.org"
 GITHUB_REPO="asafgolombek/Nimbus"

@@ -157,13 +157,19 @@ export async function runAsk(p: RunAskParams): Promise<{ reply: string }> {
 
   const classified = await classifyIntentForAsk(p.input);
 
-  if (
-    classified.intent === "unknown" &&
-    classified.confidence >= 0.6 &&
-    p.conversationalAgent !== undefined
-  ) {
+  // Reserve `planFromIntent` for high-confidence file_search/file_organize — those have
+  // direct ToolExecutor handlers with HITL gating. Everything else routes to the
+  // conversational Mastra agent, which has searchLocalIndex/connector tools that can
+  // answer general queries (email, PRs, etc.) and degrade gracefully when no data is
+  // indexed. The previous gate (`unknown && confidence >= 0.6`) bypassed the agent
+  // whenever the classifier returned low or non-numeric confidence, leaving users with
+  // a static "I am not sure" stub.
+  const conversationalAgent = p.conversationalAgent;
+  const shouldUseConversational = classified.intent === "unknown" || classified.confidence < 0.6;
+
+  if (conversationalAgent !== undefined && shouldUseConversational) {
     return await runConversationalAgent({
-      agent: p.conversationalAgent,
+      agent: conversationalAgent,
       input: p.input,
       stream: p.stream,
       sendChunk: p.sendChunk,

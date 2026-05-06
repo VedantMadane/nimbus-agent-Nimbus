@@ -1,0 +1,207 @@
+---
+title: Workflows
+description: Named multi-step recipes — saved, repeatable, dry-runnable.
+---
+
+import { Aside, CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+A **workflow** is a saved sequence of natural-language steps that Nimbus
+executes on your behalf. Think of it as a playbook: write it once, run it
+whenever you need it, and trust that the agent will work through the steps in
+order — prompting for HITL consent where needed, collecting step outputs, and
+streaming progress back to your terminal or the Tauri UI.
+
+Workflows are stored by name in the local index. They are per-profile, so a
+`work` profile and a `personal` profile have separate workflow libraries.
+
+---
+
+## Concept
+
+A workflow definition is a JSON or YAML file with a `steps` array. Each step
+has a `run` field — a plain-English instruction that the agent executes as
+a conversational turn — and an optional `label` and `continueOnError` flag.
+
+```yaml
+name: yesterday-prs
+description: Summarise yesterday's merged PRs and post a DM to #engineering-updates
+
+steps:
+  - label: fetch-prs
+    run: >
+      List all pull requests merged in the last 24 hours across all indexed
+      GitHub repositories. Include title, author, and number of changed files.
+
+  - label: draft-summary
+    run: >
+      Write a concise Slack-style bullet list summarising the PRs from the
+      previous step. Keep it under 400 characters.
+
+  - label: post-dm
+    run: >
+      Send the summary from the previous step as a Slack direct message to
+      the #engineering-updates channel.
+    continueOnError: false
+```
+
+Each step receives the outputs of all prior steps as context. The agent does
+not re-execute earlier steps; it summarises them and carries the relevant
+information forward.
+
+---
+
+## Saving a workflow
+
+### From a YAML or JSON file
+
+```bash
+nimbus workflow save yesterday-prs --file ./yesterday-prs.yml
+```
+
+Optional flags:
+
+| Flag | Purpose |
+|---|---|
+| `--file <path>` | Path to a `.yml`, `.yaml`, or `.json` workflow file |
+| `--description <text>` | Override the description from the file |
+
+If the workflow name already exists in the index, the save is an upsert —
+the steps and description are updated in place; the run history is preserved.
+
+### Run directly from a file (save + run in one command)
+
+```bash
+nimbus run ./yesterday-prs.yml
+nimbus run ./yesterday-prs.yml --dry-run
+```
+
+`nimbus run` upserts the workflow from the file and immediately executes it.
+It accepts the same `--dry-run`, `--no-ttv`, and `--agent` flags as
+`nimbus workflow run`.
+
+---
+
+## Running a saved workflow
+
+```bash
+nimbus workflow run yesterday-prs
+```
+
+Additional flags:
+
+| Flag | Purpose |
+|---|---|
+| `--dry-run` | Preview mode — shows what each step would do; no tools called |
+| `--no-ttv` | Abort before execution if any step is predicted to require HITL |
+| `--agent <name>` | Use a specific agent persona: `nimbus`, `devops`, or `research` |
+
+---
+
+## Dry-run mode
+
+```bash
+nimbus workflow run yesterday-prs --dry-run
+```
+
+Dry run evaluates the workflow plan without calling any tools or firing any
+HITL consent prompts. The result shows each step's label, the step instruction
+text, and a heuristic list of `hitlActions` — the HITL action types the agent
+predicts it would need to call if run for real.
+
+A dry-run row is written to `workflow_run` with `dry_run = 1` and
+`status = "preview"`. This row is distinguishable from a real run in the
+audit log and in the Tauri Workflows panel.
+
+<Aside type="tip">
+Use `--dry-run` before running a new workflow for the first time. Check the
+`hitlActions` list to understand which steps will pause for consent — you can
+then decide whether to restructure the workflow or proceed.
+</Aside>
+
+---
+
+## HITL inside workflows
+
+HITL consent applies step-by-step. If step 3 calls a gated tool (for example,
+sending a Slack message), the executor pauses and surfaces a consent prompt
+before sending. Your approval or rejection is recorded in the audit log and
+on the `workflow_run_step` row.
+
+**`--no-ttv` flag:** If you want the workflow to fail fast rather than pause
+for consent, pass `--no-ttv`. The CLI does a dry run first, checks whether
+any step has predicted HITL actions, and aborts with an error if it finds
+any. This is useful for automation contexts where interactive consent is not
+possible.
+
+See [HITL & safety](/user-guide/hitl-and-safety/) for a full explanation of
+which action types trigger consent and what the prompt looks like.
+
+---
+
+## Managing saved workflows
+
+```bash
+# List all saved workflows
+nimbus workflow list
+
+# Delete a saved workflow (run history is also removed)
+nimbus workflow delete yesterday-prs
+```
+
+---
+
+## Run history
+
+Each run produces a `workflow_run` record in the local index with:
+
+- `status` — `running`, `done`, `error`, `preview` (dry run)
+- `started_at` / `finished_at` — timestamps
+- `dry_run` — whether this was a preview run
+- Per-step `workflow_run_step` rows tracking label, status, and output
+
+The Gateway retains the last **100 runs** per workflow; older runs are pruned
+automatically after each execution.
+
+The **Tauri Workflows panel** shows recent runs for each saved workflow with
+per-step status badges and output previews. The CLI does not yet have a
+`nimbus workflow runs` subcommand; check the Tauri panel or query the index
+directly with `nimbus query --sql`.
+
+---
+
+## Built-in agent commands
+
+Several built-in agents ship as top-level CLI commands. They use the same
+workflow runner and conversational agent under the hood, but do not require
+you to author a YAML file first:
+
+| Command | What it does |
+|---|---|
+| `nimbus ask <question>` | Single-turn conversational query |
+| `nimbus repl` | Interactive multi-turn REPL session |
+
+Built-in structured agents (meeting prep, on-call briefing, standups) are
+planned for a future phase and will appear as additional top-level commands.
+Watch the [roadmap](https://nimbus-agent.dev/) for updates.
+
+---
+
+## Where to next
+
+<CardGrid>
+  <LinkCard
+    title="Watchers"
+    href="/user-guide/watchers/"
+    description="Trigger automated runs when indexed data matches a condition."
+  />
+  <LinkCard
+    title="Profiles"
+    href="/user-guide/profiles/"
+    description="Separate work and personal contexts with named configuration profiles."
+  />
+  <LinkCard
+    title="HITL & safety"
+    href="/user-guide/hitl-and-safety/"
+    description="How the consent gate works and which actions require approval."
+  />
+</CardGrid>

@@ -1,0 +1,178 @@
+---
+title: Profiles
+description: Named configuration sets — separate work and personal Nimbus instances on one machine.
+---
+
+import { Aside, CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+Most people have at least two computing contexts: a work identity (work email,
+work GitHub account, corporate Slack) and a personal one. Profiles let a
+single Nimbus installation hold both without mixing credentials, indexed data,
+or audit history between them.
+
+Each profile gets its own Vault namespace, its own SQLite index, and its own
+connector configuration. Switching profiles is a Gateway restart — the process
+re-loads the correct configuration, re-binds the Vault, and opens the correct
+index database.
+
+---
+
+## Create, list, switch, and delete
+
+```bash
+# Create a profile called "work" (copies nimbus.toml or seeds a minimal file)
+nimbus profile create work
+
+# Create a profile called "personal"
+nimbus profile create personal
+
+# See all profiles; the active one is marked with *
+nimbus profile list
+
+# Switch to the "work" profile (takes effect on next Gateway restart)
+nimbus profile switch work
+
+# Return to the default profile (nimbus.toml)
+nimbus profile switch default
+
+# Delete a profile — requires --yes to confirm
+nimbus profile delete personal --yes
+```
+
+<Aside type="caution">
+`nimbus profile switch` writes a marker file but **does not restart the
+Gateway**. The switch takes effect the next time you run `nimbus stop &&
+nimbus start`. Until then, the running Gateway continues to use the previously
+active profile.
+</Aside>
+
+Profile names must match `[a-zA-Z0-9_-]{1,32}` and cannot be the reserved
+name `default`.
+
+---
+
+## What profiles separate
+
+| Slot | Per profile | Shared across profiles |
+|---|---|---|
+| Vault credentials | Yes (Vault key prefix per profile) | — |
+| SQLite index database | Yes (separate file) | — |
+| Connector configuration | Yes (separate `nimbus.<name>.toml`) | — |
+| Watchers | Yes | — |
+| Workflows | Yes | — |
+| Audit log | Yes | — |
+| Local LLM model files | — | Yes (downloaded once) |
+| Tauri window position / size | — | Yes |
+| Global hotkey binding | — | Yes |
+
+Watchers and workflows are stored inside the profile's SQLite index, so they
+are automatically separated. If you set up a GitHub watcher in your `work`
+profile, it will not appear when you switch to `personal`.
+
+---
+
+## Vault key prefixing
+
+Per `packages/gateway/src/config/profiles.ts`, the active profile name is
+prepended to every Vault key as a path prefix:
+
+```
+profile/work/github/oauth_access_token
+profile/personal/github/oauth_access_token
+```
+
+When no named profile is active (the default), keys have no prefix:
+
+```
+github/oauth_access_token
+```
+
+This means the OS keystore (DPAPI on Windows, Keychain on macOS, libsecret on
+Linux) holds entries for each profile in separate namespaced slots. Switching
+profiles re-binds the Vault to the new prefix; the previous profile's secrets
+are not accessible until you switch back. Credentials are never copied between
+namespaces.
+
+---
+
+## Profile configuration files
+
+Each profile corresponds to a file named `nimbus.<name>.toml` in the Nimbus
+configuration directory (the same directory as `nimbus.toml`). When you run
+`nimbus profile create <name>`, the CLI either copies your current
+`nimbus.toml` as a starting point (if it exists) or seeds a minimal two-line
+file:
+
+```toml
+schema_version = 1
+profile_name = "work"
+```
+
+You can then edit `nimbus.work.toml` to configure that profile's connectors,
+sync intervals, and automation settings independently. Run `nimbus config edit`
+after switching profiles to open the active profile's TOML in your editor.
+
+---
+
+## Active-profile indicator
+
+- **Tauri sidebar** — the profile name appears in the page header and the
+  system tray tooltip.
+- **CLI** — `nimbus profile list` marks the active profile with `*`.
+- **System tray** — the tray menu includes a profile-switcher submenu (shows
+  all profiles; click to switch and restart).
+
+When the Gateway emits a `profile.switched` IPC notification, the Tauri UI
+re-broadcasts it globally so all open windows (main window, quick query, HITL
+popup) pick up the new state simultaneously.
+
+---
+
+## What happens on switch
+
+When you switch profiles and restart the Gateway:
+
+1. The running Gateway flushes any in-memory LLM context.
+2. The Vault is re-bound to the new key prefix.
+3. The SQLite index connection is closed and reopened against the new profile's
+   database file (the file is created if it does not exist, and migrations run
+   automatically).
+4. Connector configuration is reloaded from the new profile's TOML.
+5. The sync scheduler starts fresh against the new profile's `sync_state` table.
+6. A `profile.switched` IPC notification is emitted.
+
+Because the switch involves restarting the Gateway, any in-flight agent
+sessions or streaming responses are terminated cleanly before the restart.
+
+---
+
+## Limits
+
+There is no hard limit on the number of profiles. Each profile carries its own
+SQLite database and a separate set of Vault entries. In practice, two to four
+profiles covers the typical use case (work, personal, staging, client) without
+any noticeable overhead. Running dozens of profiles is possible but means
+managing many separate databases; a single well-configured profile with broad
+connector coverage is usually simpler.
+
+---
+
+## Where to next
+
+<CardGrid>
+  <LinkCard
+    title="Connect your first service"
+    href="/user-guide/connect-your-first-service/"
+    description="Add connectors to the active profile."
+  />
+  <LinkCard
+    title="Watchers"
+    href="/user-guide/watchers/"
+    description="Set up per-profile alerts when indexed data changes."
+  />
+  <LinkCard
+    title="HITL & safety"
+    href="/user-guide/hitl-and-safety/"
+    description="How the consent gate works and which actions require approval."
+  />
+</CardGrid>
