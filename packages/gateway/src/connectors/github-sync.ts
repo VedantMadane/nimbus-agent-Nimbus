@@ -18,9 +18,15 @@ import { asRecord, numberField, stringField } from "./unknown-record.ts";
 
 const SERVICE_ID = "github";
 const CURSOR_PREFIX = "nimbus-ghub1:";
-const EVENTS_PATH = "/user/events?per_page=100";
+const USER_URL = "https://api.github.com/user";
 
-type GithubSyncCursorV1 = { etag: string | null };
+function eventsUrlFor(login: string): string {
+  return `https://api.github.com/users/${encodeURIComponent(login)}/events?per_page=100`;
+}
+
+// `login` is cached on the cursor so we only call `/user` on the first sync.
+// Older cursors (no login field) decode with login = null — re-resolves on next sync.
+type GithubSyncCursorV1 = { etag: string | null; login: string | null };
 
 function encodeCursor(c: GithubSyncCursorV1): string {
   return encodeNimbusJsonCursor(CURSOR_PREFIX, c);
@@ -39,7 +45,11 @@ function decodeCursor(raw: string | null): GithubSyncCursorV1 | null {
   }
   const rec = parsed as Record<string, unknown>;
   const etag = rec["etag"];
-  return { etag: typeof etag === "string" ? etag : null };
+  const login = rec["login"];
+  return {
+    etag: typeof etag === "string" ? etag : null,
+    login: typeof login === "string" && login !== "" ? login : null,
+  };
 }
 
 function resolveGithubActorPersonId(
@@ -248,46 +258,99 @@ function parseGithubEventsPayload(text: string): unknown[] {
   return parsed;
 }
 
-async function syncGithubUserEvents(
+function throwGithubRateLimitErrorIfApplicable(
   ctx: SyncContext,
-  cursor: string | null,
-  pat: string,
-  t0: number,
-): Promise<SyncResult> {
-  await ctx.rateLimiter.acquire("github");
-
-  const prev = decodeCursor(cursor);
-  const etag = prev?.etag ?? null;
-  const headers = buildGithubEventHeaders(pat, etag);
-
-  const res = await fetch(`https://api.github.com${EVENTS_PATH}`, { headers });
-  const text = await res.text();
-  const bytesTransferred = text.length;
-
-  if (res.status === 304) {
-    return { ...syncNoopResult(cursor, t0), bytesTransferred };
-  }
-
-  if (res.status === 401) {
-    throw new UnauthenticatedError("GitHub events: unauthorized (401)");
-  }
-
+  res: Response,
+  label: string,
+): void {
   if (res.status === 403) {
     const remaining = res.headers.get("x-ratelimit-remaining");
     if (remaining === "0" || remaining === null) {
       const retryAt = retryAfterDateFromHeader(res.headers.get("retry-after"), 60);
       const ms = Math.max(1000, retryAt.getTime() - Date.now());
       ctx.rateLimiter.penalise("github", ms);
-      throw new RateLimitError(retryAt, "GitHub events: rate limited (403)");
+      throw new RateLimitError(retryAt, `GitHub ${label}: rate limited (403)`);
     }
+    return;
   }
-
   if (res.status === 429) {
     const retryAt = retryAfterDateFromHeader(res.headers.get("retry-after"), 60);
     const ms = Math.max(1000, retryAt.getTime() - Date.now());
     ctx.rateLimiter.penalise("github", ms);
-    throw new RateLimitError(retryAt, "GitHub events: rate limited (429)");
+    throw new RateLimitError(retryAt, `GitHub ${label}: rate limited (429)`);
   }
+}
+
+async function fetchAuthenticatedLogin(ctx: SyncContext, pat: string): Promise<string> {
+  await ctx.rateLimiter.acquire("github");
+  const res = await fetch(USER_URL, {
+    headers: {
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      Authorization: `Bearer ${pat}`,
+    },
+  });
+  if (res.status === 401) {
+    throw new UnauthenticatedError("GitHub /user: unauthorized (401)");
+  }
+  throwGithubRateLimitErrorIfApplicable(ctx, res, "/user");
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`GitHub /user ${String(res.status)}: ${text.slice(0, 200)}`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text) as unknown;
+  } catch {
+    throw new TypeError("GitHub /user: invalid JSON");
+  }
+  const rec = asRecord(parsed);
+  const login = rec === undefined ? undefined : stringField(rec, "login");
+  if (login === undefined || login === "") {
+    throw new Error("GitHub /user: response missing login");
+  }
+  return login;
+}
+
+async function syncGithubUserEvents(
+  ctx: SyncContext,
+  cursor: string | null,
+  pat: string,
+  t0: number,
+): Promise<SyncResult> {
+  const prev = decodeCursor(cursor);
+  let login = prev?.login ?? null;
+  // When login was missing from the cursor (legacy or first sync) the cached
+  // etag belonged to the wrong endpoint — drop it so the first /users/{login}/events
+  // call is unconditional.
+  let etag = login === null ? null : (prev?.etag ?? null);
+  let bytesTransferred = 0;
+
+  if (login === null) {
+    login = await fetchAuthenticatedLogin(ctx, pat);
+    ctx.logger.info({ service: SERVICE_ID, login }, "Resolved GitHub authenticated user login");
+    etag = null;
+  }
+
+  await ctx.rateLimiter.acquire("github");
+  const headers = buildGithubEventHeaders(pat, etag);
+  const res = await fetch(eventsUrlFor(login), { headers });
+  const text = await res.text();
+  bytesTransferred += text.length;
+
+  if (res.status === 304) {
+    return {
+      ...syncNoopResult(cursor, t0),
+      cursor: encodeCursor({ etag, login }),
+      bytesTransferred,
+    };
+  }
+
+  if (res.status === 401) {
+    throw new UnauthenticatedError("GitHub events: unauthorized (401)");
+  }
+
+  throwGithubRateLimitErrorIfApplicable(ctx, res, "events");
 
   if (!res.ok) {
     throw new Error(`GitHub events ${String(res.status)}: ${text.slice(0, 200)}`);
@@ -307,7 +370,7 @@ async function syncGithubUserEvents(
   }
 
   const newEtag = res.headers.get("etag");
-  const nextCursor = encodeCursor({ etag: newEtag });
+  const nextCursor = encodeCursor({ etag: newEtag, login });
 
   return {
     cursor: nextCursor,
