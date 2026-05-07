@@ -300,32 +300,39 @@ jobs:
           mkdir -p dist/archives
           V="${GITHUB_REF_NAME#v}"
 
+          # NOTE: install.sh / install.ps1 look for `nimbus` and `nimbus-gateway`
+          # (or `.exe` on Windows) — NOT the `-<os>-<arch>` suffixed names. The
+          # raw release assets keep their suffixed filenames (so users can grab
+          # one binary from the release page without confusion), but inside the
+          # extracted archive we rename to the canonical names that the install
+          # scripts (and `nimbus start`) expect.
+
           # macOS x64 tarball
           mkdir -p dist/stage-macos-x64
-          cp dist/nimbus-gateway-macos-x64/nimbus-gateway-macos-x64 dist/stage-macos-x64/
-          cp dist/nimbus-cli-macos-x64/nimbus-cli-macos-x64         dist/stage-macos-x64/
+          cp dist/nimbus-gateway-macos-x64/nimbus-gateway-macos-x64 dist/stage-macos-x64/nimbus-gateway
+          cp dist/nimbus-cli-macos-x64/nimbus-cli-macos-x64         dist/stage-macos-x64/nimbus
           cp scripts/release/archive-contents/README-QUICKSTART.txt dist/stage-macos-x64/
           cp scripts/release/archive-contents/LICENSE-AGPL.txt      dist/stage-macos-x64/
           cp scripts/install/unix/install.sh                         dist/stage-macos-x64/
           cp scripts/install/unix/uninstall.sh                       dist/stage-macos-x64/
-          chmod +x dist/stage-macos-x64/nimbus-* dist/stage-macos-x64/install.sh dist/stage-macos-x64/uninstall.sh
+          chmod +x dist/stage-macos-x64/nimbus dist/stage-macos-x64/nimbus-gateway dist/stage-macos-x64/install.sh dist/stage-macos-x64/uninstall.sh
           tar -czf dist/archives/nimbus-headless-macos-x64.tar.gz -C dist/stage-macos-x64 .
 
           # macOS arm64 tarball
           mkdir -p dist/stage-macos-arm64
-          cp dist/nimbus-gateway-macos-arm64/nimbus-gateway-macos-arm64 dist/stage-macos-arm64/
-          cp dist/nimbus-cli-macos-arm64/nimbus-cli-macos-arm64         dist/stage-macos-arm64/
+          cp dist/nimbus-gateway-macos-arm64/nimbus-gateway-macos-arm64 dist/stage-macos-arm64/nimbus-gateway
+          cp dist/nimbus-cli-macos-arm64/nimbus-cli-macos-arm64         dist/stage-macos-arm64/nimbus
           cp scripts/release/archive-contents/README-QUICKSTART.txt     dist/stage-macos-arm64/
           cp scripts/release/archive-contents/LICENSE-AGPL.txt          dist/stage-macos-arm64/
           cp scripts/install/unix/install.sh                             dist/stage-macos-arm64/
           cp scripts/install/unix/uninstall.sh                           dist/stage-macos-arm64/
-          chmod +x dist/stage-macos-arm64/nimbus-* dist/stage-macos-arm64/install.sh dist/stage-macos-arm64/uninstall.sh
+          chmod +x dist/stage-macos-arm64/nimbus dist/stage-macos-arm64/nimbus-gateway dist/stage-macos-arm64/install.sh dist/stage-macos-arm64/uninstall.sh
           tar -czf dist/archives/nimbus-headless-macos-arm64.tar.gz -C dist/stage-macos-arm64 .
 
           # Windows x64 zip
           mkdir -p dist/stage-windows-x64
-          cp dist/nimbus-gateway-windows-x64/nimbus-gateway-windows-x64.exe dist/stage-windows-x64/
-          cp dist/nimbus-cli-windows-x64/nimbus-cli-windows-x64.exe         dist/stage-windows-x64/
+          cp dist/nimbus-gateway-windows-x64/nimbus-gateway-windows-x64.exe dist/stage-windows-x64/nimbus-gateway.exe
+          cp dist/nimbus-cli-windows-x64/nimbus-cli-windows-x64.exe         dist/stage-windows-x64/nimbus.exe
           cp scripts/release/archive-contents/README-QUICKSTART.txt         dist/stage-windows-x64/
           cp scripts/release/archive-contents/LICENSE-AGPL.txt              dist/stage-windows-x64/
           cp scripts/install/windows/install.ps1                             dist/stage-windows-x64/
