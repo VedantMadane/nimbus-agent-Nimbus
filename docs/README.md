@@ -266,8 +266,8 @@ Once installed, run **`nimbus doctor`** — it checks every prerequisite above a
 #### Linux (`.deb`)
 
 ```bash
-curl -L https://github.com/asafgolombek/Nimbus/releases/latest/download/nimbus_amd64.deb -o nimbus.deb
-curl -L https://github.com/asafgolombek/Nimbus/releases/latest/download/nimbus_amd64.deb.asc -o nimbus.deb.asc
+curl -L https://github.com/nimbus-agent/Nimbus/releases/latest/download/nimbus_amd64.deb -o nimbus.deb
+curl -L https://github.com/nimbus-agent/Nimbus/releases/latest/download/nimbus_amd64.deb.asc -o nimbus.deb.asc
 gpg --keyserver keys.openpgp.org --recv-keys 5A20457CCD8B53FFAA945240886ADA6B487CAB6E
 gpg --verify nimbus.deb.asc nimbus.deb
 sudo dpkg -i nimbus.deb
@@ -278,7 +278,7 @@ The `.deb` installs `nimbus` and `nimbus-gateway` wrappers under `/usr/local/bin
 #### macOS / Linux (tarball)
 
 ```bash
-curl -L https://github.com/asafgolombek/Nimbus/releases/latest/download/nimbus-macos-arm64.tar.gz -o nimbus.tar.gz
+curl -L https://github.com/nimbus-agent/Nimbus/releases/latest/download/nimbus-macos-arm64.tar.gz -o nimbus.tar.gz
 tar -xzf nimbus.tar.gz
 cd nimbus-*
 ./install.sh --yes
@@ -291,7 +291,7 @@ The bundled `install.sh` copies the binaries to `~/.local/bin` and adds a sentin
 #### Windows (zip)
 
 ```powershell
-Invoke-WebRequest https://github.com/asafgolombek/Nimbus/releases/latest/download/nimbus-windows-x64.zip -OutFile nimbus.zip
+Invoke-WebRequest https://github.com/nimbus-agent/Nimbus/releases/latest/download/nimbus-windows-x64.zip -OutFile nimbus.zip
 Expand-Archive nimbus.zip
 cd (Get-ChildItem nimbus-*).Name
 .\install.ps1 -Yes
@@ -304,7 +304,7 @@ The bundled `install.ps1` (PowerShell 7+) copies the binaries to `%LOCALAPPDATA%
 #### AppImage (Linux)
 
 ```bash
-curl -L https://github.com/asafgolombek/Nimbus/releases/latest/download/Nimbus-x86_64.AppImage -o Nimbus.AppImage
+curl -L https://github.com/nimbus-agent/Nimbus/releases/latest/download/Nimbus-x86_64.AppImage -o Nimbus.AppImage
 chmod +x Nimbus.AppImage
 # Run directly:
 ./Nimbus.AppImage --version
@@ -317,8 +317,8 @@ chmod +x Nimbus.AppImage
 Every release ships a GPG-signed `SHA256SUMS.asc`:
 
 ```bash
-curl -L https://github.com/asafgolombek/Nimbus/releases/latest/download/SHA256SUMS -o SHA256SUMS
-curl -L https://github.com/asafgolombek/Nimbus/releases/latest/download/SHA256SUMS.asc -o SHA256SUMS.asc
+curl -L https://github.com/nimbus-agent/Nimbus/releases/latest/download/SHA256SUMS -o SHA256SUMS
+curl -L https://github.com/nimbus-agent/Nimbus/releases/latest/download/SHA256SUMS.asc -o SHA256SUMS.asc
 gpg --keyserver keys.openpgp.org --recv-keys 5A20457CCD8B53FFAA945240886ADA6B487CAB6E
 gpg --verify SHA256SUMS.asc SHA256SUMS
 sha256sum --check --ignore-missing SHA256SUMS
@@ -329,7 +329,7 @@ The fingerprint is published at [`docs/release/SIGNING-KEY.asc`](docs/release/SI
 ### Option B — Build from Source
 
 ```bash
-git clone https://github.com/asafgolombek/Nimbus.git
+git clone https://github.com/nimbus-agent/Nimbus.git
 cd Nimbus
 bun install          # NOT "bun run install" — that looks for a script and fails
                      # Installs sharp + platform @img/sharp-* for embeddings (via @xenova/transformers)
@@ -527,9 +527,11 @@ nimbus extension list
 | **Config dir** | `%APPDATA%\Nimbus` | `~/Library/…/Nimbus` | `~/.config/nimbus` |
 | **Desktop UI** | WebView2 | WKWebView | WebKitGTK |
 | **CI runner** | `windows-2025` | `macos-15` | `ubuntu-24.04` |
-| **Release** | `.exe` (signed) | `.dmg` (notarized) | `.deb` + AppImage |
+| **Release** | `.zip` (unsigned, v0.1.0 cut-line) † | `.tar.gz` (unsigned, v0.1.0 cut-line) † | `.deb` (GPG-signed) + AppImage |
 
 † **Ubuntu 22.04 is supported for source builds only.** Pre-built Linux binaries are compiled on Ubuntu 24.04 and require **glibc ≥ 2.39** at runtime — Ubuntu 22.04 LTS, Debian 12, and RHEL 9 (and derivatives) will fail with `GLIBC_2.39 not found`. See [SECURITY.md](./SECURITY.md#linux-runtime-support--glibc-floor).
+
+† **macOS and Windows ship unsigned in v0.1.0.** Cross-platform integrity is provided by the GPG-signed `SHA256SUMS.asc` manifest. macOS Gatekeeper and Windows SmartScreen will prompt on first run; this is expected. Apple Developer notarization and Windows Authenticode signing are deferred to a later point release — see [SECURITY.md](./SECURITY.md#v010-signing-cut-line).
 
 ---
 

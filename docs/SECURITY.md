@@ -306,7 +306,7 @@ HIGH and CRITICAL findings block merges when branch protection checks are requir
 Release binaries (Gateway + CLI, all four platform builds) carry a **GitHub build provenance attestation** (`actions/attest-build-provenance`) and a **CycloneDX SBOM**, both attached to the GitHub Release. Verify with:
 
 ```bash
-gh attestation verify nimbus-gateway-linux-x64 --owner asafgolombek
+gh attestation verify nimbus-gateway-linux-x64 --owner nimbus-agent
 ```
 
 ---
