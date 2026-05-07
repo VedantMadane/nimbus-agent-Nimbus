@@ -349,12 +349,19 @@ jobs:
       # dependency graphs that produced the binaries downloaded above. Output is
       # attached to the release for downstream consumers and signed via OIDC by
       # the anchore action's call to attest-build-provenance.
+      #
+      # NOTE on `output-file`: anchore/sbom-action@v0.24.0 does NOT define any
+      # action outputs (no `outputs:` block in its action.yml), so the previous
+      # `${{ steps.sbom.outputs.fileName }}` reference always evaluated to the
+      # empty string. Pin the local file path explicitly so the staging step
+      # below can `cp` from a known location.
       - name: Generate SBOM (CycloneDX)
         id: sbom
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
           path: .
           format: cyclonedx-json
+          output-file: dist/sbom.cdx.json
           artifact-name: nimbus-${{ github.ref_name }}-sbom.cdx.json
           # Don't auto-attach to GitHub Release (we do it explicitly below to control filename).
           upload-release-assets: false
@@ -387,8 +394,8 @@ jobs:
           # Archives
           cp dist/archives/*                                                    dist/stage/
 
-          # SBOM
-          cp "${{ steps.sbom.outputs.fileName }}"                              "dist/stage/nimbus-${GITHUB_REF_NAME}-sbom.cdx.json"
+          # SBOM (path matches `output-file:` set on the SBOM step above).
+          cp dist/sbom.cdx.json                                                "dist/stage/nimbus-${GITHUB_REF_NAME}-sbom.cdx.json"
 
           # Verify scripts (uploaded as release assets so users can curl them)
           cp scripts/release/nimbus-verify.sh                                   dist/stage/
