@@ -2,14 +2,14 @@
 
 ## Supported Versions
 
-Nimbus is in active development (**Phase 5 — The Extended Surface**; Phase 4 Presence is complete). Only the latest commit on `main` receives security fixes. There are no stable release branches yet.
+Nimbus is in active development (**Phase 5 — The Extended Surface**; Phase 4 Presence is complete). Security fixes land on `main` and are folded into the next `v0.1.x` patch release.
 
 | Branch / Tag | Supported |
 |---|---|
-| `main` (HEAD) | ✅ Yes |
-| Older commits | ❌ No |
-
-Once versioned releases begin (target: Phase 4 — `v0.1.0`), this table will be updated with a supported version range.
+| `main` (HEAD) | ✅ Yes — tracks the upcoming version |
+| `v0.1.x` (latest patch) | ✅ Yes — security fixes are backported when the delta is small |
+| Older `v0.1.x` patches | ❌ No — upgrade to the latest patch |
+| Pre-`v0.1.0` commits | ❌ No |
 
 ### Linux runtime support — glibc floor
 
@@ -209,9 +209,9 @@ In addition to the textual labeling, MCP tool results are returned to the agent 
 
 Every action the agent takes — including every HITL decision — is recorded in a local SQLite `audit_log` table before the action executes. You can reconstruct exactly what Nimbus did on your behalf at any time via `nimbus audit` or the desktop audit log viewer.
 
-**Single source of truth:** The audit log lives exclusively in SQLite — there is no separate `audit.jsonl` file. This is a deliberate architectural decision: a split store would require two separate tamper-evident chains and create reconciliation risk before `v0.1.0`.
+**Single source of truth:** The audit log lives exclusively in SQLite — there is no separate `audit.jsonl` file. This is a deliberate architectural decision: a split store would require two separate tamper-evident chains and create reconciliation risk.
 
-Phase 4 migration N+3 will add `row_hash` and `prev_hash` columns to `audit_log`, implementing a BLAKE3-chained tamper-evident log verifiable with `nimbus audit verify`.
+Migration V18 (`packages/gateway/src/index/audit-chain-v18-sql.ts`) added `row_hash` and `prev_hash` columns to `audit_log`, implementing a BLAKE3-chained tamper-evident log. Verify with `nimbus audit verify` (see `packages/cli/src/commands/audit.ts`).
 
 ---
 
@@ -240,7 +240,7 @@ Phase 5 will introduce standing approvals: pre-authorized patterns that allow re
 
 Nimbus is designed to support security-sensitive operational environments. The properties relevant to SecDevOps and compliance teams:
 
-**Audit trail.** Every action the agent takes — including every HITL approval, rejection, and "not required" decision — is recorded in a local SQLite `action_log` table before the action executes. The log is append-only. Phase 4 adds BLAKE3 chain hashing (`row_hash`, `prev_hash`) verifiable with `nimbus audit verify`. Phase 9 adds shipping to SIEM targets (Splunk, Elastic, Datadog Logs, S3/GCS/Azure Blob) with local retention as fallback.
+**Audit trail.** Every action the agent takes — including every HITL approval, rejection, and "not required" decision — is recorded in a local SQLite `audit_log` table before the action executes. The log is append-only and BLAKE3-chained (`row_hash`, `prev_hash` columns added by V18); verify integrity with `nimbus audit verify`. Phase 9 adds shipping to SIEM targets (Splunk, Elastic, Datadog Logs, S3/GCS/Azure Blob) with local retention as fallback.
 
 **No data exfiltration surface.** The local index stores metadata only — names, timestamps, URLs, body previews. Full document content never enters the index or embedding pipeline unless explicitly configured (`[indexing.depth] = "full"`). The index is protected by OS file permissions; it is never transmitted to a Nimbus server because there is no Nimbus server.
 
@@ -350,7 +350,7 @@ If the active signing key is suspected to be compromised:
 3. Revoke the leaked key by removing it from `public-key.ts` in the immediate follow-up release.
 4. Audit the GitHub Actions workflow run logs for the period the key was active — look for any step that read `UPDATER_SIGNING_KEY` outside `scripts/sign-ed25519.ts`.
 
-**Long-term mitigation:** the project is tracking migration to **sigstore/cosign with GitHub OIDC** for keyless updater signing, eliminating the long-lived secret entirely. Tracked under Phase 4 release-infra hardening.
+**Long-term mitigation:** the project is tracking migration to **sigstore/cosign with GitHub OIDC** for keyless updater signing, eliminating the long-lived secret entirely. Tracked as Phase 5+ release-infra hardening.
 
 ---
 

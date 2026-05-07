@@ -65,7 +65,9 @@ export async function createPlatformServices(): Promise<PlatformServices> {
 | **Notifications** | Win32 Toast API (via Tauri plugin) | `NSUserNotification` (via Tauri plugin) | `libnotify` via D-Bus |
 | **Shell setup** | PowerShell profile + `$PATH` | `~/.zshrc` / `~/.bashrc` | `~/.bashrc` / `~/.zshrc` / fish config |
 | **CI runner** | `windows-2025` | `macos-15` | `ubuntu-24.04` |
-| **Release artifact** | `.exe` (signed) | `.dmg` / `.app` (signed + notarized) | `.deb` + AppImage |
+| **Release artifact** | `.zip` (unsigned in v0.1.0)¹ | `.tar.gz` (unsigned in v0.1.0)¹ | `.deb` (GPG-signed) + AppImage + tarball |
+
+¹ macOS and Windows ship unsigned in `v0.1.0`; integrity is provided by the GPG-signed `SHA256SUMS.asc` manifest. Apple Developer notarization and Windows Authenticode signing are deferred to a later point release. See [`SECURITY.md`](./SECURITY.md#v010-signing-cut-line).
 
 ### Platform Path API
 
