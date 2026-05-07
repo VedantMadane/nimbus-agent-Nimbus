@@ -4,11 +4,17 @@ Items marked **Automated** run in CI; **Manual** require human sign-off before a
 
 | Item | Status | Evidence |
 |------|--------|----------|
-| `bun audit --audit-level high` clean | **Automated** | `.github/workflows/security.yml` job `audit` |
-| Trivy on dependency / config surface | **Automated** | `security.yml` job `trivy-scan` (filesystem scan of repo root; includes all workspace `package.json` and lockfiles) |
-| `cargo audit` (Tauri / `Cargo.lock`) | **Automated** | `security.yml` job `cargo-audit` (`packages/ui/src-tauri`) |
-| CodeQL JavaScript/TypeScript | **Automated** | `.github/workflows/codeql.yml` (entire monorepo, including MCP connector packages) |
+| `bun audit --audit-level high` clean | **Automated** | `.github/workflows/security.yml` job `Dependency audit` |
+| Trivy on dependency / config surface | **Automated** | `security.yml` job `Trivy vulnerability scan` (filesystem scan of repo root; includes all workspace `package.json` and lockfiles) |
+| `cargo audit` (Tauri / `Cargo.lock`) | **Automated** | `security.yml` job `Cargo audit (Tauri)` (`packages/ui/src-tauri`) |
+| `cargo deny` (licenses + advisories + bans) | **Automated** | `security.yml` job `Cargo deny (licenses + advisories + bans)` (AGPL-compatibility + unmaintained-crate bans + registry pinning) |
+| Gitleaks secret scan (PRs + nightly) | **Automated** | `security.yml` job `Gitleaks secret scan` |
+| CodeQL JavaScript/TypeScript and Rust | **Automated** | `.github/workflows/codeql.yml` (entire monorepo, including MCP connector packages; security-extended queries for both languages) |
 | OpenSSF Scorecard (supply chain SARIF) | **Automated** | `.github/workflows/scorecard.yml`; see [`SECURITY.md`](./SECURITY.md) for **Security-Policy** and items that need GitHub settings (branch protection, reviews) or external programs (OSS-Fuzz, CII badge) |
+| Build provenance attestation (release artifacts) | **Automated** | `.github/workflows/release.yml` `actions/attest-build-provenance` step (Gateway + CLI binaries on all four platforms); verify with `gh attestation verify` |
+| CycloneDX SBOM on release | **Automated** | `release.yml` `anchore/sbom-action` step; SBOM published as `nimbus-v<ver>-sbom.cdx.json` release asset |
+| `@nimbus-dev/client` npm provenance | **Automated** | `.github/workflows/publish-client.yml` `npm publish --provenance` (sigstore / GitHub OIDC); verify with `npm audit signatures` |
+| Static-time invariant audit (I1 spawn rule + vault-key allow-list) | **Automated** | `.github/workflows/_structure.yml` reusable workflow runs `bun run audit:invariants` (`scripts/structure-audit/check-nimbus-invariants.ts`); the runtime invariant tests in `packages/gateway/src/security-invariants.test.ts` remain authoritative |
 | `pkce.ts` — no secrets in exchange-failure exceptions | **Automated** | `packages/gateway/src/auth/pkce.test.ts` (Google + Microsoft invalid_grant paths) |
 | `pkce.ts` / IPC / logs — full manual pass | **Manual** | Spot-check on material PKCE or IPC changes |
 | Connector layout — no per-connector `auth.ts` | **Automated** | `packages/gateway/test/e2e/scenarios/mcp-connector-structure.contract.test.ts` |
@@ -16,7 +22,7 @@ Items marked **Automated** run in CI; **Manual** require human sign-off before a
 | `connector.remove` resilience (SQLite index in WAL + transaction; Vault rollback on failure) | **Partially automated** | Index deletes run in `LocalIndex.removeConnectorIndexData` (`db.transaction`); `handleConnectorRemove` snapshots and restores all Google OAuth keys (`google.oauth`, `google_drive.oauth`, `google_gmail.oauth`, `google_photos.oauth`) and `microsoft.oauth` (+ per-service Microsoft keys) on Vault errors — see `packages/gateway/test/integration/connector-remove-oauth-restore.integration.test.ts`. True power-cut across separate stores cannot be fully simulated in CI. |
 | Discord off by default | **Automated / product** | Lazy mesh + vault keys; see plan acceptance checklist |
 | Minimum-scope Outlook (`Calendars.Read` only) | **Automated + manual** | Policy: `packages/mcp-connectors/outlook/src/tool-scope-policy.ts` + `tool-scope-policy.test.ts`; Gateway passes vault `scopes` via `readMicrosoftOAuthScopesForOutlookEnv` → `MICROSOFT_OAUTH_SCOPES` (`oauth-vault-scopes.test.ts`). **Manual:** smoke in a real tenant after auth. |
-| No credential fragments in audit payloads | **Automated** | `packages/gateway/src/engine/audit-payload-safety.test.ts` (regex scan of HITL / consent-related JSON). **Note:** Q2 HITL audit rows live in SQLite `audit_log`; file-based `{logDir}/audit.jsonl` for expanded events is planned — extend the same checks when that lands. |
+| No credential fragments in audit payloads | **Automated** | `packages/gateway/src/engine/audit-payload-safety.test.ts` (regex scan of HITL / consent-related JSON). The audit log is the SQLite `audit_log` table only — there is no file-based `audit.jsonl` (single-source-of-truth decision documented in [`SECURITY.md`](./SECURITY.md#audit-log)). |
 
 ## Maintainer workflow
 

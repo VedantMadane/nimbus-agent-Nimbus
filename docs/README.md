@@ -21,6 +21,12 @@ Nimbus is an open-source, local-first AI agent built for engineers who run syste
 
 **Your credentials never leave your machine. There is no Nimbus server.**
 
+Every architectural decision in Nimbus is evaluated against one question:
+
+> **Does this return control to the user, or does it erode it?**
+
+The non-negotiables in [Contributing](#contributing) follow from that question — they are load-bearing constraints, not aspirational values.
+
 ---
 
 ## What It Does
@@ -265,9 +271,12 @@ Once installed, run **`nimbus doctor`** — it checks every prerequisite above a
 
 #### Linux (`.deb`)
 
+The `.deb` filename includes the version (e.g. `nimbus-headless_0.1.0_amd64.deb`). Set `VER` to the release tag without the leading `v` (see [Releases](https://github.com/nimbus-agent/Nimbus/releases/latest)):
+
 ```bash
-curl -L https://github.com/nimbus-agent/Nimbus/releases/latest/download/nimbus_amd64.deb -o nimbus.deb
-curl -L https://github.com/nimbus-agent/Nimbus/releases/latest/download/nimbus_amd64.deb.asc -o nimbus.deb.asc
+VER=0.1.0
+curl -L "https://github.com/nimbus-agent/Nimbus/releases/download/v${VER}/nimbus-headless_${VER}_amd64.deb" -o nimbus.deb
+curl -L "https://github.com/nimbus-agent/Nimbus/releases/download/v${VER}/nimbus-headless_${VER}_amd64.deb.asc" -o nimbus.deb.asc
 gpg --keyserver keys.openpgp.org --recv-keys 5A20457CCD8B53FFAA945240886ADA6B487CAB6E
 gpg --verify nimbus.deb.asc nimbus.deb
 sudo dpkg -i nimbus.deb
@@ -275,10 +284,13 @@ sudo dpkg -i nimbus.deb
 
 The `.deb` installs `nimbus` and `nimbus-gateway` wrappers under `/usr/local/bin` — already on `PATH` for any Debian/Ubuntu user.
 
-#### macOS / Linux (tarball)
+#### macOS (tarball)
 
 ```bash
-curl -L https://github.com/nimbus-agent/Nimbus/releases/latest/download/nimbus-macos-arm64.tar.gz -o nimbus.tar.gz
+# Apple Silicon
+curl -L https://github.com/nimbus-agent/Nimbus/releases/latest/download/nimbus-headless-macos-arm64.tar.gz -o nimbus.tar.gz
+# Intel
+# curl -L https://github.com/nimbus-agent/Nimbus/releases/latest/download/nimbus-headless-macos-x64.tar.gz -o nimbus.tar.gz
 tar -xzf nimbus.tar.gz
 cd nimbus-*
 ./install.sh --yes
@@ -291,7 +303,7 @@ The bundled `install.sh` copies the binaries to `~/.local/bin` and adds a sentin
 #### Windows (zip)
 
 ```powershell
-Invoke-WebRequest https://github.com/nimbus-agent/Nimbus/releases/latest/download/nimbus-windows-x64.zip -OutFile nimbus.zip
+Invoke-WebRequest https://github.com/nimbus-agent/Nimbus/releases/latest/download/nimbus-headless-windows-x64.zip -OutFile nimbus.zip
 Expand-Archive nimbus.zip
 cd (Get-ChildItem nimbus-*).Name
 .\install.ps1 -Yes
@@ -303,12 +315,25 @@ The bundled `install.ps1` (PowerShell 7+) copies the binaries to `%LOCALAPPDATA%
 
 #### AppImage (Linux)
 
+The AppImage filename includes the version (e.g. `nimbus-headless-0.1.0-x86_64.AppImage`). Set `VER` to the release tag without the leading `v`:
+
 ```bash
-curl -L https://github.com/nimbus-agent/Nimbus/releases/latest/download/Nimbus-x86_64.AppImage -o Nimbus.AppImage
+VER=0.1.0
+curl -L "https://github.com/nimbus-agent/Nimbus/releases/download/v${VER}/nimbus-headless-${VER}-x86_64.AppImage" -o Nimbus.AppImage
 chmod +x Nimbus.AppImage
 # Run directly:
 ./Nimbus.AppImage --version
-# OR install the bundled wrapper to ~/.local/bin so it's on PATH:
+```
+
+#### Linux (tarball)
+
+The Linux tarball filename includes the version (e.g. `nimbus-headless-linux-amd64-v0.1.0.tar.gz`):
+
+```bash
+VER=0.1.0
+curl -L "https://github.com/nimbus-agent/Nimbus/releases/download/v${VER}/nimbus-headless-linux-amd64-v${VER}.tar.gz" -o nimbus.tar.gz
+tar -xzf nimbus.tar.gz
+cd nimbus-*
 ./install.sh --yes
 ```
 
@@ -616,7 +641,6 @@ nimbus/
 ├── docs/
 │   ├── README.md             # this file
 │   ├── architecture.md       # subsystem design
-│   ├── mission.md            # design philosophy and principles
 │   ├── SECURITY.md           # security model + vulnerability reporting
 │   ├── roadmap.md            # acceptance-criteria-driven roadmap
 │   ├── CONTRIBUTING.md       # contributor workflow and constraints
@@ -671,7 +695,7 @@ git push origin v0.1.0
 Architecture is stabilizing; not all interfaces are frozen.
 
 1. Read [`architecture.md`](./architecture.md) — understand the four subsystems and their contracts.
-2. Read [`mission.md`](./mission.md) — understand the non-negotiables.
+2. Review the **non-negotiables** below — they are not aspirational values; PRs that violate them will not be merged.
 3. Check issues tagged `good first issue`.
 4. Open a discussion before large PRs.
 
@@ -712,6 +736,6 @@ Commercial license for embedding Nimbus in a product without AGPL obligations, o
 
 <div align="center">
 
-**[Mission](./mission.md) · [Architecture](./architecture.md) · [Roadmap](./roadmap.md) · [Security](./SECURITY.md) · [Changelog](../CHANGELOG.md)**
+**[Architecture](./architecture.md) · [Roadmap](./roadmap.md) · [Security](./SECURITY.md) · [Changelog](../CHANGELOG.md)**
 
 </div>

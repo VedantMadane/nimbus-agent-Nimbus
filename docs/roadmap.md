@@ -44,7 +44,7 @@ Commercial license also available now for organizations that need to embed Nimbu
 | Phase 3 | Intelligence | ✅ Complete |
 | Phase 3.5 | Observability & Developer Experience | ✅ Complete |
 | Phase 4 | Presence | ✅ Complete |
-| Phase 5 | The Extended Surface | Planned |
+| Phase 5 | The Extended Surface | 🔵 Active |
 | Phase 6 | Team | Planned |
 | Phase 7 | The Autonomous Agent | Planned |
 | Phase 8 | Sovereign Mesh | Planned |
@@ -324,9 +324,7 @@ Commercial license also available now for organizations that need to embed Nimbu
 
 ### Built-in Agent Workflows
 
-First-party demonstrations of multi-agent orchestration and multi-connector context assembly that ship with Phase 4.
-
-- [ ] **Meeting preparation** — `nimbus prep "<event title or time>"` resolves the calendar event, surfaces attendees via the people graph (recent PRs, open issues, Slack threads), and pulls related documents from Drive/OneDrive/Notion; output is a structured brief rendered in the TUI or Tauri UI; triggered on demand, not scheduled; no new connectors required — uses the full Phase 2 index
+First-party demonstrations of multi-agent orchestration. **Deferred to the v0.1.1 batch** — see the table later in this section. The Phase 4 multi-agent infrastructure ships without first-party agents; the agents themselves slip out of `v0.1.0` to keep the release scope tight.
 
 ### VS Code Extension
 
@@ -359,7 +357,7 @@ First-party demonstrations of multi-agent orchestration and multi-connector cont
 - [x] **GDPR deletion** — `nimbus data delete --service <name>`: preflight shows counts; `--dry-run` for preview; `--yes` to confirm; removes all `item` rows and Vault entries for a service; writes `data.delete` audit entry
 - [x] **Tamper-evident audit log** — each audit log row is BLAKE3-chained to the previous (V18 schema migration); `nimbus audit verify [--full] [--since <id>]` checks integrity incrementally or fully; `nimbus audit export --output <path>` exports chain
 - [x] **Data minimization / connector reindex** — `nimbus connector reindex <name> [--depth <metadata_only|summary|full>]`: prunes body/embeddings at `metadata_only`, writes `data.minimization.prune` audit entry
-- [ ] **SQLite encryption at rest (SQLCipher)** — opt-in AES-256 encryption of the local index; key derived from OS Vault (DPAPI/Keychain/libsecret — same trust boundary as credential storage); enabled via `[db.encrypt] = true`; resolves the Phase 2 deferral (OS filesystem encryption covers the baseline threat model; SQLCipher closes the gap for shared-machine and compliance scenarios)
+- **[Deferred to v0.1.1.]** SQLite encryption at rest (SQLCipher) — see the v0.1.1 batch table.
 
 ### Automation & Graph Enhancements
 
@@ -367,7 +365,7 @@ These items resolve deferred decisions from Phase 3.
 
 - [x] **Graph-aware watcher conditions** — extend the watcher condition evaluator with `graph.*` condition types (`graph.has_relation`, `graph.path_exists`, `graph.neighbor_count`); uses `traverseGraph` from the Phase 3 relationship graph substrate; enables patterns like "alert when a PR author has no prior reviews" without per-watcher custom traversal code; new condition types are additive and backwards-compatible with existing Phase 3 watcher definitions
   - [x] A.1 — Graph-aware watcher conditions (Phase 4 S2): `owned_by` / `upstream_of` / `downstream_of` logical relations; `[automation].graph_conditions` flag; V22 migration.
-- [ ] **Workflow branching and conditionals** — extend the workflow DSL with `if` / `else` / `switch` step types; condition expressions can reference step outputs and index query results; independent branches execute in parallel where possible; DSL remains backwards-compatible with Phase 3 linear pipelines; dry-run and HITL safety apply to all branch variants
+- **[Deferred to v0.1.1.]** Workflow branching and conditionals — see the v0.1.1 batch table.
 - [x] **Per-connector OAuth vault keys** — per-service keys implemented: `google_drive.oauth`, `google_gmail.oauth`, `google_photos.oauth` for Google; `onedrive.oauth`, `outlook.oauth`, `teams.oauth` for Microsoft; `nimbus connector auth` writes per-service key on each PKCE flow; Microsoft keys back-filled from `microsoft.oauth` on Gateway startup; legacy shared keys kept as fallback for Google until each service re-auths; eliminates scope-collision between Google connectors
 
 ### Remote Access
@@ -430,14 +428,11 @@ The B1 security audit completed in Phase 4. Three more initiatives are active or
 - `nimbus ask "summarize everything that happened across my projects this week"` runs fully locally via Ollama — no API key, no network call — in under 30 seconds on a mid-range laptop
 - Multi-agent orchestration: a task decomposed into 3 parallel sub-agents cannot bypass HITL on any write step — verified by automated test
 - `nimbus data export` → wipe index and Vault → `nimbus data import` restores full functionality on a fresh machine with all connectors re-authenticated
-- Five community extensions available in the Marketplace at `v0.1.0` launch *(seed plan: publish first-party connectors as community packages and engage early adopters via `docs/contributors/extension-author-walkthrough.md`)*
 - VS Code extension installs from Open VSX and connects to a running Gateway without any manual configuration
 - Cursor can query the Nimbus local index via MCP and surface the last deployment and open PRs for a service mentioned in a code comment — verified manually by connecting Cursor to a running `nimbus mcp-server` instance
 - Voice query completes end-to-end (speech → Whisper.cpp transcription → Gateway → TTS playback) on all three platforms; audio never leaves the machine — verified by network inspection in CI
-- `nimbus changelog --service payment-service --since 7d` produces a Markdown document containing at least PRs merged and incidents resolved for that service, assembled entirely from the local index without a live API call
-- `nimbus standup` produces a Markdown summary of the authenticated user's activity across at least GitHub and Linear in the last 24 hours, resolved via the people graph from the local index
-- `nimbus explain last` after a recent `nimbus ask` lists the indexed items loaded into context with their relevance scores and the reason any candidate items were discarded, and identifies which connectors were queried vs answered from cache
-- `nimbus index health` reports per-connector embedding coverage and a 0–100 confidence score derived from coverage and freshness; a confidence score below 60 surfaces in `nimbus doctor` output as a warning
+
+> Acceptance criteria for the **community-extension Marketplace seed**, `nimbus changelog`, `nimbus standup`, `nimbus explain last`, and `nimbus index health` moved to the v0.1.1 batch table above.
 
 ---
 

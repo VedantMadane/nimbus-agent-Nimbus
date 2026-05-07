@@ -36,10 +36,10 @@ These are the structural defenses Nimbus relies on. Each one has a production wi
 | # | Invariant | Wired at | Anti-pattern that regresses it |
 |---|---|---|---|
 | I1 | Child-process env scoping via `extensionProcessEnv()` | `connectors/lazy-mesh/` (every spawn across `mesh.ts`, `connector-spawns.ts`, `phase3-config.ts`, `user-mcp.ts`) | `spawn(..., { env: { ...process.env } })` anywhere under `connectors/` |
-| I2 | HITL frozen-set membership; `HITL_REQUIRED_BACKING` is module-private | `engine/executor.ts:192` | New destructive RPC that skips `ToolExecutor` or omits the action type from the set |
-| I3 | HITL gate consults `action.type` only (NOT `payload.mcpToolId`) | `engine/executor.ts` | Gating on `mcpToolId` or `resolvedToolId` — the set holds logical types, not MCP ids |
-| I4 | `hitlStatus` is set only by the consent gate | `engine/executor.ts:194-210` | Hardcoding `hitlStatus: "approved"` in any handler |
-| I5 | `checkLanMethodAllowed` is intrinsic to `LanServer` | `ipc/lan-server.ts:242` | Moving the check into the dispatcher or any caller |
+| I2 | HITL frozen-set membership; `HITL_REQUIRED_BACKING` is module-private | `engine/executor.ts` `ToolExecutor.gate()` | New destructive RPC that skips `ToolExecutor` or omits the action type from the set |
+| I3 | HITL gate consults `action.type` only (NOT `payload.mcpToolId`) | `engine/executor.ts` `ToolExecutor.gate()` | Gating on `mcpToolId` or `resolvedToolId` — the set holds logical types, not MCP ids |
+| I4 | `hitlStatus` is set only by the consent gate | `engine/executor.ts` `ToolExecutor.gate()` | Hardcoding `hitlStatus: "approved"` in any handler |
+| I5 | `checkLanMethodAllowed` is intrinsic to `LanServer` | `ipc/lan-server.ts` `LanServer.handleEncryptedMessage()` | Moving the check into the dispatcher or any caller |
 | I6 | LAN bind defaults to `127.0.0.1` | `config/nimbus-toml.ts` | Defaulting to `0.0.0.0` or auto-binding all interfaces from an env var |
 | I7 | Tauri `ALLOWED_METHODS` matches gateway handlers; no RCE-class methods exposed to renderer | `ui/src-tauri/src/gateway_bridge.rs` | Adding `extension.install` / `connector.addMcp` to the renderer allowlist |
 | I8 | Tauri renderer CSP is restrictive (no `unsafe-inline`, no `unsafe-eval`) | `ui/src-tauri/tauri.conf.json` | `"csp": null` or loosening with `unsafe-*` |
@@ -80,6 +80,8 @@ runs. See `docs/structure-audit/baseline.md` for current findings.
 | `packages/gateway/src/automation/graph-predicate.ts` | Graph predicate types, parser, evaluator; `parseGraphPredicate` / `itemMatchesGraphPredicate` / `countItemsMatchingGraphPredicate` / `listCandidateGraphRelations` |
 | `packages/gateway/src/automation/watcher-engine.ts` | Watcher evaluation loop; applies `graph_predicate_json` as a post-filter when `[automation].graph_conditions = true` |
 | `packages/gateway/src/index/watcher-graph-v22-sql.ts` | V22 migration — `watcher.graph_predicate_json` column |
+| `packages/gateway/src/index/workflow-run-columns-v23-sql.ts` | V23 migration — `dry_run` and `params_override_json` columns |
+| `packages/gateway/src/index/audit-session-v24-sql.ts` | V24 migration — `audit_log.session_id` column |
 | `packages/gateway/src/sync/connectivity.ts` | Network connectivity probe — guards the sync scheduler against consuming backoff on offline events |
 | `packages/gateway/src/db/verify.ts` | `nimbus db verify` — non-destructive index integrity checks (integrity_check, FTS5, vec rowid, FK, schema version) |
 | `packages/gateway/src/db/repair.ts` | `nimbus db repair` — targeted recovery actions; writes audit log entry |
@@ -186,7 +188,6 @@ runs. See `docs/structure-audit/baseline.md` for current findings.
 | `packages/ui/src/components/settings/data/DeleteServiceDialog.tsx` | Delete service dialog — preflight preview, typed-name confirm, `data.delete` call |
 | `packages/ui/src/store/slices/data.ts` | Data store slice — exportFlow / importFlow / deleteFlow state machines + markDisconnected |
 | `docs/architecture.md` | Full subsystem design — read before modifying any subsystem |
-| `docs/mission.md` | Project principles — read before adding features |
 | `docs/roadmap.md` | Phases, acceptance criteria, Phase 3 delivered summary |
 
 ---
