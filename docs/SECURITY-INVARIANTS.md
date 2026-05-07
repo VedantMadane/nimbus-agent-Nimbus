@@ -27,7 +27,7 @@ Companion files:
 
 **Defense:** `HITL_REQUIRED` in `packages/gateway/src/engine/executor.ts` is a frozen façade over a module-private `Set` (`HITL_REQUIRED_BACKING`). The façade exposes `has`, iteration, and `forEach` but no mutators; an attempt to call `.add` on the cast type is a no-op or throws.
 
-**Wired at:** `executor.ts:192` — every action passes `HITL_REQUIRED.has(action.type)` before dispatch; covered by the "every HITL_REQUIRED action type triggers the consent channel" test in `engine.test.ts`.
+**Wired at:** `executor.ts` `ToolExecutor.gate()` — every action passes `HITL_REQUIRED.has(action.type)` before dispatch; covered by the "every HITL_REQUIRED action type triggers the consent channel" test in `engine.test.ts`.
 
 **Anti-pattern:** mutating `HITL_REQUIRED` at runtime, declaring a new "destructive" action without adding it to `HITL_REQUIRED_BACKING`, or routing destructive work around `ToolExecutor` entirely. S1-F1 / S1-F7 / C6 all stemmed from destructive RPCs (`data.delete`, `connector.remove`, `connector.reindex`) that bypassed the executor.
 
@@ -39,7 +39,7 @@ Companion files:
 
 **Defense:** the executor calls `HITL_REQUIRED.has(action.type)` exactly. `HITL_REQUIRED_BACKING` stores **logical action types** (`file.move`, `email.send`, `repo.pr.merge`, …) — not connector-specific MCP tool ids (`filesystem_move_file`, `gmail_gmail_message_send`). The dispatcher uses `payload.mcpToolId` as a routing-only hint to pick the right MCP tool inside the matched action class.
 
-**Wired at:** `executor.ts:192` — `HITL_REQUIRED.has(action.type)`. The earlier fix `ae27fe9` resolved `mcpToolId ?? action.type` and looked it up in `HITL_REQUIRED`; that opened a *new* bypass (since the set holds action types, not MCP ids, every `mcpToolId`-bearing action skipped the gate). Reverted in `2c9ff06`.
+**Wired at:** `executor.ts` `ToolExecutor.gate()` — `HITL_REQUIRED.has(action.type)`. The earlier fix `ae27fe9` resolved `mcpToolId ?? action.type` and looked it up in `HITL_REQUIRED`; that opened a *new* bypass (since the set holds action types, not MCP ids, every `mcpToolId`-bearing action skipped the gate). Reverted in `2c9ff06`.
 
 **Anti-pattern:** any code that gates on `payload.mcpToolId`, `resolvedToolId`, or any other dispatch hint. The chain-C4 risk (planner emits `{ type: "files.list", payload: { mcpToolId: "github_repo_pr_merge" } }`) is *not* closed at the executor layer; it is mitigated by trusting the planner to emit the correct `action.type` and by the `<tool_output>` envelope (I11) on the LLM-facing path. A future fix that closes C4 structurally must add a parallel `HITL_REQUIRED_MCP_IDS` set or change `HITL_REQUIRED` to hold both classes — the test in this file enforces today's design and must be updated alongside any such change.
 
@@ -51,7 +51,7 @@ Companion files:
 
 **Defense:** the `hitlStatus` field on audit rows (`approved` / `rejected` / `not_required`) is set exclusively by the consent gate in `executor.ts` after the user responds. `not_required` is the correct value when the action is not in `HITL_REQUIRED`; `approved` may only appear after a real consent decision.
 
-**Wired at:** `executor.ts:194-210` is the only production assignment site outside test fixtures.
+**Wired at:** `executor.ts` `ToolExecutor.gate()` — the assignment block inside the consent-handling try/catch is the only production assignment site outside test fixtures.
 
 **Anti-pattern:** writing `hitlStatus: "approved"` at any non-test call site. S1-F5 / chain C6 (`data.delete` hardcoding the field) created a forged audit trail that survived `nimbus audit verify`.
 
@@ -63,7 +63,7 @@ Companion files:
 
 **Defense:** `checkLanMethodAllowed(method, peer)` in `packages/gateway/src/ipc/lan-rpc.ts` enforces both the namespace deny-list (`vault.*`, `consent.*`, `audit.*`, `data.*`, `updater.*`, `lan.*`, `profile.*`) and the per-peer write grant.
 
-**Wired at:** `lan-server.ts:242` — called inside `handleEncryptedMessage` *before* `this.opts.onMessage`, so the gate cannot be bypassed by upstream wiring.
+**Wired at:** `lan-server.ts` `LanServer.handleEncryptedMessage()` — called *before* `this.opts.onMessage`, so the gate cannot be bypassed by upstream wiring.
 
 **Anti-pattern:** moving the allowlist check into the dispatcher, the IPC server, or any caller — anywhere outside the LAN server itself. S1-F2 / S3-F1 / chains C3 and C5 were a dead-code defense: the function existed but was never called from `LanServer` in production.
 
