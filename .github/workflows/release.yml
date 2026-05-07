@@ -125,7 +125,7 @@ jobs:
         if: matrix.target.os == 'linux'
         timeout-minutes: 15
         env:
-          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_SIGNING_SUBKEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: bash scripts/sign-linux-gpg.sh dist/${{ matrix.target.artifact }}${{ matrix.target.ext }}
 
@@ -283,7 +283,7 @@ jobs:
 
       - name: Sign Linux installer artifacts
         env:
-          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_SIGNING_SUBKEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         shell: bash
         run: |
@@ -409,7 +409,7 @@ jobs:
 
       - name: Sign SHA256SUMS
         env:
-          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_SIGNING_SUBKEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         shell: bash
         run: |
