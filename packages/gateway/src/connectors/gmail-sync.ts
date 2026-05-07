@@ -205,6 +205,24 @@ async function fetchMessageMetadata(
   return asUnknownObjectRecord(json) as GmailMessageResource;
 }
 
+// `messages.list` and `history.list` may report ids that `messages.get` cannot
+// resolve (permanently deleted / expunged messages). Tolerate per-message 404
+// so a single missing id does not abort the whole sync.
+async function fetchMessageMetadataOrNullOn404(
+  ctx: SyncContext,
+  token: string,
+  messageId: string,
+): Promise<GmailMessageResource | null> {
+  try {
+    return await fetchMessageMetadata(ctx, token, messageId);
+  } catch (e) {
+    if (extractErrorMessage(e).includes("sync failed: 404")) {
+      return null;
+    }
+    throw e;
+  }
+}
+
 async function fetchProfile(ctx: SyncContext, token: string): Promise<ProfileResponse> {
   const { json } = await gmailFetchJson(
     ctx,
@@ -239,7 +257,19 @@ async function gmailHistoryApplyAdded(
       continue;
     }
     const hasSubject = m.payload !== undefined && headerFrom(m.payload, "Subject") !== null;
-    const full = hasSubject ? m : await fetchMessageMetadata(ctx, accessToken, mid);
+    let full: GmailMessageResource | null;
+    if (hasSubject) {
+      full = m;
+    } else {
+      full = await fetchMessageMetadataOrNullOn404(ctx, accessToken, mid);
+      if (full === null) {
+        ctx.logger.warn(
+          { service: SERVICE_ID, messageId: mid, stage: "delta" },
+          "Gmail messages.get returned 404; skipping message",
+        );
+        continue;
+      }
+    }
     upsertGmailMessage(ctx, full, now);
     n += 1;
   }
@@ -326,7 +356,14 @@ export function createGmailSyncable(options: GmailSyncableOptions): Syncable {
           if (mid === undefined || mid === "") {
             continue;
           }
-          const meta = await fetchMessageMetadata(ctx, accessToken, mid);
+          const meta = await fetchMessageMetadataOrNullOn404(ctx, accessToken, mid);
+          if (meta === null) {
+            ctx.logger.warn(
+              { service: SERVICE_ID, messageId: mid, stage: "list" },
+              "Gmail messages.get returned 404; skipping message",
+            );
+            continue;
+          }
           meta.id = meta.id ?? mid;
           if (
             (meta.threadId === undefined || meta.threadId === "") &&
