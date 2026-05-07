@@ -13,6 +13,8 @@ Companion context for other agents: [`CLAUDE.md`](./CLAUDE.md) (same project fac
 
 ## Non-Negotiables
 
+These constraints are architectural, not preferences. Do not suggest changes that violate them:
+
 | # | Constraint | Implementation |
 |---|---|---|
 | 1 | **Local-first** | Machine is the source of truth; cloud is a connector |

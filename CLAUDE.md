@@ -80,6 +80,8 @@ runs. See `docs/structure-audit/baseline.md` for current findings.
 | `packages/gateway/src/automation/graph-predicate.ts` | Graph predicate types, parser, evaluator; `parseGraphPredicate` / `itemMatchesGraphPredicate` / `countItemsMatchingGraphPredicate` / `listCandidateGraphRelations` |
 | `packages/gateway/src/automation/watcher-engine.ts` | Watcher evaluation loop; applies `graph_predicate_json` as a post-filter when `[automation].graph_conditions = true` |
 | `packages/gateway/src/index/watcher-graph-v22-sql.ts` | V22 migration — `watcher.graph_predicate_json` column |
+| `packages/gateway/src/index/workflow-run-columns-v23-sql.ts` | V23 migration — `dry_run` and `params_override_json` columns |
+| `packages/gateway/src/index/audit-session-v24-sql.ts` | V24 migration — `audit_log.session_id` column |
 | `packages/gateway/src/sync/connectivity.ts` | Network connectivity probe — guards the sync scheduler against consuming backoff on offline events |
 | `packages/gateway/src/db/verify.ts` | `nimbus db verify` — non-destructive index integrity checks (integrity_check, FTS5, vec rowid, FK, schema version) |
 | `packages/gateway/src/db/repair.ts` | `nimbus db repair` — targeted recovery actions; writes audit log entry |
