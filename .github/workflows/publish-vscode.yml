@@ -175,7 +175,7 @@ jobs:
           path: dist
 
       - name: Upload .vsix to GitHub Release
-        uses: softprops/action-gh-release@c95fe1489396fe8a21967200391e1b9067ad0ba5 # v2.6.2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: dist/nimbus-${{ needs.publish.outputs.version }}.vsix
           tag_name: ${{ github.ref_name }}
