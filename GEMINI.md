@@ -186,7 +186,6 @@ runs. See `docs/structure-audit/baseline.md` for current findings.
 | `packages/ui/src/components/settings/data/DeleteServiceDialog.tsx` | Delete service dialog — preflight preview, typed-name confirm, `data.delete` call |
 | `packages/ui/src/store/slices/data.ts` | Data store slice — exportFlow / importFlow / deleteFlow state machines + markDisconnected |
 | `docs/architecture.md` | Full subsystem design — read before modifying any subsystem |
-| `docs/mission.md` | Project principles — read before adding features |
 | `docs/roadmap.md` | Phases, acceptance criteria, Phase 3 delivered summary |
 
 ---

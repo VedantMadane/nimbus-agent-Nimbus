@@ -21,6 +21,12 @@ Nimbus is an open-source, local-first AI agent built for engineers who run syste
 
 **Your credentials never leave your machine. There is no Nimbus server.**
 
+Every architectural decision in Nimbus is evaluated against one question:
+
+> **Does this return control to the user, or does it erode it?**
+
+The non-negotiables in [Contributing](#contributing) follow from that question — they are load-bearing constraints, not aspirational values.
+
 ---
 
 ## What It Does
@@ -635,7 +641,6 @@ nimbus/
 ├── docs/
 │   ├── README.md             # this file
 │   ├── architecture.md       # subsystem design
-│   ├── mission.md            # design philosophy and principles
 │   ├── SECURITY.md           # security model + vulnerability reporting
 │   ├── roadmap.md            # acceptance-criteria-driven roadmap
 │   ├── CONTRIBUTING.md       # contributor workflow and constraints
@@ -690,7 +695,7 @@ git push origin v0.1.0
 Architecture is stabilizing; not all interfaces are frozen.
 
 1. Read [`architecture.md`](./architecture.md) — understand the four subsystems and their contracts.
-2. Read [`mission.md`](./mission.md) — understand the non-negotiables.
+2. Review the **non-negotiables** below — they are not aspirational values; PRs that violate them will not be merged.
 3. Check issues tagged `good first issue`.
 4. Open a discussion before large PRs.
 
@@ -731,6 +736,6 @@ Commercial license for embedding Nimbus in a product without AGPL obligations, o
 
 <div align="center">
 
-**[Mission](./mission.md) · [Architecture](./architecture.md) · [Roadmap](./roadmap.md) · [Security](./SECURITY.md) · [Changelog](../CHANGELOG.md)**
+**[Architecture](./architecture.md) · [Roadmap](./roadmap.md) · [Security](./SECURITY.md) · [Changelog](../CHANGELOG.md)**
 
 </div>

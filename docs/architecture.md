@@ -1373,7 +1373,6 @@ nimbus/
 ├── docs/
 │   ├── README.md
 │   ├── architecture.md         ← this file
-│   ├── mission.md
 │   ├── SECURITY.md
 │   ├── roadmap.md
 │   ├── CONTRIBUTING.md
