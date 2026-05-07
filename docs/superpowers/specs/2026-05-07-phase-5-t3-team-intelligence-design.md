@@ -57,7 +57,7 @@ Key shape decisions:
 - **One IPC namespace** — `agents.*` — with three methods. Rust `ALLOWED_METHODS` gets three new entries (the bridge change + count assertion). All three are read-only, so safe for the renderer.
 - **Hybrid output everywhere.** The IPC notification carries *both* `brief` (Markdown) and `findings` (structured). CLI uses `brief` by default, `findings` when `--json`. UI gets both for free.
 - **Coordinator parallelism fix lives in the engine, not in `agents/`.** It's a bridge change that benefits every later built-in agent. Ships in PR 1.
-- **No new graph entity types or migrations.** T3 works with what `graph-populator.ts` already emits (`pr`, `issue`, `commit`, `repo`, `person`, `code_symbol`, `incident`, `alert`, `message`) and surfaces missing types as gap notes. `data_model` / `pipeline_run` / `dashboard` / `upstream_refs` are explicitly left for downstream waves.
+- **No new graph entity types or migrations.** T3 works with what `graph-populator.ts`'s `syncGraphFromIndexedItem` dispatcher actually emits today: `pr`, `issue`, `git_commit`, `dependency`, `code_symbol`, `message` (plus their secondary entities: `repo`, `person`, `commit`, `channel`). It surfaces everything else as gap notes — including `incident`, `alert`, `ci_run`, `deployment`, `error_issue`, which are in `ITEM_LINKED_ENTITY_TYPES` but never reach a sync handler today, and `data_model` / `pipeline_run` / `dashboard` / `upstream_refs`, which aren't even in the type list. Each missing type is a populator follow-up that downstream waves (Wave D for warehouse types) or a graph-populator pass (for the silently-dropped types) will fill.
 - **No new connectors.** Pure read-only over the existing index — matches the sequencing-spec rationale ("zero new connectors; rides on the Phase 3 relationship graph").
 
 ## Sub-agent decomposition
@@ -71,7 +71,7 @@ Each agent decomposes its Stage-1 work into independent, scope-restricted sub-ag
 | `s_blame` | `searchLocalIndex`, `traverseGraph` | Authors of `git_commit` items touching the file (via `defined_in` → `commit` → `authored` chain). Falls back to FTS over commit messages when no `code_symbol` row matches. |
 | `s_pr_authored` | `traverseGraph` | People with `authored` edges into `pr` items linked to the file's repo. Last-90-day window. |
 | `s_pr_reviewed` | `traverseGraph` | People with `reviewed` edges into the same PR set. (Note: `reviewed` is in the relation-type table but not yet emitted by `graph-populator.ts` — this surfaces as a gap.) |
-| `s_incident_resolved` | `traverseGraph` | People with `resolves` edges into `incident` items mentioning the topic/file. |
+| `s_incident_resolved` | `traverseGraph` | People with `resolves` edges into `incident` items mentioning the topic/file. **Today this always returns zero** — `incident` is in `ITEM_LINKED_ENTITY_TYPES` but never dispatched in `syncGraphFromIndexedItem`. Sub-agent runs and emits a `missing_entity_type` gap note. The wiring is structural so the day a populator follow-up fills `incident`, the sub-agent starts producing real evidence with no T3 code change. |
 | `s_chat_mentions` | `searchLocalIndex` (`itemType: "message"`), `traverseGraph` | People with `posted` edges into `message` items containing the topic string. |
 
 Stage 2 (deterministic ranking) merges the five evidence streams per `person.id`, scores by recency × edge-type weight × cross-stream redundancy, and emits the top-N (default 5).
@@ -142,8 +142,8 @@ export type GapNote = {
 
 export type AgentBriefBase = {
   agentVersion: 1;
-  generatedAt: number;         // unix ms
-  latencyMs: number;
+  generatedAt: number;         // unix ms — set just before the agent emits the notification
+  latencyMs: number;            // measured by the agent at start/end; always populated regardless of `--json` mode
   gaps: GapNote[];
 };
 
@@ -231,7 +231,7 @@ Every sub-agent that runs must, on its way out, return either ≥1 evidence row 
 ### Renderer & synthesizer (Stage 3)
 
 - `_lib/render.ts` exports `renderExpert(b: ExpertBrief): string`, `renderImpact(b: ImpactBrief): string`, `renderCatchup(b: CatchupBrief): string`. Pure functions — no LLM, no IO. These are the **fallback** when the LLM is unavailable, and the **golden** for snapshot testing.
-- `_lib/synthesize.ts` exports `synthesize(brief: AgentBrief, opts: { llm?: LlmRouter }): Promise<string>`. When `opts.llm === undefined` or routing returns no provider, it tail-calls the corresponding `render*` function unchanged. When an LLM is available, it passes the structured `brief` (already wrapped via `wrapToolOutput` per invariant `I11`) and asks for a Markdown rewrite, with the deterministic render included as a fallback in the prompt.
+- `_lib/synthesize.ts` exports `synthesize(brief: AgentBrief, opts: { llm?: LlmRouter }): Promise<string>`. When `opts.llm === undefined` or routing returns no provider, it tail-calls the corresponding `render*` function unchanged. When an LLM is available, it passes the structured `brief` (already wrapped via `wrapToolOutput` per invariant `I11`) and asks for a Markdown rewrite, with the deterministic render included as a fallback in the prompt. **The synthesis prompt explicitly instructs the LLM to surface the `remediation` field of every `GapNote` it renders** — so a user reading the brief sees "I couldn't find any dashboards because the Metabase connector lands in Phase 5 Wave D" instead of an opaque "no data".
 
 This means: **the Markdown produced by an offline run is byte-identical to a snapshot test**, while the Markdown produced with an LLM is a valid prose rewrite of the same evidence — never a hallucination, because the LLM only sees the structured findings, never raw connector output.
 
@@ -280,6 +280,11 @@ async run(tasks: SubTask[]): Promise<SubTaskResult[]> {
 
 1. The tool-call cap is now checked **before** the parallel fan-out (and incremented atomically), instead of being re-checked inside the loop on every iteration. This is correct: with parallel execution, all tasks have already "started" before any can complete, so re-checking inside the loop would race. The cap stays load-bearing — we just check it once for the whole batch.
 2. A single failing sub-task no longer aborts the rest. Today's sequential loop returns whatever rows it had collected before throwing; the parallel version always returns `tasks.length` rows, with failures encoded as `status: "error"`. T3 agents *rely* on this — a missing `dashboard` entity type should yield a gap note, not abort the whole `impact` run.
+
+**Two non-changes, both deliberate:**
+
+- **Failed sub-tasks still count against the cap.** This matches the sequential version, which also pre-incremented `toolCallCount` *before* `await task.execute()` and so charged failures the same as successes. Preserving that parity keeps loop-protection semantics stable.
+- **`SubTaskResult.status: "rejected"` remains type-level only.** The original sequential coordinator never emits "rejected", and the parallel rewrite preserves that. The status is reserved for a future HITL-aware coordinator; built-in agents are HITL-free per the patterns skill, so designing for it now is YAGNI. When a write-capable agent ships, the rejected path lands alongside the actual consent plumbing.
 
 ### Tests added to `coordinator.test.ts`
 
@@ -405,7 +410,10 @@ packages/gateway/src/
       gap-notes.ts                # helper: detectMissingEntityType, detectMissingRelationEmit, …
       gap-notes.test.ts
       render.ts                   # renderExpert / renderImpact / renderCatchup (deterministic)
-      render.test.ts              # snapshot tests against fixtures
+      render.test.ts              # snapshot tests against two fixture variants per agent:
+                                  #   (a) full-coverage   — every evidence stream populated, zero gaps
+                                  #   (b) sparse          — partial evidence + ≥1 gap note
+                                  # together they pin renderer behaviour at both ends of the spectrum.
       synthesize.ts               # LLM synthesis with deterministic fallback
       synthesize.test.ts          # asserts fallback when LlmRouter returns no provider
       self-person.ts              # auto + override resolution for catchup
