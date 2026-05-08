@@ -1,10 +1,15 @@
-import type { Database } from "bun:sqlite";
+import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { sidecarFilename, sidecarPath, tryLoadFromSidecar } from "./sqlite-vec-load.ts";
+import {
+  sidecarFilename,
+  sidecarPath,
+  tryLoadFromSidecar,
+  tryLoadSqliteVec,
+} from "./sqlite-vec-load.ts";
 
 describe("sidecarFilename", () => {
   test("win32 → vec0.dll", () => {
@@ -89,5 +94,19 @@ describe("tryLoadFromSidecar", () => {
     } as unknown as Database;
 
     expect(tryLoadFromSidecar(fakeDb)).toBe(false);
+  });
+});
+
+// IMPORTANT: this test exercises tryLoadSqliteVec end-to-end with a real
+// in-memory db. On any platform where the upstream `sqlite-vec` package is
+// installed (every dev / CI machine), upstream succeeds and the fallback is
+// never reached. We assert the success-via-upstream path here; the
+// fallback chain is covered by tryLoadFromSidecar's own tests above.
+describe("tryLoadSqliteVec — upstream-first chain", () => {
+  test("returns true on a fresh db when upstream sqlite-vec is installed", () => {
+    const db = new Database(":memory:");
+    const ok = tryLoadSqliteVec(db);
+    expect(ok).toBe(true);
+    db.close();
   });
 });

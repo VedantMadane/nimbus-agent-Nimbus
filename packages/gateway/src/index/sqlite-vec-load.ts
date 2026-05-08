@@ -16,9 +16,12 @@ const log = pino({
 export function tryLoadSqliteVec(db: Database): boolean {
   try {
     loadSqliteVec(db);
+    log.debug({ via: "npm" }, "sqlite-vec loaded");
     return true;
-  } catch {
-    return false;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    log.debug({ err: msg }, "upstream sqlite-vec load failed; trying sidecar");
+    return tryLoadFromSidecar(db);
   }
 }
 
@@ -26,12 +29,9 @@ export function tryLoadSqliteVec(db: Database): boolean {
  * Loads sqlite-vec or throws with a short, actionable message (Gateway / tests).
  */
 export function loadSqliteVecOrThrow(db: Database): void {
-  try {
-    loadSqliteVec(db);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+  if (!tryLoadSqliteVec(db)) {
     throw new Error(
-      `sqlite-vec could not be loaded (${msg}). Embeddings require a supported platform (see sqlite-vec npm optionalDependencies).`,
+      "sqlite-vec could not be loaded. Embeddings require a supported platform (see sqlite-vec npm optionalDependencies).",
     );
   }
 }
