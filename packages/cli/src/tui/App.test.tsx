@@ -111,6 +111,34 @@ describe("App state machine", () => {
     teardown();
   });
 
+  test("BUG-005: every engine.askStream call carries a sessionId, and consecutive submits share it", async () => {
+    const stub = setupStub();
+    const { stdin, teardown } = renderApp(stub);
+    await settle();
+
+    stdin.write("first prompt");
+    stdin.write("\r");
+    await settle(SUBMIT_SETTLE_MS);
+    stub.emit("engine.streamDone", { streamId: "s-test" });
+    await settle(SUBMIT_SETTLE_MS);
+
+    stdin.write("second prompt");
+    stdin.write("\r");
+    await settle(SUBMIT_SETTLE_MS);
+
+    const askCalls = stub.calls.filter((c) => c.method === "engine.askStream");
+    expect(askCalls.length).toBe(2);
+    const firstParams = askCalls[0]?.params as { input: string; sessionId?: string };
+    const secondParams = askCalls[1]?.params as { input: string; sessionId?: string };
+    // Without sessionId threading, the gateway can't load prior turns and the
+    // multi-turn UX (BUG-005) breaks.
+    expect(typeof firstParams.sessionId).toBe("string");
+    expect(firstParams.sessionId?.length).toBeGreaterThan(0);
+    // Crucial invariant: same TUI session → same sessionId across submits.
+    expect(secondParams.sessionId).toBe(firstParams.sessionId);
+    teardown();
+  });
+
   test("disconnect banner appears when an IPC call throws ECONNRESET", async () => {
     const stub = new StubIpcClient({
       errors: { "engine.askStream": new Error("ECONNRESET") },

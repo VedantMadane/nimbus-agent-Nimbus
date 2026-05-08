@@ -3,7 +3,9 @@ import type { Agent } from "@mastra/core/agent";
 
 import type { LocalIndex } from "../index/local-index.ts";
 import type { ConsentCoordinator } from "../ipc/consent.ts";
+import type { SessionMemoryStore } from "../memory/session-memory-store.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
+import { getAgentRequestSessionId } from "./agent-request-context.ts";
 import { bindConsentChannel, ToolExecutor } from "./executor.ts";
 import { GatewayAgentUnavailableError } from "./gateway-agent-error.ts";
 import { type PlanResult, planFromIntent } from "./planner.ts";
@@ -22,6 +24,14 @@ export type RunAskParams = {
   sendChunk: (text: string) => void;
   /** Mastra agent with local index tools; when set, high-confidence `unknown` intent uses this path (Q2 §7.0). */
   conversationalAgent?: Agent;
+  /**
+   * BUG-005: when both this and `getAgentRequestSessionId()` are set, runAsk
+   * appends the user input and the assistant's reply to session memory after
+   * the conversational turn returns. This is what makes multi-turn TUI work
+   * — Layer 3 (`runConversationalAgent`) loads recent turns from the same
+   * store and prepends them to the agent's prompt.
+   */
+  sessionMemoryStore?: SessionMemoryStore;
 };
 
 const EMPTY_INDEX_GUIDANCE = `No data indexed yet.
@@ -168,12 +178,55 @@ export async function runAsk(p: RunAskParams): Promise<{ reply: string }> {
   const shouldUseConversational = classified.intent === "unknown" || classified.confidence < 0.6;
 
   if (conversationalAgent !== undefined && shouldUseConversational) {
-    return await runConversationalAgent({
+    // BUG-005: load prior turns BEFORE invoking the agent so the LLM has
+    // conversation context. Last 12 entries ≈ 6 user/assistant pairs, which
+    // is enough for short follow-ups ("asafgolombek@gmail.com") to land
+    // against the immediately prior question without blowing up the prompt.
+    const sid = getAgentRequestSessionId();
+    let priorTurns: Array<{ role: "user" | "assistant" | "tool"; text: string }> = [];
+    if (p.sessionMemoryStore !== undefined && sid !== undefined && sid !== "") {
+      try {
+        const recent = await p.sessionMemoryStore.getRecentTurns(sid, 12);
+        priorTurns = recent.map((t) => ({ role: t.role, text: t.text }));
+      } catch {
+        // memory load is best-effort; degrade to no-prior-turns
+      }
+    }
+
+    const result = await runConversationalAgent({
       agent: conversationalAgent,
       input: p.input,
       stream: p.stream,
       sendChunk: p.sendChunk,
+      priorTurns,
     });
+    // BUG-005: persist this turn so the next turn in the same session can
+    // load it as prior context. Both store and sessionId must be present;
+    // either missing reverts to the no-memory path that callers already
+    // tolerate. (`sid` was already resolved above for the prior-turns load.)
+    if (p.sessionMemoryStore !== undefined && sid !== undefined && sid !== "") {
+      const now = Date.now();
+      // Two appends, sequenced. We swallow per-append failures so one bad
+      // write (e.g. embedder briefly down) doesn't fail the user-visible
+      // turn that already streamed successfully.
+      try {
+        await p.sessionMemoryStore.append({
+          sessionId: sid,
+          role: "user",
+          text: p.input,
+          createdAt: now,
+        });
+        await p.sessionMemoryStore.append({
+          sessionId: sid,
+          role: "assistant",
+          text: result.reply,
+          createdAt: now + 1,
+        });
+      } catch {
+        // intentionally swallowed; memory is best-effort
+      }
+    }
+    return result;
   }
 
   const plan = planFromIntent(classified, p.paths);

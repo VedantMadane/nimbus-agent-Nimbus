@@ -212,12 +212,20 @@ export function App({ historyPath, onExit }: Props): React.JSX.Element {
     };
   }, [state.mode, client]);
 
+  // BUG-005: minted once per App lifetime so every `engine.askStream` call
+  // in this TUI process carries the same sessionId. Without this, the gateway
+  // cannot load prior turns from `SessionMemoryStore` and every prompt is a
+  // fresh, contextless agent run — a small follow-up like "asafgolombek@gmail.com"
+  // is treated as a brand-new query, not a continuation of the prior turn.
+  const sessionIdRef = React.useRef<string>(crypto.randomUUID());
+
   const handleSubmit = async (query: string): Promise<void> => {
     setEntries((e) => [...e, { kind: "query", text: query }]);
     setClearKey((k) => k + 1);
     try {
       const res = await client.call<{ streamId: string }>("engine.askStream", {
         input: query,
+        sessionId: sessionIdRef.current,
       });
       dispatch({ type: "submit", streamId: res.streamId, query });
     } catch (e) {

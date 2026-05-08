@@ -77,6 +77,53 @@ describe("runConversationalAgent", () => {
     ).rejects.toBeInstanceOf(GatewayAgentUnavailableError);
   });
 
+  test("BUG-005: passes prior turns + current input as a messages array when priorTurns is non-empty", async () => {
+    const generateMock = mock(async () => ({ text: "answer" }));
+    const agent = { generate: generateMock } as unknown as Agent;
+    await runConversationalAgent({
+      agent,
+      input: "asafgolombek@gmail.com",
+      stream: false,
+      sendChunk: () => undefined,
+      priorTurns: [
+        { role: "user", text: "draft a gmail to my own address summarising my week" },
+        { role: "assistant", text: "Sure — what email should I send this to?" },
+      ],
+    });
+    // First positional arg to agent.generate must be a messages array containing
+    // the two prior turns plus the current user input, in that order.
+    const firstCall = generateMock.mock.calls[0];
+    expect(firstCall).toBeDefined();
+    const arg = firstCall?.[0];
+    expect(Array.isArray(arg)).toBe(true);
+    const messages = arg as Array<{ role: string; content: string }>;
+    expect(messages.length).toBe(3);
+    expect(messages[0]).toEqual({
+      role: "user",
+      content: "draft a gmail to my own address summarising my week",
+    });
+    expect(messages[1]).toEqual({
+      role: "assistant",
+      content: "Sure — what email should I send this to?",
+    });
+    expect(messages[2]).toEqual({ role: "user", content: "asafgolombek@gmail.com" });
+  });
+
+  test("BUG-005: when priorTurns is empty (or omitted), still passes the raw string prompt (no behavior change)", async () => {
+    const generateMock = mock(async () => ({ text: "answer" }));
+    const agent = { generate: generateMock } as unknown as Agent;
+    await runConversationalAgent({
+      agent,
+      input: "hello",
+      stream: false,
+      sendChunk: () => undefined,
+      priorTurns: [],
+    });
+    const arg = generateMock.mock.calls[0]?.[0] as unknown;
+    expect(typeof arg).toBe("string");
+    expect(arg as string).toBe("hello");
+  });
+
   test("sanitizes other errors before surfacing to callers", async () => {
     const agent = {
       generate: mock(async () => {
