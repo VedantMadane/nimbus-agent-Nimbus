@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { dirname, join } from "node:path";
 import { load as loadSqliteVec } from "sqlite-vec";
 
 /**
@@ -56,4 +57,15 @@ export function ensureSqliteVecForConnection(db: Database, indexedUserVersion: n
   } catch {
     return tryLoadSqliteVec(db);
   }
+}
+
+export function sidecarFilename(platform: NodeJS.Platform): string {
+  if (platform === "win32") return "vec0.dll";
+  if (platform === "darwin") return "vec0.dylib";
+  return "vec0.so";
+}
+
+// Compiled-binary fallback path: vec0.{ext} adjacent to the running executable.
+export function sidecarPath(execPath: string, platform: NodeJS.Platform): string {
+  return join(dirname(execPath), sidecarFilename(platform));
 }
