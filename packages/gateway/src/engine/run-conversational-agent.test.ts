@@ -92,9 +92,11 @@ describe("runConversationalAgent", () => {
     });
     // First positional arg to agent.generate must be a messages array containing
     // the two prior turns plus the current user input, in that order.
-    const firstCall = generateMock.mock.calls[0];
-    expect(firstCall).toBeDefined();
-    const arg = firstCall?.[0];
+    // Bun's mock types `.mock.calls` as an empty tuple by default, so we
+    // widen via `unknown` before indexing.
+    const calls = generateMock.mock.calls as unknown as unknown[][];
+    expect(calls.length).toBeGreaterThan(0);
+    const arg: unknown = calls[0]?.[0];
     expect(Array.isArray(arg)).toBe(true);
     const messages = arg as Array<{ role: string; content: string }>;
     expect(messages.length).toBe(3);
@@ -119,7 +121,8 @@ describe("runConversationalAgent", () => {
       sendChunk: () => undefined,
       priorTurns: [],
     });
-    const arg = generateMock.mock.calls[0]?.[0] as unknown;
+    const calls = generateMock.mock.calls as unknown as unknown[][];
+    const arg: unknown = calls[0]?.[0];
     expect(typeof arg).toBe("string");
     expect(arg as string).toBe("hello");
   });
