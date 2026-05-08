@@ -1384,4 +1384,4 @@ nimbus/
 
 ---
 
-*Nimbus Architecture v0.8 — Built for engineers who run systems in production. Cross-platform. Security-hardened. DevOps and SecDevOps ready. Extension-ready.*
+*Nimbus Architecture v1.0 — Built for engineers who run systems in production. Cross-platform. Security-hardened. DevOps and SecDevOps ready. Extension-ready.*

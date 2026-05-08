@@ -41,7 +41,7 @@ Companion files:
 
 **Wired at:** `executor.ts` `ToolExecutor.gate()` — `HITL_REQUIRED.has(action.type)`. The earlier fix `ae27fe9` resolved `mcpToolId ?? action.type` and looked it up in `HITL_REQUIRED`; that opened a *new* bypass (since the set holds action types, not MCP ids, every `mcpToolId`-bearing action skipped the gate). Reverted in `2c9ff06`.
 
-**Anti-pattern:** any code that gates on `payload.mcpToolId`, `resolvedToolId`, or any other dispatch hint. The chain-C4 risk (planner emits `{ type: "files.list", payload: { mcpToolId: "github_repo_pr_merge" } }`) is *not* closed at the executor layer; it is mitigated by trusting the planner to emit the correct `action.type` and by the `<tool_output>` envelope (I11) on the LLM-facing path. A future fix that closes C4 structurally must add a parallel `HITL_REQUIRED_MCP_IDS` set or change `HITL_REQUIRED` to hold both classes — the test in this file enforces today's design and must be updated alongside any such change.
+**Anti-pattern:** any code that gates on `payload.mcpToolId`, `resolvedToolId`, or any other dispatch hint. The chain-C4 risk (planner emits `{ type: "files.list", payload: { mcpToolId: "github_repo_pr_merge" } }`) is *not* closed at the executor layer; it is mitigated by trusting the planner to emit the correct `action.type` and by the `<tool_output>` envelope (I11) on the LLM-facing path.
 
 **How to comply:** when adding a new destructive action class, add the **logical type string** to `HITL_REQUIRED_BACKING`. Do not add MCP tool ids to that set; do not gate on `mcpToolId` anywhere.
 
