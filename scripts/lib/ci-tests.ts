@@ -144,5 +144,12 @@ export async function runCiTestSuite(): Promise<void> {
   runBunTest(["packages/gateway/test/e2e/"], false);
   runBunTest(["packages/cli/test/e2e/"], false);
 
-  run(["bun", "run", "--filter", "@nimbus/ui", "test:coverage"], REPO_ROOT, CI_ENV);
+  // UI tests under Vitest: locally we run WITHOUT --coverage because
+  // @vitest/coverage-v8 calls Node's `inspector.Session.post("Profiler.startPreciseCoverage")`,
+  // which Bun does not implement on every host (Windows hosts in particular emit
+  // "Error: Coverage APIs are not supported"). The threshold is still enforced in CI by
+  // `_test-suite.yml`'s "UI unit coverage" step on the Linux runner — keeping local runs
+  // clean here means contributors can actually trust `bun run test:ci` to exit 0 on a
+  // green tree, instead of learning to ignore a chronic non-zero exit.
+  run(["bun", "run", "--filter", "@nimbus/ui", "test"], REPO_ROOT, CI_ENV);
 }

@@ -90,6 +90,66 @@ jobs:
       - name: Setup Rust + Tauri checks
         uses: ./.github/actions/setup-rust-tauri
 
+  # Cross-platform smoke — non-Linux gateway/cli unit tests at PR time.
+  # The full 3-OS matrix runs on push to main, but that catches platform
+  # divergence only AFTER merge. This narrow PR-time job runs the gateway
+  # and CLI unit tests on macOS + Windows so cross-platform regressions
+  # (BUG-009 cross-OS path-shape mismatch was the motivating example)
+  # surface before the merge button is pressed. Scope is intentionally narrow:
+  # no integration, no e2e, no coverage upload — just `bun test` on source.
+  pr-quality-cross-platform:
+    name: PR quality — Cross-platform (${{ matrix.os }})
+    if: github.event_name == 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/setup-nimbus-ci
+
+      - name: macOS — Strip quarantine from native SQLite extensions
+        if: runner.os == 'macOS'
+        shell: bash
+        run: find node_modules -name "*.dylib" -print0 2>/dev/null | xargs -0 xattr -d com.apple.quarantine 2>/dev/null || true
+
+      - name: macOS — Create and unlock CI Keychain
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          security create-keychain -p "" nimbus-ci.keychain
+          security list-keychains -d user -s nimbus-ci.keychain $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s nimbus-ci.keychain
+          security unlock-keychain -p "" nimbus-ci.keychain
+          security set-keychain-settings -lut 7200 nimbus-ci.keychain
+
+      - name: Build @nimbus-dev/client (for vscode-extension typecheck)
+        run: cd packages/client && bun run build
+
+      - name: Typecheck (catches host-specific TS quirks)
+        run: bun run typecheck
+
+      - name: Gateway + CLI unit tests
+        shell: bash
+        run: bun test packages/gateway/src packages/cli/src
+        env:
+          CI: "true"
+
   # Code duplication scan — runs in parallel with the above two jobs
   pr-quality-duplication:
     name: PR quality — Duplication scan
