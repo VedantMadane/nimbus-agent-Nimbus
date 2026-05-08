@@ -285,7 +285,9 @@ Commercial license also available now for organizations that need to embed Nimbu
 
 **Goal:** Give Nimbus a face, a local AI backbone that requires no cloud API key, and the trust foundations needed for a public `v0.1.0` release.
 
-> **Release gate:** `v0.1.0` is tagged only after all Phase 4 acceptance criteria pass on all three platforms. This phase owns the `v0.1.0` milestone. The end-to-end pre-release manual smoke checklist lives at [`docs/release/manual-smoke-v0.1.0.md`](./release/manual-smoke-v0.1.0.md).
+> **Release gate:** `v0.1.0` ships only the headless gateway + CLI binaries and the VS Code extension. The Tauri desktop UI release vehicle (signed installers, build-ui matrix, Gatekeeper / SmartScreen handling) was moved out of `v0.1.0` and into Phase 6 — see [§ Phase 6 → Desktop Release Vehicle](#desktop-release-vehicle). The desktop UI code itself is complete in this phase; what slipped is publishing it as a release artifact.
+>
+> The end-to-end pre-release manual smoke checklist for `v0.1.0` lives at [`docs/release/manual-smoke-v0.1.0.md`](./release/manual-smoke-v0.1.0.md) and covers TUI + VS Code only. The Tauri-only checklist for the future `desktop-v0.1.0` tag lives at [`docs/release/manual-smoke-desktop.md`](./release/manual-smoke-desktop.md).
 
 ### Dependencies
 
@@ -298,6 +300,8 @@ Commercial license also available now for organizations that need to embed Nimbu
 - Code signing certificates provisioned before release build step
 
 ### Desktop Application (Tauri 2.0)
+
+> **Code complete; release vehicle deferred to Phase 6.** Every WS5 item below is implemented and tested in-tree, but publishing signed Tauri installers as release artifacts moved out of the `v0.1.0` release gate and into Phase 6 — see [§ Phase 6 → Desktop Release Vehicle](#desktop-release-vehicle). The Tauri smoke checklist no longer gates `v0.1.0`; it gates the future `desktop-v0.1.0` tag.
 
 - [x] **App shell foundation (WS5-A)** — React 19 + Tailwind v4 + Radix + Zustand v5 + React Router v7 scaffolding; Rust Tauri 2.0 bridge with compile-time `ALLOWED_METHODS` allowlist (6 methods); system tray + `Ctrl/Cmd+Shift+N` Quick Query popup (frameless, 560×220, auto-close after stream); three-step onboarding wizard (Welcome → Connect → Syncing); first-run routing; macOS accessory mode; CI unit coverage gate (≥80% lines / ≥75% branches)
 - [x] **System tray enhancements (WS5-B)** — aggregate-health icon (green → amber → red); pending-HITL badge; "Connectors ▸" submenu populated from `set_connectors_menu`; click navigates to Dashboard and flashes the matching tile
@@ -381,11 +385,11 @@ These items resolve deferred decisions from Phase 3.
 
 ### Security audit follow-ups (B1)
 
-Items deferred from the Phase 4 internal security audit (B1, 2026-04-25; summary in [`docs/SECURITY.md`](./SECURITY.md#security-audits)). The High, Medium, and Low PRs (`#112`, `#113`, commit `806453a`) closed all 78 unique findings; these three remain scoped to Phase 4 because they are pre-`v0.1.0` blockers.
+Items deferred from the Phase 4 internal security audit (B1, 2026-04-25; summary in [`docs/SECURITY.md`](./SECURITY.md#security-audits)). The High, Medium, and Low PRs (`#112`, `#113`, commit `806453a`) closed all 78 unique findings; these three remain open. S6-F1 (Updater production wiring) gates the headless `v0.1.0` tag. The two Tauri-specific items (S4-F6, S4-F8) gate the future `desktop-v0.1.0` tag — see [§ Phase 6 → Desktop Release Vehicle](#desktop-release-vehicle).
 
-- [ ] **Tauri-native file picker for `data.import` (S4-F6)** — replace the renderer-supplied `path` string with a Rust-side native dialog so the gateway never trusts a caller-controlled filesystem path; folds into the same UI-rebuild PR as the existing `extension.install` path-validation work (S4-F5 / S7-F7)
-- [ ] **Profile-switch global broadcast refactor (S4-F8)** — Rust-side window-registry refactor so `profile.switched` events fan out through a registered subscriber list instead of walking the live Tauri window list on each notification; same UI-rebuild PR as S4-F6
-- [ ] **Updater production wiring (S6-F1)** — instantiate the `Updater` state machine in gateway startup so `nimbus update --check` and `updater.updateAvailable` run against a live state object; lands when GA prerequisites (signing certs, manifest server) are signed off
+- [ ] **Tauri-native file picker for `data.import` (S4-F6)** — replace the renderer-supplied `path` string with a Rust-side native dialog so the gateway never trusts a caller-controlled filesystem path; folds into the same UI-rebuild PR as the existing `extension.install` path-validation work (S4-F5 / S7-F7). **Gates `desktop-v0.1.0`, not `v0.1.0`.**
+- [ ] **Profile-switch global broadcast refactor (S4-F8)** — Rust-side window-registry refactor so `profile.switched` events fan out through a registered subscriber list instead of walking the live Tauri window list on each notification; same UI-rebuild PR as S4-F6. **Gates `desktop-v0.1.0`, not `v0.1.0`.**
+- [ ] **Updater production wiring (S6-F1)** — instantiate the `Updater` state machine in gateway startup so `nimbus update --check` and `updater.updateAvailable` run against a live state object; lands when GA prerequisites (signing certs, manifest server) are signed off. **Gates `v0.1.0`.**
 
 #### Polish items from B1 follow-up review
 
@@ -608,7 +612,7 @@ Items deferred from the Phase 4 internal security audit (B1, 2026-04-25) that fi
 
 ## Phase 6 — Team
 
-**Goal:** Make Nimbus a collaborative layer for engineering teams — shared intelligence without surrendering local sovereignty.
+**Goal:** Make Nimbus a collaborative layer for engineering teams — shared intelligence without surrendering local sovereignty. This phase also bundles the Tauri desktop UI release vehicle that slipped from `v0.1.0`.
 
 ### Dependencies
 
@@ -616,6 +620,27 @@ Items deferred from the Phase 4 internal security audit (B1, 2026-04-25) that fi
 - Phase 4 tamper-evident audit log (required for org-level compliance controls)
 - Phase 4 Plugin API v1 (team connectors can ship as extensions)
 - Phase 3.5 configuration profiles (team policy interacts with per-user profile config)
+
+<a id="desktop-release-vehicle"></a>
+### Desktop Release Vehicle
+
+The Tauri desktop UI was code-complete in Phase 4 (WS5-A through WS5-D, all `[x]` above) but did not ship as a release artifact in `v0.1.0`. Phase 6 is the release vehicle: signed installers, a per-OS `build-ui` matrix in `release.yml`, and the Tauri-specific security audit follow-ups deferred from B1. The desktop tag is `desktop-v0.1.0`, gated independently of the headless `v0.1.0` and `vscode-v0.1.0` tags.
+
+- [ ] **`build-ui` release-pipeline job** — add a per-OS matrix (windows-latest, macos-13, macos-14, ubuntu-24.04) to `.github/workflows/release.yml` that runs `cd packages/ui && bunx tauri build` and uploads the `.msi` / `.dmg` / `.AppImage` / `.deb` artifacts; gated on the same `desktop-v[0-9]+.[0-9]+.[0-9]+` tag pattern, parallel to the existing headless gateway/CLI jobs
+- [ ] **macOS Gatekeeper notarization** — Apple Developer Program enrollment ($99/yr); `codesign` + `notarytool` + `stapler` integrated into the macOS leg of `build-ui`; produces a notarized `.dmg` that opens without user override
+- [ ] **Windows Authenticode signing** — EV code-signing certificate procurement (~$470–$840/yr); `signtool.exe` integrated into the Windows leg of `build-ui`; produces an `.msi` that passes SmartScreen reputation
+- [ ] **Linux desktop bundle GPG signatures** — extend the existing `sign-linux-gpg.sh` to cover the `.AppImage` and `.deb` Tauri bundles produced by `build-ui`
+- [ ] **Tauri-native file picker for `data.import` (S4-F6)** — see [§ Phase 4 → Security audit follow-ups (B1)](#security-audit-follow-ups-b1); the same UI-rebuild PR also handles the `extension.install` path-validation work (S4-F5 / S7-F7)
+- [ ] **Profile-switch global broadcast refactor (S4-F8)** — Rust-side window-registry refactor; folded into the S4-F6 UI-rebuild PR
+- [ ] **`desktop-v0.1.0` smoke pass** — every section in [`docs/release/manual-smoke-desktop.md`](./release/manual-smoke-desktop.md) green on Windows + both macOS arches + Ubuntu 24.04
+- [ ] **`nimbus desktop` CLI shim (optional)** — a thin `packages/cli/src/commands/desktop.ts` command that locates and launches the installed Tauri app, so users can launch the desktop UI from the same CLI surface they use for everything else
+
+#### Acceptance criteria
+
+- `desktop-v0.1.0` produces `.dmg` (notarized, both arches), `.msi` (Authenticode-signed), `.AppImage` and `.deb` (GPG-detached signatures) as release artifacts.
+- A user double-clicking the macOS `.dmg` and the Windows `.msi` from a clean OS install is not blocked by Gatekeeper or SmartScreen.
+- The smoke checklist in `manual-smoke-desktop.md` is ✅/⚠ on every row.
+- The Tauri auto-update path (Ed25519 signature verify + rollback) round-trips against a live update manifest from `desktop-v0.1.0` to a hypothetical `desktop-v0.1.1`.
 
 ### Shared Infrastructure
 
