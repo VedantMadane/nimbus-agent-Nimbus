@@ -354,6 +354,8 @@ The compile script currently runs `bun build --compile` and exits with the build
 
 This is a build-time script; it doesn't have a unit test. We verify it by running the build and checking the artifact.
 
+> **CI note:** This step assumes `bun install` on the build runner has already populated `packages/gateway/node_modules/sqlite-vec-{os}-{arch}/`. Each `compile-gateway` matrix job in `.github/workflows/release.yml` runs on its **target's native runner** (`ubuntu-24.04`, `macos-15-intel`, `macos-15`, `windows-2025`); each runner's own `bun install` automatically picks up its matching `sqlite-vec-{os}-{arch}` optional dep. There is no cross-compile step in our pipeline. If you adapt this script for a single-runner cross-build later, you'll need an explicit `bun add sqlite-vec-{target-os}-{target-arch}` before the compile.
+
 - [ ] **Step 1: Add the copy logic at the bottom of `compile-gateway.ts`**
 
 In `packages/gateway/compile-gateway.ts`, change the import line:
@@ -627,3 +629,18 @@ Note the PR URL it returns and watch CI from there.
 **Type consistency:** `sidecarFilename(platform)`, `sidecarPath(execPath, platform)`, `tryLoadFromSidecar(db, baseDir)` all keep the same signatures across Tasks 1–3. The compile-script helpers (`npmOsSegment`, `vec0Filename`) are local to `compile-gateway.ts` and don't collide with the runtime helpers.
 
 **Scope check:** One PR. Single feature: sidecar-bundle vec0 + load-from-sidecar fallback. ONNX and `nimbus doctor` are explicitly deferred and listed as out-of-scope follow-ups.
+
+---
+
+## Responses to external review feedback (round 2)
+
+External review of this plan at `docs/superpowers/plans/2026-05-08-bug-009-sqlite-vec-sidecar-feedback.md` (Gemini CLI, 2026-05-08). Each item verified against the codebase before disposition.
+
+| # | Item | Disposition | Reason |
+|---|---|---|---|
+| 1 | CI cross-compile safety pre-check | **Fix** | Added a "CI note" callout in Task 4 above the implementation step. Confirms the build script runs on each target's native runner (per the verified `release.yml` matrix from the spec-feedback round) and points future contributors at the explicit-`bun add` workaround if they ever adapt the script for cross-compile. No code change in the script itself. |
+| 2 | Add `nimbus doctor` `vec_version()` check now (re-iterated) | **Defer** | User scoped this out in the brainstorm and confirmed it again in the spec-feedback round. Per the receiving-code-review framework, repeated suggestions don't override the user's decision. The follow-up is tracked in the spec under "Out-of-scope follow-ups" and in the BUG-009 entry of `v0.1.0-smoke-bugs.md`. |
+| 3 | Bump sidecar-missing log to `warn`/`info` | **Defer** | Conflicts with the user's explicit brainstorm choice: "Silent degrade … no noisy errors, but also no signal." The `debug`-level lines added in Task 2 step 3 are already a compromise on the stated preference (justified because `debug` isn't visible at default log levels). Bumping further deviates from intent. |
+| 4 | `.prev` binary cleanup / sidecar version mismatch | **Verified — not an issue** | The `.prev` rename in `compile-gateway.ts` is a **Windows file-lock workaround** (rename the running binary out of the way so `bun build` can write the replacement), not a rollback artifact. `copyFileSync` then atomically overwrites `dist/vec0.{ext}` on every build, so there's no scenario where a stale `vec0` pairs with a fresh gateway binary. |
+| 5 | Tauri sidecar config | **Defer to Phase 6** | Same disposition as the spec-feedback round. Tauri release vehicle is deferred from `v0.1.0` to Phase 6 (`desktop-v0.1.0`) per the CLAUDE.md non-negotiables table. |
+| 6 | Linux musl variant for `npmOsSegment` | **Defer (with technical pushback)** | Verified directly against `packages/gateway/node_modules/sqlite-vec/package.json`. The `optionalDependencies` field is exactly: `{ "sqlite-vec-darwin-x64", "sqlite-vec-linux-x64", "sqlite-vec-darwin-arm64", "sqlite-vec-windows-x64", "sqlite-vec-linux-arm64" }`. There is **no `sqlite-vec-linux-x64-musl` package** for sqlite-vec 0.1.9. The reviewer's claim is incorrect for this version. The musl/glibc concern is real for Alpine users but inherited from upstream — our pipeline doesn't introduce or worsen it. If/when upstream ships a musl variant, the existing `npmOsSegment` mapping needs an extension; until then it's a non-issue. |
