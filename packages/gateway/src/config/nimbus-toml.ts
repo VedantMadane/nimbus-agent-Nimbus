@@ -430,7 +430,7 @@ export type NimbusUpdaterToml = {
 
 export const DEFAULT_NIMBUS_UPDATER_TOML: NimbusUpdaterToml = {
   enabled: true,
-  url: "https://github.com/asafgolombek/Nimbus/releases/latest/download/latest.json",
+  url: "https://github.com/nimbus-agent/Nimbus/releases/latest/download/latest.json",
   checkOnStartup: true,
   autoApply: false,
 };

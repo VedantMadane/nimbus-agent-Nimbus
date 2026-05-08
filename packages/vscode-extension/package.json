@@ -29,10 +29,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/asafgolombek/Nimbus"
+    "url": "https://github.com/nimbus-agent/Nimbus"
   },
   "bugs": {
-    "url": "https://github.com/asafgolombek/Nimbus/issues"
+    "url": "https://github.com/nimbus-agent/Nimbus/issues"
   },
   "homepage": "https://nimbus-agent.dev/vscode",
   "activationEvents": [
