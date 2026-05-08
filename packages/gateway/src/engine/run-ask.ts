@@ -32,6 +32,13 @@ export type RunAskParams = {
    * store and prepends them to the agent's prompt.
    */
   sessionMemoryStore?: SessionMemoryStore;
+  /**
+   * Test-only override for the intent classifier. Production code never
+   * supplies this; the default `classifyIntentForAsk` is used. Tests of the
+   * conversational/memory path use this so they don't have to mint a real
+   * Anthropic/OpenAI API key just to get past intent classification.
+   */
+  classify?: (input: string) => Promise<ClassifiedIntent>;
 };
 
 const EMPTY_INDEX_GUIDANCE = `No data indexed yet.
@@ -165,7 +172,7 @@ export async function runAsk(p: RunAskParams): Promise<{ reply: string }> {
     return empty;
   }
 
-  const classified = await classifyIntentForAsk(p.input);
+  const classified = await (p.classify ?? classifyIntentForAsk)(p.input);
 
   // Reserve `planFromIntent` for high-confidence file_search/file_organize — those have
   // direct ToolExecutor handlers with HITL gating. Everything else routes to the

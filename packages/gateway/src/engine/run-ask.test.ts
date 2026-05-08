@@ -127,6 +127,15 @@ describe("runAsk", () => {
         sendChunk: () => {},
         conversationalAgent: fakeConversationalAgent("ok, draft created"),
         sessionMemoryStore: store,
+        // Bypass the LLM classifier so the test doesn't depend on
+        // ANTHROPIC_API_KEY / OPENAI_API_KEY (CI runs without keys; the
+        // real classifier would throw GatewayAgentUnavailableError).
+        classify: async () => ({
+          intent: "unknown",
+          entities: {},
+          requiresHITL: false,
+          confidence: 0,
+        }),
       });
     });
 
@@ -166,6 +175,12 @@ describe("runAsk", () => {
       sendChunk: () => {},
       conversationalAgent: fakeConversationalAgent("ok, draft created"),
       sessionMemoryStore: store,
+      classify: async () => ({
+        intent: "unknown",
+        entities: {},
+        requiresHITL: false,
+        confidence: 0,
+      }),
     });
 
     expect(appended.length).toBe(0);
