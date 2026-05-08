@@ -1013,7 +1013,7 @@ nimbus bench --all --gha --corpus medium             # Every registered surface
 
 | Flag | Description |
 |---|---|
-| `--surface <id>` | One of `S1`, `S2-a`, `S2-b`, `S2-c`, `S3`, `S4`, `S5`, `S11-a`, `S11-b` (cluster C — `S6`/`S7`/`S8`/`S9`/`S10` — adds in PR-B-2b) |
+| `--surface <id>` | A registered surface id. Shipped in v0.1.0: `S1`, `S2-a`/`-b`/`-c`, `S3`, `S4`, `S5`, `S6-drive`/`-gmail`/`-github`, `S7-a`/`-b`/`-c`, `S8-l<L>-b<B>` (12-cell embedding cross-product), `S9`, `S10`, `S11-a`/`-b`. See `packages/gateway/src/perf/surfaces/` and `SURFACE_REGISTRY` in `packages/gateway/src/perf/bench-cli.ts` for the canonical list. |
 | `--all` | Run every registered surface back-to-back |
 
 **Tagging (one of, required):**
