@@ -287,12 +287,13 @@ function bootstrap(): void {
 
   window.addEventListener("message", (ev) => {
     // Origin verification (Sonar S2819 / CodeQL js/missing-origin-check):
-    // VS Code webviews receive messages from the extension host frame
-    // embedding this iframe. The host sets `event.source === window.parent`
-    // and uses a `vscode-webview://` origin scheme. Reject anything else.
-    // Empty origins are still accepted so legitimate webview test harnesses
-    // (jsdom, etc.) keep working.
-    if (ev.source !== window.parent) return;
+    // VS Code webviews run inside a sandboxed iframe; the extension host
+    // posts messages via the surrounding webview-frame. The `vscode-webview`
+    // origin scheme is the authoritative trust signal — `event.source` does
+    // *not* reliably equal `window.parent` (VS Code's message-broker setup
+    // breaks the expected window relationship; checking it silently dropped
+    // every extension→webview message). Empty origins are still accepted so
+    // unit-test harnesses (jsdom) work.
     if (ev.origin.length > 0 && !ev.origin.startsWith("vscode-webview")) return;
     const data = ev.data as ExtensionToWebview;
     if (data === null || typeof data !== "object" || typeof data.type !== "string") return;
