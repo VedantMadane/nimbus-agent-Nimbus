@@ -62,6 +62,22 @@ describe("WatcherPane", () => {
     unmount();
   });
 
+  test("BUG-004: shows 'No watchers configured' when the list is empty", async () => {
+    const stub = new StubIpcClient({ results: { "watcher.list": [] } });
+    const { lastFrame, unmount } = render(
+      <IpcContext.Provider value={ctx(stub)}>
+        <WatcherPane mode="idle" />
+      </IpcContext.Provider>,
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("No watchers configured");
+    // The bare-numbers `0 active, 0 firing` line is a poor empty-state hint
+    // for a first-time user; the sentence form replaces it.
+    expect(frame).not.toContain("0 active, 0 firing");
+    unmount();
+  });
+
   test("(stale) marker when disconnected", async () => {
     const stub = new StubIpcClient({ results: { "watcher.list": [] } });
     const { lastFrame, unmount } = render(

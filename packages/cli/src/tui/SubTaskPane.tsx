@@ -97,7 +97,7 @@ export function SubTaskPane({ clearKey }: SubTaskPaneProps): React.JSX.Element {
     <Box flexDirection="column">
       <Text bold>Sub-Tasks</Text>
       {ordered.length === 0 ? (
-        <Text dimColor>No active sub-tasks</Text>
+        <Text dimColor>No sub-tasks running yet</Text>
       ) : (
         <>
           {shown.map((t) => (

@@ -9,7 +9,7 @@ import { StubIpcClient } from "./test-helpers/stub-client.ts";
 function setupStub(): StubIpcClient {
   return new StubIpcClient({
     results: {
-      "connector.list": [],
+      "connector.listStatus": [],
       "watcher.list": [],
       "engine.askStream": { streamId: "s-test" },
     },
@@ -89,10 +89,32 @@ describe("App state machine", () => {
     teardown();
   });
 
+  test("BUG-004: renders the keybind footer in idle mode", async () => {
+    const stub = setupStub();
+    const { lastFrame, teardown } = renderApp(stub);
+    await settle();
+    // The TUI now ships a one-line footer so first-time users have an anchor
+    // for the only universally-available exit keybind.
+    expect(lastFrame() ?? "").toContain("Ctrl+C twice to exit");
+    teardown();
+  });
+
+  test("BUG-004: right pane is enclosed in a single-line box border", async () => {
+    const stub = setupStub();
+    const { lastFrame, teardown } = renderApp(stub);
+    await settle();
+    const frame = lastFrame() ?? "";
+    // Ink's borderStyle="single" emits Unicode box-drawing characters.
+    // Asserting `│` (vertical bar) is the cheapest invariant that survives
+    // terminal-width changes and content reshuffles.
+    expect(frame).toContain("│");
+    teardown();
+  });
+
   test("disconnect banner appears when an IPC call throws ECONNRESET", async () => {
     const stub = new StubIpcClient({
       errors: { "engine.askStream": new Error("ECONNRESET") },
-      results: { "connector.list": [], "watcher.list": [] },
+      results: { "connector.listStatus": [], "watcher.list": [] },
     });
     const { stdin, lastFrame, teardown } = renderApp(stub);
     await settle();

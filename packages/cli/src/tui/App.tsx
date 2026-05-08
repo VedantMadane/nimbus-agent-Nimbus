@@ -327,16 +327,29 @@ export function App({ historyPath, onExit }: Props): React.JSX.Element {
         </Box>
       ) : (
         <Box flexDirection="row">
-          <Box flexDirection="column" flexGrow={1}>
+          {/*
+            BUG-004: cap the left pane width so the right pane sits adjacent
+            instead of floating at the far edge on wide modern terminals
+            (250-col Windows Terminal was the trigger). 32 = right-pane
+            width 30 + 2 cols of slack.
+          */}
+          <Box flexDirection="column" width={Math.min(Math.max(cols - 32, 40), 120)}>
             <ResultStream entries={entries} liveBuffer={state.liveBuffer} hitlBanner={hitlBanner} />
           </Box>
-          <Box flexDirection="column" width={30}>
+          <Box
+            flexDirection="column"
+            width={30}
+            borderStyle="single"
+            borderColor="gray"
+            paddingX={1}
+          >
             <ConnectorHealth mode={state.mode} />
             <WatcherPane mode={state.mode} />
             <SubTaskPane clearKey={clearKey} />
           </Box>
         </Box>
       )}
+      <Text dimColor>Ctrl+C twice to exit</Text>
     </Box>
   );
 }
