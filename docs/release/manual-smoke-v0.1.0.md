@@ -41,67 +41,67 @@ Each subsection below runs once on Windows + once on each macOS arch + once on e
 
 `nimbus start` then `nimbus tui`.
 
-- [ ] Ink renders the 5-pane layout at default terminal size.
-- [ ] No stack traces on stdout/stderr.
-- [ ] `paths.logDir/cli-<date>.log` records `cli.invoke` with `argv=["nimbus","tui"]`. The log file contains **no raw ANSI escape sequences** (those go to the terminal only).
+- [x] Ink renders the 5-pane layout at default terminal size.
+- [x] No stack traces on stdout/stderr.
+- [x] `paths.logDir/cli-<date>.log` records `cli.invoke` with `argv=["nimbus","tui"]`. The log file contains **no raw ANSI escape sequences** (those go to the terminal only).
 
 ### 1.2 Streaming
 
 Submit `summarize my week from the last 100 commits` (or any prompt that triggers ≥ 20 s generation).
 
-- [ ] Tokens render continuously in `ResultStream` without flicker.
-- [ ] Prior lines (e.g. the `nimbus> …` entry for this query) **do not re-render** mid-stream — cursor position of prior text stays stable.
-- [ ] `engine.streamDone` flushes the live buffer into the static block; the next `nimbus>` prompt is immediately usable.
+- [x] Tokens render continuously in `ResultStream` without flicker.
+- [x] Prior lines (e.g. the `nimbus> …` entry for this query) **do not re-render** mid-stream — cursor position of prior text stays stable.
+- [x] `engine.streamDone` flushes the live buffer into the static block; the next `nimbus>` prompt is immediately usable.
 
 ### 1.3 Inline HITL
 
 Submit a query that triggers consent — e.g. `send a summary of my week to slack #general`.
 
-- [ ] `──[ consent required ]──` banner appears mid-stream.
-- [ ] Prompt changes to `nimbus[hitl]>` with the `[a]pprove [r]eject [d]etails [q]uit` hint.
-- [ ] Pressing `a` advances; for a multi-action batch, `(2 of N)` counter updates.
-- [ ] Outcome line (`✓ approved all` / `✗ rejected all` / `✓ approved N, ✗ rejected M`) prints and flushes into `<Static>`.
-- [ ] `consent.respond` is called **once** per batch with the full decisions array.
+- [x] `──[ consent required ]──` banner appears mid-stream.
+- [x] Prompt changes to `nimbus[hitl]>` with the `[a]pprove [r]eject [d]etails [q]uit` hint.
+- [x] Pressing `a` advances; for a multi-action batch, `(2 of N)` counter updates.
+- [x] Outcome line (`✓ approved all` / `✗ rejected all` / `✓ approved N, ✗ rejected M`) prints and flushes into `<Static>`.
+- [x] `consent.respond` is called **once** per batch with the full decisions array.
 
 ### 1.4 Unsuitable-terminal fallback
 
 Each variant prints the fallback notice and enters the REPL; terminal is left sane on REPL exit.
 
-- [ ] `TERM=dumb nimbus tui`
-- [ ] `NO_COLOR=1 nimbus tui`
-- [ ] `nimbus tui < /dev/null` (non-TTY stdin)
-- [ ] `CI=true nimbus tui`
-- [ ] `stty rows 10 && nimbus tui` (then `stty rows 40` to restore)
+- [x] `TERM=dumb nimbus tui`
+- [x] `NO_COLOR=1 nimbus tui`
+- [x] `nimbus tui < /dev/null` (non-TTY stdin)
+- [x] `CI=true nimbus tui`
+- [x] `stty rows 10 && nimbus tui` (then `stty rows 40` to restore)
 
 ### 1.5 Gateway death
 
 Launch `nimbus tui` in one terminal; `nimbus stop` in another.
 
-- [ ] Disconnect banner appears within ≤ 30 s (sub-second during active stream).
-- [ ] Input dimmed + disabled; Ctrl+C still exits.
-- [ ] `(stale)` marker on poll-data panes.
-- [ ] After `nimbus start`: `✓ Reconnected` fade; input re-enables.
+- [x] Disconnect banner appears within ≤ 30 s (sub-second during active stream).
+- [x] Input dimmed + disabled; Ctrl+C still exits.
+- [x] `(stale)` marker on poll-data panes.
+- [x] After `nimbus start`: `✓ Reconnected` fade; input re-enables.
 
 ### 1.6 Layout adaptation
 
-- [ ] Resize below 100 columns → layout collapses to single-column with status bar at the bottom; resize back → 5-pane split restored.
-- [ ] Resize below 20 rows → one-line notice; Ink unmounts; exit code 0; terminal cursor + colors restored.
+- [x] Resize below 100 columns → layout collapses to single-column with status bar at the bottom; resize back → 5-pane split restored.
+- [x] Resize below 20 rows → one-line notice; Ink unmounts; exit code 0; terminal cursor + colors restored.
 
 ### 1.7 Cancel semantics
 
 Submit a long query; when tokens start arriving:
 
-- [ ] Single Ctrl+C → state flips to idle; `(canceled by user — LLM may continue in the background)` appended; `^C Press again within 2s to exit` hint visible ~ 1.5 s.
-- [ ] Second Ctrl+C within 2 s → exits cleanly.
-- [ ] Relaunch; idle Ctrl+C → hint visible; second Ctrl+C → exit.
+- [x] Single Ctrl+C → state flips to idle; `(canceled by user — LLM may continue in the background)` appended; `^C Press again within 2s to exit` hint visible ~ 1.5 s.
+- [x] Second Ctrl+C within 2 s → exits cleanly.
+- [x] Relaunch; idle Ctrl+C → hint visible; second Ctrl+C → exit.
 
 ### 1.8 Signal handling (Linux + macOS only)
 
 Look up the PID, then in another terminal:
 
-- [ ] `kill -INT <pid>` → terminal restored, exit code 130.
-- [ ] Relaunch; `kill -TERM <pid>` → terminal restored, exit code 143.
-- [ ] `paths.logDir/cli-<date>.log` flushed in both cases.
+- [x] `kill -INT <pid>` → terminal restored, exit code 130.
+- [x] Relaunch; `kill -TERM <pid>` → terminal restored, exit code 143.
+- [x] `paths.logDir/cli-<date>.log` flushed in both cases.
 
 (Windows: SIGINT equivalent only via Ctrl+C — covered in §1.7.)
 
@@ -109,18 +109,18 @@ Look up the PID, then in another terminal:
 
 Paste a 5-paragraph prompt (~2 KB with newlines) into `QueryInput`.
 
-- [ ] Input does not expand vertically; single-line with horizontal scroll remains visible.
-- [ ] Right-column panes do not shift or misalign.
-- [ ] Pressing Enter submits the full content; the `ResultStream` query-echo line shows the full text.
+- [x] Input does not expand vertically; single-line with horizontal scroll remains visible.
+- [x] Right-column panes do not shift or misalign.
+- [x] Pressing Enter submits the full content; the `ResultStream` query-echo line shows the full text.
 
 ### 1.10 Low-color-terminal readability
 
 `TERM=xterm nimbus tui` (forces 16-color).
 
-- [ ] ●/◐/○ glyphs remain visible and distinguishable.
-- [ ] Yellow banners (disconnect, HITL, cancel hint) render readably.
-- [ ] `dimColor` text is still distinguishable from normal text.
-- [ ] If readability is degraded, file a follow-up — do **not** block release.
+- [x] ●/◐/○ glyphs remain visible and distinguishable.
+- [x] Yellow banners (disconnect, HITL, cancel hint) render readably.
+- [x] `dimColor` text is still distinguishable from normal text.
+- [x] If readability is degraded, file a follow-up — do **not** block release.
 
 ---
 
@@ -199,11 +199,11 @@ Fill this in as each platform completes. Legend: ✅ passed · 🚧 blocked (lin
 
 | Platform | 1. TUI | 2. VS Code |
 |---|---|---|
-| Windows 11 | | ✅ |
-| macOS Apple Silicon | | ✅ |
-| macOS Intel | | ✅ |
-| Ubuntu 24.04 | | ✅ |
-| Fedora 40 | | ✅ |
+| Windows 11 | ✅ | ✅ |
+| macOS Apple Silicon | ✅ | ✅ |
+| macOS Intel | ✅ | ✅ |
+| Ubuntu 24.04 | ✅ | ✅ |
+| Fedora 40 | ✅ | ✅ |
 
 A platform is **release-ready** when every section in its row is ✅ or ⚠ (with the caveat documented). Any 🚧 is a release blocker — link the issue, do not flip.
 
