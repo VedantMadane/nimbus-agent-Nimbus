@@ -53,10 +53,23 @@ export class SessionMemoryStore {
       return;
     }
     const vec = await this.embedText(chunk.text);
-    if (vec?.length !== this.dims) {
+    const hasVec = vec !== null && vec.length === this.dims;
+    const now = chunk.createdAt;
+    // BUG-005 follow-up: when the embedding runtime is unavailable or
+    // returns null/wrong-dim, we still want to record the literal turn so
+    // multi-turn replay works. Insert into session_memory with vec_rowid=0
+    // as a "no vector" sentinel; semantic recall() will skip those rows
+    // (its INNER JOIN on vec_items_384.rowid never matches 0). This keeps
+    // RAG semantic recall and literal-turn replay decoupled — the latter
+    // works in any environment where the SQLite schema is healthy.
+    if (!hasVec) {
+      this.db.run(
+        `INSERT INTO session_memory (session_id, chunk_text, vec_rowid, role, created_at)
+         VALUES (?, ?, 0, ?, ?)`,
+        [chunk.sessionId, chunk.text, chunk.role, now],
+      );
       return;
     }
-    const now = chunk.createdAt;
     this.db.transaction(() => {
       const maxRow = this.db
         .query(`SELECT COALESCE(MAX(rowid), 0) AS m FROM vec_items_384`)

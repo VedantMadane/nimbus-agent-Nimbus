@@ -143,21 +143,38 @@ async function ensureGithubCircleCiSchedulerCompanions(
   });
 }
 
+/**
+ * Default vector dimension when the embedding runtime is unavailable. Matches
+ * `vec_items_384`. The store still records literal turns (vec_rowid=0
+ * sentinel) so multi-turn TUI memory works without embeddings.
+ */
+const DEFAULT_EMBEDDING_DIMS = 384;
+
 function maybeAttachSessionMemoryStore(
   db: Database,
   rt: EmbeddingRuntime,
   sessionToml: ReturnType<typeof loadNimbusSessionFromPath>,
   sidecarStops: Array<() => void>,
 ): SessionMemoryStore | undefined {
-  if (rt == null || readIndexedUserVersion(db) < 10) {
+  // BUG-005 follow-up: keep going even when the embedding runtime failed
+  // to start. The store still works for literal-turn replay (the path the
+  // multi-turn TUI memory fix relies on); semantic recall just stays empty
+  // until embeddings come back.
+  if (readIndexedUserVersion(db) < 10) {
     return undefined;
   }
-  const embeddingRt = rt;
-  const sessionMemoryStore = new SessionMemoryStore({
-    db,
-    dims: embeddingRt.getEmbeddingDims(),
-    embedText: (t) => embeddingRt.embedQuery(t),
-  });
+  const sessionMemoryStore =
+    rt == null
+      ? new SessionMemoryStore({
+          db,
+          dims: DEFAULT_EMBEDDING_DIMS,
+          embedText: async () => null,
+        })
+      : new SessionMemoryStore({
+          db,
+          dims: rt.getEmbeddingDims(),
+          embedText: (t) => rt.embedQuery(t),
+        });
   const ttlMs = Math.max(1, sessionToml.memoryTtlHours) * 3_600_000;
   const timer = setInterval(() => {
     try {

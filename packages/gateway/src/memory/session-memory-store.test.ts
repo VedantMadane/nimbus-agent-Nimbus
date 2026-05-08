@@ -94,6 +94,36 @@ describe.skipIf(!VEC_AVAILABLE)("SessionMemoryStore", () => {
     expect(recent.map((t) => t.createdAt)).toEqual([100, 200, 300]);
   });
 
+  test("BUG-005 follow-up: append still records the literal turn when embedText returns null", async () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    // The user's gateway hits this path when the embedding worker fails to
+    // initialize ("embedding worker failed to initialize; semantic search
+    // disabled"). Without this fallback, append silently no-ops and
+    // multi-turn TUI memory never works in environments without a healthy
+    // embedding runtime.
+    const store = new SessionMemoryStore({
+      db,
+      dims: 384,
+      embedText: async () => null,
+    });
+    const sid = "sess-no-embedding";
+
+    await store.append({ sessionId: sid, text: "user turn one", role: "user", createdAt: 100 });
+    await store.append({
+      sessionId: sid,
+      text: "assistant reply one",
+      role: "assistant",
+      createdAt: 200,
+    });
+
+    // Literal-turn replay must work even though the row was written without a vector.
+    const recent = await store.getRecentTurns(sid, 10);
+    expect(recent.length).toBe(2);
+    expect(recent.map((t) => t.text)).toEqual(["user turn one", "assistant reply one"]);
+    expect(recent.map((t) => t.role)).toEqual(["user", "assistant"]);
+  });
+
   test("BUG-005: getRecentTurns honors the limit and returns the most recent N (oldest-first)", async () => {
     const db = new Database(":memory:");
     LocalIndex.ensureSchema(db);
