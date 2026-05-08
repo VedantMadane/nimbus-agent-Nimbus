@@ -1,5 +1,13 @@
 import type { Database } from "bun:sqlite";
+import { existsSync } from "node:fs";
+import { dirname, join, posix as posixPath, win32 as winPath } from "node:path";
+import pino from "pino";
 import { load as loadSqliteVec } from "sqlite-vec";
+
+const log = pino({
+  name: "sqlite-vec-load",
+  level: process.env["NIMBUS_LOG_LEVEL"] ?? "info",
+});
 
 /**
  * Loads the sqlite-vec extension into this connection.
@@ -8,9 +16,12 @@ import { load as loadSqliteVec } from "sqlite-vec";
 export function tryLoadSqliteVec(db: Database): boolean {
   try {
     loadSqliteVec(db);
+    log.debug({ via: "npm" }, "sqlite-vec loaded");
     return true;
-  } catch {
-    return false;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    log.debug({ err: msg }, "upstream sqlite-vec load failed; trying sidecar");
+    return tryLoadFromSidecar(db);
   }
 }
 
@@ -18,12 +29,9 @@ export function tryLoadSqliteVec(db: Database): boolean {
  * Loads sqlite-vec or throws with a short, actionable message (Gateway / tests).
  */
 export function loadSqliteVecOrThrow(db: Database): void {
-  try {
-    loadSqliteVec(db);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+  if (!tryLoadSqliteVec(db)) {
     throw new Error(
-      `sqlite-vec could not be loaded (${msg}). Embeddings require a supported platform (see sqlite-vec npm optionalDependencies).`,
+      "sqlite-vec could not be loaded. Embeddings require a supported platform (see sqlite-vec npm optionalDependencies).",
     );
   }
 }
@@ -55,5 +63,39 @@ export function ensureSqliteVecForConnection(db: Database, indexedUserVersion: n
     return true;
   } catch {
     return tryLoadSqliteVec(db);
+  }
+}
+
+export function sidecarFilename(platform: NodeJS.Platform): string {
+  if (platform === "win32") return "vec0.dll";
+  if (platform === "darwin") return "vec0.dylib";
+  return "vec0.so";
+}
+
+// Compiled-binary fallback path: vec0.{ext} adjacent to the running executable.
+// Uses the platform-specific path module so the result is correct regardless of host OS
+// (a Linux CI runner computing a Windows path must not rely on POSIX `dirname`/`join`).
+export function sidecarPath(execPath: string, platform: NodeJS.Platform): string {
+  const p = platform === "win32" ? winPath : posixPath;
+  return p.join(p.dirname(execPath), sidecarFilename(platform));
+}
+
+export function tryLoadFromSidecar(
+  db: Database,
+  baseDir: string = dirname(process.execPath),
+): boolean {
+  const path = join(baseDir, sidecarFilename(process.platform));
+  if (!existsSync(path)) {
+    log.debug({ sidecar: path }, "sqlite-vec sidecar not found; semantic memory disabled");
+    return false;
+  }
+  try {
+    db.loadExtension(path);
+    log.debug({ via: "sidecar", sidecar: path }, "sqlite-vec loaded");
+    return true;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    log.debug({ sidecar: path, err: msg }, "sqlite-vec sidecar load failed");
+    return false;
   }
 }

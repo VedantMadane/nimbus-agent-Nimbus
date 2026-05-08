@@ -4,7 +4,8 @@
  * Terminate the compiled gateway process, rotate the existing binary aside, then compile.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, renameSync, unlinkSync } from "node:fs";
+import { copyFileSync, existsSync, renameSync, statSync, unlinkSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -34,6 +35,47 @@ function rotateExistingBinaryOrThrow(): void {
   if (existsSync(outfileAbs)) {
     renameSync(outfileAbs, prevAbs);
   }
+}
+
+// `process.platform === "win32"` but the npm sub-package uses "windows".
+function npmOsSegment(platform: NodeJS.Platform): string {
+  if (platform === "win32") return "windows";
+  if (platform === "darwin") return "darwin";
+  return "linux";
+}
+
+function vec0Filename(platform: NodeJS.Platform): string {
+  if (platform === "win32") return "vec0.dll";
+  if (platform === "darwin") return "vec0.dylib";
+  return "vec0.so";
+}
+
+// Two-step resolve: `sqlite-vec-{os}-{arch}` is an optionalDependency of sqlite-vec,
+// not of @nimbus/gateway. Under Bun's isolated install layout, createRequire rooted
+// at this file can't see it; createRequire rooted at the resolved sqlite-vec entry
+// point can — same trick upstream sqlite-vec/index.cjs uses internally.
+function resolveVec0SourceOrThrow(): string {
+  const pkg = `sqlite-vec-${npmOsSegment(process.platform)}-${process.arch}`;
+  const fname = vec0Filename(process.platform);
+  try {
+    const sqliteVecIndex = createRequire(import.meta.url).resolve("sqlite-vec");
+    const reqFromVec = createRequire(sqliteVecIndex);
+    return reqFromVec.resolve(`${pkg}/${fname}`);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(
+      `compile-gateway: native dep "${pkg}" not found in node_modules (${msg}); ` +
+        `bun install may have skipped it on this platform — the resulting gateway binary cannot load semantic memory.`,
+    );
+  }
+}
+
+function copyVec0Sidecar(): void {
+  const src = resolveVec0SourceOrThrow();
+  const dest = join(distDir, vec0Filename(process.platform));
+  copyFileSync(src, dest);
+  const size = statSync(dest).size;
+  process.stdout.write(`compile-gateway: copied ${src} → ${dest} (${String(size)} bytes)\n`);
 }
 
 async function main(): Promise<void> {
@@ -69,7 +111,12 @@ async function main(): Promise<void> {
     { cwd: gatewayPkgDir, stdio: "inherit", env: process.env },
   );
 
-  process.exit(r.status === null ? 1 : r.status);
+  const status = r.status === null ? 1 : r.status;
+  if (status !== 0) {
+    process.exit(status);
+  }
+  copyVec0Sidecar();
+  process.exit(0);
 }
 
 await main();
