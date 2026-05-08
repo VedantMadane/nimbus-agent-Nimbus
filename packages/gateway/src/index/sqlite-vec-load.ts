@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, posix as posixPath, win32 as winPath } from "node:path";
 import pino from "pino";
 import { load as loadSqliteVec } from "sqlite-vec";
 
@@ -73,8 +73,11 @@ export function sidecarFilename(platform: NodeJS.Platform): string {
 }
 
 // Compiled-binary fallback path: vec0.{ext} adjacent to the running executable.
+// Uses the platform-specific path module so the result is correct regardless of host OS
+// (a Linux CI runner computing a Windows path must not rely on POSIX `dirname`/`join`).
 export function sidecarPath(execPath: string, platform: NodeJS.Platform): string {
-  return join(dirname(execPath), sidecarFilename(platform));
+  const p = platform === "win32" ? winPath : posixPath;
+  return p.join(p.dirname(execPath), sidecarFilename(platform));
 }
 
 export function tryLoadFromSidecar(

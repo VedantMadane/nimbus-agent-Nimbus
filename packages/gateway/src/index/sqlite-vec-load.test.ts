@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, posix as posixPath, win32 as winPath } from "node:path";
 
 import {
   sidecarFilename,
@@ -27,14 +27,16 @@ describe("sidecarFilename", () => {
 });
 
 describe("sidecarPath", () => {
-  test("returns vec0.{ext} adjacent to the given exec path", () => {
+  // Platform-explicit `posix.join` / `win32.join` — must not depend on host OS
+  // (a Linux runner asserting a Windows-shaped path is the regression that broke CI).
+  test("returns vec0.{ext} adjacent to the given exec path (linux)", () => {
     expect(sidecarPath("/opt/nimbus/bin/nimbus-gateway", "linux")).toBe(
-      join("/opt/nimbus/bin", "vec0.so"),
+      posixPath.join("/opt/nimbus/bin", "vec0.so"),
     );
   });
   test("works for a Windows-style path", () => {
     expect(sidecarPath("C:\\Program Files\\Nimbus\\nimbus-gateway.exe", "win32")).toBe(
-      join("C:\\Program Files\\Nimbus", "vec0.dll"),
+      winPath.join("C:\\Program Files\\Nimbus", "vec0.dll"),
     );
   });
 });
