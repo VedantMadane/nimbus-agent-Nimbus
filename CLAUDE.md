@@ -175,7 +175,7 @@ runs. See `docs/structure-audit/baseline.md` for current findings.
 | `packages/ui/src/store/slices/telemetry.ts` | Telemetry slice — `TelemetryStatus` + `telemetryActionInFlight`; transient |
 | `packages/ui/src/store/slices/connectors.ts` | Connectors slice — `PersistedConnectorRow[]` (persisted) + transient `perServiceInFlight` + `highlightService` + `patchConnectorRow` |
 | `packages/ui/src/store/slices/model.ts` | Model slice — `installedModels` + `activePullId` (persisted) + transient `routerStatus`, `pullProgress`, `pullStalled`, `loadedKeys` |
-| `packages/ui/src-tauri/src/gateway_bridge.rs` | Rust IPC bridge — `ALLOWED_METHODS` (38), `NO_TIMEOUT_METHODS` (4), `GLOBAL_BROADCAST_METHODS` (`profile.switched`), `rpc_call`, reconnect loop |
+| `packages/ui/src-tauri/src/gateway_bridge.rs` | Rust IPC bridge — `ALLOWED_METHODS` (57), `NO_TIMEOUT_METHODS` (4), `GLOBAL_BROADCAST_METHODS` (`profile.switched`), `rpc_call`, reconnect loop |
 | `packages/ui/src-tauri/src/tray.rs` | System tray icon, menu, state forwarding |
 | `packages/ui/src-tauri/src/quick_query.rs` | Quick Query window lifecycle — spawn/focus, focus-loss close |
 | `packages/ui/src-tauri/src/hitl_popup.rs` | HITL popup window lifecycle — spawn / focus / close |
@@ -488,6 +488,12 @@ When all three checks pass, include the package's published age and maintainer i
 ## Skill References
 
 @.claude/commands/nimbus-agent-patterns.md
+@.claude/commands/nimbus-architecture.md
 @.claude/commands/nimbus-connector-authoring.md
 @.claude/commands/nimbus-db-migrations.md
+@.claude/commands/nimbus-ipc.md
+@.claude/commands/nimbus-phase-4.md
 @.claude/commands/nimbus-security-invariants.md
+@.claude/commands/nimbus-tauri-allowlist.md
+@.claude/commands/nimbus-testing.md
+@.claude/commands/nimbus-tool-output-envelope.md
