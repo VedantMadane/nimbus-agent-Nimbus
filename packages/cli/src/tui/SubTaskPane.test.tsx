@@ -18,14 +18,14 @@ function ctx(client: StubIpcClient): IpcContextValue {
 }
 
 describe("SubTaskPane", () => {
-  test("renders 'No active sub-tasks' when empty", () => {
+  test("renders 'No sub-tasks running yet' when empty", () => {
     const stub = new StubIpcClient();
     const { lastFrame, unmount } = render(
       <IpcContext.Provider value={ctx(stub)}>
         <SubTaskPane clearKey={0} />
       </IpcContext.Provider>,
     );
-    expect(lastFrame() ?? "").toContain("No active sub-tasks");
+    expect(lastFrame() ?? "").toContain("No sub-tasks running yet");
     unmount();
   });
 
@@ -103,7 +103,7 @@ describe("SubTaskPane", () => {
       </IpcContext.Provider>,
     );
     await new Promise((r) => setTimeout(r, 10));
-    expect(lastFrame() ?? "").toContain("No active sub-tasks");
+    expect(lastFrame() ?? "").toContain("No sub-tasks running yet");
     unmount();
   });
 

@@ -44,9 +44,13 @@ export function WatcherPane({ mode }: WatcherPaneProps): React.JSX.Element {
   return (
     <Box flexDirection="column">
       <Text bold>Watchers{poll.stale ? " (stale)" : ""}</Text>
-      <Text>
-        {String(active)} active, {String(firing.length)} firing
-      </Text>
+      {rows.length === 0 ? (
+        <Text dimColor>No watchers configured</Text>
+      ) : (
+        <Text>
+          {String(active)} active, {String(firing.length)} firing
+        </Text>
+      )}
       {shown.map((w) => (
         <Text key={w.id}>• {w.name}</Text>
       ))}
