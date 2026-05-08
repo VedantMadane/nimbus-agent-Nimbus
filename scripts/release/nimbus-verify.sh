@@ -13,7 +13,7 @@ TRUSTED_FINGERPRINTS=(
   "5A20457CCD8B53FFAA945240886ADA6B487CAB6E"
 )
 DEFAULT_KEYSERVER="keys.openpgp.org"
-GITHUB_REPO="asafgolombek/Nimbus"
+GITHUB_REPO="nimbus-agent/Nimbus"
 
 # Runtime-override: tests inject NIMBUS_VERIFY_FINGERPRINT_OVERRIDE with a
 # scratch fingerprint so real releases use production FPs but tests use throwaway keys.
