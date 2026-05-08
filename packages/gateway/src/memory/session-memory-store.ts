@@ -117,6 +117,46 @@ export class SessionMemoryStore {
     return out;
   }
 
+  /**
+   * Return the N most recently appended turns for a session, oldest-first.
+   *
+   * Used by `runAsk` (BUG-005 fix) to prepend prior conversation to the
+   * Mastra agent's prompt. Unlike `recall()`, this is a literal time-ordered
+   * tail — we want the LLM to see the immediately prior turns verbatim, not
+   * a semantically-similar window. Embedding is irrelevant here, but we
+   * still gate on `ensureReady()` because the rows are written by `append()`
+   * which itself requires the vec extension (rows would be silently dropped).
+   */
+  async getRecentTurns(
+    sessionId: string,
+    limit: number,
+  ): Promise<Array<{ text: string; role: SessionMemoryRole; createdAt: number }>> {
+    if (!this.ensureReady()) {
+      return [];
+    }
+    const k = Math.min(200, Math.max(1, Math.floor(limit)));
+    const rows = this.db
+      .query(
+        `SELECT chunk_text AS text, role, created_at AS createdAt
+         FROM session_memory
+         WHERE session_id = ?
+         ORDER BY created_at DESC
+         LIMIT ?`,
+      )
+      .all(sessionId, k) as Array<{ text: string; role: string; createdAt: number }>;
+    const out: Array<{ text: string; role: SessionMemoryRole; createdAt: number }> = [];
+    // DB query is newest-first; reverse to chronological so the LLM reads
+    // them in turn order.
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const r = rows[i];
+      if (r === undefined) continue;
+      const role = r.role;
+      if (role !== "user" && role !== "assistant" && role !== "tool") continue;
+      out.push({ text: r.text, role, createdAt: r.createdAt });
+    }
+    return out;
+  }
+
   /** Drop chunks older than `ttlMs` for every session (hourly job). */
   pruneExpired(ttlMs: number, nowMs: number): number {
     if (!this.ensureReady()) {
