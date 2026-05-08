@@ -12,6 +12,15 @@ on:
 permissions:
   contents: read
 
+# Cancel an in-flight CodeQL run when a newer commit lands on the same ref.
+# Prevents the "1 configuration not found" PR-comment race where a stale PR
+# analysis predates a newer main analysis and the alert-correlation engine
+# can't match them. `cancel-in-progress: true` is safe here because every
+# trigger re-uploads the SARIF; the latest run is always the authoritative one.
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})

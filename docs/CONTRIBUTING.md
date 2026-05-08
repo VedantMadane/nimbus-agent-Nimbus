@@ -91,6 +91,30 @@ bun run test:coverage:engine      # Engine ≥85%
 bun run test:coverage:vault       # Vault ≥90%
 ```
 
+### Cross-platform test conventions
+
+Nimbus runs unit tests on Linux, macOS, and Windows. A test that asserts on a path string can pass on the host where it was written and fail on a different host because Node's default `path` module switches between POSIX and Windows semantics based on `process.platform`. **Never rely on host-default `dirname` / `join` when the test passes a fixed-shape path** — the assertion silently shifts under you on a different runner.
+
+```ts
+// ❌ Wrong — host-default `join` produces "C:\\Program Files\\Nimbus\\vec0.dll" on Windows
+//    and "C:\\Program Files\\Nimbus/vec0.dll" on Linux. The test passes locally on the
+//    author's machine and fails on CI's other-OS runner. (BUG-009 burned us with this.)
+import { join } from "node:path";
+expect(sidecarPath("C:\\…\\nimbus-gateway.exe", "win32"))
+  .toBe(join("C:\\…\\Nimbus", "vec0.dll"));
+
+// ✅ Right — pick the path module explicitly based on the platform the test is asserting against.
+import { posix as posixPath, win32 as winPath } from "node:path";
+expect(sidecarPath("C:\\…\\nimbus-gateway.exe", "win32"))
+  .toBe(winPath.join("C:\\…\\Nimbus", "vec0.dll"));
+expect(sidecarPath("/opt/nimbus/bin/nimbus-gateway", "linux"))
+  .toBe(posixPath.join("/opt/nimbus/bin", "vec0.so"));
+```
+
+The same rule applies to production helpers that accept a `platform` argument and run on a host where `process.platform` differs — branch on the argument, not on `process.platform`.
+
+The `pr-quality-cross-platform` job (`.github/workflows/ci.yml`) runs gateway/CLI unit tests on macOS and Windows at PR time so this class of regression is caught before merge.
+
 ### Before Opening a PR
 
 - [ ] `bun run typecheck` passes with zero errors
