@@ -1,6 +1,13 @@
 import type { Database } from "bun:sqlite";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
+import pino from "pino";
 import { load as loadSqliteVec } from "sqlite-vec";
+
+const log = pino({
+  name: "sqlite-vec-load",
+  level: process.env["NIMBUS_LOG_LEVEL"] ?? "info",
+});
 
 /**
  * Loads the sqlite-vec extension into this connection.
@@ -68,4 +75,24 @@ export function sidecarFilename(platform: NodeJS.Platform): string {
 // Compiled-binary fallback path: vec0.{ext} adjacent to the running executable.
 export function sidecarPath(execPath: string, platform: NodeJS.Platform): string {
   return join(dirname(execPath), sidecarFilename(platform));
+}
+
+export function tryLoadFromSidecar(
+  db: Database,
+  baseDir: string = dirname(process.execPath),
+): boolean {
+  const path = join(baseDir, sidecarFilename(process.platform));
+  if (!existsSync(path)) {
+    log.debug({ sidecar: path }, "sqlite-vec sidecar not found; semantic memory disabled");
+    return false;
+  }
+  try {
+    db.loadExtension(path);
+    log.debug({ via: "sidecar", sidecar: path }, "sqlite-vec loaded");
+    return true;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    log.debug({ sidecar: path, err: msg }, "sqlite-vec sidecar load failed");
+    return false;
+  }
 }
