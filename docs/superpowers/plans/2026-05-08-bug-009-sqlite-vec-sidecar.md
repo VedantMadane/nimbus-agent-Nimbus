@@ -388,13 +388,21 @@ function vec0Filename(platform: NodeJS.Platform): string {
  * Resolve the platform-specific vec0 binary in node_modules. Throws with a
  * clear, actionable message if the optional dep wasn't installed for this
  * platform — the resulting gateway would fail to load semantic memory.
+ *
+ * Two-step resolve: `sqlite-vec-{os}-{arch}` is an `optionalDependency` of
+ * `sqlite-vec`, not of `@nimbus/gateway`, so a `createRequire` rooted at
+ * `compile-gateway.ts` can't see it under Bun's isolated install layout
+ * (`node_modules/.bun/<pkg>@<ver>/...`). We resolve `sqlite-vec` first (a
+ * direct gateway dep), then `createRequire` rooted at that file to find the
+ * sister platform package — same trick upstream `sqlite-vec/index.cjs` uses.
  */
 function resolveVec0SourceOrThrow(): string {
   const pkg = `sqlite-vec-${npmOsSegment(process.platform)}-${process.arch}`;
   const fname = vec0Filename(process.platform);
   try {
-    const req = createRequire(import.meta.url);
-    return req.resolve(`${pkg}/${fname}`);
+    const sqliteVecIndex = createRequire(import.meta.url).resolve("sqlite-vec");
+    const reqFromVec = createRequire(sqliteVecIndex);
+    return reqFromVec.resolve(`${pkg}/${fname}`);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     throw new Error(
