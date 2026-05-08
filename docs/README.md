@@ -51,13 +51,7 @@ nimbus ask "The Q1 revenue dashboard shows zeroes — which upstream model broke
 nimbus ask "who has the most context on the payment retry logic?"
 
 # Blast radius — answered from the relationship graph before you push
-nimbus impact src/billing/retry.ts
-
-# Personal standup — assembled from your activity across all connected services
-nimbus standup
-
-# Catch up after time away — prioritized by what you care about
-nimbus catchup --since 3d
+nimbus ask "what services depend on src/billing/retry.ts, and which dashboards or pipelines would feel a change to it?"
 
 # Consent-gated automation — full plan preview before anything executes
 nimbus run ./incident-response.yml
@@ -79,22 +73,6 @@ $ nimbus ask "The payment-service alert just fired — what changed?"
 Suggested next step: rollback to v2.14.0?
 ⚠  CONSENT REQUIRED — Trigger Jenkins rollback job.
    Rollback? [y/n]: n  Aborted. No changes made.
-```
-
-**On-call brief — no query required:**
-
-```
-$ nimbus oncall
-
-🔍 PagerDuty: P1 — payment-service error rate 4.2% — fired 6 minutes ago, assigned to you
-🔍 Last deploy before alert: payment-service v2.14.1 — 21 minutes ago, by @elena
-🔍 Triggering PR #312 "Increase retry backoff" — merged 39 minutes ago
-   Diff: src/billing/retry.ts +18 -4 — backoff multiplier raised 1.5 → 3.0
-🔍 CI: payment-service main #4821 — passed (12 min ago)
-🔍 Slack #payments-eng: 4 messages in last 24h mentioning payment-service (@elena ×2, @raj ×2)
-🔍 Similar alert 14 days ago (incident PD-8174) — resolved by rolling back v2.13.7 → v2.13.6 in 9 minutes
-
-Brief assembled in 2.1s — read-only, no consent prompts fired.
 ```
 
 **SecDevOps example:**
@@ -176,7 +154,7 @@ Windows, macOS, and Linux are equally supported. Every PR runs a full gate on Ub
 
 ### Extensible
 
-Third-party connectors ship as npm packages. Install in one command; the agent gains a new capability immediately. A local Extension Marketplace in the Tauri app makes community connectors discoverable without leaving the UI.
+Third-party connectors ship as npm packages. Install in one command; the agent gains a new capability immediately. A local Extension Marketplace lives in the Tauri desktop app — code-complete in Phase 4 and shipping as the separate `desktop-v0.1.0` tag in Phase 6 (the headless `v0.1.0` covers Gateway + CLI + VS Code extension only).
 
 ---
 
@@ -194,9 +172,11 @@ Every tool your on-call rotation depends on, unified in one local index. Cross-s
 
 See the [roadmap](./roadmap.md) for depth and remaining gaps per connector.
 
-### Phase 3.5 — shipped
+### What's in v0.1.0
 
-Phase 3.5 (Observability & Developer Experience) is ✅ complete. Highlights:
+Phases 3.5 and 4 are ✅ complete. Highlights shipping in `v0.1.0`:
+
+**Observability & developer experience (Phase 3.5):**
 
 - **`nimbus doctor`** — environment health checks with actionable remediation
 - **`nimbus diag`** — full diagnostic snapshot; `slow-queries` subcommand
@@ -209,7 +189,22 @@ Phase 3.5 (Observability & Developer Experience) is ✅ complete. Highlights:
 - **`@nimbus-dev/client`** — typed IPC wrapper with `MockClient` for extensions and scripts
 - **Starlight docs site** — `packages/docs/`; `bun run docs:build`
 
-See [`docs/roadmap.md`](./roadmap.md) for the full Phase 3.5 delivery list and [`docs/cli-reference.md`](./cli-reference.md) for the complete CLI command reference.
+**Presence (Phase 4):**
+
+- **Local LLM** — `nimbus` runs fully air-gapped via Ollama or llama.cpp; per-task model routing (classification local, planning remote-or-local) with a single-slot GPU arbiter
+- **Multi-agent orchestration** — coordinator/worker decomposition with structural HITL on every sub-agent; depth + tool-call gas limits enforced at the executor
+- **Voice interface** — `voice.transcribe` / `voice.speak` IPC, opt-in wake-word loop; `whisper-cli` for STT, native TTS per platform; audio never leaves the machine
+- **Data sovereignty** — `nimbus data export / import / delete`, BLAKE3-chained audit log with `nimbus audit verify / export`, per-connector reindex with depth control
+- **Auto-update** — `nimbus update --check` / `nimbus update`; Ed25519-signed binary manifest verified before install
+- **Encrypted LAN remote access** — `nimbus lan enable / pair / grant-write`; NaCl-box-sealed RPC, no relay, disabled by default
+- **Rich TUI** — `nimbus tui` with five-pane Ink layout, inline mid-stream HITL, fallback to `nimbus repl` on unsuitable terminals
+- **VS Code extension** — `@nimbus-dev/client`-based; commands, status bar, and HITL via VS Code notifications; published to VS Code Marketplace + Open VSX
+- **Per-connector OAuth vault keys** — Google and Microsoft sub-services own their own keys; eliminates scope-collision between connectors
+- **Graph-aware watcher conditions** — `[automation].graph_conditions` flag; `owned_by` / `upstream_of` / `downstream_of` predicates over the relationship graph
+
+> **Not in `v0.1.0`:** the Tauri desktop UI is code-complete in Phase 4 but its release vehicle (signed installers + auto-update) ships separately as `desktop-v0.1.0` in Phase 6. See [§ Phase 6 → Desktop Release Vehicle in the roadmap](./roadmap.md#desktop-release-vehicle).
+
+See [`docs/roadmap.md`](./roadmap.md) for the full delivery list and [`docs/cli-reference.md`](./cli-reference.md) for the complete CLI command reference.
 
 ---
 
@@ -671,9 +666,10 @@ Nimbus uses phases, not calendar dates. A phase completes when its acceptance cr
 | 2 | The Bridge (15 connectors) | ✅ Complete |
 | 3 | Intelligence (semantic search, CI/CD, cloud) | ✅ Complete |
 | 3.5 | Observability (health model, query API, recovery, telemetry, docs) | ✅ Complete |
-| 4 | Presence (Tauri UI, local LLM, v0.1.0 release) | ✅ Complete |
+| 4 | Presence (local LLM, multi-agent, voice, VS Code extension, TUI; desktop UI code-complete) | ✅ Complete |
 | 5 | The Extended Surface | 🔵 Active |
-| 6–9 | Team → Enterprise | Planned |
+| 6 | Team — *also ships `desktop-v0.1.0`* (Tauri installers + signing, deferred from `v0.1.0`) | Planned |
+| 7–9 | Autonomous Agent → Sovereign Mesh → Enterprise | Planned |
 
 See [`roadmap.md`](./roadmap.md) for full acceptance criteria and sequencing.
 
@@ -685,7 +681,10 @@ See [`roadmap.md`](./roadmap.md) for full acceptance criteria and sequencing.
 git tag v0.1.0
 git push origin v0.1.0
 # → release.yml compiles Gateway + CLI for Linux, macOS, Windows
-# → creates GitHub Release with signed binaries attached
+# → creates GitHub Release with binaries + GPG-signed SHA256SUMS.asc
+#   (Linux .deb / .AppImage are GPG-signed; macOS .tar.gz and Windows .zip
+#    ship unsigned in v0.1.0 — integrity comes from the SHA256SUMS.asc manifest.
+#    Tauri desktop installers ship later under the `desktop-v0.1.0` tag.)
 ```
 
 ---
