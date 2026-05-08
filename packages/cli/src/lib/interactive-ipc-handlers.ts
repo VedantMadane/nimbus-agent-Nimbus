@@ -29,6 +29,27 @@ export function registerConsentPromptHandler(client: IPCClient): void {
   });
 }
 
+/**
+ * Auto-approve every HITL consent request and emit a stderr warning so the
+ * action is observable in non-interactive runs (CI, scripts). Used by `nimbus
+ * data export|import|delete --yes`. The Gateway audit log records every
+ * `consent.respond` regardless of source, so the durable trail lives there.
+ */
+export function registerAutoApproveConsentHandler(client: IPCClient): void {
+  client.onNotification("consent.request", async (params: unknown) => {
+    const p = params as { requestId?: string; prompt?: string };
+    if (typeof p.requestId !== "string") {
+      return;
+    }
+    const detail = typeof p.prompt === "string" && p.prompt.length > 0 ? p.prompt : p.requestId;
+    process.stderr.write(`[--yes] auto-approving HITL request: ${detail}\n`);
+    await client.call("consent.respond", {
+      requestId: p.requestId,
+      approved: true,
+    });
+  });
+}
+
 /** Consent prompts + streaming chunks — typical setup for interactive CLI commands. */
 export function registerInteractiveCliIpcHandlers(client: IPCClient): void {
   registerConsentPromptHandler(client);

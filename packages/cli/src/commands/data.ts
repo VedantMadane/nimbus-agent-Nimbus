@@ -1,5 +1,9 @@
 import { IPCClient } from "../ipc-client/index.ts";
 import { readGatewayState } from "../lib/gateway-process.ts";
+import {
+  registerAutoApproveConsentHandler,
+  registerConsentPromptHandler,
+} from "../lib/interactive-ipc-handlers.ts";
 import { getCliPlatformPaths } from "../paths.ts";
 
 export async function runData(args: string[]): Promise<void> {
@@ -16,12 +20,27 @@ export async function runData(args: string[]): Promise<void> {
   }
 }
 
-async function withClient<T>(fn: (c: IPCClient) => Promise<T>): Promise<T> {
+/**
+ * Open an IPC connection and register the right HITL consent handler before
+ * invoking the caller. Without this, `data.export|import|delete` deadlock —
+ * the Gateway emits `consent.request` and waits for `consent.respond`, while
+ * the CLI waits for the IPC method's response (BUG-002).
+ *
+ * `yes`: when true, every consent prompt is auto-approved with a stderr
+ * warning (and a Gateway-side audit entry). When false, a Clack confirm
+ * prompt is shown in the terminal.
+ */
+async function withClient<T>(yes: boolean, fn: (c: IPCClient) => Promise<T>): Promise<T> {
   const paths = getCliPlatformPaths();
   const state = await readGatewayState(paths);
   if (state === undefined) throw new Error("Gateway is not running. Start with: nimbus start");
   const client = new IPCClient(state.socketPath);
   await client.connect();
+  if (yes) {
+    registerAutoApproveConsentHandler(client);
+  } else {
+    registerConsentPromptHandler(client);
+  }
   try {
     return await fn(client);
   } finally {
@@ -33,14 +52,15 @@ async function runDataExportCli(args: string[]): Promise<void> {
   const outIdx = args.indexOf("--output");
   const noIndex = args.includes("--no-index");
   const passIdx = args.indexOf("--passphrase");
+  const yes = args.includes("--yes");
   if (outIdx < 0 || passIdx < 0) {
     throw new Error(
-      "Usage: nimbus data export --output <path.tar.gz> --passphrase <pw> [--no-index]",
+      "Usage: nimbus data export --output <path.tar.gz> --passphrase <pw> [--no-index] [--yes]",
     );
   }
   const output = args[outIdx + 1];
   const passphrase = args[passIdx + 1];
-  await withClient(async (client) => {
+  await withClient(yes, async (client) => {
     const result = await client.call<{
       outputPath: string;
       recoverySeed: string;
@@ -59,17 +79,18 @@ async function runDataImportCli(args: string[]): Promise<void> {
   const bundlePath = args[0];
   if (bundlePath === undefined) {
     throw new Error(
-      "Usage: nimbus data import <path.tar.gz> [--passphrase <pw> | --recovery-seed <mnemonic>]",
+      "Usage: nimbus data import <path.tar.gz> [--passphrase <pw> | --recovery-seed <mnemonic>] [--yes]",
     );
   }
   const passIdx = args.indexOf("--passphrase");
   const seedIdx = args.indexOf("--recovery-seed");
   const passphrase = passIdx >= 0 ? args[passIdx + 1] : undefined;
   const recoverySeed = seedIdx >= 0 ? args[seedIdx + 1] : undefined;
+  const yes = args.includes("--yes");
   if (passphrase === undefined && recoverySeed === undefined) {
     throw new Error("Provide either --passphrase or --recovery-seed");
   }
-  await withClient(async (client) => {
+  await withClient(yes, async (client) => {
     const result = await client.call<{ credentialsRestored: number; oauthEntriesFlagged: number }>(
       "data.import",
       { bundlePath, passphrase, recoverySeed },
@@ -91,7 +112,7 @@ async function runDataDeleteCli(args: string[]): Promise<void> {
   const service = args[svcIdx + 1];
   const dryRun = args.includes("--dry-run");
   const yes = args.includes("--yes");
-  await withClient(async (client) => {
+  await withClient(yes, async (client) => {
     const pre = await client.call<{
       preflight: { itemsToDelete: number; vaultEntriesToDelete: number };
       deleted: boolean;
