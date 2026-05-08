@@ -144,9 +144,29 @@ jobs:
       - name: Typecheck (catches host-specific TS quirks)
         run: bun run typecheck
 
-      - name: Gateway + CLI unit tests
+      - name: Gateway + CLI unit tests (retry once on slow runners)
         shell: bash
-        run: bun test packages/gateway/src packages/cli/src
+        # Retry-once mirrors the macOS/Windows pattern in `_test-suite.yml`. Two
+        # tests in `packages/gateway/src/perf/` and `packages/gateway/src/platform/`
+        # observably exceed Bun's default 5 s timeout on cold Windows runners and
+        # come in under budget on a warm second attempt. Unlike the
+        # `_test-suite.yml` retry, this version PROPAGATES the failed exit code
+        # from attempt 2 — so a genuine regression actually fails the job.
+        run: |
+          set +e
+          for attempt in 1 2; do
+            bun test packages/gateway/src packages/cli/src
+            code=$?
+            if [ "$code" -eq 0 ]; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 2 ]; then
+              echo "Both attempts failed with exit code $code"
+              exit "$code"
+            fi
+            echo "Attempt $attempt failed (exit $code), retrying in 5 s..."
+            sleep 5
+          done
         env:
           CI: "true"
 
