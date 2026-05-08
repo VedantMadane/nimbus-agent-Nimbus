@@ -417,7 +417,7 @@ mcp-connectors/*  ← depend on @nimbus-dev/sdk only
 | Phase 3.5 | Observability — Health model, `nimbus query`, `diag`, recovery, telemetry, docs site | ✅ Complete |
 | Phase 4 | Presence — Tauri UI, VS Code ext, local LLM (Ollama), multi-agent, data portability | ✅ Complete |
 | Phase 5 | The Extended Surface — browser/reading, IMAP, finance, CRM, HR, design connectors; Marketplace v2 | 🔵 Active |
-| Phase 6 | Team — federation, Team Vault, shared namespaces, SSO/SCIM, multi-user HITL, org policy | Planned |
+| Phase 6 | Team — federation, Team Vault, shared namespaces, SSO/SCIM, multi-user HITL, org policy; **also ships `desktop-v0.1.0`** (Tauri installers + signing, deferred from `v0.1.0`) | Planned |
 | Phase 7 | The Autonomous Agent — standing approvals, scheduled tasks, incident correlation, fine-tuning, SRE loop | Planned |
 | Phase 8 | Sovereign Mesh — P2P sync, mobile companion, hardware vault, DIDs, Digital Executor | Planned |
 | Phase 9 | Enterprise — Docker/Helm, SIEM, compliance, SCIM, admin console, security audit, SLA | Planned |
