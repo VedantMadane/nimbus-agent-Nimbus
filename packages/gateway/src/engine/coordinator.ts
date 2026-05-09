@@ -47,8 +47,8 @@ export class AgentCoordinator {
       );
     }
 
-    // Pre-check the cap once — opening N tasks in parallel after passing the check
-    // is correct because tool-call accounting still increments per task before execute().
+    // Reserve all N slots atomically before fan-out — re-checking inside the
+    // parallel map would race because all tasks have already started.
     if (this.#ctx.toolCallCount.value + tasks.length > Config.maxToolCallsPerSession) {
       throw new Error(
         `Tool call limit reached: ${tasks.length} new tasks would exceed cap ${Config.maxToolCallsPerSession}`,
