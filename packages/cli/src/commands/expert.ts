@@ -7,7 +7,7 @@ import { getCliPlatformPaths } from "../paths.ts";
 // (`sdk ← no imports from gateway`) if routed through the SDK, or
 // (b) violate `cli ← IPC-only` if imported directly. Slim duplicate is the
 // honest path; the runtime payload still goes through dispatchAgentsRpc.
-import type { ExpertBrief } from "../types/agents.ts";
+import { type ExpertBrief, isExpertBrief } from "../types/agents.ts";
 
 export type ExpertCliArgs = {
   topicOrFile: string;
@@ -61,23 +61,24 @@ export async function runExpertCli(args: string[]): Promise<void> {
   await client.connect();
   registerInteractiveCliIpcHandlers(client);
 
+  // Hoist the timeout handle so the `finally` block can always clear it,
+  // even if `client.call` throws before `await briefPromise`.
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+
   // Subscribe to the brief notification before issuing the call.
   // F6 — IPCClient API is `onNotification`, not `on` (per
   // packages/client/src/ipc-transport.ts:173 and ask-stream.ts callers).
   const briefPromise = new Promise<{ brief: string; findings: ExpertBrief }>((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("Agent timed out after 30 s")), TIMEOUT_MS);
+    timeout = setTimeout(() => reject(new Error("Agent timed out after 30 s")), TIMEOUT_MS);
     client.onNotification("expert.briefReady", (params: unknown) => {
-      const p = params as { sessionId?: string; brief?: string; findings?: ExpertBrief };
-      if (typeof p.brief !== "string" || p.findings === undefined) {
-        clearTimeout(timeout);
+      const p = params as { sessionId?: string; brief?: string; findings?: unknown };
+      if (typeof p.brief !== "string" || !isExpertBrief(p.findings)) {
         reject(new Error("Malformed expert.briefReady payload"));
         return;
       }
-      clearTimeout(timeout);
       resolve({ brief: p.brief, findings: p.findings });
     });
     client.onNotification("expert.briefError", (params: unknown) => {
-      clearTimeout(timeout);
       const p = params as { error?: string };
       reject(new Error(p.error ?? "Agent failed"));
     });
@@ -85,9 +86,13 @@ export async function runExpertCli(args: string[]): Promise<void> {
 
   const callParams: { topicOrFile: string; limit?: number } = { topicOrFile: parsed.topicOrFile };
   if (parsed.limit !== undefined) callParams.limit = parsed.limit;
-  await client.call<{ sessionId: string }>("agents.expert", callParams);
 
   try {
+    // F8-Important1 — `client.call` lives inside the try so a thrown error
+    // (network failure, Gateway disconnect mid-request, method-not-found)
+    // still routes through the `finally` block, which clears the timer
+    // and disconnects the client.
+    await client.call<{ sessionId: string }>("agents.expert", callParams);
     const { brief, findings } = await briefPromise;
     if (parsed.json) {
       process.stdout.write(`${JSON.stringify(findings, null, 2)}\n`);
@@ -103,6 +108,7 @@ export async function runExpertCli(args: string[]): Promise<void> {
     process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(2);
   } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
     await client.disconnect();
   }
 }

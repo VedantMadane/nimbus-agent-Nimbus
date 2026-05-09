@@ -27,6 +27,10 @@ describe("parseExpertArgs", () => {
     expect(() => parseExpertArgs(["x", "--limit", "30"])).toThrow(/1\.\.25/);
   });
 
+  test("rejects --limit followed by another flag", () => {
+    expect(() => parseExpertArgs(["x", "--limit", "--json"])).toThrow(/1\.\.25/);
+  });
+
   test("multi-word topic", () => {
     const out = parseExpertArgs(["payment", "retry", "logic"]);
     expect(out.topicOrFile).toBe("payment retry logic");
