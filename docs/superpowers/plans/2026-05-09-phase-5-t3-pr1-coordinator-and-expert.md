@@ -30,6 +30,8 @@
 | F10 | Dead `__testing.bucketConfidence` export with no test. | Removed; `bucketConfidence` is exercised through `rankExpertFindings` already. |
 | F11 | `sync_state.service` referenced in `detectMissingConnector` SQL + the Phase 2.2 test fixture. | The column is `connector_id` (PK of `sync_state`); per `packages/gateway/src/index/schema-sql.ts` the connector id IS the service id throughout `local-index.ts`. SQL + test fixture corrected. |
 | F12 | Phase 3 ranker test "low confidence" expected `"low"` on a single 0.05-weight stream — but `rankExpertFindings` normalises score to `total/max`, so a single stream always hits score=1 → "medium". | Test now uses two streams: a 5-row weight-1 winner + a 1-row weight-0.05 second. The second's normalised score `0.01` correctly buckets to "low". |
+| F13 | First ranker test missing `as const` on `Evidence.type` literal → TS2345 (string not assignable to union). | All three evidence literals in the first test now use `as const` matching the second/third tests. |
+| F14 | Six places in `expert.ts` returned `{ stream: undefined }` — `exactOptionalPropertyTypes: true` rejects explicit `undefined` for optional properties (TS2375). | All six replaced with `{}` — same runtime behaviour, satisfies the `{ stream?: ExpertEvidenceStream; gap?: GapNote }` contract. |
 
 **Deferred (with reason):**
 
@@ -1220,10 +1222,12 @@ import { rankExpertFindings } from "./expert.ts";
 
 describe("rankExpertFindings", () => {
   test("merges evidence from multiple streams by personId, summing weights", () => {
+    // Evidence.type is a union literal — `as const` is required so the
+    // string literal is not widened to `string` (else TS2345 vs ExpertEvidenceStream).
     const evidence = [
-      { personId: "alice", displayName: "Alice", evidence: [{ weight: 1.0, modifiedAt: 0, type: "pr_authored", serviceId: "github", title: "t1", itemId: "i1" }] },
-      { personId: "alice", displayName: "Alice", evidence: [{ weight: 0.6, modifiedAt: 0, type: "pr_reviewed", serviceId: "github", title: "t2", itemId: "i2" }] },
-      { personId: "bob",   displayName: "Bob",   evidence: [{ weight: 0.3, modifiedAt: 0, type: "chat_post",  serviceId: "slack", title: "t3", itemId: "i3" }] },
+      { personId: "alice", displayName: "Alice", evidence: [{ weight: 1.0, modifiedAt: 0, type: "pr_authored" as const, serviceId: "github", title: "t1", itemId: "i1" }] },
+      { personId: "alice", displayName: "Alice", evidence: [{ weight: 0.6, modifiedAt: 0, type: "pr_reviewed" as const, serviceId: "github", title: "t2", itemId: "i2" }] },
+      { personId: "bob",   displayName: "Bob",   evidence: [{ weight: 0.3, modifiedAt: 0, type: "chat_post" as const,  serviceId: "slack", title: "t3", itemId: "i3" }] },
     ];
     const ranked = rankExpertFindings(evidence, 5);
     expect(ranked[0]?.personId).toBe("alice");
@@ -1514,7 +1518,7 @@ async function subBlame(db: Database, input: string): Promise<SubAgentResult> {
 
   if (commits.length === 0) {
     const gap = detectMissingConnector(db, "github");
-    return gap === null ? { stream: undefined } : { gap };
+    return gap === null ? {} : { gap };
   }
 
   const merged = new Map<string, ExpertEvidenceStream>();
@@ -1536,7 +1540,7 @@ async function subBlame(db: Database, input: string): Promise<SubAgentResult> {
   }
   // Return the largest stream — the rest are aggregated by rankExpertFindings.
   const winner = [...merged.values()].sort((a, b) => b.evidence.length - a.evidence.length)[0];
-  return winner === undefined ? { stream: undefined } : { stream: winner };
+  return winner === undefined ? {} : { stream: winner };
 }
 
 async function subPrAuthored(db: Database, input: string): Promise<SubAgentResult> {
@@ -1563,7 +1567,7 @@ async function subPrAuthored(db: Database, input: string): Promise<SubAgentResul
       modified_at: number; service_id: string;
     }>;
 
-  if (rows.length === 0) return { stream: undefined };
+  if (rows.length === 0) return {};
   const r0 = rows[0]!;
   return {
     stream: {
@@ -1594,7 +1598,7 @@ async function subPrReviewed(db: Database, input: string): Promise<SubAgentResul
   );
   if (gap !== null) return { gap };
   void input;
-  return { stream: undefined };
+  return {};
 }
 
 async function subIncidentResolved(db: Database, input: string): Promise<SubAgentResult> {
@@ -1603,7 +1607,7 @@ async function subIncidentResolved(db: Database, input: string): Promise<SubAgen
   if (gap !== null) return { gap };
   // (When `incident` lands, the SQL chains person → resolves → incident → mentions(input).)
   void input;
-  return { stream: undefined };
+  return {};
 }
 
 async function subChatMentions(db: Database, input: string): Promise<SubAgentResult> {
@@ -1635,7 +1639,7 @@ async function subChatMentions(db: Database, input: string): Promise<SubAgentRes
     }>;
   if (rows.length === 0) {
     const gap = detectMissingConnector(db, "slack");
-    return gap === null ? { stream: undefined } : { gap };
+    return gap === null ? {} : { gap };
   }
   const r0 = rows[0]!;
   return {
