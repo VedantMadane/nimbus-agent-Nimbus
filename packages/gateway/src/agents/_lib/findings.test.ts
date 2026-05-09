@@ -47,4 +47,23 @@ describe("findings type guards", () => {
     expect(a.remediation).toBeUndefined();
     expect(b.remediation).toBe("sync first");
   });
+
+  test("isImpactBrief and isCatchupBrief reject objects missing generatedAt/latencyMs", () => {
+    const baseShape = {
+      agentVersion: 1,
+      gaps: [],
+      query: { fileOrPrUrl: "x" },
+    };
+    // Missing both generatedAt and latencyMs:
+    expect(isImpactBrief({ ...baseShape, kind: "impact", affected: [] })).toBe(false);
+    expect(
+      isCatchupBrief({ ...baseShape, kind: "catchup", sections: [], query: { sinceMs: 0 } }),
+    ).toBe(false);
+    // Has them — should pass:
+    const valid = { ...baseShape, generatedAt: 0, latencyMs: 0 };
+    expect(isImpactBrief({ ...valid, kind: "impact", affected: [] })).toBe(true);
+    expect(isCatchupBrief({ ...valid, kind: "catchup", sections: [], query: { sinceMs: 0 } })).toBe(
+      true,
+    );
+  });
 });
