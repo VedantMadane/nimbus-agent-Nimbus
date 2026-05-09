@@ -5,7 +5,7 @@ description: Ask Nimbus, search your indexed data, and approve agent actions —
 
 import { Aside, Tabs, TabItem, CardGrid, LinkCard } from "@astrojs/starlight/components";
 
-The Nimbus VS Code extension (`nimbus-agent.nimbus`) connects your editor to
+The Nimbus VS Code extension (`nimbus-agent.nimbus-vscode`) connects your editor to
 the local Nimbus Gateway over JSON-RPC. It exposes the same agent, the same
 local index, and the same HITL consent gate as the Tauri desktop app — surfaced
 inside VS Code as a chat side-panel, a set of Command Palette entries, and an
@@ -25,11 +25,11 @@ works in VS Code, [Cursor](https://cursor.sh/), and
     for **Nimbus**, or install from the terminal:
 
     ```bash
-    code --install-extension nimbus-agent.nimbus
+    code --install-extension nimbus-agent.nimbus-vscode
     ```
 
     Alternatively, use the Marketplace quick-install link:
-    `ext install nimbus-agent.nimbus`
+    `ext install nimbus-agent.nimbus-vscode`
   </TabItem>
   <TabItem label="Open VSX (Cursor / VSCodium)">
     Cursor and VSCodium pull from Open VSX by default. The same extension ID
@@ -37,10 +37,10 @@ works in VS Code, [Cursor](https://cursor.sh/), and
 
     ```bash
     # Cursor
-    cursor --install-extension nimbus-agent.nimbus
+    cursor --install-extension nimbus-agent.nimbus-vscode
 
     # VSCodium
-    codium --install-extension nimbus-agent.nimbus
+    codium --install-extension nimbus-agent.nimbus-vscode
     ```
 
     Or search "Nimbus" in the Extensions sidebar.
@@ -178,7 +178,7 @@ Both entries are only visible when there is an active text selection
   />
   <LinkCard
     title="VS Code Marketplace"
-    href="https://marketplace.visualstudio.com/items?itemName=nimbus-agent.nimbus"
+    href="https://marketplace.visualstudio.com/items?itemName=nimbus-agent.nimbus-vscode"
     description="View the extension listing on the VS Code Marketplace."
   />
 </CardGrid>

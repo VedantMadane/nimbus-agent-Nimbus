@@ -6,9 +6,9 @@ name: Publish Nimbus VS Code Extension
 #
 # Required repository secrets:
 #   * VSCE_PAT — Microsoft Azure DevOps Personal Access Token with the
-#     "Marketplace (Manage)" scope for the `nimbus-dev` publisher.
+#     "Marketplace (Manage)" scope for the `nimbus-agent` publisher.
 #     https://code.visualstudio.com/api/working-with-extensions/publishing-extension
-#   * OVSX_PAT — Open VSX Registry token for the `nimbus-dev` namespace.
+#   * OVSX_PAT — Open VSX Registry token for the `nimbus-agent` namespace.
 #     https://open-vsx.org/user-settings/tokens
 #
 # Failure modes:
