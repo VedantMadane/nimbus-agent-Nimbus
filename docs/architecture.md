@@ -83,6 +83,20 @@ export interface PlatformPaths {
 }
 ```
 
+## Package Dependency Rules
+
+To maintain strict subsystem isolation and ensure cross-platform portability, Nimbus enforces the following import rules:
+
+```
+gateway    ← no imports from cli or ui
+cli        ← IPC-only communication with gateway (no source imports)
+ui         ← IPC-only communication with gateway (no source imports)
+sdk        ← no imports from gateway, cli, or ui
+mcp-connectors/*  ← depend on @nimbus-dev/sdk only
+```
+
+These rules ensure that the Gateway remains headless and that clients remain thin, communicating exclusively via JSON-RPC 2.0. Types shared between the Gateway and CLI (such as agent briefs) are slimly mirrored in the CLI to avoid violating the IPC-only constraint.
+
 ---
 
 ## Data Flow Diagram
@@ -456,6 +470,7 @@ nimbus workflow save ./weekly-cleanup.yml --name weekly-cleanup
 |---|---|---|
 | **Structured Metadata** | `bun:sqlite` | Fast exact-match retrieval — name, type, service, timestamps |
 | **Semantic Embeddings** | `sqlite-vec` virtual table | Vector search for RAG recall; local model via `@xenova/transformers` (no API key required) |
+| **Conversation History** | `bun:sqlite` | Multi-turn context; loads last 12 entries (≈ 6 user/assistant pairs) to provide follow-up context without prompt bloat. |
 
 ```typescript
 const results = await memoryLayer.hybridSearch({
@@ -469,6 +484,12 @@ const results = await memoryLayer.hybridSearch({
   strategy: "semantic_then_bm25_rerank",  // BM25 FTS5 + vector cosine, RRF fusion
 });
 ```
+
+### Agent System Prompt & Consent Guidance
+
+To ensure the structural HITL gate remains authoritative and non-bypassable, the Nimbus agent is instructed to avoid "verbal-confirmation rituals" (e.g., asking "Could you please confirm...?") in the chat. Instead, the agent is directed to invoke the tool directly, allowing the Gateway's structural consent gate to surface the appropriate approval dialog.
+
+Additionally, all tool outputs are wrapped in `<tool_output>` tags (Invariant I11) and the agent is instructed to treat this content strictly as data, never as instructions (mitigating prompt injection via untrusted connector output).
 
 ---
 
@@ -956,22 +977,22 @@ These subsystems are active development in Phase 5 (The Extended Surface). They 
 - Has an e2e test under `packages/gateway/test/e2e/scenarios/` that asserts the brief is produced, all sub-tasks complete in parallel, and zero HITL actions fire.
 - Targets a sub-15-second wall-clock latency on a mid-range laptop.
 
-**Shipped (T3 PR 1, 2026-05-09):**
+**Shipped (T3 PR 1–2, 2026-05-09):**
 
 | Agent | Command | IPC method | Notification | Description |
 |---|---|---|---|---|
 | `expert` | `nimbus expert <topic-or-file>` | `agents.expert` | `agents.expert.briefReady` | Ranks people with the most context on a file or topic from indexed PR authorship, review participation, and incident involvement. |
+| `impact` | `nimbus impact <file-or-PR-url>` | `agents.impact` | `agents.impact.briefReady` | Reverse-dependency blast radius across services, pipelines, dashboards, and on-call rotations. |
 
-**Planned (T3 PRs 2+):**
+**Planned (T3 PRs 3+):**
 
 | Agent | Command | Description |
 |---|---|---|
 | `catchup` | `nimbus catchup --since <duration>` | Personalized retrospective digest, weighted by the user's historical involvement. |
-| `impact` | `nimbus impact <file-or-PR-url>` | Reverse-dependency blast radius across services, pipelines, dashboards, and on-call rotations. |
 
 `packages/gateway/src/agents/_lib/` holds the shared types (`ExpertBrief`, `Evidence`, `GapNote`), gap-note detectors, deterministic Markdown renderer, and LLM synthesis layer used across all built-in agents. The renderer is the deterministic fallback — when no LLM is available, the agent ships a structured Markdown brief without falling back to "no answer".
 
-The `agents.expert` JSON-RPC method is exposed via `packages/gateway/src/ipc/agents-rpc.ts` and reachable from the renderer (added to the Tauri `ALLOWED_METHODS` allowlist, count 58).
+Both `agents.expert` and `agents.impact` JSON-RPC methods are exposed via `packages/gateway/src/ipc/agents-rpc.ts` and reachable from the renderer (added to the Tauri `ALLOWED_METHODS` allowlist, count 59).
 
 ---
 

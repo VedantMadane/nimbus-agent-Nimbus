@@ -14,6 +14,7 @@ export { runDoctor } from "./doctor.ts";
 export { runExpertCli } from "./expert.ts";
 export { runExtension } from "./extension.ts";
 export { printHelp } from "./help.ts";
+export { runImpactCli } from "./impact.ts";
 export { runLan } from "./lan.ts";
 export { runPeople } from "./people.ts";
 export { runProfile } from "./profile.ts";

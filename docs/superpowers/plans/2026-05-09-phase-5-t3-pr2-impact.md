@@ -540,7 +540,13 @@ function makeSubAgent(
 export async function runImpact(input: ImpactInput, ctx: ImpactContext): Promise<ImpactBrief> {
   const start = performance.now();
   const depth = Math.min(input.depth ?? DEFAULT_DEPTH, MAX_DEPTH);
-  void depth; // depth is observed by sub-agents that want it; current sub-agents are 1- or 2-hop.
+  // Today's sub-agents are fixed-shape single-hop SQL — `depth` has no effect.
+  // It will start mattering once `subDownstreamCode` is rewritten as a recursive
+  // CTE over `depends_on` (deferred follow-up: depends on symbol-level depends_on
+  // landing in graph-populator and on a cycle-detection design — see the
+  // "Deferred follow-ups" section). The CLI accepts the flag now so that future
+  // change is non-breaking.
+  void depth;
 
   const preflightGaps: GapNote[] = [];
   const empty = detectEmptyIndex(ctx.db);
@@ -644,14 +650,25 @@ function resolveStartEntity(db: Database, fileOrPrUrl: string): ResolvedStart | 
     }
   }
 
-  // Branch 2 — file path ⇒ first matching code_symbol entity.
-  const codeSym = db
-    .query(
-      "SELECT id, metadata FROM graph_entity WHERE type = 'code_symbol' AND label LIKE '%' || ? || '%' LIMIT 1",
-    )
-    .get(fileOrPrUrl) as { id?: string; metadata?: string } | null;
-  if (codeSym?.id !== undefined) {
-    return { entityId: codeSym.id, entityType: "code_symbol", repoIds: [] };
+  // Branch 2 — file path ⇒ best-matching `symbol` entity (the populator emits
+  // type='symbol', not 'code_symbol' — see packages/gateway/src/graph/graph-populator.ts:172).
+  // Two-pass for determinism: exact label first; fall back to LIKE with the
+  // shortest label as a "most specific match" tiebreaker so we never depend on
+  // SQLite row order.
+  const exactSym = db
+    .query("SELECT id FROM graph_entity WHERE type = 'symbol' AND label = ? LIMIT 1")
+    .get(fileOrPrUrl) as { id?: string } | null;
+  const sym =
+    exactSym?.id !== undefined
+      ? exactSym
+      : (db
+          .query(
+            "SELECT id FROM graph_entity WHERE type = 'symbol' AND label LIKE '%' || ? || '%' " +
+              "ORDER BY length(label) ASC, id ASC LIMIT 1",
+          )
+          .get(fileOrPrUrl) as { id?: string } | null);
+  if (sym?.id !== undefined) {
+    return { entityId: sym.id, entityType: "symbol", repoIds: [] };
   }
 
   // Branch 3 — topic FTS over item.title.
@@ -678,17 +695,56 @@ async function subDownstreamCode(
   _input: ImpactInput,
   start: ResolvedStart | null,
 ): Promise<SubAgentResult> {
-  // depends_on is registered nowhere in graph_relation_type today (graph-v7-sql.ts
-  // line 35-49). detectMissingRelationEmit returns the gap when emit is 0.
-  const gap = detectMissingRelationEmit(
-    db,
-    "depends_on",
-    "Tracked as a graph-populator follow-up alongside Phase 5 Wave A's API-surface indexer.",
-  );
-  if (gap !== null) return { gap };
-  if (start === null) return {};
-  // (When `depends_on` lands, traverse from start.entityId.)
-  return {};
+  // `depends_on` IS registered (graph-relation-types-v12-sql.ts) AND emitted —
+  // but only at workspace→package granularity (graph-populator.ts:160). The
+  // sub-agent does the reverse-traversal SQL anyway: when symbol-level
+  // depends_on later lands, this lights up with no T3 edit. Until then, the
+  // SQL returns 0 rows for symbol-typed starts, and we surface a granularity
+  // gap so users see *why* downstream-code is empty rather than silently
+  // empty (which would break the gap-coverage rule).
+  if (start === null) {
+    return {
+      gap: {
+        category: "missing_relation_emit",
+        detail: "Cannot traverse `depends_on`: start entity did not resolve.",
+      },
+    };
+  }
+  const rows = db
+    .query(
+      `SELECT
+         e.id    AS entity_id,
+         e.label AS title,
+         COALESCE(e.service, 'filesystem') AS service_id
+       FROM graph_relation r
+       JOIN graph_entity   e ON e.id = r.from_id
+       WHERE r.to_id = ? AND r.type = 'depends_on'
+       LIMIT 50`,
+    )
+    .all(start.entityId) as Array<{ entity_id: string; title: string; service_id: string }>;
+  if (rows.length === 0) {
+    return {
+      gap: {
+        category: "missing_relation_emit",
+        detail: "No reverse `depends_on` edges to the start entity.",
+        remediation:
+          "graph-populator currently emits `depends_on` only at workspace→package granularity; symbol-level `depends_on` is a populator follow-up.",
+      },
+    };
+  }
+  return {
+    findings: rows.map((r) => ({
+      // No `downstream_code` bucket exists in ImpactCategory; reusing
+      // `downstream_repo` is the closest fit and mirrors the spec's bucket list.
+      // Bucket-naming polish is tracked in the deferred-follow-ups section.
+      category: "downstream_repo" as ImpactCategory,
+      affectedItemId: r.entity_id,
+      affectedTitle: r.title,
+      serviceId: r.service_id,
+      hops: 1,
+      pathSummary: `(reverse) ${start.entityType} <- depends_on <- result`,
+    })),
+  };
 }
 
 async function subPipelines(
@@ -696,13 +752,14 @@ async function subPipelines(
   _input: ImpactInput,
   start: ResolvedStart | null,
 ): Promise<SubAgentResult> {
-  // pipeline_run is missing from ITEM_LINKED_ENTITY_TYPES dispatch — emit gap.
-  const gap = detectMissingEntityType(db, "pipeline_run");
-  if (gap !== null) return { gap };
   if (start === null) return {};
 
-  // When pipeline_run exists, the SQL chain is:
-  //   start.entityId → triggers → ci_run / pipeline_run.
+  // `triggers` originates from repo entities in the populator (graph-populator.ts
+  // does not emit triggers from `pr` or `symbol`). So when the start is a PR,
+  // walk from the PR's resolved repo entities; otherwise walk from start
+  // directly. This matches the spec's "From the resolved repo, walk `triggers`".
+  const sourceIds = start.repoIds.length > 0 ? start.repoIds : [start.entityId];
+  const placeholders = sourceIds.map(() => "?").join(",");
   const rows = db
     .query(
       `SELECT
@@ -711,21 +768,34 @@ async function subPipelines(
          COALESCE(e.service, 'github') AS service_id
        FROM graph_relation r
        JOIN graph_entity   e ON e.id = r.to_id AND e.type IN ('ci_run', 'pipeline_run')
-       WHERE r.from_id = ? AND r.type = 'triggers'
+       WHERE r.from_id IN (${placeholders}) AND r.type = 'triggers'
        LIMIT 50`,
     )
-    .all(start.entityId) as Array<{ entity_id: string; title: string; service_id: string }>;
-  if (rows.length === 0) return {};
-  return {
-    findings: rows.map((r) => ({
-      category: "pipeline" as ImpactCategory,
-      affectedItemId: r.entity_id,
-      affectedTitle: r.title,
-      serviceId: r.service_id,
-      hops: 2,
-      pathSummary: "code_symbol → defined_in → repo → triggers → ci_run",
-    })),
-  };
+    .all(...sourceIds) as Array<{ entity_id: string; title: string; service_id: string }>;
+  if (rows.length > 0) {
+    const pathSummary =
+      start.repoIds.length > 0
+        ? `${start.entityType} → in_repo → repo → triggers → ci_run`
+        : `${start.entityType} → triggers → ci_run`;
+    const hops = start.repoIds.length > 0 ? 2 : 1;
+    return {
+      findings: rows.map((r) => ({
+        category: "pipeline" as ImpactCategory,
+        affectedItemId: r.entity_id,
+        affectedTitle: r.title,
+        serviceId: r.service_id,
+        hops,
+        pathSummary,
+      })),
+    };
+  }
+  // No triggers→ci_run/pipeline_run hits — the most common reason today is that
+  // the populator does not emit `triggers` and `pipeline_run` is not in the
+  // dispatch table. Surface that as a gap so the user sees *why* the bucket is
+  // empty, not just an empty bucket.
+  const gap = detectMissingEntityType(db, "pipeline_run");
+  if (gap !== null) return { gap };
+  return {};
 }
 
 async function subOncall(
@@ -788,14 +858,15 @@ async function subDashboards(
     )
     .all(start.entityId) as Array<{ entity_id: string; title: string; service_id: string }>;
   if (rows.length === 0) return {};
+  const pathSummary = `${start.entityType} → upstream_refs → dashboard`;
   return {
     findings: rows.map((r) => ({
       category: "dashboard" as ImpactCategory,
       affectedItemId: r.entity_id,
       affectedTitle: r.title,
       serviceId: r.service_id,
-      hops: 2,
-      pathSummary: "data_model → upstream_refs → dashboard",
+      hops: 1,
+      pathSummary,
     })),
   };
 }
@@ -1457,7 +1528,8 @@ In `packages/cli/src/commands/help.ts`, immediately after the existing `nimbus e
 
 ```typescript
   nimbus expert <topic>     Rank team members with the most context on a topic or file
-  nimbus impact <file>      Reverse-dependency blast radius across services / pipelines / dashboards
+  nimbus impact <file-or-PR-url>   Reverse-dependency blast radius across services / pipelines / dashboards
+                                   (--depth is accepted but reserved for future recursive traversal)
   nimbus vault set <k> <v>  Store a secret
 ```
 
@@ -1862,6 +1934,22 @@ EOF
 ```
 
 Expected: PR URL printed; CI starts.
+
+---
+
+## Deferred follow-ups (from plan review)
+
+These are items raised in the plan review (`2026-05-09-phase-5-t3-pr2-impact-review.md`) that are intentionally NOT in PR 2's scope but should be tracked as the next iteration on the impact agent or its surrounding infrastructure.
+
+| # | Item | Why deferred | Trigger to revisit |
+|---|---|---|---|
+| 1 | **Recursive `depends_on` traversal honouring `--depth`** | Two preconditions are missing: (a) `graph-populator.ts` only emits `depends_on` at workspace→package granularity today (line 160), so symbol-level reverse traversal yields zero rows; (b) any recursion has to ship with cycle detection (review Q1) and a bounded `WITH RECURSIVE … DEPTH < N` shape. PR 2 keeps the CLI flag accepted so this lands non-breaking. | When the graph populator emits symbol-level `depends_on` edges (Wave A's API-surface indexer or a populator follow-up). |
+| 2 | **Dedicated `sub_agent_failed` `GapCategory`** (review #4) | The current "execution failure → `missing_connector` gap" pattern is inherited from `expert.ts:130-136` (PR 1) and shipping a fix here would diverge the two agents. The right fix touches both agents in one PR, plus the CLI mirror in `packages/cli/src/types/agents.ts`. | Schedule alongside any future addition to `GapCategory` (e.g., when a third built-in agent ships and the bucket-list gets revisited anyway). |
+| 3 | **`downstream_code` bucket in `ImpactCategory`** | `subDownstreamCode` currently buckets symbol-level findings into `downstream_repo` because the existing 5-bucket enum has no symbol bucket. The reusing is documented in code; a real `downstream_code` bucket is a renderer + types + CLI mirror change. | When deferred-item #1 lands (recursive traversal yields meaningful symbol findings worth their own bucket). |
+| 4 | **CLI progress feedback** (review #5) | Not in spec; would diverge from the `expert.ts` CLI shape. The right fix is a shared waiting-spinner helper that both commands can adopt at once. | Schedule when a third built-in agent CLI ships (the third repetition of "wait for `*.briefReady`" justifies the helper). |
+| 5 | **LLM synthesis prompt tuning for impact** (review Q3) | `synthesize()` currently uses a generic instruction set. Tuning it to nudge the LLM toward `hops` / `pathSummary` is low-value until a real `LlmRouter` is wired into built-in agents (the deterministic renderer ships today). | When `LlmRouter` plumbing reaches `dispatchAgentsRpc` (i.e., the next built-in-agent PR that needs LLM synthesis end-to-end). |
+| 6 | **Per-bucket LIMIT tuning** (review Q2) | `LIMIT 50` is a sensible per-sub-agent cap for a human-readable brief; users wanting exhaustive results should use `--json` and post-process. Making it configurable adds API surface for a second-order need. | If real-world feedback shows the cap is hit on representative indices. |
+| 7 | **Audit-log entry for read-only impact runs** (review #6) | `audit_log` is the structural evidence of the HITL gate firing (security invariant `I2`/`I4`); writing a row for read-only queries dilutes that signal. Query-frequency tracking belongs in telemetry or a dedicated query-log table, not the consent audit. | If the team wants per-user query analytics — design as part of the telemetry surface, not the audit log. |
 
 ---
 

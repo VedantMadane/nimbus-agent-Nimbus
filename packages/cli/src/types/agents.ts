@@ -67,3 +67,43 @@ export function isExpertBrief(x: unknown): x is ExpertBrief {
     typeof b["latencyMs"] === "number"
   );
 }
+
+export type ImpactCategory =
+  | "service"
+  | "pipeline"
+  | "dashboard"
+  | "oncall_rotation"
+  | "downstream_repo";
+
+export type ImpactFinding = {
+  category: ImpactCategory;
+  affectedItemId: string;
+  affectedTitle: string;
+  serviceId: string;
+  hops: number;
+  pathSummary: string;
+};
+
+export type ImpactBrief = {
+  kind: "impact";
+  agentVersion: 1;
+  generatedAt: number;
+  latencyMs: number;
+  gaps: GapNote[];
+  query: { fileOrPrUrl: string };
+  startEntityId: string | null;
+  affected: ImpactFinding[];
+};
+
+export function isImpactBrief(x: unknown): x is ImpactBrief {
+  if (x === null || typeof x !== "object") return false;
+  const b = x as Record<string, unknown>;
+  return (
+    b["kind"] === "impact" &&
+    b["agentVersion"] === 1 &&
+    Array.isArray(b["gaps"]) &&
+    Array.isArray(b["affected"]) &&
+    typeof b["generatedAt"] === "number" &&
+    typeof b["latencyMs"] === "number"
+  );
+}

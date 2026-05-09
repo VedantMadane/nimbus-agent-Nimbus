@@ -64,3 +64,61 @@ describe("dispatchAgentsRpc", () => {
     expect(briefReady).toBeDefined();
   });
 });
+
+describe("dispatchAgentsRpc — agents.impact", () => {
+  test("agents.impact returns a sessionId synchronously", async () => {
+    const out = await dispatchAgentsRpc(
+      "agents.impact",
+      { fileOrPrUrl: "src/x.ts" },
+      makeCtx(freshDb()),
+    );
+    expect(out.kind).toBe("hit");
+    if (out.kind === "hit") {
+      const v = out.value as { sessionId: string };
+      expect(typeof v.sessionId).toBe("string");
+      expect(v.sessionId.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("agents.impact validates fileOrPrUrl is a non-empty string", async () => {
+    await expect(
+      dispatchAgentsRpc("agents.impact", { fileOrPrUrl: "" }, makeCtx(freshDb())),
+    ).rejects.toBeInstanceOf(AgentsRpcError);
+    await expect(dispatchAgentsRpc("agents.impact", {}, makeCtx(freshDb()))).rejects.toBeInstanceOf(
+      AgentsRpcError,
+    );
+  });
+
+  test("agents.impact rejects array payloads with a clear message", async () => {
+    await expect(
+      dispatchAgentsRpc("agents.impact", ["not", "an", "object"], makeCtx(freshDb())),
+    ).rejects.toMatchObject({
+      rpcCode: -32602,
+      message: expect.stringContaining("requires { fileOrPrUrl: string }"),
+    });
+  });
+
+  test("agents.impact validates depth is an integer in 1..5", async () => {
+    await expect(
+      dispatchAgentsRpc("agents.impact", { fileOrPrUrl: "x", depth: 0 }, makeCtx(freshDb())),
+    ).rejects.toBeInstanceOf(AgentsRpcError);
+    await expect(
+      dispatchAgentsRpc("agents.impact", { fileOrPrUrl: "x", depth: 6 }, makeCtx(freshDb())),
+    ).rejects.toBeInstanceOf(AgentsRpcError);
+  });
+
+  test("agents.impact validates service if provided is a non-empty string", async () => {
+    await expect(
+      dispatchAgentsRpc("agents.impact", { fileOrPrUrl: "x", service: "" }, makeCtx(freshDb())),
+    ).rejects.toBeInstanceOf(AgentsRpcError);
+  });
+
+  test("agents.impact eventually emits impact.briefReady", async () => {
+    const ctx = makeCtx(freshDb());
+    await dispatchAgentsRpc("agents.impact", { fileOrPrUrl: "x" }, ctx);
+    await new Promise((r) => setTimeout(r, 50));
+    const calls = (ctx.notify as ReturnType<typeof mock>).mock.calls;
+    const briefReady = calls.find((c) => c[0] === "impact.briefReady");
+    expect(briefReady).toBeDefined();
+  });
+});
