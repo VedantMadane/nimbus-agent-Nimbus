@@ -2,6 +2,7 @@ import { asRecord } from "../../connectors/unknown-record.ts";
 import { bindConsentChannel, ToolExecutor } from "../../engine/executor.ts";
 import type { ConnectorDispatcher } from "../../engine/types.ts";
 import { CURRENT_SCHEMA_VERSION } from "../../index/local-index.ts";
+import { AgentsRpcError, dispatchAgentsRpc } from "../agents-rpc.ts";
 import { AuditRpcError, dispatchAuditRpc } from "../audit-rpc.ts";
 import { AutomationRpcError, dispatchAutomationRpc } from "../automation-rpc.ts";
 import { ConnectorRpcError, dispatchConnectorRpc } from "../connector-rpc.ts";
@@ -73,6 +74,32 @@ export async function tryDispatchLlmRpc(
     if (out.kind === "hit") return out.value;
   } catch (e) {
     if (e instanceof LlmRpcError) {
+      throw new RpcMethodError(e.rpcCode, e.message);
+    }
+    throw e;
+  }
+  throw new RpcMethodError(-32601, `Method not found: ${method}`);
+}
+
+export async function tryDispatchAgentsRpc(
+  ctx: ServerCtx,
+  method: string,
+  params: unknown,
+): Promise<unknown> {
+  if (!method.startsWith("agents.") || ctx.options.localIndex === undefined) {
+    return phase4RpcSkipped;
+  }
+  try {
+    const out = await dispatchAgentsRpc(method, params, {
+      db: ctx.options.localIndex.getDatabase(),
+      // No `llm` plumbing in PR 1 — synthesize() falls back to the deterministic
+      // renderer. PR-N will pass ctx.options.llmRouter once a routing API for
+      // built-in agents lands.
+      notify: (m, p) => ctx.broadcastNotification(m, p as Record<string, unknown>),
+    });
+    if (out.kind === "hit") return out.value;
+  } catch (e) {
+    if (e instanceof AgentsRpcError) {
       throw new RpcMethodError(e.rpcCode, e.message);
     }
     throw e;
@@ -321,6 +348,8 @@ export async function tryDispatchPhase4Rpc(
 ): Promise<unknown> {
   const llmOutcome = await tryDispatchLlmRpc(ctx, method, params);
   if (llmOutcome !== phase4RpcSkipped) return llmOutcome;
+  const agentsOutcome = await tryDispatchAgentsRpc(ctx, method, params);
+  if (agentsOutcome !== phase4RpcSkipped) return agentsOutcome;
   const voiceOutcome = await tryDispatchVoiceRpc(ctx, method, params);
   if (voiceOutcome !== phase4RpcSkipped) return voiceOutcome;
   const updaterOutcome = await tryDispatchUpdaterRpc(ctx, method, params);
