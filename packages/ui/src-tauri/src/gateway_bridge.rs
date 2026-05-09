@@ -62,6 +62,7 @@ impl Default for HitlInbox {
 /// (`data.delete`) live at the Gateway level, not the raw db layer.
 pub const ALLOWED_METHODS: &[&str] = &[
     "agents.expert",
+    "agents.impact",
     "audit.export",
     "audit.getSummary",
     "audit.list",
@@ -443,7 +444,8 @@ mod tests {
         // WS5-D polish adds watcher.listHistory + workflow.listRuns → 2 new methods → 56 total.
         // Security fix: remove extension.install → 55 total.
         // Phase 5 T3 PR 1 adds agents.expert → 58 total.
-        assert_eq!(ALLOWED_METHODS.len(), 58);
+        // Phase 5 T3 PR 2 adds agents.impact → 59 total.
+        assert_eq!(ALLOWED_METHODS.len(), 59);
     }
 
     #[test]
