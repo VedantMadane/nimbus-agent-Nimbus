@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { SynthesizerLlm } from "../agents/_lib/synthesize.ts";
 import { emitExpertBrief } from "../agents/expert.ts";
+import { emitImpactBrief } from "../agents/impact.ts";
 
 export class AgentsRpcError extends Error {
   readonly rpcCode: number;
@@ -20,6 +21,12 @@ export type AgentsRpcContext = {
 const MIN_TOPIC_LEN = 1;
 const MAX_TOPIC_LEN = 1024;
 const MAX_LIMIT = 25;
+
+const MIN_FILE_LEN = 1;
+const MAX_FILE_LEN = 2048;
+const MIN_DEPTH = 1;
+const MAX_IMPACT_DEPTH = 5;
+const MAX_SERVICE_LEN = 64;
 
 function requireExpertParams(params: unknown): { topicOrFile: string; limit?: number } {
   if (params === null || typeof params !== "object" || Array.isArray(params)) {
@@ -51,8 +58,58 @@ function requireExpertParams(params: unknown): { topicOrFile: string; limit?: nu
   return out;
 }
 
-function newSessionId(): string {
-  return `expert_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+function requireImpactParams(params: unknown): {
+  fileOrPrUrl: string;
+  depth?: number;
+  service?: string;
+} {
+  if (params === null || typeof params !== "object" || Array.isArray(params)) {
+    throw new AgentsRpcError(-32602, "agents.impact requires { fileOrPrUrl: string }");
+  }
+  const p = params as { fileOrPrUrl?: unknown; depth?: unknown; service?: unknown };
+  if (typeof p.fileOrPrUrl !== "string") {
+    throw new AgentsRpcError(-32602, "fileOrPrUrl must be a string");
+  }
+  const trimmed = p.fileOrPrUrl.trim();
+  if (trimmed.length < MIN_FILE_LEN || trimmed.length > MAX_FILE_LEN) {
+    throw new AgentsRpcError(
+      -32602,
+      `fileOrPrUrl must be ${MIN_FILE_LEN}..${MAX_FILE_LEN} chars after trim`,
+    );
+  }
+  const out: { fileOrPrUrl: string; depth?: number; service?: string } = { fileOrPrUrl: trimmed };
+  if (p.depth !== undefined) {
+    if (
+      typeof p.depth !== "number" ||
+      !Number.isInteger(p.depth) ||
+      p.depth < MIN_DEPTH ||
+      p.depth > MAX_IMPACT_DEPTH
+    ) {
+      throw new AgentsRpcError(
+        -32602,
+        `depth must be an integer in ${MIN_DEPTH}..${MAX_IMPACT_DEPTH}`,
+      );
+    }
+    out.depth = p.depth;
+  }
+  if (p.service !== undefined) {
+    if (
+      typeof p.service !== "string" ||
+      p.service.trim().length === 0 ||
+      p.service.length > MAX_SERVICE_LEN
+    ) {
+      throw new AgentsRpcError(
+        -32602,
+        `service must be a non-empty string up to ${MAX_SERVICE_LEN} chars`,
+      );
+    }
+    out.service = p.service.trim();
+  }
+  return out;
+}
+
+function newSessionId(kind: "expert" | "impact"): string {
+  return `${kind}_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
 }
 
 export async function dispatchAgentsRpc(
@@ -62,12 +119,21 @@ export async function dispatchAgentsRpc(
 ): Promise<{ kind: "miss" } | { kind: "hit"; value: unknown }> {
   if (method === "agents.expert") {
     const input = requireExpertParams(params);
-    const sessionId = newSessionId();
+    const sessionId = newSessionId("expert");
     const expertCtx =
       ctx.llm === undefined
         ? { db: ctx.db, notify: ctx.notify, sessionId }
         : { db: ctx.db, llm: ctx.llm, notify: ctx.notify, sessionId };
     return { kind: "hit", value: await emitExpertBrief(input, expertCtx) };
+  }
+  if (method === "agents.impact") {
+    const input = requireImpactParams(params);
+    const sessionId = newSessionId("impact");
+    const impactCtx =
+      ctx.llm === undefined
+        ? { db: ctx.db, notify: ctx.notify, sessionId }
+        : { db: ctx.db, llm: ctx.llm, notify: ctx.notify, sessionId };
+    return { kind: "hit", value: await emitImpactBrief(input, impactCtx) };
   }
   return { kind: "miss" };
 }
