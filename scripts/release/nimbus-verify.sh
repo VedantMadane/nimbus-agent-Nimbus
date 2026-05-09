@@ -162,9 +162,18 @@ echo ""
 
 VERIFY_OUT="$(gpg --status-fd 1 --verify SHA256SUMS.asc SHA256SUMS 2>&1 || true)"
 
-# Look for GOODSIG <fp> or VALIDSIG <fp> — but the FP must be in TRUSTED_FINGERPRINTS.
-SIG_FP="$(echo "$VERIFY_OUT" | awk '/^\[GNUPG:\] VALIDSIG/ {print $3; exit}')"
-if [[ -z "$SIG_FP" ]]; then
+# VALIDSIG line layout (GPG 1.4+):
+#   [GNUPG:] VALIDSIG <signing-fp> <date> <ts> <expire> <ver> <reserved>
+#                     <pubkey-algo> <hash-algo> <sig-class> <primary-fp>
+# $3 is the signing-key FP (a sign-only subkey under standard hygiene); the
+# last field is the PRIMARY (master) FP. We trust the primary because subkeys
+# rotate every ~2 years per docs/release/v0.1.0-prerequisites.md and the
+# trust anchor published in docs/release/SIGNING-KEY.asc and README.md is
+# the primary fingerprint. When a key has no subkey, signing-fp == primary-fp
+# and this still works.
+SIGNING_FP="$(echo "$VERIFY_OUT" | awk '/^\[GNUPG:\] VALIDSIG/ {print $3; exit}')"
+PRIMARY_FP="$(echo "$VERIFY_OUT" | awk '/^\[GNUPG:\] VALIDSIG/ {print $NF; exit}')"
+if [[ -z "$PRIMARY_FP" ]]; then
   echo "❌ SHA256SUMS.asc: GPG signature verification FAILED" >&2
   echo "$VERIFY_OUT" >&2
   exit 1
@@ -172,13 +181,14 @@ fi
 
 FOUND=0
 for fp in "${TRUSTED_FINGERPRINTS[@]}"; do
-  if [[ "$SIG_FP" == "$fp" ]]; then
+  if [[ "$PRIMARY_FP" == "$fp" ]]; then
     FOUND=1; break
   fi
 done
 
 if [[ "$FOUND" -ne 1 ]]; then
-  echo "❌ SHA256SUMS.asc: signed by UNTRUSTED fingerprint $SIG_FP" >&2
+  echo "❌ SHA256SUMS.asc: signed by UNTRUSTED primary fingerprint $PRIMARY_FP" >&2
+  echo "   (signing key was $SIGNING_FP)" >&2
   echo "   trusted fingerprints: ${TRUSTED_FINGERPRINTS[*]}" >&2
   exit 1
 fi
@@ -190,7 +200,11 @@ if echo "$VERIFY_OUT" | grep -qE "\[GNUPG:\] (EXPKEYSIG|REVKEYSIG)"; then
   exit 1
 fi
 
-echo "✅ SHA256SUMS.asc: signature OK (fingerprint $SIG_FP)"
+if [[ "$SIGNING_FP" == "$PRIMARY_FP" ]]; then
+  echo "✅ SHA256SUMS.asc: signature OK (fingerprint $PRIMARY_FP)"
+else
+  echo "✅ SHA256SUMS.asc: signature OK (signed by subkey $SIGNING_FP, bound to primary $PRIMARY_FP)"
+fi
 echo ""
 
 # ---- Hash check ($SHACMD -c) -------------------------------------------------

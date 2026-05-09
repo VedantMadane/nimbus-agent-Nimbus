@@ -117,17 +117,28 @@ Write-Host "  4. The same fingerprint on $Keyserver"
 Write-Host ""
 
 # ---- gpg --verify ----------------------------------------------------------
+# VALIDSIG layout (GPG 1.4+):
+#   [GNUPG:] VALIDSIG <signing-fp> <date> <ts> <expire> <ver> <reserved>
+#                     <pubkey-algo> <hash-algo> <sig-class> <primary-fp>
+# Group 1 is the signing-key FP (sign-only subkey under standard hygiene); the
+# last whitespace-separated token is the PRIMARY (master) FP. We trust the
+# primary because subkeys rotate every ~2 years per docs/release/v0.1.0-
+# prerequisites.md and the trust anchor in docs/release/SIGNING-KEY.asc and
+# README.md is the primary fingerprint. When a key has no subkey, signing-fp
+# == primary-fp and this still works.
 $verifyOut = & gpg --status-fd 1 --verify SHA256SUMS.asc SHA256SUMS 2>&1 | Out-String
-$validsig = [regex]::Match($verifyOut, '\[GNUPG:\] VALIDSIG (\S+)')
+$validsig = [regex]::Match($verifyOut, '\[GNUPG:\] VALIDSIG (\S+)(?:\s+\S+){8}\s+(\S+)')
 if (-not $validsig.Success) {
   Write-Host "❌ SHA256SUMS.asc: GPG signature verification FAILED" -ErrorAction Continue
   Write-Host $verifyOut
   exit 1
 }
-$sigFp = $validsig.Groups[1].Value
+$signingFp = $validsig.Groups[1].Value
+$primaryFp = $validsig.Groups[2].Value
 
-if ($TrustedFingerprints -notcontains $sigFp) {
-  Write-Host "❌ SHA256SUMS.asc: signed by UNTRUSTED fingerprint $sigFp"
+if ($TrustedFingerprints -notcontains $primaryFp) {
+  Write-Host "❌ SHA256SUMS.asc: signed by UNTRUSTED primary fingerprint $primaryFp"
+  Write-Host "   (signing key was $signingFp)"
   Write-Host "   trusted fingerprints: $($TrustedFingerprints -join ', ')"
   exit 1
 }
@@ -137,7 +148,11 @@ if ($verifyOut -match '\[GNUPG:\] (EXPKEYSIG|REVKEYSIG)') {
   exit 1
 }
 
-Write-Host "✅ SHA256SUMS.asc: signature OK (fingerprint $sigFp)"
+if ($signingFp -eq $primaryFp) {
+  Write-Host "✅ SHA256SUMS.asc: signature OK (fingerprint $primaryFp)"
+} else {
+  Write-Host "✅ SHA256SUMS.asc: signature OK (signed by subkey $signingFp, bound to primary $primaryFp)"
+}
 Write-Host ""
 
 # ---- Hash verification -----------------------------------------------------
