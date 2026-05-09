@@ -220,6 +220,39 @@ jobs:
           command: check all
           command-arguments: --hide-inclusion-graph
 
+  js-licenses:
+    name: JS license compliance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/setup-nimbus-ci
+        with:
+          verify-lock: "false"
+
+      - name: License compliance (workspace-wide)
+        # JS-side mirror of cargo-deny's license check on the Tauri Rust
+        # tree. The allowlist is the intersection of licenses safe to
+        # redistribute under both halves of our dual-license model:
+        # AGPL-3.0 (gateway/cli/connectors, shipped as compiled binaries)
+        # and MIT (sdk/client, published as-is to npm). See
+        # docs/license-policy.md for the full policy and the procedure
+        # for adding to the allowlist or PACKAGE_OVERRIDES.
+        run: bun run audit:js-licenses
+
   gitleaks:
     name: Gitleaks secret scan
     runs-on: ubuntu-24.04
