@@ -7,7 +7,6 @@ import {
   detectMissingEntityType,
   detectMissingRelationEmit,
 } from "./_lib/gap-notes.ts";
-import { renderExpert } from "./_lib/render.ts";
 import { type SynthesizerLlm, synthesize } from "./_lib/synthesize.ts";
 
 export type ExpertInput = {
@@ -200,12 +199,12 @@ async function subBlame(db: Database, input: string): Promise<SubAgentResult> {
   const commits = db
     .query(
       `SELECT
-         p.id           AS person_id,
-         p.display_name AS display_name,
-         i.id           AS item_id,
-         i.title        AS title,
-         i.modified_at  AS modified_at,
-         i.service      AS service_id
+         p.id                           AS person_id,
+         COALESCE(p.display_name, p.id) AS display_name,
+         i.id                           AS item_id,
+         i.title                        AS title,
+         i.modified_at                  AS modified_at,
+         i.service                      AS service_id
        FROM item   i
        JOIN person p ON p.id = i.author_id
        WHERE i.service = 'github'
@@ -259,12 +258,12 @@ async function subPrAuthored(db: Database, input: string): Promise<SubAgentResul
   const rows = db
     .query(
       `SELECT
-         p.id           AS person_id,
-         p.display_name AS display_name,
-         i.id           AS item_id,
-         i.title        AS title,
-         i.modified_at  AS modified_at,
-         i.service      AS service_id
+         p.id                           AS person_id,
+         COALESCE(p.display_name, p.id) AS display_name,
+         i.id                           AS item_id,
+         i.title                        AS title,
+         i.modified_at                  AS modified_at,
+         i.service                      AS service_id
        FROM item   i
        JOIN person p ON p.id = i.author_id
        WHERE i.type = 'pr'
@@ -283,21 +282,31 @@ async function subPrAuthored(db: Database, input: string): Promise<SubAgentResul
   }>;
 
   if (rows.length === 0) return {};
-  const r0 = rows[0]!;
-  return {
-    stream: {
-      personId: r0.person_id,
-      displayName: r0.display_name,
-      evidence: rows.map((r) => ({
-        itemId: r.item_id,
-        type: "pr_authored",
-        serviceId: r.service_id,
-        title: r.title.slice(0, 512),
-        modifiedAt: r.modified_at,
-        weight: 0.8,
-      })),
-    },
-  };
+
+  const merged = new Map<string, ExpertEvidenceStream>();
+  for (const r of rows) {
+    const ev: Evidence = {
+      itemId: r.item_id,
+      type: "pr_authored",
+      serviceId: r.service_id,
+      title: r.title.slice(0, 512),
+      modifiedAt: r.modified_at,
+      weight: 0.8,
+    };
+    const existing = merged.get(r.person_id);
+    if (existing === undefined) {
+      merged.set(r.person_id, {
+        personId: r.person_id,
+        displayName: r.display_name,
+        evidence: [ev],
+      });
+    } else {
+      existing.evidence.push(ev);
+    }
+  }
+  // Return the largest stream — rankExpertFindings handles cross-stream merging.
+  const winner = [...merged.values()].sort((a, b) => b.evidence.length - a.evidence.length)[0];
+  return winner === undefined ? {} : { stream: winner };
 }
 
 async function subPrReviewed(db: Database, input: string): Promise<SubAgentResult> {
@@ -332,12 +341,12 @@ async function subChatMentions(db: Database, input: string): Promise<SubAgentRes
   const rows = db
     .query(
       `SELECT
-         p.id           AS person_id,
-         p.display_name AS display_name,
-         i.id           AS item_id,
-         i.title        AS title,
-         i.modified_at  AS modified_at,
-         i.service      AS service_id
+         p.id                           AS person_id,
+         COALESCE(p.display_name, p.id) AS display_name,
+         i.id                           AS item_id,
+         i.title                        AS title,
+         i.modified_at                  AS modified_at,
+         i.service                      AS service_id
        FROM item          i
        JOIN graph_entity  ie ON ie.type = 'message' AND ie.external_id = i.id
        JOIN graph_relation gr ON gr.to_id = ie.id AND gr.type = 'posted'
@@ -360,24 +369,29 @@ async function subChatMentions(db: Database, input: string): Promise<SubAgentRes
     const gap = detectMissingConnector(db, "slack");
     return gap === null ? {} : { gap };
   }
-  const r0 = rows[0]!;
-  return {
-    stream: {
-      personId: r0.person_id,
-      displayName: r0.display_name,
-      evidence: rows.map((r) => ({
-        itemId: r.item_id,
-        type: "chat_post",
-        serviceId: r.service_id,
-        title: r.title.slice(0, 512),
-        modifiedAt: r.modified_at,
-        weight: 0.4,
-      })),
-    },
-  };
-}
 
-// Suppress unused-import warning for `renderExpert` if synthesize is the only
-// renderer caller. Re-exported here so consumers (CLI / IPC) can call it
-// directly when --json is requested and they do their own Markdown render.
-export { renderExpert };
+  const merged = new Map<string, ExpertEvidenceStream>();
+  for (const r of rows) {
+    const ev: Evidence = {
+      itemId: r.item_id,
+      type: "chat_post",
+      serviceId: r.service_id,
+      title: r.title.slice(0, 512),
+      modifiedAt: r.modified_at,
+      weight: 0.4,
+    };
+    const existing = merged.get(r.person_id);
+    if (existing === undefined) {
+      merged.set(r.person_id, {
+        personId: r.person_id,
+        displayName: r.display_name,
+        evidence: [ev],
+      });
+    } else {
+      existing.evidence.push(ev);
+    }
+  }
+  // Return the largest stream — rankExpertFindings handles cross-stream merging.
+  const winner = [...merged.values()].sort((a, b) => b.evidence.length - a.evidence.length)[0];
+  return winner === undefined ? {} : { stream: winner };
+}
