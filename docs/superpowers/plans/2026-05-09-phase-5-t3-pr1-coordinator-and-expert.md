@@ -467,7 +467,11 @@ export function isImpactBrief(x: unknown): x is ImpactBrief {
     b["kind"] === "impact" &&
     b["agentVersion"] === 1 &&
     Array.isArray(b["gaps"]) &&
-    Array.isArray(b["affected"])
+    Array.isArray(b["affected"]) &&
+    typeof b["generatedAt"] === "number" &&
+    typeof b["latencyMs"] === "number" &&
+    typeof b["query"] === "object" &&
+    b["query"] !== null
   );
 }
 
@@ -478,7 +482,11 @@ export function isCatchupBrief(x: unknown): x is CatchupBrief {
     b["kind"] === "catchup" &&
     b["agentVersion"] === 1 &&
     Array.isArray(b["gaps"]) &&
-    Array.isArray(b["sections"])
+    Array.isArray(b["sections"]) &&
+    typeof b["generatedAt"] === "number" &&
+    typeof b["latencyMs"] === "number" &&
+    typeof b["query"] === "object" &&
+    b["query"] !== null
   );
 }
 ```
