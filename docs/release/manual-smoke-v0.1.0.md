@@ -131,14 +131,14 @@ Run on at least one Windows + one macOS + one Linux platform with VS Code 1.90+.
 ### 2.1 Install (Marketplace)
 
 - [x] Open VS Code → Extensions → search `Nimbus`.
-- [x] The `nimbus-agent.nimbus` extension appears with the correct icon and publisher.
+- [x] The `nimbus-agent.nimbus-vscode` extension appears with the correct icon and publisher.
 - [x] Install completes without manual config; VS Code prompts a reload only if needed.
 - [x] Extension appears under Installed with the published version.
 
 ### 2.2 Install (Open VSX, Cursor)
 
 - [x] Open Cursor → Extensions → search `Nimbus`.
-- [x] The `nimbus-agent.nimbus` extension is found via Open VSX.
+- [x] The `nimbus-agent.nimbus-vscode` extension is found via Open VSX.
 - [x] Install completes; the chat side-panel command palette entries appear.
 
 ### 2.3 Activation + status bar

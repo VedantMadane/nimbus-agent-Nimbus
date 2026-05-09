@@ -188,7 +188,7 @@ nimbus start
 
 ### 2.1 Install (Marketplace, VS Code)
 
-VS Code → Extensions → search `Nimbus` → install `nimbus-agent.nimbus`. Verify icon, publisher, version.
+VS Code → Extensions → search `Nimbus` → install `nimbus-agent.nimbus-vscode`. Verify icon, publisher, version.
 
 ### 2.2 Install (Open VSX, Cursor)
 
