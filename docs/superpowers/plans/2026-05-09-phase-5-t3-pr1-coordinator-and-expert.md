@@ -442,18 +442,21 @@ export type BriefReadyPayload<B extends AgentBrief> = {
 // Keep these as pure shape checks; they intentionally do not validate field
 // values (e.g., score range) so changes there don't ripple here.
 
+// Bracket access required by tsconfig's `noPropertyAccessFromIndexSignature: true`.
+// Matches the existing pattern in packages/gateway/src/auth/pkce.ts:192-195.
+
 export function isExpertBrief(x: unknown): x is ExpertBrief {
   if (x === null || typeof x !== "object") return false;
   const b = x as Record<string, unknown>;
   return (
-    b.kind === "expert" &&
-    b.agentVersion === 1 &&
-    Array.isArray(b.gaps) &&
-    Array.isArray(b.ranked) &&
-    typeof b.generatedAt === "number" &&
-    typeof b.latencyMs === "number" &&
-    typeof b.query === "object" &&
-    b.query !== null
+    b["kind"] === "expert" &&
+    b["agentVersion"] === 1 &&
+    Array.isArray(b["gaps"]) &&
+    Array.isArray(b["ranked"]) &&
+    typeof b["generatedAt"] === "number" &&
+    typeof b["latencyMs"] === "number" &&
+    typeof b["query"] === "object" &&
+    b["query"] !== null
   );
 }
 
@@ -461,10 +464,10 @@ export function isImpactBrief(x: unknown): x is ImpactBrief {
   if (x === null || typeof x !== "object") return false;
   const b = x as Record<string, unknown>;
   return (
-    b.kind === "impact" &&
-    b.agentVersion === 1 &&
-    Array.isArray(b.gaps) &&
-    Array.isArray(b.affected)
+    b["kind"] === "impact" &&
+    b["agentVersion"] === 1 &&
+    Array.isArray(b["gaps"]) &&
+    Array.isArray(b["affected"])
   );
 }
 
@@ -472,10 +475,10 @@ export function isCatchupBrief(x: unknown): x is CatchupBrief {
   if (x === null || typeof x !== "object") return false;
   const b = x as Record<string, unknown>;
   return (
-    b.kind === "catchup" &&
-    b.agentVersion === 1 &&
-    Array.isArray(b.gaps) &&
-    Array.isArray(b.sections)
+    b["kind"] === "catchup" &&
+    b["agentVersion"] === 1 &&
+    Array.isArray(b["gaps"]) &&
+    Array.isArray(b["sections"])
   );
 }
 ```
@@ -2244,14 +2247,15 @@ export type ExpertBrief = {
 
 export function isExpertBrief(x: unknown): x is ExpertBrief {
   if (x === null || typeof x !== "object") return false;
+  // Bracket access required by tsconfig's `noPropertyAccessFromIndexSignature: true`.
   const b = x as Record<string, unknown>;
   return (
-    b.kind === "expert" &&
-    b.agentVersion === 1 &&
-    Array.isArray(b.gaps) &&
-    Array.isArray(b.ranked) &&
-    typeof b.generatedAt === "number" &&
-    typeof b.latencyMs === "number"
+    b["kind"] === "expert" &&
+    b["agentVersion"] === 1 &&
+    Array.isArray(b["gaps"]) &&
+    Array.isArray(b["ranked"]) &&
+    typeof b["generatedAt"] === "number" &&
+    typeof b["latencyMs"] === "number"
   );
 }
 ```
