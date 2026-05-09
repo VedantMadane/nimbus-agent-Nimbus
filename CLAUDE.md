@@ -175,7 +175,7 @@ runs. See `docs/structure-audit/baseline.md` for current findings.
 | `packages/ui/src/store/slices/telemetry.ts` | Telemetry slice — `TelemetryStatus` + `telemetryActionInFlight`; transient |
 | `packages/ui/src/store/slices/connectors.ts` | Connectors slice — `PersistedConnectorRow[]` (persisted) + transient `perServiceInFlight` + `highlightService` + `patchConnectorRow` |
 | `packages/ui/src/store/slices/model.ts` | Model slice — `installedModels` + `activePullId` (persisted) + transient `routerStatus`, `pullProgress`, `pullStalled`, `loadedKeys` |
-| `packages/ui/src-tauri/src/gateway_bridge.rs` | Rust IPC bridge — `ALLOWED_METHODS` (57), `NO_TIMEOUT_METHODS` (4), `GLOBAL_BROADCAST_METHODS` (`profile.switched`), `rpc_call`, reconnect loop |
+| `packages/ui/src-tauri/src/gateway_bridge.rs` | Rust IPC bridge — `ALLOWED_METHODS` (58), `NO_TIMEOUT_METHODS` (4), `GLOBAL_BROADCAST_METHODS` (`profile.switched`), `rpc_call`, reconnect loop |
 | `packages/ui/src-tauri/src/tray.rs` | System tray icon, menu, state forwarding |
 | `packages/ui/src-tauri/src/quick_query.rs` | Quick Query window lifecycle — spawn/focus, focus-loss close |
 | `packages/ui/src-tauri/src/hitl_popup.rs` | HITL popup window lifecycle — spawn / focus / close |
@@ -224,6 +224,7 @@ bun run test:coverage
 
 # Coverage gates (enforced in CI) — run all: bun run test:ci
 bun run test:coverage:engine       # ≥85% threshold (engine)
+bun run test:coverage:agents       # ≥80% threshold (built-in agents)
 bun run test:coverage:vault        # ≥90% threshold (vault)
 bun run test:coverage:sync         # ≥80% threshold (sync scheduler)
 bun run test:coverage:rate-limiter # ≥85% threshold (per-provider rate limiter)

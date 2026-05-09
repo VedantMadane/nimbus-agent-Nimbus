@@ -93,6 +93,7 @@ function runInitialUnitTestsWithCoverage(): void {
 function runCoverageGates(): void {
   const gates: Array<{ script: string; dbus?: boolean }> = [
     { script: "test:coverage:engine" },
+    { script: "test:coverage:agents" },
     { script: "test:coverage:vault", dbus: true },
     { script: "test:coverage:sync" },
     { script: "test:coverage:rate-limiter" },

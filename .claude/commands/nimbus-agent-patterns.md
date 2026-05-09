@@ -17,7 +17,7 @@ description: >
 
 ## Built-in Agent Location
 
-All built-in agents live in `packages/gateway/src/agents/`. Each agent is a single file named after the command it serves: `meeting-prep.ts`, `oncall-brief.ts`, `expert.ts`, `standup.ts`, `catchup.ts`, `impact.ts`, etc.
+All built-in agents live in `packages/gateway/src/agents/`. Each agent is a single file named after the command it serves: `expert.ts`, `meeting-prep.ts`, `oncall-brief.ts`, `standup.ts`, `catchup.ts`, `impact.ts`, etc.
 
 ## Agent Shape Invariant
 
@@ -80,7 +80,7 @@ Every agent requires an e2e test at `packages/gateway/test/e2e/scenarios/<agent-
 - Asserts **zero HITL actions fired**.
 - Asserts the `briefReady` notification is emitted with a non-empty `brief`.
 
-Use the existing `meeting-prep.e2e.test.ts` as the reference implementation.
+Use the existing `expert.e2e.test.ts` as the reference implementation.
 
 ## Coverage Gate
 

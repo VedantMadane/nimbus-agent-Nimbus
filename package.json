@@ -72,6 +72,7 @@
     "test:e2e:cli": "bun test packages/cli/test/e2e/",
     "test:e2e:gateway": "bun test packages/gateway/test/e2e/",
     "test:coverage": "bun test packages/gateway packages/cli packages/sdk --coverage",
+    "test:coverage:agents": "bun test packages/gateway/src/agents --coverage --coverage-threshold-lines=80",
     "test:coverage:engine": "bun test packages/gateway/src/engine --coverage --coverage-threshold-lines=85",
     "test:coverage:vault": "bun test packages/gateway/src/vault --coverage --coverage-threshold-lines=90",
     "test:coverage:sync": "bun test packages/gateway/src/sync/scheduler.test.ts --coverage --coverage-threshold-lines=80",

@@ -11,6 +11,7 @@ export { runData } from "./data.ts";
 export { runDb } from "./db.ts";
 export { runDiag } from "./diag.ts";
 export { runDoctor } from "./doctor.ts";
+export { runExpertCli } from "./expert.ts";
 export { runExtension } from "./extension.ts";
 export { printHelp } from "./help.ts";
 export { runLan } from "./lan.ts";

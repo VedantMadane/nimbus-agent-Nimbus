@@ -17,6 +17,7 @@ Usage:
   nimbus test [dir]         Extension manifest contract + bun test when package.json has a test script
   nimbus search <q> …       Ranked index search (FTS + optional semantic)
   nimbus ask <query>        Natural language (exits early if no connectors registered; needs LLM keys on gateway)
+  nimbus expert <topic>     Rank team members with the most context on a topic or file
   nimbus vault set <k> <v>  Store a secret
   nimbus vault get <k>      Read a secret (prompts first)
   nimbus vault delete <k>    Remove a secret
