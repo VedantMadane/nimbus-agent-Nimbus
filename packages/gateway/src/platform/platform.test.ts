@@ -125,7 +125,7 @@ describe("Platform Abstraction Layer", () => {
       services.localIndex?.close();
       await new Promise((r) => setTimeout(r, 100));
     }
-  });
+  }, 15000); // 15s timeout to allow for migrations on fresh DB (matches sibling test above)
 
   it("throws PlatformInitError for missing Linux secret-tool (subprocess)", () => {
     if (platform() !== "linux") {
