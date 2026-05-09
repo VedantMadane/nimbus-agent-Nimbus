@@ -4,6 +4,7 @@ import {
   detectEmptyIndex,
   detectMissingConnector,
   detectMissingEntityType,
+  detectMissingRelationEmit,
   remediationForEntityType,
 } from "./gap-notes.ts";
 
@@ -96,6 +97,37 @@ describe("remediationForEntityType", () => {
 
   test("returns undefined for unknown types", () => {
     expect(remediationForEntityType("unknown_type")).toBeUndefined();
+  });
+});
+
+describe("detectMissingRelationEmit", () => {
+  test("returns a missing_relation_emit gap when graph_relation has no rows of the type", () => {
+    const db = withSchema(freshDb());
+    const note = detectMissingRelationEmit(db, "reviewed");
+    expect(note?.category).toBe("missing_relation_emit");
+    expect(note?.detail).toMatch(/`reviewed`/);
+    expect(note?.remediation).toBeUndefined();
+  });
+
+  test("includes the supplied remediation string when provided", () => {
+    const db = withSchema(freshDb());
+    const note = detectMissingRelationEmit(db, "reviewed", "graph-populator follow-up");
+    expect(note?.remediation).toBe("graph-populator follow-up");
+  });
+
+  test("returns null when graph_relation has at least one row of the type", () => {
+    const db = withSchema(freshDb());
+    // Seed: two graph_entity rows + a graph_relation linking them.
+    db.run(
+      `INSERT INTO graph_entity (id, type, external_id, label, service)
+       VALUES ('e1', 'pr', 'r/x#1', 'PR x', 'github'),
+              ('e2', 'person', 'alice', 'Alice', 'github')`,
+    );
+    db.run(
+      `INSERT INTO graph_relation (from_id, to_id, type, weight, created_at)
+       VALUES ('e2', 'e1', 'reviewed', 1.0, 0)`,
+    );
+    expect(detectMissingRelationEmit(db, "reviewed")).toBeNull();
   });
 });
 
