@@ -29,21 +29,28 @@ describe("runImpact", () => {
 
   test("aggregates near-duplicate missing-entity gaps into one combined note", async () => {
     const db = freshDb();
-    // Seed one item so detectEmptyIndex passes through; sub-agents will then
-    // run and emit per-entity-type gaps that aggregateMissingEntityTypes folds together.
+    // Seed one item so detectEmptyIndex passes.
     db.run(
       "INSERT INTO item (id, service, type, external_id, title, body_preview, modified_at, synced_at, pinned) VALUES " +
         "('seed', 'github', 'pr', 'acme/x#1', 't', '', 0, 0, 0)",
+    );
+    // Seed a `symbol` graph_entity so resolveStartEntity returns non-null and
+    // sub-agents reach their SQL bodies (instead of early-returning on null start).
+    // subPipelines will emit detectMissingEntityType(db, "pipeline_run") gap;
+    // subDashboards will emit detectMissingEntityType(db, "dashboard") gap.
+    // Two missing_entity_type gaps → aggregateMissingEntityTypes folds them into one.
+    db.run(
+      "INSERT INTO graph_entity (id, type, external_id, label, service, metadata) VALUES " +
+        "('graph:symbol:test', 'symbol', 'item:filesystem:src/x.ts', 'src/x.ts', 'filesystem', '{}')",
     );
     const brief = await runImpact(
       { fileOrPrUrl: "src/x.ts" },
       { db, sessionId: "t-2", notify: () => {} },
     );
+    // Two missing_entity_type gaps fire (pipeline_run + dashboard); aggregator
+    // collapses them into exactly one combined note.
     const missingEntityGaps = brief.gaps.filter((g) => g.category === "missing_entity_type");
-    // The aggregator collapses 2+ near-duplicates into one combined note.
-    expect(missingEntityGaps.length).toBeLessThanOrEqual(1);
-    if (missingEntityGaps.length === 1) {
-      expect(missingEntityGaps[0]?.detail).toMatch(/categories blocked|graph entities/);
-    }
+    expect(missingEntityGaps.length).toBe(1);
+    expect(missingEntityGaps[0]?.detail).toMatch(/categories blocked/);
   });
 });

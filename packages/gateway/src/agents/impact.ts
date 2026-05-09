@@ -148,13 +148,31 @@ export async function emitImpactBrief(
 // All SQL uses the real schema (item, graph_entity, graph_relation, person).
 // ============================================================================
 
-const PR_URL_RE = /^https?:\/\/[^/]+\/([^/]+)\/([^/]+)\/pull\/(\d+)/i;
+// Maps well-known PR-hosting hostnames to the Nimbus service id used as the
+// prefix in graph_entity.external_id (e.g. "github:acme/payment#501").
+const HOST_TO_SERVICE: Readonly<Record<string, string>> = Object.freeze({
+  "github.com": "github",
+  "gitlab.com": "gitlab",
+  "bitbucket.org": "bitbucket",
+});
+
+// Group 1 = hostname, 2 = owner, 3 = repo, 4 = PR number.
+const PR_URL_RE = /^https?:\/\/([^/]+)\/([^/]+)\/([^/]+)\/pull\/(\d+)/i;
 
 function resolveStartEntity(db: Database, fileOrPrUrl: string): ResolvedStart | null {
-  // Branch 1 — PR URL ⇒ graph_entity{type='pr', external_id=<owner/repo#N>}.
+  // Branch 1 — PR URL ⇒ graph_entity{type='pr', external_id=<service:owner/repo#N>}.
+  // graph-populator.ts:44 writes externalId: row.id where row.id comes from
+  // itemPrimaryKey(service, externalId), so the stored external_id is always
+  // service-prefixed (e.g. "github:acme/payment#501").
   const m = fileOrPrUrl.match(PR_URL_RE);
   if (m !== null) {
-    const externalId = `${m[1]}/${m[2]}#${m[3]}`;
+    // m[1..4] are guaranteed by PR_URL_RE's four capture groups.
+    const [, rawHost, owner, repo, prNum] = m as [string, string, string, string, string];
+    const host = rawHost.toLowerCase();
+    // Fallback for self-hosted instances (e.g. "gitlab.example.com" → "gitlab").
+    const hostFirstSegment = host.split(".").at(0) ?? host;
+    const service = HOST_TO_SERVICE[host] ?? hostFirstSegment;
+    const externalId = `${service}:${owner}/${repo}#${prNum}`;
     const row = db
       .query("SELECT id FROM graph_entity WHERE type = 'pr' AND external_id = ? LIMIT 1")
       .get(externalId) as { id?: string } | null;
@@ -162,7 +180,10 @@ function resolveStartEntity(db: Database, fileOrPrUrl: string): ResolvedStart | 
       return {
         entityId: row.id,
         entityType: "pr",
-        repoIds: repoIdsForRepoLabel(db, `${m[1]}/${m[2]}`),
+        // repo label in graph_entity is the unprefixed "owner/repo" value
+        // (graph-populator.ts:57: label: repoFull), so repoIdsForRepoLabel
+        // correctly receives the unprefixed form.
+        repoIds: repoIdsForRepoLabel(db, `${owner}/${repo}`),
       };
     }
   }
@@ -269,7 +290,14 @@ async function subPipelines(
   _input: ImpactInput,
   start: ResolvedStart | null,
 ): Promise<SubAgentResult> {
-  if (start === null) return {};
+  if (start === null) {
+    return {
+      gap: {
+        category: "missing_relation_emit",
+        detail: "Cannot traverse `triggers`: start entity did not resolve.",
+      },
+    };
+  }
 
   // `triggers` originates from repo entities in the populator (graph-populator.ts
   // does not emit triggers from `pr` or `symbol`). So when the start is a PR,
@@ -324,7 +352,14 @@ async function subOncall(
   // service → belongs_to → oncall_rotation.
   const gap = detectMissingConnector(db, "pagerduty");
   if (gap !== null) return { gap };
-  if (start === null) return {};
+  if (start === null) {
+    return {
+      gap: {
+        category: "missing_relation_emit",
+        detail: "Cannot traverse `belongs_to`: start entity did not resolve.",
+      },
+    };
+  }
 
   const rows = db
     .query(
@@ -395,7 +430,17 @@ async function subDownstreamRepos(
 ): Promise<SubAgentResult> {
   // Repos a PR / commit touches — direct service-level finding when the start
   // is itself a `pr` entity with a known repo. No graph traversal needed.
-  if (start === null || start.repoIds.length === 0) return {};
+  if (start === null) {
+    return {
+      gap: {
+        category: "missing_relation_emit",
+        detail: "Cannot resolve downstream repos: start entity did not resolve.",
+      },
+    };
+  }
+  // A non-null start with no repoIds means the input is a file/topic, not a PR
+  // — downstream-repo traversal is only meaningful for PRs. Silently skip.
+  if (start.repoIds.length === 0) return {};
   const placeholders = start.repoIds.map(() => "?").join(",");
   const rows = db
     .query(
