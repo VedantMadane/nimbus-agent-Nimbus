@@ -29,6 +29,7 @@
 | F9 | IPC dispatcher wiring described vaguely as "follow the existing pattern". | Concrete `tryDispatchAgentsRpc(ctx, method, params)` function mirroring `tryDispatchLlmRpc` in `packages/gateway/src/ipc/server/dispatchers.ts`, chained from `tryDispatchPhase4Rpc`; DB accessed via `ctx.options.localIndex.getDatabase()`. |
 | F10 | Dead `__testing.bucketConfidence` export with no test. | Removed; `bucketConfidence` is exercised through `rankExpertFindings` already. |
 | F11 | `sync_state.service` referenced in `detectMissingConnector` SQL + the Phase 2.2 test fixture. | The column is `connector_id` (PK of `sync_state`); per `packages/gateway/src/index/schema-sql.ts` the connector id IS the service id throughout `local-index.ts`. SQL + test fixture corrected. |
+| F12 | Phase 3 ranker test "low confidence" expected `"low"` on a single 0.05-weight stream — but `rankExpertFindings` normalises score to `total/max`, so a single stream always hits score=1 → "medium". | Test now uses two streams: a 5-row weight-1 winner + a 1-row weight-0.05 second. The second's normalised score `0.01` correctly buckets to "low". |
 
 **Deferred (with reason):**
 
@@ -1252,11 +1253,30 @@ describe("rankExpertFindings", () => {
     );
     expect(high[0]?.confidence).toBe("high");
 
-    const low = rankExpertFindings(
-      [{ personId: "b", displayName: "B", evidence: [{ weight: 0.05, modifiedAt: 0, type: "pr_authored", serviceId: "github", title: "t", itemId: "i" }] }],
+    // F12 — score is normalised relative to the top finding (score = total/max),
+    // so the "low" bucket only fires when there's a higher-weight competitor in
+    // the same call. With a single 0.05-weight stream max==total → score=1 →
+    // bucketConfidence returns "medium". Need at least one bigger-weight stream.
+    const ranked = rankExpertFindings(
+      [
+        {
+          personId: "a",
+          displayName: "A",
+          evidence: Array.from({ length: 5 }, () => ({
+            weight: 1.0, modifiedAt: 0, type: "pr_authored" as const, serviceId: "github", title: "t", itemId: "i",
+          })),
+        },
+        {
+          personId: "b",
+          displayName: "B",
+          evidence: [{ weight: 0.05, modifiedAt: 0, type: "pr_authored", serviceId: "github", title: "t", itemId: "i" }],
+        },
+      ],
       5,
     );
-    expect(low[0]?.confidence).toBe("low");
+    // a is first (total=5), b is second with normalised score 0.05/5 = 0.01 → "low".
+    expect(ranked[0]?.personId).toBe("a");
+    expect(ranked[1]?.confidence).toBe("low");
   });
 });
 ```
