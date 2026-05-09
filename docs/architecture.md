@@ -971,7 +971,7 @@ These subsystems are active development in Phase 5 (The Extended Surface). They 
 
 `packages/gateway/src/agents/_lib/` holds the shared types (`ExpertBrief`, `Evidence`, `GapNote`), gap-note detectors, deterministic Markdown renderer, and LLM synthesis layer used across all built-in agents. The renderer is the deterministic fallback — when no LLM is available, the agent ships a structured Markdown brief without falling back to "no answer".
 
-The `agents.expert` JSON-RPC method is exposed via `packages/gateway/src/ipc/agents-rpc.ts` and reachable from the renderer (added to the Tauri `ALLOWED_METHODS` allowlist, count 58).
+The `agents.expert` JSON-RPC method is exposed via `packages/gateway/src/ipc/agents-rpc.ts` and reachable from the renderer (added to the Tauri `ALLOWED_METHODS` allowlist, count 59).
 
 ---
 
