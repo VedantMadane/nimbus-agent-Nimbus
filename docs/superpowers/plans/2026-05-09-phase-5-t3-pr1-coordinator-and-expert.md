@@ -32,6 +32,7 @@
 | F12 | Phase 3 ranker test "low confidence" expected `"low"` on a single 0.05-weight stream — but `rankExpertFindings` normalises score to `total/max`, so a single stream always hits score=1 → "medium". | Test now uses two streams: a 5-row weight-1 winner + a 1-row weight-0.05 second. The second's normalised score `0.01` correctly buckets to "low". |
 | F13 | First ranker test missing `as const` on `Evidence.type` literal → TS2345 (string not assignable to union). | All three evidence literals in the first test now use `as const` matching the second/third tests. |
 | F14 | Six places in `expert.ts` returned `{ stream: undefined }` — `exactOptionalPropertyTypes: true` rejects explicit `undefined` for optional properties (TS2375). | All six replaced with `{}` — same runtime behaviour, satisfies the `{ stream?: ExpertEvidenceStream; gap?: GapNote }` contract. |
+| F15 | CLI's `expert.ts` called `client.close()` — same class of typo as F6 (`client.on`). Real API is `client.disconnect()` (matches the sibling `ask.ts` pattern). | Plan now uses `client.disconnect()`. |
 
 **Deferred (with reason):**
 
@@ -2219,7 +2220,7 @@ export async function runExpertCli(args: string[]): Promise<void> {
     process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(2);
   } finally {
-    await client.close();
+    await client.disconnect();
   }
 }
 ```
