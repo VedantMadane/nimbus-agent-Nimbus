@@ -158,16 +158,38 @@ describe("renderImpact", () => {
           hops: 2,
           pathSummary: "service → belongs_to → oncall_rotation",
         },
+        {
+          category: "dashboard",
+          affectedItemId: "metabase:dashboard/17",
+          affectedTitle: "Payment health dashboard",
+          serviceId: "metabase",
+          hops: 2,
+          pathSummary: "data_model → upstream_refs → dashboard",
+        },
+        {
+          category: "downstream_repo",
+          affectedItemId: "graph:repo#payment-cli",
+          affectedTitle: "payment-cli",
+          serviceId: "github",
+          hops: 1,
+          pathSummary: "code_symbol → defined_in → repo",
+        },
       ],
     };
     const md = renderImpact(brief);
     expect(md).toContain("# Impact: src/billing/retry.ts");
-    expect(md).toContain("## Services");
-    expect(md).toContain("payment-service");
-    expect(md).toContain("## Pipelines");
-    expect(md).toContain("payment CI run #42");
-    expect(md).toContain("## Oncall");
-    expect(md).toContain("Payment oncall");
+    // Verify headings with blank lines preserved
+    expect(md).toContain("## Services\n\n- **payment-service**");
+    expect(md).toContain("## Pipelines\n\n- **payment CI run");
+    expect(md).toContain("## Oncall\n\n- **Payment oncall**");
+    // Coverage for all five buckets
+    expect(md).toContain("## Dashboards");
+    expect(md).toContain("Payment health dashboard");
+    expect(md).toContain("## Downstream Repos");
+    expect(md).toContain("payment-cli");
+    // Lock singular/plural hop rendering
+    expect(md).toContain("1 hop)");
+    expect(md).toContain("2 hops)");
     expect(md).not.toContain("## Gaps");
     expect(md).toContain("_generated in 2.4 s_");
   });

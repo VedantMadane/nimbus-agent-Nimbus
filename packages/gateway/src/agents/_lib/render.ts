@@ -73,10 +73,8 @@ export function renderImpact(brief: ImpactBrief): string {
     for (const cat of IMPACT_BUCKET_ORDER) {
       const rows = brief.affected.filter((a) => a.category === cat);
       if (rows.length === 0) continue;
-      sections.push(IMPACT_BUCKET_HEADINGS[cat]);
-      sections.push("");
-      sections.push(...rows.map(renderImpactFinding));
-      sections.push("");
+      const block = [IMPACT_BUCKET_HEADINGS[cat], "", ...rows.map(renderImpactFinding)].join("\n");
+      sections.push(block);
     }
   }
   const gaps = renderGaps(brief.gaps);
