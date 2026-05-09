@@ -1,6 +1,6 @@
 import { wrapToolOutput } from "../../engine/tool-output-envelope.ts";
-import type { AgentBrief } from "./findings.ts";
-import { renderCatchup, renderExpert, renderImpact } from "./render.ts";
+import type { ExpertBrief } from "./findings.ts";
+import { renderExpert } from "./render.ts";
 
 export type SynthesizerLlm = {
   generateMarkdown: (prompt: string) => Promise<string | null>;
@@ -21,23 +21,13 @@ const SYNTHESIS_INSTRUCTIONS = [
   "- Output Markdown only — no preamble, no code fences around the whole answer.",
 ].join("\n");
 
-function fallbackRender(brief: AgentBrief): string {
-  switch (brief.kind) {
-    case "expert":
-      return renderExpert(brief);
-    case "impact":
-      return renderImpact(brief);
-    case "catchup":
-      return renderCatchup(brief);
-  }
-}
-
-export async function synthesize(brief: AgentBrief, opts: SynthesizeOpts = {}): Promise<string> {
-  const deterministic = fallbackRender(brief);
+// PR 2 / PR 3 widen this to ImpactBrief / CatchupBrief as their renderers land.
+export async function synthesize(brief: ExpertBrief, opts: SynthesizeOpts = {}): Promise<string> {
+  const deterministic = renderExpert(brief);
   if (opts.llm === undefined) return deterministic;
 
   // Invariant I11: any structured payload reaching the LLM is wrapped.
-  const wrapped = wrapToolOutput({ service: "nimbus", tool: `agents.${brief.kind}` }, brief);
+  const wrapped = wrapToolOutput({ service: "nimbus", tool: "agents.expert" }, brief);
   const prompt = [
     SYNTHESIS_INSTRUCTIONS,
     "",

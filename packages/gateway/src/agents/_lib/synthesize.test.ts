@@ -38,9 +38,9 @@ describe("synthesize", () => {
     };
     const md = await synthesize(FIXTURE, { llm });
     expect(md).toBe("# LLM-rewritten Markdown");
-    expect(seenPrompt[0]).toContain("<tool_output");
-    expect(seenPrompt[0]).toContain("</tool_output>");
-    expect(seenPrompt[0]).toContain('"kind":"expert"');
+    expect(seenPrompt[0]).toMatch(
+      /<tool_output service="nimbus" tool="agents\.expert">[^<]*"kind":"expert"[^<]*<\/tool_output>/,
+    );
   });
 
   test("on LLM throw, falls back to deterministic render and does not propagate", async () => {
