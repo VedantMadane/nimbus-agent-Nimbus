@@ -135,11 +135,18 @@ jobs:
           UPDATER_SIGNING_KEY: ${{ secrets.UPDATER_SIGNING_KEY }}
         run: bun scripts/sign-ed25519.ts dist/${{ matrix.target.artifact }}${{ matrix.target.ext }}
 
+      # Glob to include the binary plus the sidecar files produced by the
+      # signing steps above:
+      #   - <bin>.sha256 + <bin>.sig from sign-ed25519.ts (every platform)
+      #   - <bin>.asc from sign-linux-gpg.sh (Linux only)
+      # The update-manifest job downloads this artifact and reads <bin>.sha256
+      # + <bin>.sig per target — without the sidecars, build-update-manifest.ts
+      # fails with ENOENT and the v0.1.0 latest.json was never produced.
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ${{ matrix.target.artifact }}
-          path: dist/${{ matrix.target.artifact }}${{ matrix.target.ext }}
+          path: dist/${{ matrix.target.artifact }}${{ matrix.target.ext }}*
           if-no-files-found: error
           retention-days: 30
 
