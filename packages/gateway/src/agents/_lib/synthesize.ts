@@ -1,6 +1,6 @@
 import { wrapToolOutput } from "../../engine/tool-output-envelope.ts";
-import type { ExpertBrief } from "./findings.ts";
-import { renderExpert } from "./render.ts";
+import type { ExpertBrief, ImpactBrief } from "./findings.ts";
+import { renderExpert, renderImpact } from "./render.ts";
 
 export type SynthesizerLlm = {
   generateMarkdown: (prompt: string) => Promise<string | null>;
@@ -21,13 +21,24 @@ const SYNTHESIS_INSTRUCTIONS = [
   "- Output Markdown only — no preamble, no code fences around the whole answer.",
 ].join("\n");
 
-// PR 2 / PR 3 widen this to ImpactBrief / CatchupBrief as their renderers land.
-export async function synthesize(brief: ExpertBrief, opts: SynthesizeOpts = {}): Promise<string> {
-  const deterministic = renderExpert(brief);
+type SynthInput = ExpertBrief | ImpactBrief;
+
+function deterministicRender(brief: SynthInput): string {
+  if (brief.kind === "expert") return renderExpert(brief);
+  return renderImpact(brief);
+}
+
+function toolNameFor(brief: SynthInput): string {
+  return brief.kind === "expert" ? "agents.expert" : "agents.impact";
+}
+
+// PR 3 widens this further to accept CatchupBrief once renderCatchup lands.
+export async function synthesize(brief: SynthInput, opts: SynthesizeOpts = {}): Promise<string> {
+  const deterministic = deterministicRender(brief);
   if (opts.llm === undefined) return deterministic;
 
   // Invariant I11: any structured payload reaching the LLM is wrapped.
-  const wrapped = wrapToolOutput({ service: "nimbus", tool: "agents.expert" }, brief);
+  const wrapped = wrapToolOutput({ service: "nimbus", tool: toolNameFor(brief) }, brief);
   const prompt = [
     SYNTHESIS_INSTRUCTIONS,
     "",
