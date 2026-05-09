@@ -18,6 +18,8 @@ Usage:
   nimbus search <q> …       Ranked index search (FTS + optional semantic)
   nimbus ask <query>        Natural language (exits early if no connectors registered; needs LLM keys on gateway)
   nimbus expert <topic>     Rank team members with the most context on a topic or file
+  nimbus impact <file-or-PR-url>   Reverse-dependency blast radius across services / pipelines / dashboards
+                                   (--depth is accepted but reserved for future recursive traversal)
   nimbus vault set <k> <v>  Store a secret
   nimbus vault get <k>      Read a secret (prompts first)
   nimbus vault delete <k>    Remove a secret
