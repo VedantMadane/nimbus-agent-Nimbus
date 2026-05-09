@@ -108,11 +108,12 @@ runs. See `docs/structure-audit/baseline.md` for current findings.
 | `packages/gateway/src/engine/coordinator.ts` | `AgentCoordinator` — multi-agent sub-task orchestration, depth + tool-call guards; `executeAll` runs sub-tasks in parallel (Phase 5 T3 PR 1) |
 | `packages/gateway/src/engine/sub-agent.ts` | `runSubAgent` — single sub-task executor with `sub_task_results` DB lifecycle |
 | `packages/gateway/src/agents/expert.ts` | First built-in agent — `nimbus expert <topic-or-file>`; parallel sub-agents over indexed PR authorship + review history + incident involvement; emits `agents.expert.briefReady` notification |
+| `packages/gateway/src/agents/impact.ts` | Second built-in agent — `nimbus impact <file-or-PR-url>`; reverse-dependency blast radius across services / pipelines / dashboards / oncall; 5 parallel sub-agents over the relationship graph; emits `agents.impact.briefReady` notification |
 | `packages/gateway/src/agents/_lib/findings.ts` | `ExpertBrief` / `ExpertFinding` / `Evidence` types + ranking helpers shared across built-in agents |
 | `packages/gateway/src/agents/_lib/gap-notes.ts` | Gap-note detectors (empty index, missing connector, missing entity type, missing relation emit) used by built-in agents |
-| `packages/gateway/src/agents/_lib/render.ts` | Deterministic Markdown renderer for `ExpertBrief` (used as fallback when LLM synthesis is unavailable) |
+| `packages/gateway/src/agents/_lib/render.ts` | Deterministic Markdown renderer for `ExpertBrief` and `ImpactBrief` (used as fallback when LLM synthesis is unavailable) |
 | `packages/gateway/src/agents/_lib/synthesize.ts` | LLM synthesis layer for built-in agents; falls back to deterministic renderer when no LLM is available |
-| `packages/gateway/src/ipc/agents-rpc.ts` | `dispatchAgentsRpc` — `agents.expert` JSON-RPC handler; rejects array payloads; emits `agents.expert.briefReady` |
+| `packages/gateway/src/ipc/agents-rpc.ts` | `dispatchAgentsRpc` — `agents.expert` + `agents.impact` JSON-RPC handlers; rejects array payloads; emits `agents.expert.briefReady` and `agents.impact.briefReady` |
 | `packages/gateway/src/index/llm-models-v16-sql.ts` | V16 migration SQL — `llm_models` table + `sync_state.context_window_tokens` |
 | `packages/gateway/src/index/sub-task-results-v17-sql.ts` | V17 migration SQL — `sub_task_results` table for multi-agent persistence |
 | `packages/gateway/src/ipc/http-server.ts` | Read-only local HTTP API (`localhost` only, `SQLITE_OPEN_READONLY` connection) |
@@ -138,6 +139,7 @@ runs. See `docs/structure-audit/baseline.md` for current findings.
 | `packages/cli/src/commands/doctor.ts` | `nimbus doctor` — environment health checks, actionable remediation output |
 | `packages/cli/src/commands/telemetry.ts` | `nimbus telemetry show/disable` |
 | `packages/cli/src/commands/expert.ts` | `nimbus expert <topic-or-file>` — calls `agents.expert` IPC, streams Markdown brief to stdout (respects `NO_COLOR`) |
+| `packages/cli/src/commands/impact.ts` | `nimbus impact <file-or-PR-url>` — calls `agents.impact` IPC, streams Markdown brief to stdout; supports `--json` / `--depth` (reserved) / `--service` filter |
 | `packages/cli/src/commands/tui.tsx` | `nimbus tui` entry — gateway check, fallback detection, Ink render orchestration |
 | `packages/cli/src/tui/App.tsx` | TUI root — state machine + Option-1 layout + narrow/short-terminal behavior |
 | `packages/cli/src/tui/state.ts` | Top-level state reducer: `idle` / `streaming` / `awaiting-hitl` / `disconnected` |
@@ -353,6 +355,8 @@ bun run package:installers:linux -- --version 0.1.0
 # Phase 5 T3 — Team Intelligence built-in agents
 # nimbus expert <topic-or-file>      # ranked list of team members with most context on a topic / file;
 #                                    # IPC: agents.expert; emits agents.expert.briefReady notification
+# nimbus impact <file-or-PR-url>     # reverse-dependency blast radius across services / pipelines / dashboards / oncall;
+#                                    # IPC: agents.impact; emits agents.impact.briefReady notification
 
 # Phase 4 env-var overrides (multi-agent loop guards)
 # NIMBUS_MAX_AGENT_DEPTH=3          max sub-agent recursion depth (1–10; default 3)
