@@ -28,6 +28,7 @@
 | F8 | `ExpertBrief` re-exported from `@nimbus-dev/sdk` (via `../../gateway/src/...`). | Forbidden by Non-Negotiable: `sdk ← no imports from gateway, cli, or ui`. The CLI now declares the slim type it needs locally in `packages/cli/src/types/agents.ts`; SDK is untouched. |
 | F9 | IPC dispatcher wiring described vaguely as "follow the existing pattern". | Concrete `tryDispatchAgentsRpc(ctx, method, params)` function mirroring `tryDispatchLlmRpc` in `packages/gateway/src/ipc/server/dispatchers.ts`, chained from `tryDispatchPhase4Rpc`; DB accessed via `ctx.options.localIndex.getDatabase()`. |
 | F10 | Dead `__testing.bucketConfidence` export with no test. | Removed; `bucketConfidence` is exercised through `rankExpertFindings` already. |
+| F11 | `sync_state.service` referenced in `detectMissingConnector` SQL + the Phase 2.2 test fixture. | The column is `connector_id` (PK of `sync_state`); per `packages/gateway/src/index/schema-sql.ts` the connector id IS the service id throughout `local-index.ts`. SQL + test fixture corrected. |
 
 **Deferred (with reason):**
 
@@ -638,9 +639,11 @@ describe("detectMissingConnector", () => {
 
   test("returns null when the service is registered", () => {
     const db = withSchema(freshDb());
-    // sync_state column shape comes from the real migration — verify by reading
-    // the SELECT used in detectMissingConnector and matching its WHERE.
-    db.run("INSERT INTO sync_state (service) VALUES ('pagerduty')");
+    // F11 — sync_state's PK is connector_id (not `service`); see
+    // packages/gateway/src/index/schema-sql.ts. local-index.ts passes the
+    // serviceId as connector_id throughout, so the column doubles as the
+    // service identifier.
+    db.run("INSERT INTO sync_state (connector_id) VALUES ('pagerduty')");
     expect(detectMissingConnector(db, "pagerduty")).toBeNull();
   });
 });
@@ -725,8 +728,12 @@ export function detectEmptyIndex(db: Database): GapNote | null {
 }
 
 export function detectMissingConnector(db: Database, service: string): GapNote | null {
+  // sync_state's PK column is `connector_id`, not `service` — see
+  // packages/gateway/src/index/schema-sql.ts. The connector id IS the
+  // service id throughout local-index.ts, so a single column does double
+  // duty here.
   const row = db
-    .query("SELECT 1 AS n FROM sync_state WHERE service = ? LIMIT 1")
+    .query("SELECT 1 AS n FROM sync_state WHERE connector_id = ? LIMIT 1")
     .get(service) as { n?: number } | null;
   if (row !== null) return null;
   return {
