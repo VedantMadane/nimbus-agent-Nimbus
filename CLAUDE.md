@@ -7,7 +7,7 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict
 **Linter:** Biome
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)
-**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence ✅ Complete (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C ✅ · WS5-D ✅ · WS6 ✅ · S2 graph-aware watchers ✅ · B3 Phase 1 ✅ · B3 Phase 2 ✅); **Phase 5** — Extended Surface 🔵 Active (T1 sequencing spec ✅ · T3 Team Intelligence next)
+**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence ✅ Complete (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C ✅ · WS5-D ✅ · WS6 ✅ · S2 graph-aware watchers ✅ · B3 Phase 1 ✅ · B3 Phase 2 ✅); **`v0.1.0` released 2026-05-09** (headless Gateway + CLI + VS Code extension; `desktop-v0.1.0` Tauri release deferred to Phase 6); **Phase 5** — Extended Surface 🔵 Active (T1 sequencing spec ✅ · T3 PR 1 coordinator parallelism + `nimbus expert` ✅ · T3 PRs 2+ next)
 
 **Gemini CLI:** [`GEMINI.md`](./GEMINI.md) mirrors this file for the same repository — update both when changing commands, roadmap rows, or non-negotiables.
 
@@ -105,8 +105,14 @@ runs. See `docs/structure-audit/baseline.md` for current findings.
 | `packages/gateway/src/voice/service.ts` | `VoiceService` — STT (`whisper-cli`), TTS, wake-word loop |
 | `packages/gateway/src/voice/tts.ts` | `NativeTtsProvider` — `say` (macOS), PowerShell SAPI (Windows), `espeak-ng`/`spd-say` (Linux) |
 | `packages/gateway/src/ipc/voice-rpc.ts` | `dispatchVoiceRpc` — `voice.*` IPC handlers |
-| `packages/gateway/src/engine/coordinator.ts` | `AgentCoordinator` — multi-agent sub-task orchestration, depth + tool-call guards |
+| `packages/gateway/src/engine/coordinator.ts` | `AgentCoordinator` — multi-agent sub-task orchestration, depth + tool-call guards; `executeAll` runs sub-tasks in parallel (Phase 5 T3 PR 1) |
 | `packages/gateway/src/engine/sub-agent.ts` | `runSubAgent` — single sub-task executor with `sub_task_results` DB lifecycle |
+| `packages/gateway/src/agents/expert.ts` | First built-in agent — `nimbus expert <topic-or-file>`; parallel sub-agents over indexed PR authorship + review history + incident involvement; emits `agents.expert.briefReady` notification |
+| `packages/gateway/src/agents/_lib/findings.ts` | `ExpertBrief` / `ExpertFinding` / `Evidence` types + ranking helpers shared across built-in agents |
+| `packages/gateway/src/agents/_lib/gap-notes.ts` | Gap-note detectors (empty index, missing connector, missing entity type, missing relation emit) used by built-in agents |
+| `packages/gateway/src/agents/_lib/render.ts` | Deterministic Markdown renderer for `ExpertBrief` (used as fallback when LLM synthesis is unavailable) |
+| `packages/gateway/src/agents/_lib/synthesize.ts` | LLM synthesis layer for built-in agents; falls back to deterministic renderer when no LLM is available |
+| `packages/gateway/src/ipc/agents-rpc.ts` | `dispatchAgentsRpc` — `agents.expert` JSON-RPC handler; rejects array payloads; emits `agents.expert.briefReady` |
 | `packages/gateway/src/index/llm-models-v16-sql.ts` | V16 migration SQL — `llm_models` table + `sync_state.context_window_tokens` |
 | `packages/gateway/src/index/sub-task-results-v17-sql.ts` | V17 migration SQL — `sub_task_results` table for multi-agent persistence |
 | `packages/gateway/src/ipc/http-server.ts` | Read-only local HTTP API (`localhost` only, `SQLITE_OPEN_READONLY` connection) |
@@ -131,11 +137,13 @@ runs. See `docs/structure-audit/baseline.md` for current findings.
 | `packages/cli/src/commands/diag.ts` | `nimbus diag` — full diagnostic snapshot; `slow-queries` subcommand |
 | `packages/cli/src/commands/doctor.ts` | `nimbus doctor` — environment health checks, actionable remediation output |
 | `packages/cli/src/commands/telemetry.ts` | `nimbus telemetry show/disable` |
+| `packages/cli/src/commands/expert.ts` | `nimbus expert <topic-or-file>` — calls `agents.expert` IPC, streams Markdown brief to stdout (respects `NO_COLOR`) |
 | `packages/cli/src/commands/tui.tsx` | `nimbus tui` entry — gateway check, fallback detection, Ink render orchestration |
 | `packages/cli/src/tui/App.tsx` | TUI root — state machine + Option-1 layout + narrow/short-terminal behavior |
 | `packages/cli/src/tui/state.ts` | Top-level state reducer: `idle` / `streaming` / `awaiting-hitl` / `disconnected` |
 | `packages/sdk/src/index.ts` | `@nimbus-dev/sdk` public API |
 | `packages/client/src/index.ts` | `@nimbus-dev/client` public API — `NimbusClient`, `MockClient` |
+| `packages/vscode-extension/` | `nimbus-vscode` (displayName "Nimbus Agent") — VS Code extension; published to Marketplace + Open VSX; current tag `vscode-v0.1.2` |
 | `packages/ui/src/ipc/client.ts` | `NimbusIpcClient` singleton, `createIpcClient()`, `parseError()` — includes credential redaction (5 forbidden keys) |
 | `packages/ui/src/ipc/types.ts` | Shared IPC types — `ConnectionState`, `DiagSnapshot`, `ConnectorSummary`, `ProfileListResult`, `TelemetryStatus`, `RouterDecision`/`RouterStatusResult`, `LlmModelInfo`/`LlmListModelsResult`, `LlmAvailabilityResult`, `LlmPullStartedResult`/`LlmPullProgressPayload`/`LlmPullTerminalPayload`, error types |
 | `packages/ui/src/store/index.ts` | `useNimbusStore` — Zustand v5 store with `persist` middleware; 11 slices composed; `partialize` whitelist excludes secrets |
@@ -181,7 +189,7 @@ runs. See `docs/structure-audit/baseline.md` for current findings.
 | `packages/ui/src-tauri/src/hitl_popup.rs` | HITL popup window lifecycle — spawn / focus / close |
 | `packages/ui/src-tauri/src/lib.rs` | Tauri app entry — plugins, tray init, global shortcut, macOS accessory mode |
 | `packages/ui/src-tauri/capabilities/default.json` | Tauri capability set — windows, permissions |
-| `docs/release/manual-smoke-v0.1.0.md` | Consolidated pre-`v0.1.0` manual smoke checklist (WS5-A / WS5-B / WS5-C / WS5-D / WS6 / WS7); per-platform results matrix |
+| `docs/release/manual-smoke-headless.md` | Reusable manual smoke checklist for headless Gateway + CLI + VS Code releases; per-platform results matrix; companion Windows run sheet at `manual-smoke-headless-windows.md` |
 | `packages/ui/src/pages/settings/DataPanel.tsx` | Data panel — Export/Import/Delete wizard launcher with preflight stats |
 | `packages/ui/src/components/settings/data/ExportWizard.tsx` | Export wizard — passphrase gate, zxcvbn, overwrite confirm, progress, seed display |
 | `packages/ui/src/components/settings/data/ImportWizard.tsx` | Import wizard — passphrase + recovery-seed auth, version-compat error handling |
@@ -341,6 +349,10 @@ bun run package:installers:linux -- --version 0.1.0
 # nimbus lan grant-write <peer-id>   # allow peer to call write/HITL methods
 # nimbus lan revoke-write <peer-id>  # remove write grant
 # nimbus lan remove-peer <peer-id>   # unpair a peer
+
+# Phase 5 T3 — Team Intelligence built-in agents
+# nimbus expert <topic-or-file>      # ranked list of team members with most context on a topic / file;
+#                                    # IPC: agents.expert; emits agents.expert.briefReady notification
 
 # Phase 4 env-var overrides (multi-agent loop guards)
 # NIMBUS_MAX_AGENT_DEPTH=3          max sub-agent recursion depth (1–10; default 3)

@@ -2,7 +2,7 @@
 
 Run this end-to-end on **every supported platform** before pushing the future `desktop-v0.1.0` release tag. Anything blocking is a release-stopper for the desktop tag — it does **not** gate the headless `v0.1.0` tag.
 
-This consolidates the three Tauri-only per-workstream checklists (WS5-A app shell + onboarding, WS5-B dashboard + tray + HITL, WS5-C / WS5-D settings panels). It was extracted from `docs/release/manual-smoke-v0.1.0.md` when the desktop release vehicle was moved out of `v0.1.0` and into Phase 6 (Team) — see [`docs/roadmap.md` § Phase 6](../roadmap.md#phase-6--team).
+This consolidates the three Tauri-only per-workstream checklists (WS5-A app shell + onboarding, WS5-B dashboard + tray + HITL, WS5-C / WS5-D settings panels). It was extracted from [`docs/release/manual-smoke-headless.md`](./manual-smoke-headless.md) when the desktop release vehicle was moved out of `v0.1.0` and into Phase 6 (Team) — see [`docs/roadmap.md` § Phase 6](../roadmap.md#phase-6--team).
 
 ## Release vehicle
 

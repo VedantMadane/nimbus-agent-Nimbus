@@ -191,6 +191,35 @@ nimbus sync google_drive
 
 ---
 
+## Team Intelligence
+
+Built-in agents that answer team-level questions from the local relationship graph and indexed metadata. Each agent is read-only, never triggers HITL, and streams a Markdown brief to stdout.
+
+### `nimbus expert`
+
+Answer "who on my team has the most context on this?" — returns a ranked list of people drawn from indexed PR authorship, review participation, Slack thread activity, and Linear/Jira ticket assignments. Each ranking comes with a confidence score and the underlying evidence.
+
+```bash
+nimbus expert src/billing/retry.ts
+nimbus expert "payment retry logic"
+nimbus expert --json src/billing/retry.ts
+```
+
+**Options:**
+
+| Flag | Description |
+|---|---|
+| `--limit <n>` | Maximum number of ranked people to return (default: 5) |
+| `--json` | Machine-readable JSON output (otherwise Markdown) |
+
+**Output (Markdown):** ranked list of contributors, each with their evidence (e.g. *"authored 4 of the last 6 PRs touching this file, resolved 2 incidents tagged `payment-retry`"*) and any **gap notes** if the local index lacks the connectors or relations needed for a confident answer (e.g. "no GitHub connector authenticated", "no review history for this file").
+
+**Read-only:** never triggers HITL, never makes a live API call — answered entirely from the local index.
+
+> **More built-in agents land in Phase 5 T3:** `nimbus catchup --since <duration>` (personalized retrospective digest) and `nimbus impact <file-or-PR-url>` (reverse-dependency blast radius) are planned but not yet shipped — see [`docs/roadmap.md#team-intelligence`](./roadmap.md#team-intelligence).
+
+---
+
 ## Interactive Sessions
 
 ### `nimbus tui`
