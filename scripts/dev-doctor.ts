@@ -131,10 +131,7 @@ async function checkMacosXcodeCLT(): Promise<void> {
   if (p.exitCode === 0 && path && existsSync(path)) {
     log("OK", `Xcode Command Line Tools at ${path}.`);
   } else {
-    log(
-      "WARN",
-      "Xcode Command Line Tools not installed. Run `xcode-select --install`.",
-    );
+    log("WARN", "Xcode Command Line Tools not installed. Run `xcode-select --install`.");
   }
 }
 
