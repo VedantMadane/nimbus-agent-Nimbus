@@ -221,6 +221,8 @@ jobs:
         gate:
           - name: Engine
             script: "test:coverage:engine"
+          - name: Agents
+            script: "test:coverage:agents"
           - name: Vault
             script: "test:coverage:vault"
           - name: Sync scheduler

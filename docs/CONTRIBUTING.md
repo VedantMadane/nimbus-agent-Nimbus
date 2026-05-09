@@ -88,6 +88,7 @@ cd packages/ui && bunx vitest run # UI component tests
 
 # Coverage gates (enforced in CI — must pass before merge)
 bun run test:coverage:engine      # Engine ≥85%
+bun run test:coverage:agents      # Agents ≥80%
 bun run test:coverage:vault       # Vault ≥90%
 ```
 

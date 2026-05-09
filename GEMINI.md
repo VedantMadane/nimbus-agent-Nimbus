@@ -219,6 +219,7 @@ bun run test:coverage
 
 # Coverage gates (enforced in CI) — run all: bun run test:ci
 bun run test:coverage:engine       # ≥85% threshold (engine)
+bun run test:coverage:agents       # ≥80% threshold (built-in agents)
 bun run test:coverage:vault        # ≥90% threshold (vault)
 bun run test:coverage:sync         # ≥80% threshold (sync scheduler)
 bun run test:coverage:rate-limiter # ≥85% threshold (per-provider rate limiter)
