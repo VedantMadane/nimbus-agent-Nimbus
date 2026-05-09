@@ -87,9 +87,31 @@ const PACKAGE_OVERRIDES: ReadonlySet<string> = new Set([
   // LICENSE.txt"; the actual LICENSE.txt grants redistribution as part
   // of vsce-driven extension publishing. Used only by the
   // packages/vscode-extension publish step (publish-vscode.yml), not
-  // bundled into the gateway binary or shipped to end users.
+  // bundled into the gateway binary or shipped to end users. The
+  // platform-specific `@vscode/vsce-sign-<os>-<arch>` packages are
+  // installed by Bun based on the runner OS — Linux variant fires in
+  // CI, win32 variant fires on developer workstations. Both are
+  // version-pinned so a future upgrade re-triggers review.
   "@vscode/vsce-sign@2.0.9",
+  "@vscode/vsce-sign-linux-x64@2.0.6",
   "@vscode/vsce-sign-win32-x64@2.0.6",
+  // libvips C library shipped as platform-specific native binaries by
+  // sharp. The outer `sharp` and `@img/sharp-<os>-<arch>` packages
+  // declare `Apache-2.0 OR LGPL-3.0-or-later` (the OR branch passes
+  // the gate via Apache-2.0); the `@img/sharp-libvips-<os>-<arch>`
+  // packages declare LGPL-3.0-or-later only because libvips itself is
+  // LGPL. Accepting these binaries is consistent with already
+  // accepting `sharp`, which re-distributes the same libvips bytes.
+  // LGPL-3.0 dynamic-linking compliance: the gateway loads libvips
+  // through sharp's FFI bindings at runtime, satisfying LGPL §4d. Not
+  // adding LGPL-3.0-or-later to the global allowlist — keeping the
+  // exception narrow to libvips so a stray pure-LGPL dep elsewhere
+  // still trips the gate. As with vsce-sign, Bun installs only the
+  // matching platform variant per OS, so other-platform variants
+  // (darwin, win32) will need their own override rows if the security
+  // workflow's runner matrix ever expands beyond Ubuntu.
+  "@img/sharp-libvips-linux-x64@1.2.4",
+  "@img/sharp-libvips-linuxmusl-x64@1.2.4",
   // Google FlatBuffers. license field is "SEE LICENSE IN LICENSE.txt";
   // the actual LICENSE.txt is Apache-2.0. Pulled in transitively by
   // @xenova/transformers' onnxruntime-node dependency. Already covered
