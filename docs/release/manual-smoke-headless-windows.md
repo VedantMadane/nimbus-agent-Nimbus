@@ -1,10 +1,10 @@
-# Manual Smoke Run Sheet — v0.1.0 (Windows 11 / PowerShell)
+# Manual Smoke Run Sheet — Headless Release (Windows 11 / PowerShell)
 
-Companion to [`manual-smoke-v0.1.0.md`](./manual-smoke-v0.1.0.md). The checklist is platform-agnostic; this file is the concrete command sequence for executing it on **Windows 11 with PowerShell 7**.
+Companion to [`manual-smoke-headless.md`](./manual-smoke-headless.md). The checklist is platform-agnostic; this file is the concrete command sequence for executing it on **Windows 11 with PowerShell 7**. Reusable across headless point releases (`v0.1.x`, `v0.2.0`, …) — substitute the version under test wherever `v0.1.0` is referenced below.
 
 Assumes the four connectors `google_drive`, `google_gmail`, `google_photos`, and `github` are authenticated. HITL triggers in §1.3 and §2.8 use Gmail and GitHub. On a different connector mix, swap to whatever HITL-gated write tool you have available — the gating behavior is connector-agnostic.
 
-The Tauri desktop sections (1, 2, 3 of the original checklist) moved to [`manual-smoke-desktop.md`](./manual-smoke-desktop.md) and do not gate `v0.1.0`.
+The Tauri desktop sections (1, 2, 3 of the original checklist) moved to [`manual-smoke-desktop.md`](./manual-smoke-desktop.md) and gate the future `desktop-v0.1.0` tag, not the headless tags.
 
 ---
 
@@ -30,8 +30,8 @@ Get-ChildItem $logDir
 # Data panel import/export tests moved to manual-smoke-desktop.md.
 #
 # DO NOT run `nimbus data export` here today: it deadlocks waiting for HITL
-# consent because the CLI does not register a consent handler. See BUG-002
-# in v0.1.0-smoke-bugs.md.
+# consent because the CLI does not register a consent handler. (BUG-002 in
+# the v0.1.0 smoke run; verify it has been fixed in the build under test.)
 ```
 
 > **Note on `diag --json`:** the current build wraps JSON output with an ANSI banner header (`T  Nimbus`) and a `Done.` footer, which breaks `ConvertFrom-Json`. Banner-stripping idiom:
@@ -266,7 +266,7 @@ nimbus connector unpause google_photos
 
 ## Recording results
 
-Fill in the Results matrix at the bottom of [`manual-smoke-v0.1.0.md`](./manual-smoke-v0.1.0.md):
+Fill in the Results matrix at the bottom of [`manual-smoke-headless.md`](./manual-smoke-headless.md):
 
 | Platform | 1. TUI | 2. VS Code |
 |---|---|---|

@@ -11,7 +11,8 @@
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple)](https://modelcontextprotocol.io)
 [![Platforms](https://img.shields.io/badge/platforms-Windows_%7C_macOS_%7C_Linux-blue)]()
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](../LICENSE)
-[![Status: Phase 4 Complete](https://img.shields.io/badge/status-Phase_4_Complete-brightgreen)]()
+[![Release: v0.1.0](https://img.shields.io/badge/release-v0.1.0-brightgreen)](https://github.com/nimbus-agent/Nimbus/releases/tag/v0.1.0)
+[![Status: Phase 5 Active](https://img.shields.io/badge/status-Phase_5_Active-blue)]()
 
 </div>
 
@@ -174,7 +175,7 @@ See the [roadmap](./roadmap.md) for depth and remaining gaps per connector.
 
 ### What's in v0.1.0
 
-Phases 3.5 and 4 are ✅ complete. Highlights shipping in `v0.1.0`:
+`v0.1.0` shipped on **2026-05-09** as the headless Gateway + CLI + VS Code extension (the `desktop-v0.1.0` Tauri release vehicle is deferred to Phase 6 — see [§ Phase 6 → Desktop Release Vehicle in the roadmap](./roadmap.md#desktop-release-vehicle)). Phases 3.5 and 4 are ✅ complete; Phase 5 is now active. Highlights shipped in `v0.1.0`:
 
 **Observability & developer experience (Phase 3.5):**
 
@@ -203,6 +204,11 @@ Phases 3.5 and 4 are ✅ complete. Highlights shipping in `v0.1.0`:
 - **Graph-aware watcher conditions** — `[automation].graph_conditions` flag; `owned_by` / `upstream_of` / `downstream_of` predicates over the relationship graph
 
 > **Not in `v0.1.0`:** the Tauri desktop UI is code-complete in Phase 4 but its release vehicle (signed installers + auto-update) ships separately as `desktop-v0.1.0` in Phase 6. See [§ Phase 6 → Desktop Release Vehicle in the roadmap](./roadmap.md#desktop-release-vehicle).
+
+**Landed since `v0.1.0` (Phase 5 in flight):**
+
+- **`nimbus expert <topic-or-file>`** — first built-in agent: ranks team members with the most context on a file or topic from indexed PR authorship, review history, and incident involvement. Read-only, no HITL. T3 Team Intelligence PR 1 (2026-05-09).
+- **Parallel sub-agent dispatch** — `AgentCoordinator.executeAll` now runs sub-tasks concurrently rather than sequentially.
 
 See [`docs/roadmap.md`](./roadmap.md) for the full delivery list and [`docs/cli-reference.md`](./cli-reference.md) for the complete CLI command reference.
 
@@ -735,6 +741,6 @@ Commercial license for embedding Nimbus in a product without AGPL obligations, o
 
 <div align="center">
 
-**[Architecture](./architecture.md) · [Roadmap](./roadmap.md) · [Security](./SECURITY.md) · [Changelog](../CHANGELOG.md)**
+**[Architecture](./architecture.md) · [Roadmap](./roadmap.md) · [Security](./SECURITY.md) · [Releases](https://github.com/nimbus-agent/Nimbus/releases)**
 
 </div>

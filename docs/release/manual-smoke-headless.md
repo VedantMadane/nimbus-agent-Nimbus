@@ -1,8 +1,10 @@
-# Manual Smoke Checklist — v0.1.0
+# Manual Smoke Checklist — Headless Release
 
-Run this end-to-end on **every supported platform** before pushing the `vscode-v0.1.0` and `v0.1.0` release tags. Anything blocking is a release-stopper.
+Run this end-to-end on **every supported platform** before pushing a paired `v<X.Y.Z>` + `vscode-v<X.Y.Z>` release tag. Anything blocking is a release-stopper.
 
-`v0.1.0` ships only the headless gateway + CLI binaries and the VS Code extension. The Tauri desktop UI release vehicle was moved out of `v0.1.0` and into Phase 6 (Team) — its smoke checklist lives at [`manual-smoke-desktop.md`](./manual-smoke-desktop.md) and gates the future `desktop-v0.1.0` tag, not this one.
+This checklist is reusable across headless point releases (`v0.1.x`, `v0.2.0`, …). It was originally executed for `v0.1.0` (shipped 2026-05-09) and remains the gating runbook for subsequent headless tags. Companion Windows run sheet: [`manual-smoke-headless-windows.md`](./manual-smoke-headless-windows.md).
+
+The headless tags ship only the gateway + CLI binaries and the VS Code extension. The Tauri desktop UI release vehicle ships under its own tag (`desktop-v<X.Y.Z>`) — its smoke checklist lives at [`manual-smoke-desktop.md`](./manual-smoke-desktop.md) and gates the desktop tag, not the headless tags.
 
 This consolidates the WS6 (Rich TUI) checklist and the WS7 VS Code extension section.
 

@@ -2,7 +2,7 @@
 
 **Version:** 1.0
 **Runtime:** Bun v1.2+ / TypeScript 6.x (strict)
-**Status:** Phase 4 (Presence) ✅ Complete (WS1–WS6 + S2 + B2-P1 + B3-P1/2 complete)
+**Status:** Phase 4 (Presence) ✅ Complete (WS1–WS6 + S2 + B2-P1 + B3-P1/2 complete) · `v0.1.0` released 2026-05-09 (headless Gateway + CLI + VS Code extension; `desktop-v0.1.0` Tauri release vehicle deferred to Phase 6) · Phase 5 (The Extended Surface) 🔵 Active
 
 ---
 
@@ -941,6 +941,40 @@ The feature is gated by `[automation].graph_conditions = true` in `nimbus.toml`
 
 ---
 
+## Phase 5 Subsystems
+
+These subsystems are active development in Phase 5 (The Extended Surface). They extend the Phase 4 multi-agent foundation; no new IPC transport or process model is introduced.
+
+### Built-in Agents
+
+`packages/gateway/src/agents/` hosts read-only, no-HITL agents that answer team-level questions from the local index and relationship graph. Each built-in agent:
+
+- Runs entirely from indexed data — no live API calls, no consent prompts.
+- Decomposes its work into parallel sub-agents via `AgentCoordinator.executeAll`, each with an isolated tool scope.
+- Emits a single `<agentName>.briefReady { sessionId, brief }` IPC notification on completion (Markdown body).
+- Has a matching CLI command (`packages/cli/src/commands/<name>.ts`) that respects `NO_COLOR`.
+- Has an e2e test under `packages/gateway/test/e2e/scenarios/` that asserts the brief is produced, all sub-tasks complete in parallel, and zero HITL actions fire.
+- Targets a sub-15-second wall-clock latency on a mid-range laptop.
+
+**Shipped (T3 PR 1, 2026-05-09):**
+
+| Agent | Command | IPC method | Notification | Description |
+|---|---|---|---|---|
+| `expert` | `nimbus expert <topic-or-file>` | `agents.expert` | `agents.expert.briefReady` | Ranks people with the most context on a file or topic from indexed PR authorship, review participation, and incident involvement. |
+
+**Planned (T3 PRs 2+):**
+
+| Agent | Command | Description |
+|---|---|---|
+| `catchup` | `nimbus catchup --since <duration>` | Personalized retrospective digest, weighted by the user's historical involvement. |
+| `impact` | `nimbus impact <file-or-PR-url>` | Reverse-dependency blast radius across services, pipelines, dashboards, and on-call rotations. |
+
+`packages/gateway/src/agents/_lib/` holds the shared types (`ExpertBrief`, `Evidence`, `GapNote`), gap-note detectors, deterministic Markdown renderer, and LLM synthesis layer used across all built-in agents. The renderer is the deterministic fallback — when no LLM is available, the agent ships a structured Markdown brief without falling back to "no answer".
+
+The `agents.expert` JSON-RPC method is exposed via `packages/gateway/src/ipc/agents-rpc.ts` and reachable from the renderer (added to the Tauri `ALLOWED_METHODS` allowlist, count 58).
+
+---
+
 ## Nimbus Gateway: Process Lifecycle
 
 ### Startup Sequence and Failure Modes
@@ -1216,6 +1250,7 @@ CREATE TABLE extensions (
 | Perf bench harness *(Phase 4 B2)* | ≥80% |
 | `@nimbus-dev/sdk` | ≥80% |
 | UI (Vitest, separate runner) *(Phase 4 WS5-A)* | ≥80% lines / ≥75% branches |
+| Built-in agents (`agents/`) *(Phase 5 T3)* | ≥80% |
 
 PRs that drop below threshold are blocked when checks are required.
 
@@ -1271,7 +1306,10 @@ nimbus/
 │   ├── gateway/
 │   │   └── src/
 │   │       ├── platform/       ← PAL: win32.ts, darwin.ts, linux.ts
-│   │       ├── engine/         ← Mastra agent, router, planner, HITL gate, script runner
+│   │       ├── engine/         ← Mastra agent, router, planner, HITL gate, script runner,
+│   │       │                      coordinator (parallel sub-agent dispatch), sub-agent
+│   │       ├── agents/         ← Built-in read-only agents (Phase 5 T3): expert.ts;
+│   │       │                      _lib/ for shared findings/render/synthesize/gap-notes
 │   │       ├── vault/          ← DPAPI, Keychain, libsecret implementations
 │   │       ├── db/             ← verify, repair, snapshot, health, metrics, latency-ring-buffer, write
 │   │       ├── connectors/     ← Connector registry, lazy mesh, health model (health.ts)
@@ -1279,14 +1317,22 @@ nimbus/
 │   │       ├── config/         ← Config loader, schema versioning, profiles, env-var overrides
 │   │       ├── telemetry/      ← Opt-in aggregate telemetry collector (no content, configurable endpoint)
 │   │       ├── extensions/     ← Extension Registry, manifest validator, child process manager
+│   │       ├── llm/            ← Ollama + llama.cpp providers, router, registry, GPU arbiter (Phase 4)
+│   │       ├── voice/          ← STT (whisper-cli), TTS, wake-word (Phase 4)
+│   │       ├── updater/        ← Auto-update state machine, manifest fetcher, Ed25519 verifier (Phase 4)
+│   │       ├── automation/     ← Watcher engine, graph-predicate evaluator
 │   │       └── ipc/            ← JSON-RPC 2.0 server, consent channel,
 │   │                              http-server.ts (read-only HTTP API, SQLITE_OPEN_READONLY),
-│   │                              metrics-server.ts (Prometheus endpoint, localhost only)
+│   │                              metrics-server.ts (Prometheus endpoint, localhost only),
+│   │                              lan-server.ts (NaCl-box-encrypted LAN RPC),
+│   │                              agents-rpc.ts (agents.expert handler)
 │   │
 │   ├── cli/
 │   │   └── src/
 │   │       ├── commands/       ← ask, search, query, config, profile, diag, doctor,
-│   │       │                      db, telemetry, connector, extension, workflow, status, serve, docs
+│   │       │                      db, telemetry, connector, extension, workflow, status, serve, docs,
+│   │       │                      data, audit, lan, update, bench, tui, repl, expert (Phase 5 T3)
+│   │       ├── tui/            ← Ink-based rich TUI (Phase 4 WS6)
 │   │       └── ipc-client/     ← JSON-RPC client + consent channel (terminal)
 │   │                              (IPC transport extracted to packages/client/src/ipc-transport.ts)
 │   │
@@ -1308,9 +1354,11 @@ nimbus/
 │   │       ├── ipc/            ← Gateway IPC client for WebView
 │   │       └── pages/          ← Dashboard, Search, Marketplace, Settings, AuditLog
 │   │
-│   ├── (planned) vscode-extension/  ← VS Code extension (Phase 4 — not yet
-│   │                                    in tree; design entries below describe
-│   │                                    the planned layout)
+│   ├── vscode-extension/       ← `nimbus-vscode` (Phase 4) — VS Code extension
+│   │   │                            (displayName "Nimbus Agent"); published to
+│   │   │                            VS Code Marketplace + Open VSX under tag
+│   │   │                            `vscode-v0.1.x`
+│   │   └── src/
 │   │       ├── extension.ts    ← activation, command registration
 │   │       ├── gateway-client.ts ← @nimbus-dev/client IPC wrapper
 │   │       └── hitl-provider.ts  ← HITL consent via VS Code notification API
