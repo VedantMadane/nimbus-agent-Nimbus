@@ -83,4 +83,35 @@ describe("renderExpert", () => {
     };
     expect(renderExpert(brief)).toBe(renderExpert(brief));
   });
+
+  test("truncates evidence at 5 rows per finding", () => {
+    const brief: ExpertBrief = {
+      ...BASE,
+      gaps: [],
+      query: { topicOrFile: "x" },
+      ranked: [
+        {
+          personId: "p1",
+          displayName: "Eva",
+          score: 1,
+          confidence: "high",
+          evidence: Array.from({ length: 7 }, (_, i) => ({
+            itemId: `i${i}`,
+            type: "pr_authored",
+            serviceId: "github",
+            title: `evidence row ${i}`,
+            modifiedAt: 0,
+            weight: 1,
+          })),
+        },
+      ],
+    };
+    const md = renderExpert(brief);
+    expect(md).toContain("evidence row 0");
+    expect(md).toContain("evidence row 4");
+    expect(md).not.toContain("evidence row 5");
+    expect(md).not.toContain("evidence row 6");
+    // Confidence-line still reflects the full count (7), even though only 5 are listed.
+    expect(md).toContain("(high — 7 evidence rows)");
+  });
 });
