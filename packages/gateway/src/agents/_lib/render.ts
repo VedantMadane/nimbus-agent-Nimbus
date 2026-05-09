@@ -1,4 +1,12 @@
-import type { CatchupBrief, ExpertBrief, ExpertFinding, GapNote, ImpactBrief } from "./findings.ts";
+import type {
+  CatchupBrief,
+  ExpertBrief,
+  ExpertFinding,
+  GapNote,
+  ImpactBrief,
+  ImpactCategory,
+  ImpactFinding,
+} from "./findings.ts";
 
 function renderGaps(gaps: GapNote[]): string {
   if (gaps.length === 0) return "";
@@ -34,9 +42,46 @@ export function renderExpert(brief: ExpertBrief): string {
   return [header, "", topHeading, "", body, gaps, footer].filter((s) => s !== "").join("\n");
 }
 
-// PR 2 ships the body of renderImpact.
-export function renderImpact(_brief: ImpactBrief): string {
-  throw new Error("renderImpact is implemented in T3 PR 2");
+const IMPACT_BUCKET_HEADINGS: Readonly<Record<ImpactCategory, string>> = Object.freeze({
+  service: "## Services",
+  pipeline: "## Pipelines",
+  dashboard: "## Dashboards",
+  oncall_rotation: "## Oncall",
+  downstream_repo: "## Downstream Repos",
+});
+
+const IMPACT_BUCKET_ORDER: readonly ImpactCategory[] = [
+  "service",
+  "downstream_repo",
+  "pipeline",
+  "dashboard",
+  "oncall_rotation",
+];
+
+function renderImpactFinding(f: ImpactFinding): string {
+  return `- **${f.affectedTitle}** (\`${f.serviceId}\`, ${f.hops} hop${
+    f.hops === 1 ? "" : "s"
+  }) — _${f.pathSummary}_`;
+}
+
+export function renderImpact(brief: ImpactBrief): string {
+  const header = `# Impact: ${brief.query.fileOrPrUrl}`;
+  const sections: string[] = [];
+  if (brief.affected.length === 0) {
+    sections.push("_no downstream impact resolved_");
+  } else {
+    for (const cat of IMPACT_BUCKET_ORDER) {
+      const rows = brief.affected.filter((a) => a.category === cat);
+      if (rows.length === 0) continue;
+      sections.push(IMPACT_BUCKET_HEADINGS[cat]);
+      sections.push("");
+      sections.push(...rows.map(renderImpactFinding));
+      sections.push("");
+    }
+  }
+  const gaps = renderGaps(brief.gaps);
+  const footer = renderLatency(brief.latencyMs);
+  return [header, "", ...sections, gaps, footer].filter((s) => s !== "").join("\n");
 }
 
 // PR 3 ships the body of renderCatchup.
