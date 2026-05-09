@@ -71,5 +71,4 @@ You downloaded the wrong architecture. `uname -m` to check; re-download the matc
 ## Next Steps
 
 - [`docs/cli-reference.md`](cli-reference.md) — `nimbus` CLI reference
-- [`docs/voice.md`](voice.md) — voice interface setup
 - [`docs/verify-release-integrity.md`](verify-release-integrity.md) — detailed integrity verification

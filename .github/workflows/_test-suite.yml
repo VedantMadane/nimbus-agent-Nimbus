@@ -83,6 +83,16 @@ jobs:
       - name: Lint + format (Biome)
         run: bun run lint
 
+      - name: Doc references (CLAUDE.md / GEMINI.md / docs / .claude/commands)
+        # Verifies that every file path written as a backtick-wrapped repo
+        # ref or as a Markdown link target in the AI-context docs resolves
+        # to a real file in the working tree, and that any `:NN` line-number
+        # suffix is within the file's bounds. See
+        # scripts/structure-audit/check-doc-references.ts for the scan
+        # surface and exclusions (roadmap.md is exempt — it describes
+        # forward-looking phase files by design).
+        run: bun run audit:doc-refs
+
       - name: regen-slo drift check
         run: bun run regen-slo:check
 

@@ -97,5 +97,4 @@ Your SmartScreen is set to **Block**. Change: Settings → Privacy & Security �
 ## Next Steps
 
 - [`docs/cli-reference.md`](cli-reference.md) — `nimbus` CLI reference
-- [`docs/voice.md`](voice.md) — voice interface setup
 - [`docs/verify-release-integrity.md`](verify-release-integrity.md) — detailed integrity verification

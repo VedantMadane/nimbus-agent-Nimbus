@@ -350,7 +350,7 @@ gpg --verify SHA256SUMS.asc SHA256SUMS
 sha256sum --check --ignore-missing SHA256SUMS
 ```
 
-The fingerprint is published at [`docs/release/SIGNING-KEY.asc`](docs/release/SIGNING-KEY.asc) and in the [Security Policy](docs/SECURITY.md).
+The fingerprint is published at [`docs/release/SIGNING-KEY.asc`](release/SIGNING-KEY.asc) and in the [Security Policy](SECURITY.md).
 
 ### Option B — Build from Source
 
