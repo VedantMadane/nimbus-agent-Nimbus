@@ -45,6 +45,15 @@ describe("dispatchAgentsRpc", () => {
     );
   });
 
+  test("agents.expert rejects array payloads with the requires-object message", async () => {
+    await expect(
+      dispatchAgentsRpc("agents.expert", ["not", "an", "object"], makeCtx(freshDb())),
+    ).rejects.toMatchObject({
+      rpcCode: -32602,
+      message: expect.stringContaining("requires { topicOrFile: string }"),
+    });
+  });
+
   test("agents.expert eventually emits expert.briefReady", async () => {
     const ctx = makeCtx(freshDb());
     await dispatchAgentsRpc("agents.expert", { topicOrFile: "x" }, ctx);

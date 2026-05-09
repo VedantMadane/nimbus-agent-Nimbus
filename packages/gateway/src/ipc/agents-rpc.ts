@@ -22,7 +22,7 @@ const MAX_TOPIC_LEN = 1024;
 const MAX_LIMIT = 25;
 
 function requireExpertParams(params: unknown): { topicOrFile: string; limit?: number } {
-  if (params === null || typeof params !== "object") {
+  if (params === null || typeof params !== "object" || Array.isArray(params)) {
     throw new AgentsRpcError(-32602, "agents.expert requires { topicOrFile: string }");
   }
   const p = params as { topicOrFile?: unknown; limit?: unknown };
