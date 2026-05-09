@@ -30,38 +30,38 @@ The scan is Linux-only on purpose; Sonar's analyser is OS-agnostic and running i
 
 ## Quality Gate policy
 
-The repository uses a custom gate named **"Nimbus Security-Critical"**, configured in the SonarCloud UI on project `asafgolombek_Nimbus`. The split between *New Code* conditions (PR diff) and *Overall Code* conditions (project-level) is intentional: New Code conditions enforce hygiene on every PR without re-litigating legacy debt, while Overall Code conditions lock the project's security posture so that hotspots and ratings cannot drift downwards even when the diff in front of you is clean.
+The project uses SonarCloud's built-in **"Sonar way"** Quality Gate. We do not maintain a custom gate.
 
-### On New Code (fails the PR check)
+### Why "Sonar way" and not a custom gate
 
-| Metric | Operator | Threshold | Rationale |
-|---|---|---|---|
-| Coverage | < | **85%** | Matches `test:coverage:engine` (≥85%) — Sonar's New-Code coverage should be no laxer than the strictest in-repo gate |
-| Duplicated Lines (%) | > | **3%** | Sonar way default; we already run `bunx jscpd` separately in `pr-quality-duplication` for fast PR feedback |
-| Maintainability Rating | worse than | **A** | Code-smell debt density on new code |
-| Reliability Rating | worse than | **A** | No new bugs |
-| Security Rating | worse than | **A** | No new vulnerabilities |
-| Security Review Rating | worse than | **A** | All new security hotspots categorised |
-| Security Hotspots Reviewed | < | **100%** | Every new hotspot must be triaged before merge |
+SonarSource moved custom Quality Gates behind the paid **Team** and **Enterprise** plans in 2026; the free plan for public OSS projects is locked to the default gate. The project is correctly flagged Public on SonarCloud (`visibility: "public"` confirmed via the components API), so scans run for free with unlimited LOC — but the gate itself is the built-in one.
 
-### On Overall Code (project-level health)
+This is acceptable because:
 
-| Metric | Operator | Threshold | Rationale |
-|---|---|---|---|
-| Reliability Rating | worse than | **A** | Project-level bug count cannot drift |
-| Security Rating | worse than | **A** | Project-level vulnerability count cannot drift |
-| Security Review Rating | worse than | **A** | All historical hotspots categorised |
-| Security Hotspots Reviewed | < | **100%** | Every legacy hotspot triaged at least once |
+- **The "Sonar way" *On New Code* conditions match what we'd have written ourselves**: 0 new bugs, 0 new vulnerabilities, all new security hotspots reviewed, ≥80% coverage on new code, ≤3% duplication on new code, and A ratings (security / reliability / maintainability / security review) on new code.
+- **Project-level enforcement is covered elsewhere in the repo.** What "Sonar way" does *not* enforce — overall security/reliability ratings staying at A across the whole project, and 100% triage of legacy security hotspots — is covered by:
+  - [CodeQL](../.github/workflows/codeql.yml) for security analysis (semantic, not heuristic — generally stronger than Sonar's hotspot detection).
+  - [`packages/gateway/src/security-invariants.test.ts`](../packages/gateway/src/security-invariants.test.ts) for runtime enforcement of every `I<N>` invariant in [`docs/SECURITY-INVARIANTS.md`](./SECURITY-INVARIANTS.md).
+  - [`scripts/structure-audit/`](../scripts/structure-audit/) for static-time enforcement of I1 (spawn rule) and the vault-key allow-list.
+  - The 22 per-subsystem coverage gates in [`package.json`](../package.json) (e.g. `test:coverage:engine` ≥85%, `test:coverage:vault` ≥90%) — stricter than Sonar's 80% default on every security-critical subsystem.
 
-The Overall-Code rows are what makes this gate *security-critical* rather than "Sonar way". Without them, a project can accumulate unreviewed hotspots in legacy code indefinitely as long as new diffs stay clean — unacceptable for a local-first agent that handles credentials and orchestrates real actions.
+So Sonar's role is: maintainability rating, cognitive-complexity tracking, code-smell detection beyond Biome's rule set, and the unified PR comment. Security and coverage have stronger primary defenses elsewhere.
 
-### Editing the gate
+### Gate conditions (reference)
 
-Quality Gates are defined server-side; SonarCloud's free tier does not support gate-as-code via a file in the repo. To change the policy:
+The "Sonar way" defaults are server-controlled and may be tuned by SonarSource over time. As of writing:
 
-1. Open SonarCloud → **Quality Gates** → **Nimbus Security-Critical**.
-2. Edit conditions; save.
-3. Update the tables above in the same PR that depends on the change. Drift between this document and the live gate is treated as a bug.
+| Scope | Metric | Threshold |
+|---|---|---|
+| **On New Code** | Coverage | ≥ 80% |
+| **On New Code** | Duplicated Lines (%) | ≤ 3% |
+| **On New Code** | Maintainability Rating | A |
+| **On New Code** | Reliability Rating | A |
+| **On New Code** | Security Rating | A |
+| **On New Code** | Security Review Rating | A |
+| **On New Code** | Security Hotspots Reviewed | 100% |
+
+If you need to upgrade beyond these thresholds (for example, to align Sonar's coverage threshold with the engine's 85% gate), the only path on the free plan is to enforce the stricter threshold elsewhere in CI — typically by tightening the matching `bun test --coverage-threshold-lines=…` invocation in `package.json`. Don't add a custom gate; it will trip the SonarCloud paywall.
 
 ### Required repo secrets
 
@@ -73,7 +73,7 @@ Quality Gates are defined server-side; SonarCloud's free tier does not support g
 
 1. Install the [SonarLint](https://www.sonarsource.com/products/sonarlint/) extension in VS Code or Cursor.
 2. Open **Connected Mode** and bind the workspace to your SonarCloud project (`projectKey=asafgolombek_Nimbus`).
-3. Fix issues SonarLint reports on the files you change; this aligns with the New-Code conditions of the gate above.
+3. Fix issues SonarLint reports on the files you change; this aligns with the *On New Code* conditions of "Sonar way".
 
 ## Local analysis — SonarScanner CLI
 
@@ -114,4 +114,4 @@ For reproducing a full scan before pushing (e.g. when CI is unavailable, or to d
 
 - Adjust `sonar.sources`, `sonar.tests`, or `sonar.typescript.tsconfigPaths` in [`sonar-project.properties`](../sonar-project.properties) if SonarCloud reports missing files or wrong TypeScript context.
 - Do not commit Sonar tokens; use environment variables locally and the `SONAR_TOKEN` repo secret in CI.
-- The exclusions block in `sonar-project.properties` deliberately drops `**/dist/**`, `**/src-tauri/**`, generated `nimbus-*.js` bundles, and the Astro docs site. Add new entries there — not in the gate definition — when introducing generated or vendored code.
+- The exclusions block in `sonar-project.properties` deliberately drops `**/dist/**`, `**/src-tauri/**`, generated `nimbus-*.js` bundles, and the Astro docs site. Add new entries there — not in any UI gate definition — when introducing generated or vendored code.
