@@ -50,15 +50,16 @@ describe("tool call cap", () => {
     await expect(coordinator.run([makeTask("a")])).rejects.toThrow("Tool call limit reached");
   });
 
-  test("counter increments and triggers cap mid-list", async () => {
+  test("pre-checks cap before fan-out when batch would exceed it", async () => {
     const cap = Config.maxToolCallsPerSession;
     const ctx = makeCtx({ toolCallCount: { value: cap - 1 } });
     const coordinator = new AgentCoordinator(ctx);
-    // first task consumes the last slot; second task hits the cap
+    // value=cap-1 + 2 new tasks would total cap+1 — must throw before any execute()
+    // and must NOT increment the counter (atomic reservation: all-or-nothing).
     await expect(coordinator.run([makeTask("first"), makeTask("second")])).rejects.toThrow(
       "Tool call limit reached",
     );
-    expect(ctx.toolCallCount.value).toBe(cap);
+    expect(ctx.toolCallCount.value).toBe(cap - 1);
   });
 
   test("shared counter across two coordinators", async () => {

@@ -47,40 +47,37 @@ export class AgentCoordinator {
       );
     }
 
-    const results: SubTaskResult[] = [];
-
-    for (let i = 0; i < tasks.length; i++) {
-      const task = tasks[i] as SubTask;
-
-      if (this.#ctx.toolCallCount.value >= Config.maxToolCallsPerSession) {
-        throw new Error(
-          `Tool call limit reached: ${this.#ctx.toolCallCount.value} calls exhausted the session cap of ${Config.maxToolCallsPerSession}`,
-        );
-      }
-
-      this.#ctx.toolCallCount.value += 1;
-
-      try {
-        const outcome = await task.execute();
-        results.push({
-          taskIndex: i,
-          taskType: task.taskType,
-          status: "done",
-          text: outcome.text,
-          tokensIn: outcome.tokensIn,
-          tokensOut: outcome.tokensOut,
-          ...(outcome.modelUsed === undefined ? {} : { modelUsed: outcome.modelUsed }),
-        });
-      } catch (err) {
-        results.push({
-          taskIndex: i,
-          taskType: task.taskType,
-          status: "error",
-          errorText: err instanceof Error ? err.message : String(err),
-        });
-      }
+    // Pre-check the cap once — opening N tasks in parallel after passing the check
+    // is correct because tool-call accounting still increments per task before execute().
+    if (this.#ctx.toolCallCount.value + tasks.length > Config.maxToolCallsPerSession) {
+      throw new Error(
+        `Tool call limit reached: ${tasks.length} new tasks would exceed cap ${Config.maxToolCallsPerSession}`,
+      );
     }
+    this.#ctx.toolCallCount.value += tasks.length;
 
-    return results;
+    return Promise.all(
+      tasks.map(async (task, i): Promise<SubTaskResult> => {
+        try {
+          const outcome = await task.execute();
+          return {
+            taskIndex: i,
+            taskType: task.taskType,
+            status: "done",
+            text: outcome.text,
+            tokensIn: outcome.tokensIn,
+            tokensOut: outcome.tokensOut,
+            ...(outcome.modelUsed === undefined ? {} : { modelUsed: outcome.modelUsed }),
+          };
+        } catch (err) {
+          return {
+            taskIndex: i,
+            taskType: task.taskType,
+            status: "error",
+            errorText: err instanceof Error ? err.message : String(err),
+          };
+        }
+      }),
+    );
   }
 }
