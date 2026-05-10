@@ -96,6 +96,9 @@ export async function tryDispatchAgentsRpc(
       // renderer. PR-N will pass ctx.options.llmRouter once a routing API for
       // built-in agents lands.
       notify: (m, p) => ctx.broadcastNotification(m, p as Record<string, unknown>),
+      // PR 3 — agents.catchup loads `[user] me_person_id` from the active
+      // profile's nimbus.toml. Other branches ignore configDir.
+      ...(ctx.options.configDir === undefined ? {} : { configDir: ctx.options.configDir }),
     });
     if (out.kind === "hit") return out.value;
   } catch (e) {

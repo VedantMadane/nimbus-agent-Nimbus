@@ -122,3 +122,71 @@ describe("dispatchAgentsRpc — agents.impact", () => {
     expect(briefReady).toBeDefined();
   });
 });
+
+describe("dispatchAgentsRpc — agents.catchup", () => {
+  test("agents.catchup returns a sessionId synchronously", async () => {
+    const out = await dispatchAgentsRpc("agents.catchup", {}, makeCtx(freshDb()));
+    expect(out.kind).toBe("hit");
+    if (out.kind === "hit") {
+      const v = out.value as { sessionId: string };
+      expect(typeof v.sessionId).toBe("string");
+      expect(v.sessionId.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("agents.catchup accepts an empty object (defaults to sinceMs = 3 days)", async () => {
+    const out = await dispatchAgentsRpc("agents.catchup", {}, makeCtx(freshDb()));
+    expect(out.kind).toBe("hit");
+  });
+
+  test("agents.catchup rejects array payloads with a clear message", async () => {
+    await expect(
+      dispatchAgentsRpc("agents.catchup", ["not", "an", "object"], makeCtx(freshDb())),
+    ).rejects.toMatchObject({
+      rpcCode: -32602,
+      message: expect.stringContaining("requires an object payload"),
+    });
+  });
+
+  test("agents.catchup validates sinceMs is a non-negative integer ≤ 90 days", async () => {
+    await expect(
+      dispatchAgentsRpc("agents.catchup", { sinceMs: -1 }, makeCtx(freshDb())),
+    ).rejects.toBeInstanceOf(AgentsRpcError);
+    await expect(
+      dispatchAgentsRpc(
+        "agents.catchup",
+        { sinceMs: 91 * 24 * 60 * 60 * 1000 },
+        makeCtx(freshDb()),
+      ),
+    ).rejects.toBeInstanceOf(AgentsRpcError);
+    await expect(
+      dispatchAgentsRpc("agents.catchup", { sinceMs: 1.5 }, makeCtx(freshDb())),
+    ).rejects.toBeInstanceOf(AgentsRpcError);
+  });
+
+  test("agents.catchup validates service if provided is a non-empty string ≤ 64 chars", async () => {
+    await expect(
+      dispatchAgentsRpc("agents.catchup", { service: "" }, makeCtx(freshDb())),
+    ).rejects.toBeInstanceOf(AgentsRpcError);
+    await expect(
+      dispatchAgentsRpc("agents.catchup", { service: "x".repeat(65) }, makeCtx(freshDb())),
+    ).rejects.toBeInstanceOf(AgentsRpcError);
+  });
+
+  test("agents.catchup eventually emits catchup.briefReady", async () => {
+    const ctx = makeCtx(freshDb());
+    await dispatchAgentsRpc("agents.catchup", {}, ctx);
+    // catchup spawns `git config user.email` for self-person resolution and
+    // runs five parallel sub-agents; poll up to 5 s rather than racing a
+    // fixed-time setTimeout to keep this test deterministic when contended.
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline) {
+      const calls = (ctx.notify as ReturnType<typeof mock>).mock.calls;
+      if (calls.find((c) => c[0] === "catchup.briefReady") !== undefined) break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    const calls = (ctx.notify as ReturnType<typeof mock>).mock.calls;
+    const briefReady = calls.find((c) => c[0] === "catchup.briefReady");
+    expect(briefReady).toBeDefined();
+  });
+});
