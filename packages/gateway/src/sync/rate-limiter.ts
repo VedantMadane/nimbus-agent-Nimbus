@@ -1,5 +1,5 @@
 /**
- * Shared token-bucket rate limiter per upstream provider (Q2 Phase 1.2).
+ * Shared token-bucket rate limiter per upstream provider.
  * One instance per Gateway process; injected via `SyncContext`.
  */
 

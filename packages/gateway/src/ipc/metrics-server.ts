@@ -1,5 +1,5 @@
 /**
- * Prometheus-compatible metrics on localhost only (Phase 3.5).
+ * Prometheus-compatible metrics on localhost only.
  * Uses the live gateway DB handle for accurate in-memory latency samples.
  */
 

@@ -626,7 +626,7 @@ export function loadNimbusLanFromConfigDir(configDir: string): NimbusLanToml {
 // ─── [automation] ───────────────────────────────────────────────────────────
 
 export type NimbusAutomationToml = {
-  /** When true (default), graph predicates on watchers are evaluated. Phase 4 Section 2. */
+  /** When true (default), graph predicates on watchers are evaluated. */
   graphConditions: boolean;
 };
 

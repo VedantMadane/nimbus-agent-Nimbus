@@ -452,7 +452,7 @@ export async function ensureConfluenceMcp(ctx: MeshSpawnContext): Promise<void> 
 }
 
 /**
- * Starts Discord MCP when `discord.enabled` is `1` and `discord.bot_token` is set (Q2 §4.3 opt-in).
+ * Starts Discord MCP when `discord.enabled` is `1` and `discord.bot_token` is set (opt-in).
  */
 export async function ensureDiscordMcp(ctx: MeshSpawnContext): Promise<void> {
   const slotKey = LAZY_MESH.discord;

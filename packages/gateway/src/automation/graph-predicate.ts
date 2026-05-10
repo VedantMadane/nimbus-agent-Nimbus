@@ -1,5 +1,5 @@
 /**
- * Phase 4 Section 2 — Graph-aware watcher predicates.
+ * Graph-aware watcher predicates.
  *
  * Predicate JSON shape (stored in `watcher.graph_predicate_json`):
  *

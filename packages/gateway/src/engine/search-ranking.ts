@@ -1,5 +1,5 @@
 /**
- * Q2 §7.2 — deterministic composite score for index search (FTS + recency + service weight).
+ * Deterministic composite score for index search (FTS + recency + service weight).
  */
 
 const WEIGHT_FTS = 0.5;

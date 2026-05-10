@@ -1,7 +1,5 @@
 import { withGatewayIpc } from "../lib/with-gateway-ipc.ts";
 
-// ─── arg types ──────────────────────────────────────────────────────────────
-
 export type LanSubcommand =
   | { kind: "status" }
   | { kind: "open" }
@@ -44,8 +42,6 @@ export function parseLanArgs(argv: string[]): LanSubcommand {
       );
   }
 }
-
-// ─── subcommand handlers ─────────────────────────────────────────────────────
 
 async function lanStatus(): Promise<void> {
   const result = await withGatewayIpc((c) =>
@@ -107,8 +103,6 @@ async function lanRemove(peerId: string): Promise<void> {
   await withGatewayIpc((c) => c.call<{ ok: boolean }>("lan.removePeer", { peerId }));
   console.log(`Peer ${peerId} removed.`);
 }
-
-// ─── main entry ──────────────────────────────────────────────────────────────
 
 export async function runLan(argv: string[]): Promise<void> {
   const sub = parseLanArgs(argv);

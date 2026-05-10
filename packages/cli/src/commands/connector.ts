@@ -47,7 +47,7 @@ type ConnectorFlags = {
   kubeconfig?: string;
   kubeContext?: string;
   full?: boolean;
-  /** Opt-in flag for Discord bot connector (Q2 §4.3). */
+  /** Opt-in flag for Discord bot connector. */
   enable?: boolean;
   help?: boolean;
   awsAccessKey?: string;

@@ -12,7 +12,7 @@ import type { CONNECTOR_VAULT_SECRET_KEYS } from "./connector-secrets-manifest.t
 const GOOGLE_SERVICES = [...GOOGLE_CONNECTOR_SERVICES];
 const MICROSOFT_SERVICES = [...MICROSOFT_CONNECTOR_SERVICES];
 
-// ─── Per-service vault key helpers (Phase 4 A.3) ─────────────────────────────
+// ─── Per-service vault key helpers ───────────────────────────────────────────
 //
 // Each connector stores its OAuth token under a service-specific key in addition
 // to the legacy shared provider key (`google.oauth` / `microsoft.oauth`).

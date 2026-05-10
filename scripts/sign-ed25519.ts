@@ -1,4 +1,3 @@
-// scripts/sign-ed25519.ts
 // Sign each platform artifact's SHA-256 digest with the updater Ed25519 key.
 
 import { createHash } from "node:crypto";

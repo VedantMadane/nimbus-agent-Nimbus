@@ -10,7 +10,7 @@ export type TomlKeyEntry = {
   readonly envVar?: string;
 };
 
-/** Known env overrides for `nimbus config list` (Phase 3.5). */
+/** Known env overrides for `nimbus config list`. */
 const ENV_BY_DOTTED: Readonly<Record<string, string>> = {
   "telemetry.enabled": "NIMBUS_TELEMETRY_ENABLED",
   "telemetry.endpoint": "NIMBUS_TELEMETRY_ENDPOINT",

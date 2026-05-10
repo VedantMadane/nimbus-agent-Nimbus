@@ -1,5 +1,5 @@
 /**
- * Read-only local HTTP API (Phase 3.5) — dedicated SQLITE_OPEN_READONLY connection.
+ * Read-only local HTTP API — dedicated SQLITE_OPEN_READONLY connection.
  * Binds 127.0.0.1 only.
  */
 

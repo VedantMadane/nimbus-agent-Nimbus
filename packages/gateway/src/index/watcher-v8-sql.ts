@@ -1,5 +1,5 @@
 /**
- * Phase 3 Migration 8 — watcher definitions and events.
+ * Watcher definitions and events.
  */
 
 export const WATCHER_V8_MIGRATION_SQL = `

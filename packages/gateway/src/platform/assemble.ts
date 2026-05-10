@@ -290,8 +290,8 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   );
   await ensureGithubCircleCiSchedulerCompanions(localIndex, vault);
 
-  // Phase 4 A.3 — copy shared provider OAuth keys to per-service keys for any
-  // service that hasn't been re-authenticated since the migration landed.
+  // Copy shared provider OAuth keys to per-service keys for any service that
+  // hasn't been re-authenticated since the migration landed.
   await migrateToPerServiceOAuthKeys(vault);
 
   // Complete any connector removals that were interrupted by a crash. Idempotent.

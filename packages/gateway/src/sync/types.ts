@@ -4,13 +4,13 @@ import type { Logger } from "pino";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import type { ProviderRateLimiter } from "./rate-limiter.ts";
 
-/** Per-sync execution context passed to `Syncable.sync` (Q2 Phase 1.3). */
+/** Per-sync execution context passed to `Syncable.sync`. */
 export interface SyncContext {
   vault: NimbusVault;
   db: Database;
   logger: Logger;
   rateLimiter: ProviderRateLimiter;
-  /** Phase 3 — fire-and-forget semantic embedding after index upsert (optional). */
+  /** Fire-and-forget semantic embedding after index upsert (optional). */
   scheduleItemEmbedding?: (itemId: string) => void;
 }
 
@@ -113,12 +113,12 @@ export interface SyncStatus {
   itemCount: number;
   lastError: string | null;
   consecutiveFailures: number;
-  /** Phase 3.5 — `sync_state.health_state` (connector health). */
+  /** `sync_state.health_state` (connector health). */
   healthState?: string;
   /** Epoch ms for `sync_state.retry_after` when rate-limited; otherwise `null`. */
   healthRetryAfterMs?: number | null;
-  /** Phase 4 WS5-C — per-connector default reindex depth (V21). */
+  /** Per-connector default reindex depth (V21). */
   depth: "metadata_only" | "summary" | "full";
-  /** Phase 4 WS5-C — true when the connector is NOT paused. */
+  /** True when the connector is NOT paused. */
   enabled: boolean;
 }

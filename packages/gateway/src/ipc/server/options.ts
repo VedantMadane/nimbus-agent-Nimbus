@@ -51,16 +51,16 @@ export type CreateIpcServerOptions = {
    * Not part of the JSON-RPC surface.
    */
   onClientConnected?: (clientId: string) => void;
-  /** LLM model registry for llm.* RPCs (Phase 4 WS1). */
+  /** LLM model registry for llm.* RPCs. */
   llmRegistry?: LlmRegistry;
-  /** Voice service for voice.* RPCs (Phase 4 WS2). */
+  /** Voice service for voice.* RPCs. */
   voiceService?: VoiceService;
-  /** Auto-updater for updater.* RPCs (Phase 4 WS4). */
+  /** Auto-updater for updater.* RPCs. */
   updater?: Updater;
-  /** LAN server instance for lan.* RPCs (Phase 4 WS4). */
+  /** LAN server instance for lan.* RPCs. */
   lanServer?: LanServer;
-  /** Pairing window shared with the LAN server (Phase 4 WS4). */
+  /** Pairing window shared with the LAN server. */
   lanPairingWindow?: PairingWindow;
-  /** Profile manager for profile.* RPCs (Phase 4 WS5-C). */
+  /** Profile manager for profile.* RPCs. */
   profileManager?: ProfileManager;
 };

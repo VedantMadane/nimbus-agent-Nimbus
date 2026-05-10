@@ -1,5 +1,5 @@
 /**
- * Phase 3 Migration 7 — local relationship graph (`graph_entity`, `graph_relation`).
+ * Local relationship graph (`graph_entity`, `graph_relation`).
  */
 
 export const GRAPH_V7_MIGRATION_SQL = `

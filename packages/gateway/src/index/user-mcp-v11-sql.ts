@@ -1,5 +1,5 @@
 /**
- * Phase 3 Migration 11 — user-defined MCP connector spawn specs (generic `connector add --mcp`).
+ * User-defined MCP connector spawn specs (generic `connector add --mcp`).
  */
 
 export const USER_MCP_V11_MIGRATION_SQL = `

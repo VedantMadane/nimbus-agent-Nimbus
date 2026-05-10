@@ -1,6 +1,6 @@
 /**
  * In-memory ring buffer for index query latency samples with batched flush to SQLite.
- * Phase 3.5 Workstream 3.2 — avoids a write transaction after every read query.
+ * Avoids a write transaction after every read query.
  */
 
 import type { Database } from "bun:sqlite";

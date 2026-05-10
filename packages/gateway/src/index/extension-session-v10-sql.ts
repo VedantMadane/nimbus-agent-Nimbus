@@ -1,5 +1,5 @@
 /**
- * Phase 3 Migration 10 — extension registry rows + RAG session memory vectors.
+ * Extension registry rows + RAG session memory vectors.
  */
 
 export const EXTENSION_SESSION_V10_MIGRATION_SQL = `

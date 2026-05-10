@@ -1,6 +1,5 @@
 /**
- * V19 — WS4 Release Infrastructure
- * Adds lan_peers table for the optional LAN remote-access feature.
+ * V19 — Adds lan_peers table for the optional LAN remote-access feature.
  */
 export const LAN_PEERS_V19_SQL = `
 CREATE TABLE IF NOT EXISTS lan_peers (

@@ -55,13 +55,9 @@ export class SessionMemoryStore {
     const vec = await this.embedText(chunk.text);
     const hasVec = vec !== null && vec.length === this.dims;
     const now = chunk.createdAt;
-    // BUG-005 follow-up: when the embedding runtime is unavailable or
-    // returns null/wrong-dim, we still want to record the literal turn so
-    // multi-turn replay works. Insert into session_memory with vec_rowid=0
-    // as a "no vector" sentinel; semantic recall() will skip those rows
-    // (its INNER JOIN on vec_items_384.rowid never matches 0). This keeps
-    // RAG semantic recall and literal-turn replay decoupled — the latter
-    // works in any environment where the SQLite schema is healthy.
+    // When the embedding runtime is unavailable, we still record the literal turn
+    // so multi-turn replay works. Insert into session_memory with vec_rowid=0
+    // as a "no vector" sentinel; semantic recall() will skip those rows.
     if (!hasVec) {
       this.db.run(
         `INSERT INTO session_memory (session_id, chunk_text, vec_rowid, role, created_at)
@@ -132,13 +128,7 @@ export class SessionMemoryStore {
 
   /**
    * Return the N most recently appended turns for a session, oldest-first.
-   *
-   * Used by `runAsk` (BUG-005 fix) to prepend prior conversation to the
-   * Mastra agent's prompt. Unlike `recall()`, this is a literal time-ordered
-   * tail — we want the LLM to see the immediately prior turns verbatim, not
-   * a semantically-similar window. Embedding is irrelevant here, but we
-   * still gate on `ensureReady()` because the rows are written by `append()`
-   * which itself requires the vec extension (rows would be silently dropped).
+   * Unlike `recall()`, this is a literal time-ordered tail for conversational context.
    */
   async getRecentTurns(
     sessionId: string,

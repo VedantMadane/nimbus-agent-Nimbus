@@ -64,16 +64,16 @@ function isStringArray(xs: unknown): xs is string[] {
 export type NimbusEngineAgentDeps = {
   localIndex: LocalIndex;
   agentModel?: string;
-  /** Q2 §7.0 — defaults to {@link Config.engineContextWindowItems}. */
+  /** Defaults to {@link Config.engineContextWindowItems}. */
   contextWindowItems?: number;
-  /** Q2 §7.2 — defaults to {@link Config.searchServicePriorityMap}. */
+  /** Defaults to {@link Config.searchServicePriorityMap}. */
   searchServicePriority?: ReadonlyMap<string, number>;
   /** When set, exposes recall/append session memory tools (requires `agent.invoke` sessionId). */
   sessionMemoryStore?: SessionMemoryStore;
 };
 
 /**
- * Q1 Mastra agent with read-only gateway tools (index search, connector list, audit tail).
+ * Mastra agent with read-only gateway tools (index search, connector list, audit tail).
  * Destructive filesystem work stays on the planner + {@link ToolExecutor} path.
  */
 export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
@@ -388,20 +388,14 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
       " When the client passes sessionId on agent.invoke, use recallSessionMemory for cross-turn references and appendSessionMemory only for explicit durable notes.";
   }
 
-  // BUG-007: keep consent structural. The Mastra agent must NOT roleplay a
-  // verbal-confirmation ritual ("Could you please confirm…") in place of
-  // calling the tool — the structural HITL gate in `engine/executor.ts`
-  // ToolExecutor.gate() only fires when a tool is actually invoked. Without
-  // this instruction, default Claude safety behavior asks for in-chat
-  // permission, the tool never runs, and the user is stuck.
+  // Instructs the agent to invoke tools directly rather than asking for verbal consent,
+  // relying on the structural HITL gate in ToolExecutor.
   const consentGuidance =
     " For destructive or irreversible actions (send/draft email, move/delete files, modify connector data, etc.), call the tool directly. Nimbus's structural consent gate surfaces a separate HITL dialog to the user before the action executes — that dialog is the authoritative consent surface. Do not ask the user in chat for permission, do not say 'are you happy with this?', and do not require a verbal go-ahead before invoking a tool. Just invoke it; the consent gate handles the rest.";
 
   const toolGuidance = `Use searchLocalIndex for ranked index search; it returns a window of full items plus sourceSummary for the rest—call fetchMoreIndexResults(service, indexedType, offset, limit) when the user needs more rows from a bucket. Use traverseGraph(entityId, depth?, relationTypes?) when the user asks what is linked to a PR, issue, repo, channel, or person already identified in the index. Use resolvePerson to map names to person ids before reasoning about authors. Use listConnectors and getAuditLog as needed. Do not claim you moved or deleted files unless the user already did so outside this chat.${consentGuidance}`;
 
-  // S8-F3 / chain C4 — wrap each LLM-facing read tool so its execute returns
-  // a <tool_output>-tagged string. The system prompt instructs the LLM to
-  // treat envelope contents as data, never instructions.
+  // Wraps each LLM-facing read tool results in a <tool_output> envelope (Invariant I11).
   const baseTools = {
     searchLocalIndex: wrapToolForLlm("index", "searchLocalIndex", searchLocalIndex),
     fetchMoreIndexResults: wrapToolForLlm("index", "fetchMoreIndexResults", fetchMoreIndexResults),

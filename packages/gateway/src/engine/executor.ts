@@ -13,11 +13,7 @@ import type {
 } from "./types.ts";
 
 /**
- * HITL whitelist — immutable at runtime. The backing `Set` is module-private;
- * the exported value is a frozen `ReadonlySet` facade so `Object.freeze(new Set())`
- * cannot be bypassed via engine quirks (some runtimes still allow `Set.prototype.add`
- * on a frozen Set).
- *
+ * HITL whitelist — immutable at runtime.
  * Source of truth: `architecture.md` §HITL Consent Gate — Implementation Contract.
  */
 const HITL_REQUIRED_BACKING = new Set<string>([
@@ -69,7 +65,7 @@ const HITL_REQUIRED_BACKING = new Set<string>([
   "circleci.job.cancel",
   "gitlab.pipeline.retry",
   "gitlab.pipeline.cancel",
-  // Cloud & infra (Phase 3 — tool ids in registry.ts / connector packages)
+  // Cloud & infra (tool ids in registry.ts / connector packages)
   "aws.ecs.service.update",
   "aws.lambda.invoke",
   "aws.ec2.instance.stop",
@@ -145,10 +141,6 @@ export const HITL_REQUIRED = Object.freeze({
       callbackfn.call(thisArg, v, v, HITL_REQUIRED);
     }
   },
-  // S1-F8 — surface accidental mutation attempts at runtime with a
-  // meaningful TypeError instead of "is not a function". The cast goes
-  // through `unknown` because `ReadonlySet` does not declare an `add`
-  // member, but the runtime guard is the whole point of this method.
   add(_value: string): never {
     throw new TypeError(
       "HITL_REQUIRED is immutable; edit HITL_REQUIRED_BACKING in executor.ts instead",

@@ -21,7 +21,7 @@ function collectDistinctServicesFromWindow(window: ContextWindow): string[] {
 
 /**
  * When the user scopes search to a single connector, surface non-healthy sync state
- * so the model can caveat incomplete results (Phase 3.5 roadmap).
+ * so the model can caveat incomplete results.
  */
 export function formatConnectorHealthCaveatForIndexSearch(
   serviceId: string,

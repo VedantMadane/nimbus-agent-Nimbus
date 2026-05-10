@@ -1,5 +1,5 @@
 /**
- * Aggregate-only telemetry fields sourced from SQLite (Phase 3.5).
+ * Aggregate-only telemetry fields sourced from SQLite.
  * Never includes row content (e.g. sync error messages) — counts and durations only.
  */
 
