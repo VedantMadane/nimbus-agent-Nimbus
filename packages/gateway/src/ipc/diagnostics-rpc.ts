@@ -118,7 +118,7 @@ function rpcConfigValidate(ctx: DiagnosticsRpcContext): DiagnosticsRpcOutcome {
   const warnings: string[] = [];
   if (!/\bschema_version\b\s*=\s*\d+/.test(raw)) {
     warnings.push(
-      "schema_version = <integer> is recommended in nimbus.toml (Phase 3.5); missing key uses legacy defaults",
+      "schema_version = <integer> is recommended in nimbus.toml; missing key uses legacy defaults",
     );
   }
   return { kind: "hit", value: { ok: errors.length === 0, errors, warnings } };

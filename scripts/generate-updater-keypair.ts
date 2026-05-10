@@ -1,4 +1,3 @@
-// scripts/generate-updater-keypair.ts
 /**
  * One-shot generator for the Nimbus updater Ed25519 keypair.
  *

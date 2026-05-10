@@ -1,5 +1,5 @@
 /**
- * Phase 4 Section 2 — Graph-aware watcher conditions (user_version 22).
+ * Graph-aware watcher conditions (user_version 22).
  *
  * Adds a nullable `graph_predicate_json` column to `watcher`. When non-null,
  * the watcher engine additionally filters candidate items through the graph

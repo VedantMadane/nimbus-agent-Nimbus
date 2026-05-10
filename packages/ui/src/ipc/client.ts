@@ -54,14 +54,14 @@ export interface NimbusIpcClient {
   indexMetrics(): Promise<IndexMetrics>;
   auditList(limit?: number): Promise<AuditEntry[]>;
   consentRespond(requestId: string, approved: boolean): Promise<void>;
-  /** WS5-C Plan 2 additions. */
+  /** Profiles + Telemetry. */
   profileList(): Promise<ProfileListResult>;
   profileCreate(name: string): Promise<{ name: string }>;
   profileSwitch(name: string): Promise<{ active: string }>;
   profileDelete(name: string): Promise<{ deleted: string }>;
   telemetryGetStatus(): Promise<TelemetryStatus>;
   telemetrySetEnabled(enabled: boolean): Promise<{ enabled: boolean }>;
-  /** WS5-C Plan 3 additions — Connectors + Model panels. */
+  /** Connectors + Model panels. */
   connectorSetConfig(
     service: string,
     patch: ConnectorConfigPatch,
@@ -83,7 +83,7 @@ export interface NimbusIpcClient {
     provider: "ollama" | "llamacpp" | "remote",
     modelName: string,
   ): Promise<{ taskType: LlmTaskType; provider: string; modelName: string }>;
-  /** WS5-C Plan 4 additions — Audit + Updates panels. */
+  /** Audit + Updates panels. */
   auditGetSummary(): Promise<AuditSummary>;
   auditVerify(full?: boolean): Promise<AuditVerifyResult>;
   auditExport(): Promise<ReadonlyArray<AuditExportRow>>;
@@ -92,7 +92,7 @@ export interface NimbusIpcClient {
   updaterApplyUpdate(): Promise<UpdaterApplyStarted>;
   updaterRollback(): Promise<UpdaterRollbackResult>;
   diagGetVersion(): Promise<DiagVersionResult>;
-  /** WS5-C Plan 5 additions — Data panel. */
+  /** Data panel. */
   dataGetExportPreflight(): Promise<ExportPreflightResult>;
   dataGetDeletePreflight(args: { service: string }): Promise<DeletePreflightResult>;
   dataExport(args: {
@@ -106,7 +106,7 @@ export interface NimbusIpcClient {
     recoverySeed?: string;
   }): Promise<DataImportResult>;
   dataDelete(args: { service: string; dryRun: false }): Promise<DataDeleteResult>;
-  /** WS5-D additions — Watchers, Workflows, Marketplace. */
+  /** Watchers, Workflows, Marketplace. */
   watcherList(): Promise<WatcherListResult>;
   watcherCreate(params: WatcherCreateParams): Promise<WatcherCreateResult>;
   watcherDelete(id: string): Promise<{ ok: boolean }>;

@@ -1,5 +1,5 @@
 /**
- * Phase 4 Workstream 5-C — Persistent per-connector `depth` (user_version 21).
+ * Persistent per-connector `depth` (user_version 21).
  *
  * Adds a `depth` column to `sync_state` so the Connectors panel can read and
  * write a connector's default reindex depth. Existing rows default to 'summary'

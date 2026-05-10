@@ -1,5 +1,5 @@
 /**
- * Phase 3 Migration 9 — saved workflows and run history.
+ * Saved workflows and run history.
  */
 
 export const WORKFLOW_V9_MIGRATION_SQL = `

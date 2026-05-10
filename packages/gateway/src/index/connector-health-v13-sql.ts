@@ -1,5 +1,5 @@
 /**
- * Phase 3.5 Workstream 2 — Connector health state columns + history table (user_version 13).
+ * Connector health state columns + history table (user_version 13).
  *
  * Adds health tracking columns to `sync_state` and a new `connector_health_history`
  * table so the scheduler, diag, and doctor commands can observe connector health

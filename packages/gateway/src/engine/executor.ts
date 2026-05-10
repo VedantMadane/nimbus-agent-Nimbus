@@ -65,7 +65,7 @@ const HITL_REQUIRED_BACKING = new Set<string>([
   "circleci.job.cancel",
   "gitlab.pipeline.retry",
   "gitlab.pipeline.cancel",
-  // Cloud & infra (Phase 3 — tool ids in registry.ts / connector packages)
+  // Cloud & infra (tool ids in registry.ts / connector packages)
   "aws.ecs.service.update",
   "aws.lambda.invoke",
   "aws.ec2.instance.stop",

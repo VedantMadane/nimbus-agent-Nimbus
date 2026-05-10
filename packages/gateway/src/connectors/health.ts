@@ -1,5 +1,5 @@
 /**
- * Connector health state machine — Phase 3.5 Workstream 2.
+ * Connector health state machine.
  *
  * `transitionHealth()` is the single point of entry for all health state changes.
  * It updates `sync_state` in place and appends a row to `connector_health_history`

@@ -22,7 +22,7 @@ export type RunAskParams = {
   localIndex: LocalIndex;
   dispatcher: ConnectorDispatcher;
   sendChunk: (text: string) => void;
-  /** Mastra agent with local index tools; when set, high-confidence `unknown` intent uses this path (Q2 §7.0). */
+  /** Mastra agent with local index tools; when set, high-confidence `unknown` intent uses this path. */
   conversationalAgent?: Agent;
   /**
    * BUG-005: when both this and `getAgentRequestSessionId()` are set, runAsk

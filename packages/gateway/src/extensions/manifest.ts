@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-/** Spec name (Phase 3 §2.1); preferred when both exist. */
+/** Canonical spec name; preferred when both exist. */
 export const EXTENSION_MANIFEST_FILENAME = "nimbus.extension.json";
 
 /** Legacy scaffold filename; still accepted for installs and verification. */

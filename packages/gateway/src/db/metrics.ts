@@ -1,5 +1,5 @@
 /**
- * Phase 3.5 Workstream 3.1 — aggregate index metrics for status / diag / Prometheus.
+ * Aggregate index metrics for status / diag / Prometheus.
  */
 
 import type { Database } from "bun:sqlite";

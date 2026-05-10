@@ -1,4 +1,3 @@
-// scripts/build-update-manifest.ts
 // Assembles latest.json from signed platform artifacts.
 
 import { readFileSync, writeFileSync } from "node:fs";

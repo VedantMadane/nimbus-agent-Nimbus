@@ -245,9 +245,9 @@ export type SemanticSearchDeps = {
 };
 
 export type LocalIndexOptions = {
-  /** Phase 3 — queue embedding work after index upserts (non-blocking). */
+  /** Queue embedding work after index upserts (non-blocking). */
   scheduleItemEmbedding?: (itemId: string) => void;
-  /** Phase 3 — hybrid BM25 + vector search when set. */
+  /** Hybrid BM25 + vector search when set. */
   semanticSearch?: SemanticSearchDeps;
 };
 
@@ -370,7 +370,7 @@ export class LocalIndex {
 
   /**
    * When GitHub is already registered and a PAT is present, ensure the companion `github_actions`
-   * scheduler row exists (backfill for installs that predated Phase 3 GHA sync).
+   * scheduler row exists (backfill for installs that predated GHA sync).
    */
   ensureGithubActionsSchedulerCompanionIfNeeded(params: {
     githubPatPresent: boolean;
@@ -487,7 +487,7 @@ export class LocalIndex {
   }
 
   /**
-   * Phase 3 — BFS traversal of the local relationship graph (schema v7+).
+   * BFS traversal of the local relationship graph (schema v7+).
    * `startRef` may be a `graph_entity.id` or an indexed item primary key (`item.id`).
    */
   traverseGraph(
@@ -645,7 +645,7 @@ export class LocalIndex {
   }
 
   /**
-   * Phase 3 — like {@link searchRanked} but runs hybrid BM25 + vector RRF when `semantic` is true
+   * Like {@link searchRanked} but runs hybrid BM25 + vector RRF when `semantic` is true
    * and {@link LocalIndexOptions.semanticSearch} is configured.
    */
   async searchRankedAsync(

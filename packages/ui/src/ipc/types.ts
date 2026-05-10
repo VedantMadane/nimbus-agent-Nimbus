@@ -50,7 +50,7 @@ export class JsonRpcError extends Error {
   }
 }
 
-// ---- WS5-B additions ----
+// ---- Connector status ----
 
 export type ConnectorStatus = {
   name: string;
@@ -99,7 +99,7 @@ export interface HitlRequest {
   receivedAtMs: number;
 }
 
-// ---- WS5-C Plan 2 additions (Profiles + Telemetry) ----
+// ---- Profiles + Telemetry ----
 
 /** `profile.list` response row. */
 export interface ProfileSummary {
@@ -143,7 +143,7 @@ export interface TelemetryStatusEnabled extends TelemetryPreviewPayload {
 
 export type TelemetryStatus = TelemetryStatusDisabled | TelemetryStatusEnabled;
 
-// ---- WS5-C Plan 3 additions (Connectors + Model panels) ----
+// ---- Connectors + Model panels ----
 
 /** Router decision for one task type — shape returned by `llm.getRouterStatus`. */
 export interface RouterDecision {
@@ -222,7 +222,7 @@ export interface ConnectorConfigChangedPayload {
   readonly enabled: boolean;
 }
 
-// ---- WS5-C Plan 4 additions (Audit + Updates panels) ----
+// ---- Audit + Updates panels ----
 
 /** `audit.getSummary` response — counts by outcome and by first-segment service. */
 export interface AuditSummary {
@@ -332,7 +332,7 @@ export interface DiagVersionResult {
   readonly version: string;
 }
 
-// ---- WS5-C Plan 5 additions (Data panel) ----
+// ---- Data panel ----
 
 /** `data.getExportPreflight` response. */
 export interface ExportPreflightResult {
@@ -407,7 +407,7 @@ export interface DataImportVersionIncompatibleData {
   readonly relation: "archive_newer" | "archive_older_unsupported";
 }
 
-// ---- WS5-D additions (Watchers, Workflows, Marketplace) ----
+// ---- Watchers, Workflows, Marketplace ----
 
 /** Relation kinds returned by `watcher.listCandidateRelations`. */
 export type GraphRelationKind = "owned_by" | "upstream_of" | "downstream_of";

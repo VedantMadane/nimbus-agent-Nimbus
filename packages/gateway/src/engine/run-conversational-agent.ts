@@ -45,7 +45,7 @@ function isTextDeltaChunk(chunk: unknown): chunk is {
 }
 
 /**
- * Mastra agent turn with local index tools (Q2 §7.0 follow-up — `nimbus ask` conversational path).
+ * Mastra agent turn with local index tools — `nimbus ask` conversational path.
  */
 export async function runConversationalAgent(
   p: RunConversationalAgentParams,

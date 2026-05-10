@@ -1,5 +1,5 @@
 /**
- * Opt-in telemetry (Phase 3.5) — aggregate counters only; disabled by default.
+ * Opt-in telemetry — aggregate counters only; disabled by default.
  * `buildTelemetryPreview()` is safe to call for `nimbus telemetry show` before opt-in.
  */
 

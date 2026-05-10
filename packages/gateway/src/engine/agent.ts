@@ -64,16 +64,16 @@ function isStringArray(xs: unknown): xs is string[] {
 export type NimbusEngineAgentDeps = {
   localIndex: LocalIndex;
   agentModel?: string;
-  /** Q2 §7.0 — defaults to {@link Config.engineContextWindowItems}. */
+  /** Defaults to {@link Config.engineContextWindowItems}. */
   contextWindowItems?: number;
-  /** Q2 §7.2 — defaults to {@link Config.searchServicePriorityMap}. */
+  /** Defaults to {@link Config.searchServicePriorityMap}. */
   searchServicePriority?: ReadonlyMap<string, number>;
   /** When set, exposes recall/append session memory tools (requires `agent.invoke` sessionId). */
   sessionMemoryStore?: SessionMemoryStore;
 };
 
 /**
- * Q1 Mastra agent with read-only gateway tools (index search, connector list, audit tail).
+ * Mastra agent with read-only gateway tools (index search, connector list, audit tail).
  * Destructive filesystem work stays on the planner + {@link ToolExecutor} path.
  */
 export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {

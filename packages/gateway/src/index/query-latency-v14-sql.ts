@@ -1,5 +1,5 @@
 /**
- * Phase 3.5 Workstream 3 — Query latency batch log + slow query log (user_version 14).
+ * Query latency batch log + slow query log (user_version 14).
  */
 
 export const QUERY_LATENCY_V14_SQL = `

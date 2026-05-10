@@ -9,7 +9,7 @@ export const subscribeMock = vi.fn<
 >(async () => () => {});
 export const onConnectionStateMock = vi.fn<() => Promise<() => void>>(async () => () => {});
 
-// WS5-B
+// Connector status
 export const connectorListStatusMock = vi.fn<() => Promise<unknown>>();
 export const indexMetricsMock = vi.fn<() => Promise<unknown>>();
 export const auditListMock = vi.fn<(limit?: number) => Promise<unknown>>();
@@ -17,7 +17,7 @@ export const consentRespondMock = vi.fn<(requestId: string, approved: boolean) =
   async () => undefined,
 );
 
-// WS5-C Plan 2 additions
+// Profiles + Telemetry
 export const profileListMock = vi.fn<() => Promise<unknown>>();
 export const profileCreateMock = vi.fn<(name: string) => Promise<unknown>>();
 export const profileSwitchMock = vi.fn<(name: string) => Promise<unknown>>();
@@ -25,7 +25,7 @@ export const profileDeleteMock = vi.fn<(name: string) => Promise<unknown>>();
 export const telemetryGetStatusMock = vi.fn<() => Promise<unknown>>();
 export const telemetrySetEnabledMock = vi.fn<(enabled: boolean) => Promise<unknown>>();
 
-// WS5-C Plan 3 additions
+// Connectors + Model panels
 export const connectorSetConfigMock =
   vi.fn<(service: string, patch: Record<string, unknown>) => Promise<unknown>>();
 export const llmListModelsMock = vi.fn<() => Promise<unknown>>();
@@ -39,7 +39,7 @@ export const llmUnloadModelMock =
 export const llmSetDefaultMock =
   vi.fn<(taskType: string, provider: string, modelName: string) => Promise<unknown>>();
 
-// WS5-C Plan 4 additions
+// Audit + Updates panels
 export const auditGetSummaryMock = vi.fn<() => Promise<unknown>>();
 export const auditVerifyMock = vi.fn<(full?: boolean) => Promise<unknown>>();
 export const auditExportMock = vi.fn<() => Promise<unknown>>();
@@ -49,7 +49,7 @@ export const updaterApplyUpdateMock = vi.fn<() => Promise<unknown>>();
 export const updaterRollbackMock = vi.fn<() => Promise<unknown>>();
 export const diagGetVersionMock = vi.fn<() => Promise<unknown>>();
 
-// WS5-C Plan 5 additions — Data panel
+// Data panel
 export const dataGetExportPreflightMock = vi.fn<() => Promise<unknown>>();
 export const dataGetDeletePreflightMock = vi.fn<(args: { service: string }) => Promise<unknown>>();
 export const dataExportMock =
@@ -63,7 +63,7 @@ export const dataImportMock =
 export const dataDeleteMock =
   vi.fn<(args: { service: string; dryRun: false }) => Promise<unknown>>();
 
-// WS5-D additions — Watchers, Workflows, Marketplace
+// Watchers, Workflows, Marketplace
 export const watcherListMock = vi.fn<() => Promise<unknown>>();
 export const watcherCreateMock = vi.fn<(params: Record<string, unknown>) => Promise<unknown>>();
 export const watcherDeleteMock = vi.fn<(id: string) => Promise<unknown>>();
