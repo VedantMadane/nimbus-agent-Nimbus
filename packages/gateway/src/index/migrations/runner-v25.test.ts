@@ -1,9 +1,6 @@
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
-import {
-  readIndexedUserVersion,
-  runIndexedSchemaMigrations,
-} from "../../../../src/index/migrations/runner.ts";
+import { readIndexedUserVersion, runIndexedSchemaMigrations } from "./runner.ts";
 
 test("running migrations on a fresh DB advances user_version to 25", () => {
   const db = new Database(":memory:");
