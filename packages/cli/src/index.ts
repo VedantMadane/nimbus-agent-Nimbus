@@ -47,15 +47,12 @@ import { getCliPlatformPaths } from "./paths.ts";
 const rawArgv = process.argv.slice(2);
 const isInteractiveShell = process.stdin.isTTY === true && process.stdout.isTTY === true;
 
-// BUG-001: suppress the Clack `intro("Nimbus")` / `outro("Done.")` chrome
-// when stdout is piped (non-TTY), when any arg is `--json` (every JSON-
-// emitting command), or when `NIMBUS_QUIET=1`. Without this, programmatic
-// consumers (`ConvertFrom-Json`, `jq`, shell pipelines) choke on the banner
-// bytes wrapping the JSON body. Banner stays for human interactive runs.
-const isQuiet =
-  process.stdout.isTTY !== true ||
-  rawArgv.includes("--json") ||
-  process.env["NIMBUS_QUIET"] === "1";
+const isPiped = process.stdout.isTTY !== true;
+const isJsonMode = rawArgv.includes("--json");
+const isExplicitlyQuiet = process.env["NIMBUS_QUIET"] === "1";
+
+/** Suppress banner chrome for programmatic consumers or explicit quiet requests. */
+const shouldSuppressBanner = isPiped || isJsonMode || isExplicitlyQuiet;
 
 type CommandHandler = (args: string[]) => Promise<void> | void;
 
@@ -115,7 +112,7 @@ async function dispatchCommand(command: string, args: string[]): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  if (!isQuiet) intro("Nimbus");
+  if (!shouldSuppressBanner) intro("Nimbus");
   const paths = getCliPlatformPaths();
   const { logger } = await createCliFileLogger(paths);
   logger.info({ event: "cli.invoke", argv: process.argv }, "invoke");
@@ -145,7 +142,7 @@ async function main(): Promise<void> {
     logger.info({ event: "cli.finished", exitCode: process.exitCode ?? 0 }, "finished");
   }
 
-  if (!isQuiet) outro("Done.");
+  if (!shouldSuppressBanner) outro("Done.");
 }
 
 await main();

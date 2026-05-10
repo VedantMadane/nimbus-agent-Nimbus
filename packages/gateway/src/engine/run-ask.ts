@@ -162,6 +162,49 @@ async function dispatchPlan(p: RunAskParams, plan: PlanResult): Promise<{ reply:
   return await runActionsPlan(p, plan.actions);
 }
 
+async function loadRecentConversationHistory(
+  store: SessionMemoryStore | undefined,
+  sessionId: string | undefined,
+): Promise<Array<{ role: "user" | "assistant" | "tool"; text: string }>> {
+  if (store === undefined || sessionId === undefined || sessionId === "") {
+    return [];
+  }
+  try {
+    const recent = await store.getRecentTurns(sessionId, 12);
+    return recent.map((t) => ({ role: t.role, text: t.text }));
+  } catch {
+    return [];
+  }
+}
+
+async function persistConversationTurn(
+  store: SessionMemoryStore | undefined,
+  sessionId: string | undefined,
+  userInput: string,
+  assistantReply: string,
+): Promise<void> {
+  if (store === undefined || sessionId === undefined || sessionId === "") {
+    return;
+  }
+  const now = Date.now();
+  try {
+    await store.append({
+      sessionId,
+      role: "user",
+      text: userInput,
+      createdAt: now,
+    });
+    await store.append({
+      sessionId,
+      role: "assistant",
+      text: assistantReply,
+      createdAt: now + 1,
+    });
+  } catch {
+    // best-effort persistence
+  }
+}
+
 /**
  * NL ask pipeline: classify → plan → HITL-gated {@link ToolExecutor} steps.
  */
@@ -174,31 +217,12 @@ export async function runAsk(p: RunAskParams): Promise<{ reply: string }> {
 
   const classified = await (p.classify ?? classifyIntentForAsk)(p.input);
 
-  // Reserve `planFromIntent` for high-confidence file_search/file_organize — those have
-  // direct ToolExecutor handlers with HITL gating. Everything else routes to the
-  // conversational Mastra agent, which has searchLocalIndex/connector tools that can
-  // answer general queries (email, PRs, etc.) and degrade gracefully when no data is
-  // indexed. The previous gate (`unknown && confidence >= 0.6`) bypassed the agent
-  // whenever the classifier returned low or non-numeric confidence, leaving users with
-  // a static "I am not sure" stub.
   const conversationalAgent = p.conversationalAgent;
   const shouldUseConversational = classified.intent === "unknown" || classified.confidence < 0.6;
 
   if (conversationalAgent !== undefined && shouldUseConversational) {
-    // BUG-005: load prior turns BEFORE invoking the agent so the LLM has
-    // conversation context. Last 12 entries ≈ 6 user/assistant pairs, which
-    // is enough for short follow-ups ("asafgolombek@gmail.com") to land
-    // against the immediately prior question without blowing up the prompt.
-    const sid = getAgentRequestSessionId();
-    let priorTurns: Array<{ role: "user" | "assistant" | "tool"; text: string }> = [];
-    if (p.sessionMemoryStore !== undefined && sid !== undefined && sid !== "") {
-      try {
-        const recent = await p.sessionMemoryStore.getRecentTurns(sid, 12);
-        priorTurns = recent.map((t) => ({ role: t.role, text: t.text }));
-      } catch {
-        // memory load is best-effort; degrade to no-prior-turns
-      }
-    }
+    const sessionId = getAgentRequestSessionId();
+    const priorTurns = await loadRecentConversationHistory(p.sessionMemoryStore, sessionId);
 
     const result = await runConversationalAgent({
       agent: conversationalAgent,
@@ -207,32 +231,9 @@ export async function runAsk(p: RunAskParams): Promise<{ reply: string }> {
       sendChunk: p.sendChunk,
       priorTurns,
     });
-    // BUG-005: persist this turn so the next turn in the same session can
-    // load it as prior context. Both store and sessionId must be present;
-    // either missing reverts to the no-memory path that callers already
-    // tolerate. (`sid` was already resolved above for the prior-turns load.)
-    if (p.sessionMemoryStore !== undefined && sid !== undefined && sid !== "") {
-      const now = Date.now();
-      // Two appends, sequenced. We swallow per-append failures so one bad
-      // write (e.g. embedder briefly down) doesn't fail the user-visible
-      // turn that already streamed successfully.
-      try {
-        await p.sessionMemoryStore.append({
-          sessionId: sid,
-          role: "user",
-          text: p.input,
-          createdAt: now,
-        });
-        await p.sessionMemoryStore.append({
-          sessionId: sid,
-          role: "assistant",
-          text: result.reply,
-          createdAt: now + 1,
-        });
-      } catch {
-        // intentionally swallowed; memory is best-effort
-      }
-    }
+
+    await persistConversationTurn(p.sessionMemoryStore, sessionId, p.input, result.reply);
+
     return result;
   }
 

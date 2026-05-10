@@ -2,11 +2,7 @@ import { IPCClient } from "../ipc-client/index.ts";
 import { readGatewayState } from "../lib/gateway-process.ts";
 import { registerInteractiveCliIpcHandlers } from "../lib/interactive-ipc-handlers.ts";
 import { getCliPlatformPaths } from "../paths.ts";
-// F8: keep the type local to the CLI. Cross-package imports from gateway/
-// would either (a) violate the package-dependency-rules non-negotiable
-// (`sdk ← no imports from gateway`) if routed through the SDK, or
-// (b) violate `cli ← IPC-only` if imported directly. Slim duplicate is the
-// honest path; the runtime payload still goes through dispatchAgentsRpc.
+// Mirrors ExpertBrief types locally to comply with the IPC-only package dependency rule.
 import { type ExpertBrief, isExpertBrief } from "../types/agents.ts";
 
 export type ExpertCliArgs = {
@@ -61,13 +57,8 @@ export async function runExpertCli(args: string[]): Promise<void> {
   await client.connect();
   registerInteractiveCliIpcHandlers(client);
 
-  // Hoist the timeout handle so the `finally` block can always clear it,
-  // even if `client.call` throws before `await briefPromise`.
   let timeout: ReturnType<typeof setTimeout> | undefined;
 
-  // Subscribe to the brief notification before issuing the call.
-  // F6 — IPCClient API is `onNotification`, not `on` (per
-  // packages/client/src/ipc-transport.ts:173 and ask-stream.ts callers).
   const briefPromise = new Promise<{ brief: string; findings: ExpertBrief }>((resolve, reject) => {
     timeout = setTimeout(() => reject(new Error("Agent timed out after 30 s")), TIMEOUT_MS);
     client.onNotification("expert.briefReady", (params: unknown) => {
@@ -88,17 +79,12 @@ export async function runExpertCli(args: string[]): Promise<void> {
   if (parsed.limit !== undefined) callParams.limit = parsed.limit;
 
   try {
-    // F8-Important1 — `client.call` lives inside the try so a thrown error
-    // (network failure, Gateway disconnect mid-request, method-not-found)
-    // still routes through the `finally` block, which clears the timer
-    // and disconnects the client.
     await client.call<{ sessionId: string }>("agents.expert", callParams);
     const { brief, findings } = await briefPromise;
     if (parsed.json) {
       process.stdout.write(`${JSON.stringify(findings, null, 2)}\n`);
       return;
     }
-    // Empty-index gap is a hard exit in default mode (per spec § Error handling).
     if (findings.gaps.some((g) => g.category === "empty_index")) {
       process.stderr.write("No data indexed yet — run `nimbus connector sync <service>` first.\n");
       process.exit(1);

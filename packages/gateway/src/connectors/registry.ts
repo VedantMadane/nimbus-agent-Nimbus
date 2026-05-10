@@ -167,9 +167,7 @@ export function createConnectorDispatcher(
       }
       const input = extractToolInput(action);
 
-      // S8-F5 — wall-clock timeout via Promise.race. A buggy or malicious MCP
-      // that never resolves is bounded by toolTimeoutMs; the upstream HITL
-      // gate is the structural defense against destructive ops, not the only one.
+      // Enforces a wall-clock timeout on the MCP tool execution.
       let timer: ReturnType<typeof setTimeout> | undefined;
       const result = await Promise.race([
         execute(input, {}),
@@ -182,8 +180,7 @@ export function createConnectorDispatcher(
         if (timer !== undefined) clearTimeout(timer);
       });
 
-      // S8-F5 — result-size cap. JSON-serialised because that is the form
-      // that flows into LLM context windows.
+      // Enforces a maximum result size for the serialized tool output.
       const serialized = JSON.stringify(result);
       if (serialized !== undefined && serialized.length > maxResultBytes) {
         throw new Error(

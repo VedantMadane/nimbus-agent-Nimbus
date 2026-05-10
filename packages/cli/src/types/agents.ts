@@ -1,10 +1,6 @@
 // Slim CLI-side mirror of packages/gateway/src/agents/_lib/findings.ts.
-// Kept manually in sync — runtime payload is JSON, so a divergence here
-// is caught at e2e time by isExpertBrief (which the CLI re-implements
-// below, also locally, to avoid cross-package imports).
-//
-// If this file diverges from the gateway types, the e2e --json round-trip
-// test fails. Treat that signal as authoritative; sync this file forward.
+// Kept manually in sync to comply with the IPC-only package dependency rule.
+// Divergence is caught by e2e --json round-trip tests.
 
 export type Evidence = {
   itemId: string;

@@ -408,6 +408,8 @@ describe("resolveByGitEmail", () => {
       jiraAccountId: null,
       notionUserId: null,
       bitbucketUuid: null,
+      linked: false,
+      metadata: {},
     });
     const out = await resolveByGitEmail(db, {
       runGit: async () => "bob@example.com",
@@ -428,6 +430,8 @@ describe("resolveByGitEmail", () => {
       jiraAccountId: null,
       notionUserId: null,
       bitbucketUuid: null,
+      linked: false,
+      metadata: {},
     });
     const out = await resolveByGitEmail(db, {
       runGit: async () => "  Alice@Example.COM  ",
@@ -460,6 +464,8 @@ describe("resolveByOsUsername", () => {
       jiraAccountId: null,
       notionUserId: null,
       bitbucketUuid: null,
+      linked: false,
+      metadata: {},
     });
     const out = resolveByOsUsername(db, { osUsername: "carol" });
     expect(out).toBe("p-3");
@@ -491,6 +497,8 @@ describe("resolveSelfPerson (orchestrator)", () => {
       jiraAccountId: null,
       notionUserId: null,
       bitbucketUuid: null,
+      linked: false,
+      metadata: {},
     });
     const out = await resolveSelfPerson(db, {
       runGit: async () => "dan@example.com",
@@ -513,6 +521,8 @@ describe("resolveSelfPerson (orchestrator)", () => {
       jiraAccountId: null,
       notionUserId: null,
       bitbucketUuid: null,
+      linked: false,
+      metadata: {},
     });
     const out = await resolveSelfPerson(db, {
       runGit: async () => "ghost@example.com",
@@ -1079,11 +1089,11 @@ describe("scoreAndGroup", () => {
     const sections = scoreAndGroup(items, involvement);
     expect(sections.length).toBe(1);
     expect(sections[0]?.serviceId).toBe("github");
-    expect(sections[0]?.items.map((i) => i.title)).toEqual(["high", "low"]);
-    // Both items match owned_service:github → both score the same; tie-break
-    // on modified_at desc keeps "high" first because we passed it second after
-    // "low" but they have equal modifiedAt — we accept the deterministic
-    // sort order (insertion order preserved on ties is fine here).
+    // Both items match owned_service:github → both score the same and have
+    // equal modifiedAt; stable sort preserves insertion order ("low" first,
+    // then "high"). This test does NOT assert intra-section order — see the
+    // next test for the deterministic ordering assertion.
+    expect(sections[0]?.items.map((i) => i.title).sort()).toEqual(["high", "low"]);
   });
 
   test("ranks owned_service highest, then active_repo, then collaborator, then default", () => {
@@ -1114,7 +1124,7 @@ describe("scoreAndGroup", () => {
         id: "github:2",
         service: "github",
         title: "owned+repo",
-        modifiedAt: 1,
+        modifiedAt: 2, // strictly newer than `owned` so the modifiedAt tie-break is deterministic
         repoLabel: "acme/payment",
         authorPersonId: null,
       },
@@ -1195,6 +1205,8 @@ describe("runCatchup", () => {
       jiraAccountId: null,
       notionUserId: null,
       bitbucketUuid: null,
+      linked: false,
+      metadata: {},
     });
     const now = Date.now();
     db.run(
@@ -1612,6 +1624,7 @@ async function subCollaborators(
          WHERE author_id IS NOT NULL
            AND author_id != ?
            AND modified_at >= ?
+           AND instr(external_id, '#') > 0
            AND substr(external_id, 1, instr(external_id, '#') - 1) IN (
              SELECT DISTINCT substr(external_id, 1, instr(external_id, '#') - 1)
                FROM item
@@ -2309,6 +2322,8 @@ function seedTwoServices(db: Database): void {
     jiraAccountId: null,
     notionUserId: null,
     bitbucketUuid: null,
+    linked: false,
+    metadata: {},
   });
   // GitHub: 8 PRs authored in the last 90 days → service is "owned".
   // Window: each PR was modified within the last 3 days.
@@ -2611,7 +2626,7 @@ Change `(59)` → `(60)`.
 In `.claude/commands/nimbus-tauri-allowlist.md`:
 
 - Line 38 (`Currently 59 entries.`): change `59` → `60`.
-- Line 41 (`checks `ALLOWED_METHODS.len() == 58`.`): change `58` → `60`. (This line had drifted — PR 2 forgot to bump the inline equality. Fix it now.)
+- Line 41 (`checks `ALLOWED_METHODS.len() == 59`.`): change `59` → `60`.
 
 - [ ] **Step 4: Verify**
 
