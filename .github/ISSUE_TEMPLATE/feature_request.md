@@ -39,13 +39,19 @@ assignees: []
 
 - [ ] Phase 1 — Foundation ✅
 - [ ] Phase 2 — The Bridge ✅
-- [ ] Phase 3 — Intelligence (Active)
-- [ ] Phase 4 — Presence
-- [ ] Phase 5 — The Extended Surface
+- [ ] Phase 3 — Intelligence ✅
+- [ ] Phase 3.5 — Observability ✅
+- [ ] Phase 4 — Presence ✅
+- [ ] Phase 5 — The Extended Surface (Active)
 - [ ] Phase 6 — Team
-- [ ] Phase 7 — The Autonomous Agent
-- [ ] Phase 8 — Sovereign Mesh
-- [ ] Phase 9 — Enterprise
+- [ ] Phase 7 — Engineering Excellence
+- [ ] Phase 8 — Security Engineering
+- [ ] Phase 9 — AI Engineering Loop
+- [ ] Phase 10 — The Autonomous Agent
+- [ ] Phase 11 — Sovereign Mesh
+- [ ] Phase 12 — Enterprise
+- [ ] Phase 13 — Desktop Distribution
+- [ ] Phase 14 — Agent Evolution / AI v2
 
 ## Additional Context
 

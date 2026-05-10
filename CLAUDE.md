@@ -465,10 +465,14 @@ A system that orchestrates real actions against real data cannot rely on develop
 | Phase 4 | Presence — Tauri UI, VS Code ext, local LLM (Ollama), multi-agent, data portability | ✅ Complete |
 | Phase 5 | The Extended Surface — browser/reading, IMAP, finance, CRM, HR, design connectors; Marketplace v2 | 🔵 Active |
 | Phase 6 | Team — federation, Team Vault, shared namespaces, SSO/SCIM, multi-user HITL, org policy | Planned |
-| Phase 7 | The Autonomous Agent — standing approvals, scheduled tasks, incident correlation, fine-tuning, SRE loop | Planned |
-| Phase 8 | Sovereign Mesh — P2P sync, mobile companion, hardware vault, DIDs, Digital Executor | Planned |
-| Phase 9 | Enterprise — Docker/Helm, SIEM, compliance, SCIM, admin console, security audit, SLA | Planned |
-| Phase 10 | Desktop Distribution — `desktop-v0.1.0` Tauri installers + signing (deferred from `v0.1.0`) | Planned |
+| Phase 7 | Engineering Excellence — service catalog (Backstage/Cortex/OpsLevel/Port), DORA metrics, feature flags, shared knowledge graph, `nimbus excellence` agent | Planned |
+| Phase 8 | Security Engineering — SAST/SCA (Snyk/Semgrep/SonarQube/GitGuardian), CSPM (Wiz/Prisma Cloud), IR/SOC (FireHydrant/Rootly/Tines), supply-chain (sigstore/Okta); `nimbus security` / `posture` / `incident` / `supply-chain` agents | Planned |
+| Phase 9 | AI Engineering Loop — LLM observability (Helicone/Langfuse/LangSmith/Braintrust), ML lifecycle (Arize/WhyLabs/Feast/Tecton), vector stores (Pinecone/Weaviate/Qdrant/Chroma), AI cost & governance; `nimbus model-health` / `rag-health` agents | Planned |
+| Phase 10 | The Autonomous Agent — standing approvals, scheduled tasks, incident correlation, fine-tuning, SRE loop, FinOps + sustainability connectors | Planned |
+| Phase 11 | Sovereign Mesh — P2P sync, mobile companion, hardware vault, DIDs, Digital Executor; i18n / l10n stretch | Planned |
+| Phase 12 | Enterprise — Docker/Helm, SIEM, compliance, SCIM, admin console, security audit, SLA, GRC platforms (Drata/Vanta/Secureframe) | Planned |
+| Phase 13 | Desktop Distribution — `desktop-v0.1.0` Tauri installers + signing; channel-reach stretch (Homebrew/winget/Chocolatey/Snap/Flatpak/AUR/MacPorts/Nix) | Planned |
+| Phase 14 | Agent Evolution / AI v2 — Multimodal I/O + Code Execution Sandbox (Core); Computer Use + Tool Generation + local instruction fine-tuning (Stretch) | Planned |
 
 When implementing, focus only on the current phase. Do not add Phase N+1 features in Phase N code.
 

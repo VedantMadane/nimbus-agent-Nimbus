@@ -156,7 +156,7 @@ Windows, macOS, and Linux are equally supported. Every PR runs a full gate on Ub
 
 ### Extensible
 
-Third-party connectors ship as npm packages. Install in one command; the agent gains a new capability immediately. A local Extension Marketplace lives in the Tauri desktop app — code-complete in Phase 4 and shipping as the separate `desktop-v0.1.0` tag in Phase 6 (the headless `v0.1.0` covers Gateway + CLI + VS Code extension only).
+Third-party connectors ship as npm packages. Install in one command; the agent gains a new capability immediately. A local Extension Marketplace lives in the Tauri desktop app — code-complete in Phase 4 and shipping as the separate `desktop-v0.1.0` tag in Phase 13 (the headless `v0.1.0` covers Gateway + CLI + VS Code extension only).
 
 ---
 
@@ -176,7 +176,7 @@ See the [roadmap](./roadmap.md) for depth and remaining gaps per connector.
 
 ### What's in v0.1.0
 
-`v0.1.0` shipped on **2026-05-09** as the headless Gateway + CLI + VS Code extension (the `desktop-v0.1.0` Tauri release vehicle is deferred to Phase 6 — see [§ Phase 6 → Desktop Release Vehicle in the roadmap](./roadmap.md#desktop-release-vehicle)). Phases 3.5 and 4 are ✅ complete; Phase 5 is now active. Highlights shipped in `v0.1.0`:
+`v0.1.0` shipped on **2026-05-09** as the headless Gateway + CLI + VS Code extension (the `desktop-v0.1.0` Tauri release vehicle is deferred to Phase 13 — see [§ Phase 13 → Desktop Release Vehicle in the roadmap](./roadmap.md#desktop-release-vehicle)). Phases 3.5 and 4 are ✅ complete; Phase 5 is now active. Highlights shipped in `v0.1.0`:
 
 **Observability & developer experience (Phase 3.5):**
 
@@ -204,7 +204,7 @@ See the [roadmap](./roadmap.md) for depth and remaining gaps per connector.
 - **Per-connector OAuth vault keys** — Google and Microsoft sub-services own their own keys; eliminates scope-collision between connectors
 - **Graph-aware watcher conditions** — `[automation].graph_conditions` flag; `owned_by` / `upstream_of` / `downstream_of` predicates over the relationship graph
 
-> **Not in `v0.1.0`:** the Tauri desktop UI is code-complete in Phase 4 but its release vehicle (signed installers + auto-update) ships separately as `desktop-v0.1.0` in Phase 6. See [§ Phase 6 → Desktop Release Vehicle in the roadmap](./roadmap.md#desktop-release-vehicle).
+> **Not in `v0.1.0`:** the Tauri desktop UI is code-complete in Phase 4 but its release vehicle (signed installers + auto-update) ships separately as `desktop-v0.1.0` in Phase 13. See [§ Phase 13 → Desktop Release Vehicle in the roadmap](./roadmap.md#desktop-release-vehicle).
 
 **Landed since `v0.1.0` (Phase 5 in flight):**
 
@@ -570,7 +570,7 @@ nimbus extension list
 - **Structural HITL gate** — every delete, send, and move is blocked at the executor by a compile-time constant set. The agent cannot reason around a function that doesn't exist.
 - **Extension isolation** — third-party extensions run as child processes, receive only their declared service's credentials, and cannot reach the Vault or other connectors. Manifest SHA-256 is verified on every Gateway startup.
 - **Full audit log** — every action, including every HITL decision, is recorded in a local SQLite table before the action executes.
-- **Internal security audit (B1, 2026-04-25)** — 8 trust surfaces reviewed; 78 unique findings filed (0 Critical); all High and Medium items closed pre-`v0.1.0`. Three Low items remain as Phase 4 polish; see [SECURITY.md](./SECURITY.md#security-audits) for the full record. A formal third-party penetration test is scheduled for Phase 9.
+- **Internal security audit (B1, 2026-04-25)** — 8 trust surfaces reviewed; 78 unique findings filed (0 Critical); all High and Medium items closed pre-`v0.1.0`. Three Low items remain as Phase 4 polish; see [SECURITY.md](./SECURITY.md#security-audits) for the full record. A formal third-party penetration test is scheduled for Phase 12.
 
 > **Note:** Nimbus's guarantees hold at the process boundary. It is not a firewall, antivirus, or VPN application; endpoint protection (AV/EDR), network security (VPN/Firewall), and OS-level hardening are your responsibility. See [SECURITY.md](./SECURITY.md) for the full boundary definition.
 
@@ -726,7 +726,7 @@ For workflow, verification commands, and PR expectations, see [`CONTRIBUTING.md`
 |---|---|---|
 | **Open Source** | Individual engineers — AGPL-3.0, full feature set for single-user deployments | Available now |
 | **Team** | Shared index namespaces, Team Vault, multi-user HITL, LAN federation — Phase 6 | Planned |
-| **Enterprise** | SSO/SCIM, compliance tooling, audit log shipping, Helm/Docker, SLA support — Phase 9 | Planned |
+| **Enterprise** | SSO/SCIM, compliance tooling, audit log shipping, Helm/Docker, SLA support — Phase 12 | Planned |
 
 The Extension SDK (`@nimbus-dev/sdk`) is MIT-licensed — extension authors have no copyleft obligation.
 

@@ -74,11 +74,11 @@ This boundary is the reason certain issue classes are listed as out of scope bel
 
 | Audit | Date | Scope | Outcome |
 |---|---|---|---|
-| **B1 — Phase 4 internal audit** | 2026-04-25 | 8 trust surfaces (HITL, Vault, LAN, Tauri allowlist, raw SQL, Updater, Extension sandbox, MCP boundary) + cross-surface chains | 78 unique findings filed (0 Critical / 16 High / 28 Medium / 34 Low). All High and Medium findings closed by PRs `#112` / `#113` / commit `806453a`. Three Low items remain scoped to Phase 4 as pre-`v0.1.0` blockers (S4-F6, S4-F8, S6-F1); two more are tracked under Phase 5 (S5-F4, S8-F10), one under Phase 7 (S3-F8 LAN forward secrecy). |
+| **B1 — Phase 4 internal audit** | 2026-04-25 | 8 trust surfaces (HITL, Vault, LAN, Tauri allowlist, raw SQL, Updater, Extension sandbox, MCP boundary) + cross-surface chains | 78 unique findings filed (0 Critical / 16 High / 28 Medium / 34 Low). All High and Medium findings closed by PRs `#112` / `#113` / commit `806453a`. Three Low items remain scoped to Phase 4 as pre-`v0.1.0` blockers (S4-F6, S4-F8, S6-F1); two more are tracked under Phase 5 (S5-F4, S8-F10), one under Phase 10 (S3-F8 LAN forward secrecy). |
 
 The B1 audit also surfaced three orphaned defenses (`extensionProcessEnv`, `checkLanMethodAllowed`, the `<tool_output>` envelope) that were defined but never wired in production. To prevent recurrence, every structural defense Nimbus relies on is now paired with a production wiring site and a regression test in `packages/gateway/src/security-invariants.test.ts`. The full list lives in [`SECURITY-INVARIANTS.md`](./SECURITY-INVARIANTS.md). The audit's durable conclusions — Vault threat surface, LAN trust model, acknowledged residual risks — have been folded into this document; the original per-surface design specs were archived once their substantive content was migrated.
 
-A formal third-party penetration test is planned for Phase 9 (Enterprise readiness).
+A formal third-party penetration test is planned for Phase 12 (Enterprise readiness).
 
 ---
 
@@ -148,11 +148,11 @@ Third-party extensions run as child processes. They:
 - Are also re-hashed via `verifyOneExtensionStrict` immediately before any pre-spawn check to catch mutations between startup verify and child spawn (S7-F3 fix)
 - Are installed only from non-symlinked source trees (`scanForSymlinks` rejects any symlink in the source) and tar archives are extracted with explicit safety flags (`--no-overwrite-dir`, `--no-same-owner`, `--no-same-permissions`) plus a post-extract path-traversal sweep (`assertNoEntryEscapes`) that refuses any entry whose final-path resolve falls outside the install root (S7-F4, S7-F5 fixes)
 
-**Extension isolation.** Extensions run as child processes spawned by the gateway. They share the gateway's user UID and have full filesystem and network access at that UID's permissions — there is no `seccomp` / `bwrap` / `sandbox-exec` / AppContainer sandbox in this release. The only structural barriers are: (a) `extensionProcessEnv()` filters parent-process environment variables, blocking propagation of OAuth client secrets and LLM provider API keys; (b) startup SHA-256 verification detects post-install drift and disables affected rows; (c) the same SHA-256 is re-checked immediately before each spawn (S7-F3 fix). OS-level sandboxing is on the Phase 7 roadmap. Until then, extensions must be considered code that runs at full user-UID equivalence — do not install extensions from untrusted sources.
+**Extension isolation.** Extensions run as child processes spawned by the gateway. They share the gateway's user UID and have full filesystem and network access at that UID's permissions — there is no `seccomp` / `bwrap` / `sandbox-exec` / AppContainer sandbox in this release. The only structural barriers are: (a) `extensionProcessEnv()` filters parent-process environment variables, blocking propagation of OAuth client secrets and LLM provider API keys; (b) startup SHA-256 verification detects post-install drift and disables affected rows; (c) the same SHA-256 is re-checked immediately before each spawn (S7-F3 fix). OS-level sandboxing is on the Phase 10 roadmap. Until then, extensions must be considered code that runs at full user-UID equivalence — do not install extensions from untrusted sources.
 
 #### Extension disable does not orphan-kill subprocesses
 
-When an extension's hash check fails (`verifyExtensionsBestEffort` at startup) or the user invokes `extension.disable`, the gateway terminates the extension's immediate MCP child process via `LazyConnectorMesh.stopExtensionClient`. Any further subprocesses that the extension itself spawned (helper daemons, background watchers) are NOT killed — they continue running until they exit on their own. This is a known limitation of `child_process.spawn` (no process-group kill on POSIX, no Job Object wrapping on Windows) and aligns with the broader same-uid sandbox model documented above. Phase 7 sandbox work (`bwrap` / `sandbox-exec` / `AppContainer`) will close this gap by binding the extension's full descendant tree to a sandbox lifetime.
+When an extension's hash check fails (`verifyExtensionsBestEffort` at startup) or the user invokes `extension.disable`, the gateway terminates the extension's immediate MCP child process via `LazyConnectorMesh.stopExtensionClient`. Any further subprocesses that the extension itself spawned (helper daemons, background watchers) are NOT killed — they continue running until they exit on their own. This is a known limitation of `child_process.spawn` (no process-group kill on POSIX, no Job Object wrapping on Windows) and aligns with the broader same-uid sandbox model documented above. Phase 10 sandbox work (`bwrap` / `sandbox-exec` / `AppContainer`) will close this gap by binding the extension's full descendant tree to a sandbox lifetime.
 
 ---
 
@@ -160,7 +160,7 @@ When an extension's hash check fails (`verifyExtensionsBestEffort` at startup) o
 
 The Gateway listens only on a local domain socket (Unix) or named pipe (Windows), created with owner-only permissions (`chmod 0600` on Unix; DACL owner-only on Windows). There is no TCP listener. No Nimbus Gateway port is opened on any network interface.
 
-The optional LAN server (`nimbus lan enable`) and auto-updater (`nimbus update`) are guarded by the structural defenses listed in [`SECURITY-INVARIANTS.md`](./SECURITY-INVARIANTS.md) — the LAN method allowlist (`I5`), loopback bind default (`I6`), and updater signature/version checks. The B1 audit closed the High and Medium findings on these subsystems; remaining Low items are tracked in the [Phase 4 / Phase 7 roadmap entries](./roadmap.md). Production wiring of both features lands once GA prerequisites (signing certs, manifest server, LAN forward-secrecy redesign) are signed off.
+The optional LAN server (`nimbus lan enable`) and auto-updater (`nimbus update`) are guarded by the structural defenses listed in [`SECURITY-INVARIANTS.md`](./SECURITY-INVARIANTS.md) — the LAN method allowlist (`I5`), loopback bind default (`I6`), and updater signature/version checks. The B1 audit closed the High and Medium findings on these subsystems; remaining Low items are tracked in the [Phase 4 / Phase 10 roadmap entries](./roadmap.md). Production wiring of both features lands once GA prerequisites (signing certs, manifest server, LAN forward-secrecy redesign) are signed off.
 
 #### LAN remote access — trust model
 
@@ -169,7 +169,7 @@ When `nimbus lan enable` is on, the LAN server accepts length-framed TCP connect
 - Pairing opens a **5-minute window**, gated by a 120-bit base58 pairing code (`randomBytes(15)` → 20 chars). The code is single-use and constant-time-compared. After the window closes, only previously-paired peers can connect.
 - Per-IP rate limiter (`lan-rate-limit.ts`) tracks failed pairing attempts in a sliding window; lockout is automatic after the configured threshold. The limiter is in-memory only — restarting the gateway clears lockouts. Plan a one-time grace if you cycle the gateway during an active attack.
 - A peer's identity is its X25519 public key, persisted in `lan_peers` after successful pairing. **There is no out-of-band binding to the host's identity** beyond the pairing code; a network attacker between peer and gateway during pairing could substitute their own keypair. Mitigation: transmit the pairing code out-of-band (read it aloud, send via SMS, etc.) — never in the same network channel that's being paired.
-- The X25519 keypairs are **long-term per host** with no per-session ephemeral DH layer. There is no forward secrecy: a future compromise of the host's secret key allows decryption of all past LAN sessions captured on the wire. Closing this gap is on the Phase 7 roadmap.
+- The X25519 keypairs are **long-term per host** with no per-session ephemeral DH layer. There is no forward secrecy: a future compromise of the host's secret key allows decryption of all past LAN sessions captured on the wire. Closing this gap is on the Phase 10 roadmap.
 
 **Attacker capabilities:**
 
@@ -183,7 +183,7 @@ When `nimbus lan enable` is on, the LAN server accepts length-framed TCP connect
 
 **Acknowledged residual risks:**
 
-- No forward secrecy across sessions (Phase 7 redesign).
+- No forward secrecy across sessions (Phase 10 redesign).
 - Cross-network pairing relies on out-of-band code transmission.
 - The host identity is implicit (host pubkey is announced post-handshake) — peer-side host pinning is the user's responsibility for now.
 
@@ -240,7 +240,7 @@ Phase 5 will introduce standing approvals: pre-authorized patterns that allow re
 
 Nimbus is designed to support security-sensitive operational environments. The properties relevant to SecDevOps and compliance teams:
 
-**Audit trail.** Every action the agent takes — including every HITL approval, rejection, and "not required" decision — is recorded in a local SQLite `audit_log` table before the action executes. The log is append-only and BLAKE3-chained (`row_hash`, `prev_hash` columns added by V18); verify integrity with `nimbus audit verify`. Phase 9 adds shipping to SIEM targets (Splunk, Elastic, Datadog Logs, S3/GCS/Azure Blob) with local retention as fallback.
+**Audit trail.** Every action the agent takes — including every HITL approval, rejection, and "not required" decision — is recorded in a local SQLite `audit_log` table before the action executes. The log is append-only and BLAKE3-chained (`row_hash`, `prev_hash` columns added by V18); verify integrity with `nimbus audit verify`. Phase 12 adds shipping to SIEM targets (Splunk, Elastic, Datadog Logs, S3/GCS/Azure Blob) with local retention as fallback.
 
 **No data exfiltration surface.** The local index stores metadata only — names, timestamps, URLs, body previews. Full document content never enters the index or embedding pipeline unless explicitly configured (`[indexing.depth] = "full"`). The index is protected by OS file permissions; it is never transmitted to a Nimbus server because there is no Nimbus server.
 
@@ -248,7 +248,7 @@ Nimbus is designed to support security-sensitive operational environments. The p
 
 **Credential isolation.** Connector credentials are injected at MCP server spawn time via environment variables scoped to that child process. They are never present in IPC messages, in the local index, in log output, or in the Engine's context. The `redact` configuration on the structured logger automatically censors any field matching `*.token`, `*.secret`, or `oauth.*`.
 
-**Compliance tooling roadmap.** `nimbus compliance check` (Phase 9) will produce a machine-readable JSON report covering: credential storage status, audit log integrity, plaintext credential scan, connector scope minimization, and data residency posture. Structured for auditor consumption.
+**Compliance tooling roadmap.** `nimbus compliance check` (Phase 12) will produce a machine-readable JSON report covering: credential storage status, audit log integrity, plaintext credential scan, connector scope minimization, and data residency posture. Structured for auditor consumption.
 
 ---
 
