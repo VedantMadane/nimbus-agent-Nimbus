@@ -33,7 +33,10 @@ import { GRAPH_V7_MIGRATION_SQL } from "../graph-v7-sql.ts";
 import { LAN_PEERS_V19_SQL } from "../lan-peers-v19-sql.ts";
 import { LLM_CONTEXT_WINDOW_V16_ALTER_SQL, LLM_MODELS_V16_SQL } from "../llm-models-v16-sql.ts";
 import { LLM_TASK_DEFAULTS_V20_SQL } from "../llm-task-defaults-v20-sql.ts";
-import { OBSIDIAN_NOTES_V26_SCHEMA_SQL } from "../obsidian-notes-v26-sql.ts";
+import {
+  OBSIDIAN_NOTES_V26_SCHEMA_SQL,
+  OBSIDIAN_NOTES_V26_SEED_SQL,
+} from "../obsidian-notes-v26-sql.ts";
 import { PERSON_HANDLES_V5_ALTER_SQL } from "../person-handles-v5-sql.ts";
 import { PERSON_LINKED_V4_ALTER_SQL } from "../person-linked-v4-sql.ts";
 import { QUERY_LATENCY_V14_SQL } from "../query-latency-v14-sql.ts";
@@ -357,6 +360,7 @@ function migrateIndexedV24ToV25(db: Database, now: number): void {
 function migrateIndexedV25ToV26(db: Database, now: number): void {
   db.transaction(() => {
     db.exec(OBSIDIAN_NOTES_V26_SCHEMA_SQL);
+    db.exec(OBSIDIAN_NOTES_V26_SEED_SQL);
     db.exec("PRAGMA user_version = 26");
     recordMigration(db, 26, "obsidian_notes shadow table (Wave A PR 2)", now);
   })();
