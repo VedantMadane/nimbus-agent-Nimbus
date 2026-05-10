@@ -44,6 +44,7 @@ const HITL_REQUIRED_BACKING = new Set<string>([
   "notion.page.update",
   "notion.block.append",
   "notion.comment.create",
+  "obsidian.note.append",
   "confluence.page.create",
   "confluence.page.update",
   "confluence.comment.add",
