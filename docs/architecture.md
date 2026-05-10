@@ -1082,6 +1082,7 @@ const streamReq: JSONRPCRequest = {
 --                   "alert" | "incident" | "infra_resource"
 --                   "data_model" | "data_pipeline" | "dashboard" | "log_alarm"  -- Phase 5/6
 --                   "ml_model" | "data_quality_test"                             -- Phase 5/6 (pass 2)
+--                   "api_endpoint"                                               -- Phase 5 Wave A PR 1
 -- Note: "task" is not a currently emitted item_type; use "issue" for Linear/Jira items.
 CREATE TABLE indexed_items (
     id          TEXT PRIMARY KEY,   -- "<service>:<native_id>"
@@ -1155,6 +1156,30 @@ CREATE TABLE connector_health_history (
 );
 CREATE INDEX idx_chh_connector_occurred
     ON connector_health_history(connector_id, occurred_at DESC);
+
+-- OpenAPI / AsyncAPI endpoint shadow (Phase 5 Wave A PR 1) — V25 migration.
+-- One row per indexed endpoint, keyed by `item.id`. The `item.service`
+-- column is always "openapi" for these rows; `service_name` here is the
+-- inferred service that owns the endpoint (from the spec's enclosing
+-- directory, info.title slug, or sha8 fallback).
+CREATE TABLE api_endpoint (
+    id            TEXT PRIMARY KEY,
+    service_name  TEXT NOT NULL,
+    path          TEXT NOT NULL,
+    method        TEXT NOT NULL,        -- "GET"/"POST"/... or "PUBLISH"/"SUBSCRIBE" for AsyncAPI
+    operation_id  TEXT,
+    tags_json     TEXT NOT NULL DEFAULT '[]',
+    deprecated    INTEGER NOT NULL DEFAULT 0,
+    spec_file     TEXT NOT NULL,        -- absolute path
+    spec_version  TEXT NOT NULL,        -- "openapi-3.1.0" / "swagger-2.0" / "asyncapi-2.6.0"
+    last_modified INTEGER NOT NULL,
+    created_at    INTEGER NOT NULL,
+    CHECK (deprecated IN (0, 1))
+);
+CREATE INDEX idx_api_endpoint_service_path_method
+    ON api_endpoint(service_name, path, method);
+CREATE INDEX idx_api_endpoint_spec_file
+    ON api_endpoint(spec_file);
 
 -- Query latency log (Phase 3.5) — batch-written from in-memory ring buffer
 CREATE TABLE query_latency_log (
