@@ -27,4 +27,7 @@ CREATE INDEX IF NOT EXISTS idx_obsidian_notes_vault_path
 CREATE INDEX IF NOT EXISTS idx_obsidian_notes_daily_note_date
   ON obsidian_notes (daily_note_date)
   WHERE daily_note_date IS NOT NULL;
+
+INSERT OR IGNORE INTO graph_relation_type (name, directed) VALUES
+  ('backlinks', 1);
 `;

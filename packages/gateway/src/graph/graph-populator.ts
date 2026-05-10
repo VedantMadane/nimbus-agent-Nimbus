@@ -182,6 +182,41 @@ function syncApiEndpointGraph(db: Database, row: IndexedItemGraphInput, now: num
   upsertGraphRelation(db, apiEndpointEntityId, serviceEntityId, "targets", now);
 }
 
+function syncObsidianNoteGraph(db: Database, row: IndexedItemGraphInput, now: number): void {
+  const vaultId = stringField(row.metadata, "vault_id") ?? "unknown";
+  const noteEntityId = upsertGraphEntity(db, {
+    type: "obsidian_note",
+    externalId: row.id,
+    label: row.title,
+    service: row.service,
+    metadata: { vault_id: vaultId },
+  });
+  // Replace this note's outgoing edges atomically: clear all relations
+  // touching the note, then re-emit the freshly-resolved backlink set.
+  // (Edges where the deleted note is the *target* are pruned by the
+  // sync handler when it cascades a note-delete — see Task 10.)
+  clearRelationsTouchingEntity(db, noteEntityId);
+
+  const resolved = row.metadata["resolved_wikilink_ids"];
+  if (Array.isArray(resolved)) {
+    for (const target of resolved) {
+      if (typeof target !== "string" || target === "") {
+        continue;
+      }
+      // Look up the target's graph entity id by its `external_id` (which is
+      // the note's `item.id`). If the target hasn't been indexed yet the
+      // edge is skipped — re-syncing once both notes are indexed creates it.
+      const tgt = db
+        .query("SELECT id FROM graph_entity WHERE type = 'obsidian_note' AND external_id = ?")
+        .get(target) as { id: string } | null;
+      if (tgt === null) {
+        continue;
+      }
+      upsertGraphRelation(db, noteEntityId, tgt.id, "backlinks", now);
+    }
+  }
+}
+
 function syncCodeSymbolGraph(db: Database, row: IndexedItemGraphInput, now: number): void {
   const file = stringField(row.metadata, "file");
   const name = stringField(row.metadata, "name");
@@ -291,5 +326,9 @@ export function syncGraphFromIndexedItem(db: Database, row: IndexedItemGraphInpu
   }
   if (row.type === "code_symbol") {
     syncCodeSymbolGraph(db, row, now);
+    return;
+  }
+  if (row.type === "obsidian_note") {
+    syncObsidianNoteGraph(db, row, now);
   }
 }
