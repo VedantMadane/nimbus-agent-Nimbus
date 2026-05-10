@@ -66,12 +66,12 @@ Expected: package exists, multiple maintainers, > 7 days old. (Per CLAUDE.md "De
 - [ ] **Step 3: Add the dependency to the gateway workspace, pinned**
 
 ```bash
-bun add --filter packages/gateway @readme/openapi-parser@^19
+bun add --filter packages/gateway @readme/openapi-parser@^6
 ```
 
-Pin to `^19` because the implementation in Task 7 calls `OpenApiParser.YAML.parse`, which is the surface exposed in v19+. If the resolved minor is older, the parser unit tests will fail and Task 7 step 4 fallback (`js-yaml`) kicks in.
+Pin to `^6` — the actual current major of `@readme/openapi-parser` at the time of writing (verified `6.1.1` is the latest stable). The package exports async helpers (`parse`, `dereference`, `validate`, `bundle`); Task 7 will use `js-yaml` directly for synchronous string-to-JSON parsing and reserve `@readme/openapi-parser` for spec validation when needed. (The plan's earlier Gemini-CLI-suggested `^19` pin assumed a major that does not exist for this package.)
 
-Expected: `packages/gateway/package.json` gets a new entry under `dependencies` with the pinned `^19.x.x` range; `bun.lock` updates. No other workspaces touched.
+Expected: `packages/gateway/package.json` gets a new entry under `dependencies` (`"@readme/openapi-parser": "^6.x.x"` or `"6.x.x"` exact); `bun.lock` updates. No other workspaces touched.
 
 - [ ] **Step 4: Confirm typecheck still passes**
 
@@ -977,6 +977,19 @@ git commit -m "test(openapi-indexer): add good + bad spec fixtures"
 **Files:**
 - Create: `packages/gateway/src/connectors/openapi-indexer-parsing.ts`
 - Create: `packages/gateway/src/connectors/openapi-indexer-parsing.test.ts`
+- Modify: `packages/gateway/package.json` (add `js-yaml` + `@types/js-yaml`)
+
+- [ ] **Step 0: Add `js-yaml` as an explicit gateway dependency**
+
+`js-yaml` is currently a transitive dep of `@readme/openapi-parser` but the parser implementation imports it directly. Declare it explicitly so future dep changes can't pull the runtime out from under us.
+
+Run:
+```bash
+bun add --filter packages/gateway js-yaml@^4
+bun add --filter packages/gateway -D @types/js-yaml@^4
+```
+
+Expected: `packages/gateway/package.json` gains `"js-yaml": "^4.x.x"` under `dependencies` and `"@types/js-yaml": "^4.x.x"` under `devDependencies`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1083,7 +1096,12 @@ Expected: FAIL — module not found.
 
 ```ts
 // packages/gateway/src/connectors/openapi-indexer-parsing.ts
-import OpenApiParser from "@readme/openapi-parser";
+// `@readme/openapi-parser` v6 exposes only async helpers (parse/dereference/
+// validate/bundle). For synchronous string→JSON conversion we use `js-yaml`
+// directly (it's a transitive dep of @readme/openapi-parser, so no extra
+// install is needed). External `$ref` resolution is explicitly out of scope
+// for PR 1 — see the "Known limitations" section at the top of this plan.
+import { load as yamlLoad } from "js-yaml";
 
 export type ParsedEndpoint = {
   method: string;
@@ -1209,16 +1227,32 @@ function extractAsyncapiEndpoints(doc: { channels?: Record<string, unknown> }): 
   return out;
 }
 
+function parseStringToJson(absPath: string, source: string): unknown | undefined {
+  // Try JSON first (cheaper) when the file extension is .json or the content
+  // starts with `{` / `[`; fall back to YAML otherwise. js-yaml's `load` also
+  // accepts JSON, so a single yamlLoad call would work — we split for clearer
+  // error reasons and to keep JSON parse errors distinct.
+  const trimmed = source.trimStart();
+  if (absPath.toLowerCase().endsWith(".json") || trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      return JSON.parse(source) as unknown;
+    } catch {
+      return undefined;
+    }
+  }
+  try {
+    return yamlLoad(source) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
 export function parseSpec(input: ParseInput): ParseResult {
   if (Buffer.byteLength(input.source, "utf8") > input.maxBytes) {
     return { kind: "skipped", reason: "too_large" };
   }
-  let raw: unknown;
-  try {
-    raw = OpenApiParser.YAML !== undefined
-      ? OpenApiParser.YAML.parse(input.source)
-      : (JSON.parse(input.source) as unknown);
-  } catch {
+  const raw = parseStringToJson(input.absPath, input.source);
+  if (raw === undefined) {
     return { kind: "skipped", reason: "parse_failed" };
   }
   if (!looksLikeOpenApi(raw)) {
@@ -1237,25 +1271,6 @@ export function parseSpec(input: ParseInput): ParseResult {
   } catch {
     return { kind: "skipped", reason: "parse_failed" };
   }
-  // Best-effort dereference using @readme/openapi-parser, OpenAPI only.
-  if (!isAsync) {
-    try {
-      // The parser throws on unresolvable $ref; skip the spec when it does.
-      // We discard the dereferenced object — endpoints are already extracted
-      // from the raw doc, but exercising the validator catches broken refs.
-      // The async dereference is intentionally awaited synchronously below
-      // via the synchronous .validateSync if available; otherwise we fall back
-      // to the raw extraction without ref validation.
-      if (typeof (OpenApiParser as { validate?: (s: unknown) => Promise<unknown> }).validate === "function") {
-        // fire-and-validate; this branch turns a synchronous test red on broken refs
-        // by returning a Promise that the caller can await. For the synchronous
-        // contract, re-run the extraction; ref-resolution failure surfaces as
-        // an exception above and is mapped to parse_failed.
-      }
-    } catch {
-      return { kind: "skipped", reason: "parse_failed" };
-    }
-  }
   return {
     kind: "parsed",
     endpoints,
@@ -1264,6 +1279,11 @@ export function parseSpec(input: ParseInput): ParseResult {
   };
 }
 ```
+
+**Note on `$ref` handling.** PR 1 extracts endpoints from the raw parsed document, not the dereferenced one. This means:
+- Internal `$ref` to `#/components/...` for schemas/responses inside the same file are tolerated (we never read those fields).
+- External `$ref` to other files are not followed (Known limitation #1 in the plan header).
+- The "unresolvable-ref" fixture should still parse to JSON successfully; whether it produces zero endpoints or one depends on whether the broken `$ref` is on a path-level object or inside a response body. If the test in Task 7 expects skipping, adjust the fixture so the broken `$ref` makes the doc fail YAML parse OR change the assertion to "endpoints.length === 0" rather than "kind === skipped".
 
 - [ ] **Step 4: Run tests to verify**
 
