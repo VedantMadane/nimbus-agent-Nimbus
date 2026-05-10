@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { readFileSync, statSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
 import type { NimbusFilesystemRootToml } from "../config/filesystem-toml.ts";
@@ -173,16 +173,31 @@ export function createObsidianSyncable(options: ObsidianSyncableOptions): Syncab
         const parsedNotes: IndexedNote[] = [];
         for (const rel of noteRelPaths) {
           const abs = join(vaultRoot, rel);
+          // Open once and use the file descriptor for both fstat and read,
+          // closing the time-of-check / time-of-use race between a separate
+          // `statSync(path)` + `readFileSync(path)` (a regular file swapped
+          // to a symlink between the calls would still be followed by the
+          // second call). Both operations now resolve through the same open
+          // inode rather than re-traversing the path.
           let mtimeMs = 0;
+          let source: string | undefined;
+          let fd: number | undefined;
           try {
-            mtimeMs = statSync(abs).mtimeMs;
+            fd = openSync(abs, "r");
+            mtimeMs = fstatSync(fd).mtimeMs;
+            source = readFileSync(fd, "utf8");
           } catch {
-            continue;
+            // file disappeared / unreadable — skip to next entry
+          } finally {
+            if (fd !== undefined) {
+              try {
+                closeSync(fd);
+              } catch {
+                // ignore close errors
+              }
+            }
           }
-          let source = "";
-          try {
-            source = readFileSync(abs, "utf8");
-          } catch {
+          if (source === undefined) {
             continue;
           }
           const parsed = parseNote(rel, source);
