@@ -28,6 +28,7 @@ export const LAZY_MESH = {
   circleci: "mesh:circleci",
   pagerduty: "mesh:pagerduty",
   kubernetes: "mesh:kubernetes",
+  obsidian: "mesh:obsidian",
   phase3Bundle: "mesh:phase3-bundle",
 } as const;
 

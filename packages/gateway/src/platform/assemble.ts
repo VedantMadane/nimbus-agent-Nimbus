@@ -22,6 +22,7 @@ import {
 } from "../connectors/connector-vault.ts";
 import { createFilesystemV2Syncable } from "../connectors/filesystem-v2-sync.ts";
 import { createLazyConnectorMesh, type LazyConnectorMesh } from "../connectors/lazy-mesh/index.ts";
+import { createObsidianSyncable } from "../connectors/obsidian-sync.ts";
 import {
   DEFAULT_OPENAPI_CONFIG,
   type OpenapiConfig,
@@ -251,6 +252,9 @@ async function createSchedulerWithMesh(
         config: loadOpenapiConfig(paths.configDir),
       }),
     );
+    // Wave A PR 2 — gateway-side Obsidian vault indexer.
+    localIndex.ensureConnectorSchedulerRegistration("obsidian", 10 * 60 * 1000, Date.now());
+    syncScheduler.register(createObsidianSyncable({ roots: fsV2Roots }));
   }
   const connectorMesh = await createLazyConnectorMesh(paths, vault, {
     listUserMcpConnectors: () => listUserMcpConnectors(db),
@@ -258,6 +262,9 @@ async function createSchedulerWithMesh(
     // persistent_error in connector health and a warn log line.
     healthDb: db,
     logger: syncLogger,
+    // Wave A PR 2 — thread the absolute filesystem-root paths so the
+    // obsidian MCP child can discover `.obsidian/` markers itself.
+    obsidianVaultPaths: fsV2Roots.map((r) => r.path),
   });
   registerConnectorMeshSyncables(syncScheduler, connectorMesh);
   registerUserMcpSyncablesFromDatabase(db, syncScheduler, connectorMesh);

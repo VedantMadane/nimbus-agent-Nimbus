@@ -19,6 +19,7 @@ import {
   ensureLinearMcp,
   ensureMicrosoftBundleMcp,
   ensureNotionMcp,
+  ensureObsidianMcp,
   ensurePagerdutyMcp,
   ensurePhase3BundleMcp,
   ensureSlackMcp,
@@ -56,6 +57,12 @@ export class LazyConnectorMesh {
       healthDb?: import("bun:sqlite").Database;
       /** S8-F9 — when supplied, args_json parse failures emit a warn line. */
       logger?: MeshLogger;
+      /**
+       * Wave A PR 2 — absolute paths of `[[filesystem.roots]]` discovered at
+       * gateway boot. Threaded into `MeshSpawnContext.obsidianVaultPaths`
+       * for `ensureObsidianMcp`. Empty/undefined → obsidian MCP not started.
+       */
+      obsidianVaultPaths?: readonly string[];
     },
   ) {
     this.inactivityMs = options?.inactivityMs ?? 300_000;
@@ -75,6 +82,7 @@ export class LazyConnectorMesh {
       vault: this.vault,
       logger: this.logger,
       healthDb: this.healthDb,
+      obsidianVaultPaths: options?.obsidianVaultPaths,
       clearLazyIdle: (k) => this.clearLazyIdle(k),
       getLazyClient: (k) => this.getLazyClient(k),
       setLazyClient: (k, c) => this.setLazyClient(k, c),
@@ -245,6 +253,10 @@ export class LazyConnectorMesh {
 
   async ensureNotionRunning(): Promise<void> {
     return ensureNotionMcp(this.spawnContext);
+  }
+
+  async ensureObsidianRunning(): Promise<void> {
+    return ensureObsidianMcp(this.spawnContext);
   }
 
   async ensureConfluenceRunning(): Promise<void> {
@@ -421,6 +433,7 @@ export async function createLazyConnectorMesh(
     listUserMcpConnectors?: () => readonly UserMcpConnectorRow[];
     healthDb?: import("bun:sqlite").Database;
     logger?: MeshLogger;
+    obsidianVaultPaths?: readonly string[];
   },
 ): Promise<LazyConnectorMesh> {
   return new LazyConnectorMesh(paths, vault, options);

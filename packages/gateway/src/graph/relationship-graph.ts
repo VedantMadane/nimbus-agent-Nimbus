@@ -14,6 +14,7 @@ const ITEM_LINKED_ENTITY_TYPES = [
   "dependency",
   "api_endpoint",
   "code_symbol",
+  "obsidian_note",
 ] as const;
 
 export type ItemLinkedEntityType = (typeof ITEM_LINKED_ENTITY_TYPES)[number];

@@ -4,7 +4,7 @@ This document is the authoritative roadmap for Nimbus. [`README.md`](./README.md
 
 Phases are thematic, not calendar-bound. A phase begins when its dependencies are met and ends when its acceptance criteria pass — not at a quarter boundary. Phases may overlap when deliverables are independent.
 
-> **Last updated:** 2026-05-10 — Phase 4 complete on `main`; **Phase 5 (The Extended Surface)** in flight. **T3 (Team Intelligence) epic complete:** `AgentCoordinator.executeAll` parallel sub-agent dispatch + `nimbus expert` (PR 1, 2026-05-09), `nimbus impact` (PR 2, 2026-05-09), and `nimbus catchup` (PR 3, 2026-05-10). `v0.1.0` ships only the headless Gateway + CLI + VS Code extension; the Tauri desktop UI is code-complete in Phase 4 but its release vehicle (signed installers) is deferred to Phase 6 as the separate `desktop-v0.1.0` tag — see [§ Phase 6 → Desktop Release Vehicle](#desktop-release-vehicle). The Phase 5 order, scope cuts, and re-planning checkpoints are locked in [`docs/superpowers/specs/2026-05-06-phase-5-sequencing-design.md`](./superpowers/specs/2026-05-06-phase-5-sequencing-design.md) (Core: T1 → T3 → Wave A → T4 → T6 → T2 → Wave B). Phase 4 delivered the Tauri UI, VS Code extension (`packages/vscode-extension`), voice interface, and local LLM backbone. Pass 2 adds MLflow / SageMaker / Vertex AI / Great Expectations / local data profiling to Phase 5, Monte Carlo / Bigeye to Phase 6, Data FinOps attribution and Data Incident Brief to Phase 7.
+> **Last updated:** 2026-05-10 — Phase 4 complete on `main`; **Phase 5 (The Extended Surface)** in flight. **T3 (Team Intelligence) epic complete:** `AgentCoordinator.executeAll` parallel sub-agent dispatch + `nimbus expert` (PR 1, 2026-05-09), `nimbus impact` (PR 2, 2026-05-09), and `nimbus catchup` (PR 3, 2026-05-10). `v0.1.0` ships only the headless Gateway + CLI + VS Code extension; the Tauri desktop UI is code-complete in Phase 4 but its release vehicle (signed installers) is deferred to Phase 10 as the separate `desktop-v0.1.0` tag — see [§ Phase 10 → Desktop Release Vehicle](#desktop-release-vehicle). The Phase 5 order, scope cuts, and re-planning checkpoints are locked in [`docs/superpowers/specs/2026-05-06-phase-5-sequencing-design.md`](./superpowers/specs/2026-05-06-phase-5-sequencing-design.md) (Core: T1 → T3 → Wave A → T4 → T6 → T2 → Wave B). Phase 4 delivered the Tauri UI, VS Code extension (`packages/vscode-extension`), voice interface, and local LLM backbone. Pass 2 adds MLflow / SageMaker / Vertex AI / Great Expectations / local data profiling to Phase 5, Monte Carlo / Bigeye to Phase 6, Data FinOps attribution and Data Incident Brief to Phase 7.
  Per-connector OAuth vault keys landed. **WS1 (Local LLM + Multi-Agent) complete:** LLM provider layer, multi-agent infrastructure. **WS2 (Voice Interface) complete:** Gateway-based voice service. **WS3 (Data Sovereignty) complete:** BLAKE3-chained audit log, portable encrypted backups. **WS4 (Release Infrastructure) complete:** Ed25519 signing plumbing, `Updater` state machine. **WS5 (App Shell & UI) complete:** React 19 Tauri UI, Dashboard, Settings, Marketplace. **WS6 (Presence & Rehydration) complete:** VS Code extension, session transcript rehydration (V24 migration). **B2 (Perf bench) Phase 1 complete.** **WS5-C (Settings Shell — Plans 1–3) merged to `main`:** Settings shell (`/settings/*` nested routes, `SettingsSidebar`), Profiles panel (list/create/switch/delete with typed-name confirm), Telemetry panel (toggle + counter cards + payload expander), Connectors panel (per-service interval editor with 60 s minimum inline-validated, depth selector, enable toggle, cross-window `connector.configChanged` reconcile, Dashboard deep-link highlight via `useSearchParams`), Model panel (`RouterStatus` per-task default pickers, load/unload row actions, streaming `PullDialog` with provider-availability filter, 15 s stall detection, cancel via `llm.cancelPull`, re-attach to in-flight pull on UI reload via persisted `activePullId`). `ALLOWED_METHODS` grown to 38 (Plans 2–3 added `llm.getStatus` + 7 other read/write methods), `NO_TIMEOUT_METHODS` (4 long-running ops), `profile.switched` global Tauri rebroadcast → `app.restart()`, Zustand `persist` middleware with 5-key whitelist + forbidden-key deep-scrub, expanded `connectors` and `model` slices (transient `pullProgress` / `pullStalled` / `loadedKeys` / `routerStatus` / `perServiceInFlight` / `highlightService`). Plans 4–5 add Audit / Updates / Data panels. **WS5-C (Settings Shell — Plans 4–5) merged to `main`:** Audit panel (summary cards, verify-chain, CSV/JSON export), Updates panel (state machine display, check-now, apply/rollback, download progress, `UpdaterRestartChrome` overlay), Data panel (Export wizard with passphrase gate + zxcvbn + overwrite confirm + BIP39 seed display + clipboard countdown, Import wizard with passphrase + 12-word recovery-seed auth + version-compat error handling + typed-confirm gate, Delete service dialog with preflight preview + typed-name confirm), `data.*` IPC wrappers, `DataSlice` Zustand store slice. **WS5-D (Polish) merged to `main`:** Watcher history-of-fires drawer, workflow run history drawer with audit deep-link, "Run with params…" one-shot parameter override, connector-remove integration test fixes. **WS6 (Rich TUI) merged to `main`:** Ink-based TUI (`nimbus tui`) with pane layout (query input, result stream, connector health sidebar, active watcher list), keyboard navigation, SSH-safe, real-time inline HITL consent. **S2 (Graph-Aware Watchers) merged to `main`:** `graph_predicate_json` watcher conditions, `parseGraphPredicate` / `itemMatchesGraphPredicate` / `countItemsMatchingGraphPredicate` / `listCandidateGraphRelations`, `[automation].graph_conditions` feature flag, V22 migration.
 
 ---
@@ -49,6 +49,7 @@ Commercial license also available now for organizations that need to embed Nimbu
 | Phase 7 | The Autonomous Agent | Planned |
 | Phase 8 | Sovereign Mesh | Planned |
 | Phase 9 | Enterprise | Planned |
+| Phase 10 | Desktop Distribution | Planned |
 
 ---
 
@@ -285,7 +286,7 @@ Commercial license also available now for organizations that need to embed Nimbu
 
 **Goal:** Give Nimbus a face, a local AI backbone that requires no cloud API key, and the trust foundations needed for a public `v0.1.0` release.
 
-> **Release gate:** `v0.1.0` ships only the headless gateway + CLI binaries and the VS Code extension. The Tauri desktop UI release vehicle (signed installers, build-ui matrix, Gatekeeper / SmartScreen handling) was moved out of `v0.1.0` and into Phase 6 — see [§ Phase 6 → Desktop Release Vehicle](#desktop-release-vehicle). The desktop UI code itself is complete in this phase; what slipped is publishing it as a release artifact.
+> **Release gate:** `v0.1.0` ships only the headless gateway + CLI binaries and the VS Code extension. The Tauri desktop UI release vehicle (signed installers, build-ui matrix, Gatekeeper / SmartScreen handling) was moved out of `v0.1.0` and into Phase 10 — see [§ Phase 10 → Desktop Release Vehicle](#desktop-release-vehicle). The desktop UI code itself is complete in this phase; what slipped is publishing it as a release artifact.
 >
 > The end-to-end manual smoke checklist for headless releases lives at [`docs/release/manual-smoke-headless.md`](./release/manual-smoke-headless.md) and covers TUI + VS Code only. The Tauri-only checklist for the future `desktop-v0.1.0` tag lives at [`docs/release/manual-smoke-desktop.md`](./release/manual-smoke-desktop.md).
 
@@ -301,7 +302,7 @@ Commercial license also available now for organizations that need to embed Nimbu
 
 ### Desktop Application (Tauri 2.0)
 
-> **Code complete; release vehicle deferred to Phase 6.** Every WS5 item below is implemented and tested in-tree, but publishing signed Tauri installers as release artifacts moved out of the `v0.1.0` release gate and into Phase 6 — see [§ Phase 6 → Desktop Release Vehicle](#desktop-release-vehicle). The Tauri smoke checklist no longer gates `v0.1.0`; it gates the future `desktop-v0.1.0` tag.
+> **Code complete; release vehicle deferred to Phase 10.** Every WS5 item below is implemented and tested in-tree, but publishing signed Tauri installers as release artifacts moved out of the `v0.1.0` release gate and into Phase 10 — see [§ Phase 10 → Desktop Release Vehicle](#desktop-release-vehicle). The Tauri smoke checklist no longer gates `v0.1.0`; it gates the future `desktop-v0.1.0` tag.
 
 - [x] **App shell foundation (WS5-A)** — React 19 + Tailwind v4 + Radix + Zustand v5 + React Router v7 scaffolding; Rust Tauri 2.0 bridge with compile-time `ALLOWED_METHODS` allowlist (6 methods); system tray + `Ctrl/Cmd+Shift+N` Quick Query popup (frameless, 560×220, auto-close after stream); three-step onboarding wizard (Welcome → Connect → Syncing); first-run routing; macOS accessory mode; CI unit coverage gate (≥80% lines / ≥75% branches)
 - [x] **System tray enhancements (WS5-B)** — aggregate-health icon (green → amber → red); pending-HITL badge; "Connectors ▸" submenu populated from `set_connectors_menu`; click navigates to Dashboard and flashes the matching tile
@@ -385,7 +386,7 @@ These items resolve deferred decisions from Phase 3.
 
 ### Security audit follow-ups (B1)
 
-Items deferred from the Phase 4 internal security audit (B1, 2026-04-25; summary in [`docs/SECURITY.md`](./SECURITY.md#security-audits)). The High, Medium, and Low PRs (`#112`, `#113`, commit `806453a`) closed all 78 unique findings; these three remain open. S6-F1 (Updater production wiring) gates the headless `v0.1.0` tag. The two Tauri-specific items (S4-F6, S4-F8) gate the future `desktop-v0.1.0` tag — see [§ Phase 6 → Desktop Release Vehicle](#desktop-release-vehicle).
+Items deferred from the Phase 4 internal security audit (B1, 2026-04-25; summary in [`docs/SECURITY.md`](./SECURITY.md#security-audits)). The High, Medium, and Low PRs (`#112`, `#113`, commit `806453a`) closed all 78 unique findings; these three remain open. S6-F1 (Updater production wiring) gates the headless `v0.1.0` tag. The two Tauri-specific items (S4-F6, S4-F8) gate the future `desktop-v0.1.0` tag — see [§ Phase 10 → Desktop Release Vehicle](#desktop-release-vehicle).
 
 - [ ] **Tauri-native file picker for `data.import` (S4-F6)** — replace the renderer-supplied `path` string with a Rust-side native dialog so the gateway never trusts a caller-controlled filesystem path; folds into the same UI-rebuild PR as the existing `extension.install` path-validation work (S4-F5 / S7-F7). **Gates `desktop-v0.1.0`, not `v0.1.0`.**
 - [ ] **Profile-switch global broadcast refactor (S4-F8)** — Rust-side window-registry refactor so `profile.switched` events fan out through a registered subscriber list instead of walking the live Tauri window list on each notification; same UI-rebuild PR as S4-F6. **Gates `desktop-v0.1.0`, not `v0.1.0`.**
@@ -455,9 +456,8 @@ The B1 security audit completed in Phase 4. Three more initiatives are active or
 #### Browser & Reading
 
 - [ ] **Pocket / Readwise / Raindrop** — saved articles, highlights, reading lists, tags; read-only index
-- [ ] **Web clipper** — browser extension saves a page into the Nimbus index with a tag; includes a browser "sidecar" UI (overlay) to show related local items without leaving the tab; surfaced in `nimbus search` alongside Drive files and emails
-- [ ] **Obsidian vault connector** — indexes local Markdown vaults with frontmatter metadata, backlinks, and daily notes; uses `[[filesystem.roots]]` as the discovery mechanism; `obsidian_note` item type; backlinks surfaced in the relationship graph; append to daily note behind HITL; no network call required — fully local
-- [ ] **Zotero / Mendeley** — index whitepapers, PDFs, and citations alongside technical docs; `research_paper` item type; read-only
+- [x] **Obsidian vault connector** (2026-05-10, Phase 5 Wave A PR 2) — indexes local Markdown vaults with frontmatter metadata, backlinks, and daily notes; uses `[[filesystem.roots]]` as the discovery mechanism; `obsidian_note` item type; backlinks surfaced in the relationship graph (`backlinks` edge type, V26 migration adds `obsidian_notes` shadow table); append to daily note behind HITL (`obsidian.note.append`); no network call required — fully local. Hybrid surface: gateway-side syncable at `packages/gateway/src/connectors/obsidian-sync.ts` plus a thin MCP package at `packages/mcp-connectors/obsidian/` that hosts the HITL-gated `obsidian_append_to_daily_note` write tool. Vault id is derived from the absolute vault root path (`sha256(path).slice(0, 12)`); moving a vault re-issues all note ids — documented in `docs/architecture.md`.
+- [ ] **Zotero** — index whitepapers, PDFs, and citations alongside technical docs; `research_paper` item type; read-only
 
 #### API Surface Intelligence
 
@@ -468,8 +468,6 @@ The B1 security audit completed in Phase 4. Three more initiatives are active or
 - [ ] **Generic IMAP connector** — any IMAP server (Fastmail, ProtonMail, self-hosted); credentials in Vault; `body_preview` indexing; `email.send` behind HITL via SMTP
 - [ ] **Fastmail MCP connector** — JMAP native (faster and more efficient than IMAP)
 - [ ] **ProtonMail MCP connector** — ProtonMail Bridge integration; local IMAP interface; read-only (E2EE precludes server-side access)
-- [ ] **Apple Mail + macOS Calendar** — Apple Mail via local IMAP (no Bridge required); macOS Calendar via CalDAV (`caldav.apple.com`); macOS only; credentials in Vault; calendar events indexed as `event` items; mail indexed as `email` items with body preview; create/delete calendar event and draft send behind HITL
-
 #### Meetings & Async Video
 
 - [ ] **Zoom** — meeting metadata, recordings index, AI-generated transcripts (Zoom AI Companion); OAuth; read-only; `meeting.summary` and `meeting.transcript` item types; linked to calendar events via meeting URL
@@ -498,7 +496,6 @@ The B1 security audit completed in Phase 4. Three more initiatives are active or
 
 - [ ] **Greenhouse** — jobs, candidates, applications, scorecards, offers; write (move stage, post feedback) behind HITL
 - [ ] **Lever** — requisitions, candidates, feedback, interviews; write behind HITL
-- [ ] **Workday** — time off, headcount, org chart, job postings; read-only where API access allows
 
 #### Design & Creative
 
@@ -520,8 +517,8 @@ The B1 security audit completed in Phase 4. Three more initiatives are active or
 
 #### GitOps & Deployment
 
-- [ ] **ArgoCD** — applications, sync status, rollout history, health state, manifests; API token or kubeconfig; sync/rollback behind HITL; `gitops_app` item type indexed with repo, target revision, sync status, health; enables deployment correlation without Jenkins for k8s-first teams
-- [ ] **Flux** — kustomizations, helm releases, sources, image automations; kubeconfig; reconcile behind HITL; read-only health and history index; complements ArgoCD coverage for teams mixing both
+- [ ] **ArgoCD** (read-only) — applications, sync status, rollout history, health state, manifests; API token or kubeconfig; `gitops_app` item type indexed with repo, target revision, sync status, health; enables deployment correlation without Jenkins for k8s-first teams. Write tools (`sync`, `rollback`) deferred to Phase 6 — see [§ Phase 6 → Deferred from Phase 5](#deferred-from-phase-5)
+- [ ] **Flux** (read-only) — kustomizations, helm releases, sources, image automations; kubeconfig; read-only health and history index; complements ArgoCD coverage for teams mixing both. Write tools (`reconcile`) deferred to Phase 6 — see [§ Phase 6 → Deferred from Phase 5](#deferred-from-phase-5)
 
 #### Data Warehouses, Orchestration & BI (Personal-Auth)
 
@@ -534,9 +531,9 @@ The B1 security audit completed in Phase 4. Three more initiatives are active or
 - [ ] **BigQuery** (Application Default Credentials) — dataset / table / view schema metadata, column tags, recent expensive-query log; `data_model` item type; strictly no row data
 - [ ] **AWS Athena** — catalog metadata, saved queries, recent queries; read-only
 - [ ] **dbt Cloud** (API token) — projects, models, runs, tests, exposures; `data_model` item type indexed with model name, owner, tags, last-run status, upstream/downstream refs; `dbt.job.trigger` behind HITL
-- [ ] **MLflow** (self-hosted or managed, API token) — experiments, runs, registered models, metrics, artefacts (metadata only); `ml_model` item type indexed with experiment, run id, framework, metric snapshot, registered-model stage; `ml.model.promote` / `ml.model.transition-stage` behind HITL
-- [ ] **SageMaker** (reuses existing AWS vault credentials from Phase 3 AWS connector) — training jobs, processing jobs, endpoints, model registry, experiments; `ml_model` item type; `ml.endpoint.update` / `ml.endpoint.delete` / `ml.job.stop` behind HITL
-- [ ] **Vertex AI** (reuses existing GCP ADC from Phase 3 GCP connector) — experiments, custom training jobs, model registry, pipeline runs, endpoints; `ml_model` item type; `ml.endpoint.update` / `ml.pipeline.cancel` behind HITL
+- [ ] **MLflow** (read-only; self-hosted or managed, API token) — experiments, runs, registered models, metrics, artefacts (metadata only); `ml_model` item type indexed with experiment, run id, framework, metric snapshot, registered-model stage. Write tools (`ml.model.promote`, `ml.model.transition-stage`) deferred to Phase 6 — see [§ Phase 6 → Deferred from Phase 5](#deferred-from-phase-5)
+- [ ] **SageMaker** (read-only; reuses existing AWS vault credentials from Phase 3 AWS connector) — training jobs, processing jobs, endpoints, model registry, experiments; `ml_model` item type. Write tools (`ml.endpoint.update`, `ml.endpoint.delete`, `ml.job.stop`) deferred to Phase 6 — see [§ Phase 6 → Deferred from Phase 5](#deferred-from-phase-5)
+- [ ] **Vertex AI** (read-only; reuses existing GCP ADC from Phase 3 GCP connector) — experiments, custom training jobs, model registry, pipeline runs, endpoints; `ml_model` item type. Write tools (`ml.endpoint.update`, `ml.pipeline.cancel`) deferred to Phase 6 — see [§ Phase 6 → Deferred from Phase 5](#deferred-from-phase-5)
 - [ ] **Great Expectations** — validation run results parsed from CI artefacts (no live creds required); `data_quality_test` item type indexed with suite name, batch id, expectation name, success/failure, observed value; read-only
 - [ ] **Local data profiling** (Filesystem v2+) — indexes local `.parquet`, `.csv`, `.jsonl`, `.json`, `.orc` files under `[[filesystem.roots]]`: column names, column types, file size, row-count estimate from Parquet footer / line count; `data_model` item type with `provider = "filesystem"`. **Explicitly never indexed:** cell values, row samples, first-N-rows previews, header-row data values. Contract test asserts the connector surface has no row-fetch or row-sample tool.
 
@@ -584,9 +581,9 @@ Items deferred from the Phase 4 internal security audit (B1, 2026-04-25) that fi
 
 - [ ] Community ratings and reviews per extension
 - [ ] Verified publisher badges (GPG-signed manifest from a registered publisher)
-- [ ] Extension monetization — paid extensions; license key enforcement via local validation; revenue sharing to publisher
 - [ ] Auto-update with changelog preview; user approves each version bump
 - [ ] Extension dependency resolution (one extension can depend on another)
+- Extension monetization (paid extensions, license key enforcement, revenue sharing) deferred to Phase 6 — see [§ Phase 6 → Deferred from Phase 5](#deferred-from-phase-5)
 
 ### Acceptance Criteria
 
@@ -603,7 +600,7 @@ Items deferred from the Phase 4 internal security audit (B1, 2026-04-25) that fi
 - No raw row data or binary extract crosses the connector boundary for any warehouse or BI connector — verified by a contract test that asserts the absence of row-fetch tools on each connector's MCP surface
 - **Downstream Impact Analysis** — `nimbus ask "if I change the revenue calc in this PR, which Looker dashboards break?"` resolves via `traverseGraph` over `code_symbol` → `data_model` → `dashboard` relations in the Phase 3 relationship graph; returns affected dashboards in under 500 ms from the local index
 - Local data-file profiling indexes column names + types + row-count estimates from `.parquet`, `.csv`, `.jsonl`, `.json`, and `.orc` files under configured filesystem roots; contract test asserts the connector surface exposes no row-sample or cell-read tool; manual audit confirms only file footers / header lines / line counts are read — never row contents
-- MLflow / SageMaker / Vertex AI experiments and models are indexed with framework, metric snapshots, and stage transitions; `ml.model.promote` triggers HITL before a registered model is moved to Production on any of the three providers
+- MLflow / SageMaker / Vertex AI experiments and models are indexed with framework, metric snapshots, and stage transitions (read-only in Phase 5; the `ml.model.promote` HITL write path lands in Phase 6 — see [§ Phase 6 → Deferred from Phase 5](#deferred-from-phase-5))
 - `nimbus expert src/billing/retry.ts` returns a ranked list of team members with evidence drawn from indexed PR authorship, review history, and incident involvement — answered from the local index without a live API call
 - `nimbus catchup --since 3d` returns a digest prioritized by the authenticated user's historical involvement, with higher-ranked items matching services and repos the user has recently contributed to — verified by seeding two connectors with different activity levels and confirming the more-relevant one ranks first
 - `nimbus impact src/billing/retry.ts` returns at minimum the set of services that depend on the file and the pipelines that would be affected, resolved from the local relationship graph without a live API call
@@ -612,7 +609,7 @@ Items deferred from the Phase 4 internal security audit (B1, 2026-04-25) that fi
 
 ## Phase 6 — Team
 
-**Goal:** Make Nimbus a collaborative layer for engineering teams — shared intelligence without surrendering local sovereignty. This phase also bundles the Tauri desktop UI release vehicle that slipped from `v0.1.0`.
+**Goal:** Make Nimbus a collaborative layer for engineering teams — shared intelligence without surrendering local sovereignty.
 
 ### Dependencies
 
@@ -620,27 +617,6 @@ Items deferred from the Phase 4 internal security audit (B1, 2026-04-25) that fi
 - Phase 4 tamper-evident audit log (required for org-level compliance controls)
 - Phase 4 Plugin API v1 (team connectors can ship as extensions)
 - Phase 3.5 configuration profiles (team policy interacts with per-user profile config)
-
-<a id="desktop-release-vehicle"></a>
-### Desktop Release Vehicle
-
-The Tauri desktop UI was code-complete in Phase 4 (WS5-A through WS5-D, all `[x]` above) but did not ship as a release artifact in `v0.1.0`. Phase 6 is the release vehicle: signed installers, a per-OS `build-ui` matrix in `release.yml`, and the Tauri-specific security audit follow-ups deferred from B1. The desktop tag is `desktop-v0.1.0`, gated independently of the headless `v0.1.0` and `vscode-v0.1.0` tags.
-
-- [ ] **`build-ui` release-pipeline job** — add a per-OS matrix (windows-latest, macos-13, macos-14, ubuntu-24.04) to `.github/workflows/release.yml` that runs `cd packages/ui && bunx tauri build` and uploads the `.msi` / `.dmg` / `.AppImage` / `.deb` artifacts; gated on the same `desktop-v[0-9]+.[0-9]+.[0-9]+` tag pattern, parallel to the existing headless gateway/CLI jobs
-- [ ] **macOS Gatekeeper notarization** — Apple Developer Program enrollment ($99/yr); `codesign` + `notarytool` + `stapler` integrated into the macOS leg of `build-ui`; produces a notarized `.dmg` that opens without user override
-- [ ] **Windows Authenticode signing** — EV code-signing certificate procurement (~$470–$840/yr); `signtool.exe` integrated into the Windows leg of `build-ui`; produces an `.msi` that passes SmartScreen reputation
-- [ ] **Linux desktop bundle GPG signatures** — extend the existing `sign-linux-gpg.sh` to cover the `.AppImage` and `.deb` Tauri bundles produced by `build-ui`
-- [ ] **Tauri-native file picker for `data.import` (S4-F6)** — see [§ Phase 4 → Security audit follow-ups (B1)](#security-audit-follow-ups-b1); the same UI-rebuild PR also handles the `extension.install` path-validation work (S4-F5 / S7-F7)
-- [ ] **Profile-switch global broadcast refactor (S4-F8)** — Rust-side window-registry refactor; folded into the S4-F6 UI-rebuild PR
-- [ ] **`desktop-v0.1.0` smoke pass** — every section in [`docs/release/manual-smoke-desktop.md`](./release/manual-smoke-desktop.md) green on Windows + both macOS arches + Ubuntu 24.04
-- [ ] **`nimbus desktop` CLI shim (optional)** — a thin `packages/cli/src/commands/desktop.ts` command that locates and launches the installed Tauri app, so users can launch the desktop UI from the same CLI surface they use for everything else
-
-#### Acceptance criteria
-
-- `desktop-v0.1.0` produces `.dmg` (notarized, both arches), `.msi` (Authenticode-signed), `.AppImage` and `.deb` (GPG-detached signatures) as release artifacts.
-- A user double-clicking the macOS `.dmg` and the Windows `.msi` from a clean OS install is not blocked by Gatekeeper or SmartScreen.
-- The smoke checklist in `manual-smoke-desktop.md` is ✅/⚠ on every row.
-- The Tauri auto-update path (Ed25519 signature verify + rollback) round-trips against a live update manifest from `desktop-v0.1.0` to a hypothetical `desktop-v0.1.1`.
 
 ### Shared Infrastructure
 
@@ -687,6 +663,39 @@ Depends on Team Vault (above) so service-account / SSO credentials can be shared
 - [ ] **Admin console** — web UI served locally by the Gateway: user list, namespace health, connector status across the team, audit log viewer, policy editor
 - [ ] **Team audit log** — federation events appended to each member's local audit log; owner can request a merged view
 - [ ] **GDPR/compliance at org level** — `nimbus team purge --user <id>` removes a user's contributions from all shared namespaces; writes a signed deletion record
+
+<a id="deferred-from-phase-5"></a>
+### Deferred from Phase 5
+
+Items moved here from Phase 5 per the T1 sequencing spec (`docs/superpowers/specs/2026-05-06-phase-5-sequencing-design.md`). Read-only counterparts of split items remain in Phase 5.
+
+#### Browser & Reading
+
+- [ ] **Web clipper** — browser extension saves a page into the Nimbus index with a tag; includes a browser "sidecar" UI (overlay) to show related local items without leaving the tab; surfaced in `nimbus search` alongside Drive files and emails
+- [ ] **Mendeley** — index whitepapers, PDFs, and citations alongside technical docs; `research_paper` item type; read-only (Zotero shipped in Phase 5)
+
+#### Email & Calendar (macOS-only)
+
+- [ ] **Apple Mail + macOS Calendar** — Apple Mail via local IMAP (no Bridge required); macOS Calendar via CalDAV (`caldav.apple.com`); macOS only; credentials in Vault; calendar events indexed as `event` items; mail indexed as `email` items with body preview; create/delete calendar event and draft send behind HITL
+
+#### HR
+
+- [ ] **Workday** — time off, headcount, org chart, job postings; read-only where API access allows. Lifted to Phase 6 because typical Workday tenancy is org-wide and pairs naturally with team identity / SSO already landing in this phase
+
+#### GitOps (Write Tools)
+
+- [ ] **ArgoCD writes** — `gitops.app.sync`, `gitops.app.rollback` behind HITL; depends on the read-only ArgoCD connector landing in Phase 5
+- [ ] **Flux writes** — `gitops.kustomization.reconcile`, `gitops.helmrelease.reconcile` behind HITL; depends on the read-only Flux connector landing in Phase 5
+
+#### ML/AI (Write Tools)
+
+- [ ] **MLflow writes** — `ml.model.promote`, `ml.model.transition-stage` behind HITL; depends on the read-only MLflow connector landing in Phase 5
+- [ ] **SageMaker writes** — `ml.endpoint.update`, `ml.endpoint.delete`, `ml.job.stop` behind HITL; depends on the read-only SageMaker connector landing in Phase 5
+- [ ] **Vertex AI writes** — `ml.endpoint.update`, `ml.pipeline.cancel` behind HITL; depends on the read-only Vertex AI connector landing in Phase 5
+
+#### Marketplace v2 Monetization
+
+- [ ] **Paid extensions** — license-key enforcement via local validation; revenue sharing to publisher; depends on Marketplace v2 ratings/reviews/verified-publisher work landing in Phase 5 T2
 
 ### Acceptance Criteria
 
@@ -880,6 +889,39 @@ Depends on Team Vault (above) so service-account / SSO credentials can be shared
 - `nimbus compliance check` produces a machine-readable JSON report passing a reference auditor schema without manual intervention
 - Audit log shipping to a Splunk HEC endpoint is verified end-to-end in CI against a mock HEC target; no audit row is lost in a Gateway restart scenario
 - Deprovisioning a user via SCIM removes their shared namespace access within one sync cycle and writes a signed record to the org audit log
+
+---
+
+## Phase 10 — Desktop Distribution
+
+**Goal:** Publish the Tauri desktop UI as signed, OS-gatekeeper-clean release artifacts. The desktop UI itself was built in Phase 4 (WS5-A through WS5-D, all `[x]` in [§ Phase 4](#phase-4--presence-)); what slipped from `v0.1.0` was the release vehicle — signed installers, per-OS build matrix, Gatekeeper / SmartScreen handling, and the Tauri-specific security audit follow-ups. This phase delivers the `desktop-v0.1.0` tag, gated independently of the headless `v0.1.0` and `vscode-v0.1.0` tags.
+
+### Dependencies
+
+- Phase 4 WS5 (Tauri UI code-complete in-tree)
+- Phase 4 WS4 (Updater state machine + Ed25519 signing plumbing)
+- Code signing certificate procurement (Apple Developer Program enrollment + Windows EV cert)
+
+<a id="desktop-release-vehicle"></a>
+### Desktop Release Vehicle
+
+The Tauri desktop UI was code-complete in Phase 4 (WS5-A through WS5-D) but did not ship as a release artifact in `v0.1.0`. Phase 10 is the release vehicle: signed installers, a per-OS `build-ui` matrix in `release.yml`, and the Tauri-specific security audit follow-ups deferred from B1. The desktop tag is `desktop-v0.1.0`, gated independently of the headless `v0.1.0` and `vscode-v0.1.0` tags.
+
+- [ ] **`build-ui` release-pipeline job** — add a per-OS matrix (windows-latest, macos-13, macos-14, ubuntu-24.04) to `.github/workflows/release.yml` that runs `cd packages/ui && bunx tauri build` and uploads the `.msi` / `.dmg` / `.AppImage` / `.deb` artifacts; gated on the same `desktop-v[0-9]+.[0-9]+.[0-9]+` tag pattern, parallel to the existing headless gateway/CLI jobs
+- [ ] **macOS Gatekeeper notarization** — Apple Developer Program enrollment ($99/yr); `codesign` + `notarytool` + `stapler` integrated into the macOS leg of `build-ui`; produces a notarized `.dmg` that opens without user override
+- [ ] **Windows Authenticode signing** — EV code-signing certificate procurement (~$470–$840/yr); `signtool.exe` integrated into the Windows leg of `build-ui`; produces an `.msi` that passes SmartScreen reputation
+- [ ] **Linux desktop bundle GPG signatures** — extend the existing `sign-linux-gpg.sh` to cover the `.AppImage` and `.deb` Tauri bundles produced by `build-ui`
+- [ ] **Tauri-native file picker for `data.import` (S4-F6)** — see [§ Phase 4 → Security audit follow-ups (B1)](#security-audit-follow-ups-b1); the same UI-rebuild PR also handles the `extension.install` path-validation work (S4-F5 / S7-F7)
+- [ ] **Profile-switch global broadcast refactor (S4-F8)** — Rust-side window-registry refactor; folded into the S4-F6 UI-rebuild PR
+- [ ] **`desktop-v0.1.0` smoke pass** — every section in [`docs/release/manual-smoke-desktop.md`](./release/manual-smoke-desktop.md) green on Windows + both macOS arches + Ubuntu 24.04
+- [ ] **`nimbus desktop` CLI shim (optional)** — a thin `packages/cli/src/commands/desktop.ts` command that locates and launches the installed Tauri app, so users can launch the desktop UI from the same CLI surface they use for everything else
+
+### Acceptance Criteria
+
+- `desktop-v0.1.0` produces `.dmg` (notarized, both arches), `.msi` (Authenticode-signed), `.AppImage` and `.deb` (GPG-detached signatures) as release artifacts.
+- A user double-clicking the macOS `.dmg` and the Windows `.msi` from a clean OS install is not blocked by Gatekeeper or SmartScreen.
+- The smoke checklist in `manual-smoke-desktop.md` is ✅/⚠ on every row.
+- The Tauri auto-update path (Ed25519 signature verify + rollback) round-trips against a live update manifest from `desktop-v0.1.0` to a hypothetical `desktop-v0.1.1`.
 
 ---
 

@@ -7,7 +7,7 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict
 **Linter:** Biome
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)
-**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence ✅ Complete (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C ✅ · WS5-D ✅ · WS6 ✅ · S2 graph-aware watchers ✅ · B3 Phase 1 ✅ · B3 Phase 2 ✅); **`v0.1.0` released 2026-05-09** (headless Gateway + CLI + VS Code extension; `desktop-v0.1.0` Tauri release deferred to Phase 6); **Phase 5** — Extended Surface 🔵 Active (T1 sequencing spec ✅ · T3 PR 1 coordinator parallelism + `nimbus expert` ✅ · T3 PR 2 `nimbus impact` ✅ · T3 PR 3 `nimbus catchup` ✅ · Wave A PR 1 OpenAPI / AsyncAPI spec indexer ✅)
+**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence ✅ Complete (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C ✅ · WS5-D ✅ · WS6 ✅ · S2 graph-aware watchers ✅ · B3 Phase 1 ✅ · B3 Phase 2 ✅); **`v0.1.0` released 2026-05-09** (headless Gateway + CLI + VS Code extension; `desktop-v0.1.0` Tauri release deferred to Phase 10); **Phase 5** — Extended Surface 🔵 Active (T1 sequencing spec ✅ · T3 PR 1 coordinator parallelism + `nimbus expert` ✅ · T3 PR 2 `nimbus impact` ✅ · T3 PR 3 `nimbus catchup` ✅ · Wave A PR 1 OpenAPI / AsyncAPI spec indexer ✅ · Wave A PR 2 Obsidian vault connector ✅)
 
 **Gemini CLI:** [`GEMINI.md`](./GEMINI.md) mirrors this file for the same repository — update both when changing commands, roadmap rows, or non-negotiables.
 
@@ -84,6 +84,9 @@ runs. See `docs/structure-audit/baseline.md` for current findings.
 | `packages/gateway/src/index/audit-session-v24-sql.ts` | V24 migration — `audit_log.session_id` column |
 | `packages/gateway/src/index/api-endpoint-v25-sql.ts` | V25 migration — `api_endpoint` shadow table for OpenAPI / AsyncAPI indexer (Phase 5 Wave A PR 1) |
 | `packages/gateway/src/connectors/openapi-indexer-sync.ts` | OpenAPI / AsyncAPI spec indexer — gateway-side syncable that emits `api_endpoint` items + `api_endpoint → service` graph edges (Phase 5 Wave A PR 1); `getLastSyncStats()` exposes skipped-spec counters |
+| `packages/gateway/src/index/obsidian-notes-v26-sql.ts` | V26 migration — `obsidian_notes` shadow table + `backlinks` `graph_relation_type` seed (Phase 5 Wave A PR 2) |
+| `packages/gateway/src/connectors/obsidian-sync.ts` | Obsidian vault connector — gateway-side syncable that emits `obsidian_note` items + `backlinks` graph edges via `syncObsidianNoteGraph` (Phase 5 Wave A PR 2) |
+| `packages/mcp-connectors/obsidian/src/server.ts` | Obsidian MCP server — `obsidian_list` / `_get` / `_search` reads + HITL-gated `obsidian_append_to_daily_note` (gated by `obsidian.note.append`); receives vault paths via `OBSIDIAN_VAULT_PATHS_JSON` |
 | `packages/gateway/src/sync/connectivity.ts` | Network connectivity probe — guards the sync scheduler against consuming backoff on offline events |
 | `packages/gateway/src/db/verify.ts` | `nimbus db verify` — non-destructive index integrity checks (integrity_check, FTS5, vec rowid, FK, schema version) |
 | `packages/gateway/src/db/repair.ts` | `nimbus db repair` — targeted recovery actions; writes audit log entry |
@@ -461,10 +464,11 @@ A system that orchestrates real actions against real data cannot rely on develop
 | Phase 3.5 | Observability — Connector health model, `nimbus query` / `diag` / `doctor` / `db`, config profiles, `@nimbus-dev/client`, telemetry, docs site | ✅ Complete |
 | Phase 4 | Presence — Tauri UI, VS Code ext, local LLM (Ollama), multi-agent, data portability | ✅ Complete |
 | Phase 5 | The Extended Surface — browser/reading, IMAP, finance, CRM, HR, design connectors; Marketplace v2 | 🔵 Active |
-| Phase 6 | Team — federation, Team Vault, shared namespaces, SSO/SCIM, multi-user HITL, org policy; **also ships `desktop-v0.1.0`** (Tauri installers + signing, deferred from `v0.1.0`) | Planned |
+| Phase 6 | Team — federation, Team Vault, shared namespaces, SSO/SCIM, multi-user HITL, org policy | Planned |
 | Phase 7 | The Autonomous Agent — standing approvals, scheduled tasks, incident correlation, fine-tuning, SRE loop | Planned |
 | Phase 8 | Sovereign Mesh — P2P sync, mobile companion, hardware vault, DIDs, Digital Executor | Planned |
 | Phase 9 | Enterprise — Docker/Helm, SIEM, compliance, SCIM, admin console, security audit, SLA | Planned |
+| Phase 10 | Desktop Distribution — `desktop-v0.1.0` Tauri installers + signing (deferred from `v0.1.0`) | Planned |
 
 When implementing, focus only on the current phase. Do not add Phase N+1 features in Phase N code.
 
