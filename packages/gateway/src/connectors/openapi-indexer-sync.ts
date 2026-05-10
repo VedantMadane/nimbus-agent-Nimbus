@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import type { NimbusFilesystemRootToml } from "../config/filesystem-toml.ts";
-import { upsertIndexedItem } from "../index/item-store.ts";
+import { deleteItemByPrimaryKey, upsertIndexedItemForSync } from "../index/item-store.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
 import { syncNoopResult } from "../sync/types.ts";
 import { DEFAULT_OPENAPI_CONFIG, type OpenapiConfig } from "./openapi-indexer-config.ts";
@@ -53,7 +53,7 @@ function externalIdFor(specPath: string, ep: ParsedEndpoint): string {
 }
 
 function upsertEndpoint(
-  db: Database,
+  ctx: SyncContext,
   args: {
     specPath: string;
     serviceName: string;
@@ -64,7 +64,7 @@ function upsertEndpoint(
   },
 ): string {
   const externalId = externalIdFor(args.specPath, args.ep);
-  upsertIndexedItem(db, {
+  upsertIndexedItemForSync(ctx, {
     service: SERVICE_ID,
     type: "api_endpoint",
     externalId,
@@ -85,7 +85,7 @@ function upsertEndpoint(
     syncedAt: args.syncedAt,
   });
   const id = `${SERVICE_ID}:${externalId}`;
-  db.run(
+  ctx.db.run(
     `INSERT INTO api_endpoint (
       id, service_name, path, method, operation_id, tags_json, deprecated, spec_file, spec_version, last_modified, created_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -129,7 +129,7 @@ function deleteEndpointsAbsentFromSpec(
     if (keepIds.has(row.id)) {
       continue;
     }
-    db.run("DELETE FROM item WHERE id = ?", [row.id]);
+    deleteItemByPrimaryKey(db, row.id);
     db.run("DELETE FROM api_endpoint WHERE id = ?", [row.id]);
     deleted++;
   }
@@ -221,7 +221,7 @@ export function createOpenapiIndexerSyncable(
           let perSpecDeleted = 0;
           ctx.db.transaction(() => {
             for (const ep of parsed.endpoints) {
-              const id = upsertEndpoint(ctx.db, {
+              const id = upsertEndpoint(ctx, {
                 specPath,
                 serviceName,
                 specVersion: parsed.specVersion,
