@@ -208,7 +208,12 @@ See the [roadmap](./roadmap.md) for depth and remaining gaps per connector.
 **Landed since `v0.1.0` (Phase 5 in flight):**
 
 - **`nimbus expert <topic-or-file>`** — first built-in agent: ranks team members with the most context on a file or topic from indexed PR authorship, review history, and incident involvement. Read-only, no HITL. T3 Team Intelligence PR 1 (2026-05-09).
+- **`nimbus impact <file-or-PR-url>`** — second built-in agent: reverse-dependency blast radius across services, pipelines, dashboards, and on-call rotations. Five parallel sub-agents over the relationship graph. Read-only, no HITL. `--json` for CI integration. T3 Team Intelligence PR 2 (2026-05-09).
 - **Parallel sub-agent dispatch** — `AgentCoordinator.executeAll` now runs sub-tasks concurrently rather than sequentially.
+
+**In planning:**
+
+- **`nimbus catchup --since <duration>`** — third built-in agent: personalized retrospective digest weighted by the user's historical involvement (services owned, repos contributed to, incidents responded to). T3 Team Intelligence PR 3 — design complete, implementation in flight. See [`docs/superpowers/plans/2026-05-09-phase-5-t3-pr3-catchup.md`](./superpowers/plans/2026-05-09-phase-5-t3-pr3-catchup.md).
 
 See [`docs/roadmap.md`](./roadmap.md) for the full delivery list and [`docs/cli-reference.md`](./cli-reference.md) for the complete CLI command reference.
 
