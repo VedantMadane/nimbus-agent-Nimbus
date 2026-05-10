@@ -161,6 +161,27 @@ function syncDependencyGraph(db: Database, row: IndexedItemGraphInput, now: numb
   }
 }
 
+function syncApiEndpointGraph(db: Database, row: IndexedItemGraphInput, now: number): void {
+  const serviceName = stringField(row.metadata, "service_name") ?? "unknown";
+  const apiEndpointEntityId = upsertGraphEntity(db, {
+    type: "api_endpoint",
+    externalId: row.id,
+    label: row.title,
+    service: row.service,
+    metadata: { service_name: serviceName },
+  });
+  clearRelationsTouchingEntity(db, apiEndpointEntityId);
+
+  const serviceExtId = `openapi:service:${serviceName}`;
+  const serviceEntityId = upsertGraphEntity(db, {
+    type: "service",
+    externalId: serviceExtId,
+    label: serviceName,
+    service: row.service,
+  });
+  upsertGraphRelation(db, apiEndpointEntityId, serviceEntityId, "targets", now);
+}
+
 function syncCodeSymbolGraph(db: Database, row: IndexedItemGraphInput, now: number): void {
   const file = stringField(row.metadata, "file");
   const name = stringField(row.metadata, "name");
@@ -262,6 +283,10 @@ export function syncGraphFromIndexedItem(db: Database, row: IndexedItemGraphInpu
   }
   if (row.type === "dependency") {
     syncDependencyGraph(db, row, now);
+    return;
+  }
+  if (row.type === "api_endpoint") {
+    syncApiEndpointGraph(db, row, now);
     return;
   }
   if (row.type === "code_symbol") {

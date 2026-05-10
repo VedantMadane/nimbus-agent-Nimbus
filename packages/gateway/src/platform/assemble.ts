@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Logger } from "pino";
 import {
@@ -21,6 +22,12 @@ import {
 } from "../connectors/connector-vault.ts";
 import { createFilesystemV2Syncable } from "../connectors/filesystem-v2-sync.ts";
 import { createLazyConnectorMesh, type LazyConnectorMesh } from "../connectors/lazy-mesh/index.ts";
+import {
+  DEFAULT_OPENAPI_CONFIG,
+  type OpenapiConfig,
+  parseOpenapiToml,
+} from "../connectors/openapi-indexer-config.ts";
+import { createOpenapiIndexerSyncable } from "../connectors/openapi-indexer-sync.ts";
 import { listUserMcpConnectors } from "../connectors/user-mcp-store.ts";
 import { startLatencyFlushScheduler } from "../db/latency-ring-buffer.ts";
 import { createEmbeddingRuntime } from "../embedding/create-embedding-runtime.ts";
@@ -66,6 +73,18 @@ function createStubNotifications(): NotificationService {
   return {
     async show(_title: string, _body: string): Promise<void> {},
   };
+}
+
+function loadOpenapiConfig(configDir: string): OpenapiConfig {
+  const path = join(configDir, "nimbus.toml");
+  if (!existsSync(path)) {
+    return DEFAULT_OPENAPI_CONFIG;
+  }
+  try {
+    return parseOpenapiToml(readFileSync(path, "utf8"));
+  } catch {
+    return DEFAULT_OPENAPI_CONFIG;
+  }
 }
 
 type EmbeddingRuntime = Awaited<ReturnType<typeof createEmbeddingRuntime>>;
@@ -224,6 +243,14 @@ async function createSchedulerWithMesh(
   if (fsV2Roots.length > 0) {
     localIndex.ensureConnectorSchedulerRegistration("filesystem", 10 * 60 * 1000, Date.now());
     syncScheduler.register(createFilesystemV2Syncable({ roots: fsV2Roots }));
+    // Wave A PR 1 — gateway-side OpenAPI / AsyncAPI spec indexer.
+    localIndex.ensureConnectorSchedulerRegistration("openapi", 10 * 60 * 1000, Date.now());
+    syncScheduler.register(
+      createOpenapiIndexerSyncable({
+        roots: fsV2Roots,
+        config: loadOpenapiConfig(paths.configDir),
+      }),
+    );
   }
   const connectorMesh = await createLazyConnectorMesh(paths, vault, {
     listUserMcpConnectors: () => listUserMcpConnectors(db),

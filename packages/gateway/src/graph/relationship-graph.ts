@@ -12,6 +12,7 @@ const ITEM_LINKED_ENTITY_TYPES = [
   "error_issue",
   "git_commit",
   "dependency",
+  "api_endpoint",
   "code_symbol",
 ] as const;
 
