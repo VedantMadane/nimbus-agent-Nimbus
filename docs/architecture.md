@@ -2,7 +2,20 @@
 
 **Version:** 1.0
 **Runtime:** Bun v1.2+ / TypeScript 6.x (strict)
-**Status:** Phase 4 (Presence) ✅ Complete (WS1–WS6 + S2 + B2-P1 + B3-P1/2 complete) · `v0.1.0` released 2026-05-09 (headless Gateway + CLI + VS Code extension; `desktop-v0.1.0` Tauri release vehicle deferred to Phase 10) · Phase 5 (The Extended Surface) 🔵 Active (T3 PR 1+2+3 ✅ — `nimbus expert` + `nimbus impact` (both 2026-05-09) + `nimbus catchup` (2026-05-10); T3 epic complete)
+**Status:** Phase 4 (Presence) ✅ Complete (WS1–WS6 + S2 + B2-P1 + B3-P1/2 complete) · `v0.1.0` released 2026-05-09 (headless Gateway + CLI + VS Code extension; `desktop-v0.1.0` Tauri release vehicle deferred to Phase 13) · Phase 5 (The Extended Surface) 🔵 Active (T3 PR 1+2+3 ✅ — `nimbus expert` + `nimbus impact` (both 2026-05-09) + `nimbus catchup` (2026-05-10); T3 epic complete)
+
+> **Authoring references for AI-assisted contributors:** the [`.claude/commands/nimbus-*.md`](../.claude/commands/) skill files are the load-bearing how-to references for every subsystem in this document. Treat this architecture doc as the *what + where* and the skills as the *how*. Pair them when adding new code:
+>
+> - [`nimbus-architecture`](../.claude/commands/nimbus-architecture.md) — non-negotiables, package layout, where to put new code
+> - [`nimbus-agent-patterns`](../.claude/commands/nimbus-agent-patterns.md) — built-in agent contract (every Phase 5+ agent follows this)
+> - [`nimbus-connector-authoring`](../.claude/commands/nimbus-connector-authoring.md) — first-party MCP connector contract (mandatory tool surface, manifest, sync handler)
+> - [`nimbus-db-migrations`](../.claude/commands/nimbus-db-migrations.md) — migration runner contract, append-only schema rule, FTS5 / vec0 cautions
+> - [`nimbus-ipc`](../.claude/commands/nimbus-ipc.md) — JSON-RPC 2.0 conventions, all method namespaces, the Tauri allowlist, error codes
+> - [`nimbus-security-invariants`](../.claude/commands/nimbus-security-invariants.md) — invariant triple rule (production wiring + docs entry + enforcement test)
+> - [`nimbus-tauri-allowlist`](../.claude/commands/nimbus-tauri-allowlist.md) — `ALLOWED_METHODS` editing protocol; chain C1 from B1 lives here
+> - [`nimbus-testing`](../.claude/commands/nimbus-testing.md) — five-layer pyramid + coverage gates + ready-to-use patterns
+> - [`nimbus-tool-output-envelope`](../.claude/commands/nimbus-tool-output-envelope.md) — `<tool_output>` envelope rules (invariant `I11`)
+> - [`nimbus-phase-4`](../.claude/commands/nimbus-phase-4.md) — Phase 4 working reference (kept for historical alignment; primary phases now in [§ Phase 6+ Subsystems](#phase-6-subsystems-planned))
 
 ---
 
@@ -962,37 +975,59 @@ The feature is gated by `[automation].graph_conditions = true` in `nimbus.toml`
 
 ---
 
-## Phase 5 Subsystems
+## Built-in Agents Pattern
 
-These subsystems are active development in Phase 5 (The Extended Surface). They extend the Phase 4 multi-agent foundation; no new IPC transport or process model is introduced.
+`packages/gateway/src/agents/` hosts read-only, no-HITL built-in agents that answer professional-shaped questions from the local index and relationship graph. The pattern was introduced in Phase 5 (T3 Team Intelligence) and is the spine of every multi-agent feature in subsequent phases. Each new built-in agent in Phases 7 / 8 / 9 follows this contract verbatim — when adding one, consult [`.claude/commands/nimbus-agent-patterns.md`](../.claude/commands/nimbus-agent-patterns.md) and use an existing agent under `packages/gateway/src/agents/` as the reference shape.
 
-### Built-in Agents
+**Pattern invariants (apply to every built-in agent):**
 
-`packages/gateway/src/agents/` hosts read-only, no-HITL agents that answer team-level questions from the local index and relationship graph. Each built-in agent:
+- **Read-only** — no write tools in scope. The HITL gate exists in the executor regardless, but a built-in agent never reaches it because its tool scope contains no write actions.
+- **Local-first** — runs entirely from indexed data; no live API calls during a request, no remote LLM dependency for the deterministic fallback path.
+- **Parallel decomposition** — uses `AgentCoordinator.executeAll` to fan out to independent sub-agents, each with an isolated tool scope. Tool-scope restriction is enforced at the dispatcher; sub-agents cannot call tools outside their declared scope.
+- **HITL-free** — if a sub-agent encounters a HITL-required tool it skips it and notes the omission in output. Built-in agents never wait on consent.
+- **Notification contract** — each agent emits exactly one `<agentName>.briefReady { sessionId, brief: string }` IPC notification on completion. `brief` is always Markdown.
+- **CLI surface** — every agent has a matching command in `packages/cli/src/commands/` that streams the `briefReady` notification and renders to stdout, respecting `NO_COLOR`.
+- **E2E test** — `packages/gateway/test/e2e/scenarios/<agent-name>.e2e.test.ts` asserts the expected brief sections, parallel sub-task completion, and **zero HITL actions fired**.
+- **Latency budget** — under 15 seconds wall-clock on a mid-range laptop with local LLM routing. If sub-agent decomposition would exceed this, reduce the number of parallel sub-agents rather than increasing the timeout.
 
-- Runs entirely from indexed data — no live API calls, no consent prompts.
-- Decomposes its work into parallel sub-agents via `AgentCoordinator.executeAll`, each with an isolated tool scope.
-- Emits a single `<agentName>.briefReady { sessionId, brief }` IPC notification on completion (Markdown body).
-- Has a matching CLI command (`packages/cli/src/commands/<name>.ts`) that respects `NO_COLOR`.
-- Has an e2e test under `packages/gateway/test/e2e/scenarios/` that asserts the brief is produced, all sub-tasks complete in parallel, and zero HITL actions fire.
-- Targets a sub-15-second wall-clock latency on a mid-range laptop.
+**Shared infrastructure** — `packages/gateway/src/agents/_lib/` holds the shared types (`ExpertBrief`, `Evidence`, `GapNote`), gap-note detectors, deterministic Markdown renderer, and LLM synthesis layer used across every built-in agent. The renderer is the deterministic fallback — when no LLM is available, the agent ships a structured Markdown brief instead of falling back to "no answer".
 
-**Shipped (T3 PR 1–2, 2026-05-09):**
+**Coverage gate** — `packages/gateway/src/agents/` ≥ 80% line coverage.
 
-| Agent | Command | IPC method | Notification | Description |
+### Built-in Agents Catalogue
+
+All built-in agents follow the pattern above. The IPC handlers live in `packages/gateway/src/ipc/agents-rpc.ts` and are exposed to the Tauri renderer via `ALLOWED_METHODS`.
+
+| Phase | Agent | Command | IPC method | Status |
 |---|---|---|---|---|
-| `expert` | `nimbus expert <topic-or-file>` | `agents.expert` | `agents.expert.briefReady` | Ranks people with the most context on a file or topic from indexed PR authorship, review participation, and incident involvement. |
-| `impact` | `nimbus impact <file-or-PR-url>` | `agents.impact` | `agents.impact.briefReady` | Reverse-dependency blast radius across services, pipelines, dashboards, and on-call rotations. |
+| 5 (T3 PR 1) | `expert` | `nimbus expert <topic-or-file>` | `agents.expert` | ✅ Shipped 2026-05-09 — ranks people with the most context on a file or topic from indexed PR authorship, review participation, and incident involvement |
+| 5 (T3 PR 2) | `impact` | `nimbus impact <file-or-PR-url>` | `agents.impact` | ✅ Shipped 2026-05-09 — reverse-dependency blast radius across services, pipelines, dashboards, and on-call rotations |
+| 5 (T3 PR 3) | `catchup` | `nimbus catchup --since <duration>` | `agents.catchup` | ✅ Shipped 2026-05-10 — personalised retrospective digest weighted by the user's historical involvement; three-tier self-person resolver |
+| 7 | `excellence` | `nimbus excellence [--service \| --team]` | `agents.excellence` | Planned — parallel sub-agents over service catalog, DORA, feature flags, recent activity |
+| 8 | `security` | `nimbus security <repo\|service>` | `agents.security` | Planned — vulns, CVEs, secrets, IaC misconfigs, license issues for a repo or service |
+| 8 | `posture` | `nimbus posture <cloud-account\|cluster>` | `agents.posture` | Planned — CSPM findings + IaC drift + over-privileged identities + exposure ranked by exploitability × blast radius |
+| 8 | `incident` | `nimbus incident <alert-id\|incident-id>` | `agents.security_incident` | Planned — security-incident-shaped (attacker indicators, exposed endpoints, vuln CVEs); deliberately distinct from Phase 10 operational `nimbus incident-brief` |
+| 8 | `supply-chain` | `nimbus supply-chain <repo\|artifact>` | `agents.supply_chain` | Planned — SBOM diff, signed-vs-unsigned dependencies, attestation gaps, license-policy violations |
+| 9 | `model-health` | `nimbus model-health [<model-name>]` | `agents.modelHealth` | Planned — latency p50/p95/p99, eval-suite pass rate, cost burn vs. budget, prompt regressions, drift indicators |
+| 9 | `rag-health` | `nimbus rag-health [<rag-app-name>]` | `agents.ragHealth` | Planned — retrieval-quality scores, embedding-version drift, vector-store health, knowledge-base freshness |
 
-**Planned (T3 PRs 3+):**
+---
 
-| Agent | Command | Description |
+## Phase 6+ Subsystems (Planned)
+
+The five planned phases beyond Phase 5 each introduce subsystems that extend — but do not replace — the Phase 4 multi-agent + connector-mesh foundation. No new Gateway IPC transport, no new process model. Each row points at the canonical design spec; treat the spec as the source of truth and this section as a roadmap-shaped index.
+
+| Phase | Subsystem additions | Canonical design spec |
 |---|---|---|
-| `catchup` | `nimbus catchup --since <duration>` | Personalized retrospective digest, weighted by the user's historical involvement. |
-
-`packages/gateway/src/agents/_lib/` holds the shared types (`ExpertBrief`, `Evidence`, `GapNote`), gap-note detectors, deterministic Markdown renderer, and LLM synthesis layer used across all built-in agents. The renderer is the deterministic fallback — when no LLM is available, the agent ships a structured Markdown brief without falling back to "no answer".
-
-Both `agents.expert` and `agents.impact` JSON-RPC methods are exposed via `packages/gateway/src/ipc/agents-rpc.ts` and reachable from the renderer (added to the Tauri `ALLOWED_METHODS` allowlist, count 59).
+| Phase 6 — Team | Nimbus-to-Nimbus federation over the Phase 4 LAN E2E channel; Team Vault (one Gateway as trust anchor); shared index namespaces; SSO/OIDC/SAML; SCIM 2.0 provisioning; multi-user HITL with delegation; ChatOps (Slack/Teams bot); admin console; SSO-gated warehouse + BI connectors (Snowflake / Tableau / Looker / PowerBI / Monte Carlo / Bigeye). No direct cloud relay; mDNS LAN discovery; org-level policy engine consumes Phase 7 policy fragments. | [`docs/roadmap.md` § Phase 6](./roadmap.md#phase-6--team) |
+| Phase 7 — Engineering Excellence | Service catalog item types (`service`, `component`, `team`, `scorecard`); ownership graph extending the Phase 3 relationship graph with `code_symbol → service → team`; DORA / engineering-metrics ingestion; feature-flag connectors with HITL on toggles; cross-team dependency graph; automation template library; team policy library; `nimbus excellence` built-in agent. | [`docs/superpowers/specs/2026-05-10-phase-7-engineering-excellence-design.md`](./superpowers/specs/2026-05-10-phase-7-engineering-excellence-design.md) |
+| Phase 8 — Security Engineering | Code & dependency scanning (`security_finding`, `dependency`, `cve` item types); CSPM / IaC / runtime posture (`posture_finding`); incident response & SOC (`security_incident`, `siem_event`, `threat_indicator`); supply chain & identity (`sbom_artifact`, `attestation`, `identity_event`); four built-in agents (`security`, `posture`, `incident`, `supply-chain`). The `nimbus incident` agent is **deliberately distinct** from the Phase 10 operational `nimbus incident-brief` — the security one is attacker-shape, the operational one is deploy-shape; each brief includes a section sourced from the other. | [`docs/superpowers/specs/2026-05-10-phase-8-security-engineering-design.md`](./superpowers/specs/2026-05-10-phase-8-security-engineering-design.md) |
+| Phase 9 — AI Engineering Loop | LLM observability + eval (`llm_trace`, `prompt_version`, `eval_run`); ML lifecycle (`ml_model`, `feature`, `monitor`); vector stores + RAG (`vector_index`, `rag_eval_run`, `embedding_version`); AI cost & governance (`ai_spend_event`, `model_policy`); two built-in agents (`model-health`, `rag-health`). Privacy floor: trace-body indexing default-OFF; only metadata indexed unless explicit per-provider opt-in. | [`docs/superpowers/specs/2026-05-10-phase-9-ai-engineering-loop-design.md`](./superpowers/specs/2026-05-10-phase-9-ai-engineering-loop-design.md) |
+| Phase 10 — The Autonomous Agent | Standing approvals (compile-time-frozen plus user-pre-authorised pattern store); scheduled workflows; morning briefing; deadline tracking; agent-to-agent privacy-preserving scheduling; incident correlation engine (operational shape); long-term episodic memory; point-in-time index queries; LAN forward secrecy redesign; LoRA fine-tuning (stretch); SRE loop (stretch); FinOps + sustainability connectors (stretch). | [`docs/roadmap.md` § Phase 10](./roadmap.md#phase-10--the-autonomous-agent) |
+| Phase 11 — Sovereign Mesh | P2P index sync between user's own machines; iOS / Android mobile companions over E2EE LAN or WireGuard; biometric HITL with secure-enclave signing; hardware vault integration (YubiKey / Ledger / Nitrokey); DIDs; Digital Executor (dead man's switch + Shamir's Secret Sharing); i18n / l10n stretch (string extraction + 3 reference locales + RTL + FTS5 CJK). | [`docs/roadmap.md` § Phase 11](./roadmap.md#phase-11--sovereign-mesh) |
+| Phase 12 — Enterprise | Docker / Helm; air-gapped bundle; HA active/passive Gateway clustering; managed update channel; remote vector store adapters; policy-as-code (`nimbus.policy.toml`); DLP gate; audit log shipping to SIEM; compliance posture tooling; data residency controls; formal third-party penetration test; GRC platforms (Drata / Vanta / Secureframe / Tugboat Logic); enterprise SSO (SAML 2.0 + OIDC); SCIM 2.0; admin console; credential rotation assistant; SLA support. | [`docs/roadmap.md` § Phase 12](./roadmap.md#phase-12--enterprise) |
+| Phase 13 — Desktop Distribution | Signed Tauri installers (`.dmg` notarised, `.msi` Authenticode, `.AppImage` + `.deb` GPG-signed); per-OS `build-ui` matrix in `release.yml`; Tauri-native file picker for `data.import` (S4-F6); profile-switch broadcast refactor (S4-F8); native package-manager channel reach stretch (Homebrew / winget / Chocolatey / Snap / Flatpak / AUR / MacPorts / Nix flake). | [`docs/roadmap.md` § Phase 13](./roadmap.md#phase-13--desktop-distribution) |
+| Phase 14 — Agent Evolution / AI v2 | **Core (gates phase):** multimodal I/O (image / video / audio understanding via local VLM + STT + frame captioning); code execution sandbox (`bwrap` / `sandbox-exec` / AppContainer; per-execution capability flags; HITL on every execution; **standing approvals explicitly NOT supported**). **Stretch:** computer use (browser / terminal / screen) with per-action HITL; runtime tool generation with contract-test gating; local instruction fine-tuning (full-precision 3B–7B). Org-level lockoff via Phase 12 policy-as-code. | [`docs/superpowers/specs/2026-05-10-phase-14-agent-evolution-design.md`](./superpowers/specs/2026-05-10-phase-14-agent-evolution-design.md) |
 
 ---
 
@@ -1075,6 +1110,10 @@ const streamReq: JSONRPCRequest = {
 
 ## Local Database Schema
 
+> **Canonical migration list:** the runner at [`packages/gateway/src/index/migrations/runner.ts`](../packages/gateway/src/index/migrations/runner.ts) holds the authoritative `INDEXED_SCHEMA_STEPS` array — each step pairs a `migrateIndexedV<N>ToV<M>` function with the SQL constants imported from sibling [`packages/gateway/src/index/`](../packages/gateway/src/index/) `*-v<N>-sql.ts` files. The runner wraps each step in a single transaction, writes a pre-migration backup to `<dataDir>/backups/pre-migration-V<N>-<timestamp>.db`, records success in the `_schema_migrations` ledger, and rolls back on a thrown migration. **Latest applied migration: V26** (`obsidian_notes` shadow table + `backlinks` graph relation). Migrations are append-only and forward-only — no `down()` function. See [`.claude/commands/nimbus-db-migrations.md`](../.claude/commands/nimbus-db-migrations.md) for the authoring contract (numbering, batched backfill, FTS5 / vec0 cautions).
+>
+> The SQL block below is the **shape**, not a snapshot of every column. Phase 6+ tables (covered in [§ Phase 6+ Subsystems](#phase-6-subsystems-planned)) will land as new migrations and new item types — `service` / `team` / `scorecard` / `dora_metric` (Phase 7), `security_finding` / `posture_finding` / `security_incident` / `sbom_artifact` (Phase 8), `llm_trace` / `ml_model` / `vector_index` / `ai_spend_event` (Phase 9), and the multimodal-understanding / sandbox-execution tables (Phase 14).
+
 ```sql
 -- Core metadata index
 -- item_type values: "file" | "email" | "event" | "photo"
@@ -1082,8 +1121,11 @@ const streamReq: JSONRPCRequest = {
 --                   "alert" | "incident" | "infra_resource"
 --                   "data_model" | "data_pipeline" | "dashboard" | "log_alarm"  -- Phase 5/6
 --                   "ml_model" | "data_quality_test"                             -- Phase 5/6 (pass 2)
---                   "api_endpoint"                                               -- Phase 5 Wave A PR 1
---                   "obsidian_note"                                              -- Phase 5 Wave A PR 2
+--                   "api_endpoint"                                               -- Phase 5 Wave A PR 1 (V25)
+--                   "obsidian_note"                                              -- Phase 5 Wave A PR 2 (V26)
+-- Phase 7+: "service" | "team" | "scorecard" | "dora_metric" | "feature_flag" | ...
+-- Phase 8+: "security_finding" | "posture_finding" | "security_incident" | "sbom_artifact" | ...
+-- Phase 9+: "llm_trace" | "prompt_version" | "eval_run" | "vector_index" | "ai_spend_event" | ...
 -- Note: "task" is not a currently emitted item_type; use "issue" for Linear/Jira items.
 CREATE TABLE indexed_items (
     id          TEXT PRIMARY KEY,   -- "<service>:<native_id>"
@@ -1354,6 +1396,27 @@ B1 produced 78 unique findings (no Critical) across 8 trust surfaces; all High a
 
 A new structural defense lands as a *triple*: the production wiring, an entry in the invariants file, and an assertion in the test. If any of the three is missing, the defense is not yet real.
 
+### Active invariants summary
+
+The current `I1`–`I12` set, mirrored from [`SECURITY-INVARIANTS.md`](./SECURITY-INVARIANTS.md). When changing a wiring site listed below, update the invariants file *and* the enforcement test in the same commit.
+
+| # | Invariant | Wired at | Anti-pattern that regresses it |
+|---|---|---|---|
+| I1 | Child-process env scoping via `extensionProcessEnv()` | `connectors/lazy-mesh/` (every spawn across `mesh.ts`, `connector-spawns.ts`, `phase3-config.ts`, `user-mcp.ts`) | `spawn(..., { env: { ...process.env } })` anywhere under `connectors/` |
+| I2 | HITL frozen-set membership; `HITL_REQUIRED_BACKING` is module-private | `engine/executor.ts` `ToolExecutor.gate()` | New destructive RPC that skips `ToolExecutor` or omits the action type from the set |
+| I3 | HITL gate consults `action.type` only (not `payload.mcpToolId`) | `engine/executor.ts` `ToolExecutor.gate()` | Gating on `mcpToolId` or `resolvedToolId` — the set holds logical types, not MCP ids |
+| I4 | `hitlStatus` is set only by the consent gate | `engine/executor.ts` `ToolExecutor.gate()` | Hardcoding `hitlStatus: "approved"` in any handler |
+| I5 | `checkLanMethodAllowed` is intrinsic to `LanServer` | `ipc/lan-server.ts` `LanServer.handleEncryptedMessage()` | Moving the check into the dispatcher or any caller |
+| I6 | LAN bind defaults to `127.0.0.1` | `config/nimbus-toml.ts` | Defaulting to `0.0.0.0` or auto-binding all interfaces from an env var |
+| I7 | Tauri `ALLOWED_METHODS` matches gateway handlers; no RCE-class methods exposed to renderer | `ui/src-tauri/src/gateway_bridge.rs` | Adding `extension.install` / `connector.addMcp` to the renderer allowlist |
+| I8 | Tauri renderer CSP is restrictive (no `unsafe-inline`, no `unsafe-eval`) | `ui/src-tauri/tauri.conf.json` | `"csp": null` or loosening with `unsafe-*` |
+| I9 | All SQL uses bound parameters; identifiers go through `escapeIdentifier` | `db/write.ts`, `db/repair.ts`, `people/person-store.ts` | Template-literal SQL on caller-supplied data |
+| I10 | Constant-time compare for hashes / MACs / pairing codes | `extensions/verify-extensions.ts`, `updater/updater.ts`, `ipc/lan-pairing.ts` | `===` / `!==` on hash bytes |
+| I11 | LLM-facing tool results wrapped via `wrapToolOutput` | `engine/agent.ts`, `engine/tool-output-envelope.ts` | New agent surface that feeds raw tool results to the LLM |
+| I12 | DPAPI calls pass `pOptionalEntropy` from `<configDir>/vault/.entropy` | `vault/win32.ts` | Dropping the entropy parameter "for compatibility" |
+
+A static-time complement (`scripts/structure-audit/check-nimbus-invariants.ts`) catches I1 (`spawn` under `connectors/` must use `extensionProcessEnv()`) and the vault-key allow-list at audit time. The runtime tests in `packages/gateway/src/security-invariants.test.ts` remain authoritative for invariant wiring; the static checks just catch regressions before the tests run.
+
 ### Threat-to-mitigation table
 
 | Threat | Mitigation | Enforced At |
@@ -1368,7 +1431,7 @@ A new structural defense lands as a *triple*: the production wiring, an entry in
 | Supply chain (extension) | Manifest SHA-256 stored at install; verified on every startup | Extension Registry |
 | Token leakage in logs | Pino `redact` config covers `*.token`, `*.secret`, `oauth.*` patterns | Logger middleware |
 | Index exfiltration | SQLite stores metadata only (not content); protected by OS file permissions | OS file ACL |
-| Extension sandbox escape | **Partial:** process isolation + scoped env today; full syscall isolation planned (Phase 5) | Extension Registry / risk register |
+| Extension sandbox escape | **Partial:** process isolation + scoped env today; full syscall isolation (`bwrap` / `sandbox-exec` / AppContainer) planned in Phase 10 | Extension Registry / risk register |
 | Row-data exfiltration via warehouse or BI connector (Phase 5/6) | Connector boundary forbids row / binary / result-set fetches; only DDL, column tags, job status, and query plans cross into the index; contract test asserts absence of row-fetch tools on each connector's MCP surface | MCP connector contract |
 | Row-data exfiltration via local file profiling (Phase 5) | Filesystem profiler reads Parquet footers, CSV / JSONL header lines, and line counts only; no code path reads row groups, samples rows, or captures cell values; contract test asserts the profiler tool surface has no row-sample method | Filesystem connector contract |
 
