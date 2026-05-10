@@ -218,11 +218,16 @@ test("V25 records a row in _schema_migrations", () => {
   const db = new Database(":memory:");
   migrateIndexedDatabase(db, Date.now());
   const row = db
-    .query("SELECT version, status FROM _schema_migrations WHERE version = 25")
-    .get() as { version: number; status: string } | null;
+    .query("SELECT version, description, applied_at FROM _schema_migrations WHERE version = 25")
+    .get() as { version: number; description: string; applied_at: number } | null;
   expect(row?.version).toBe(25);
-  expect(row?.status).toBe("applied");
+  expect(typeof row?.applied_at).toBe("number");
 });
+
+// NOTE: `_schema_migrations` has no `status` column in this codebase
+// (verified: schema is `version INTEGER PRIMARY KEY, description TEXT, applied_at INTEGER`).
+// Earlier drafts of this plan referenced a non-existent `status` column; if you see
+// older test text mentioning `WHERE status = 'applied'`, ignore it.
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
