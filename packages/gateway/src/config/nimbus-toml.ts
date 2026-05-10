@@ -680,3 +680,61 @@ export function loadNimbusAutomationFromPath(tomlPath: string): NimbusAutomation
 export function loadNimbusAutomationFromConfigDir(configDir: string): NimbusAutomationToml {
   return loadNimbusAutomationFromPath(join(configDir, "nimbus.toml"));
 }
+
+// ---------------------------------------------------------------------------
+// [user] — first-class identity hint for built-in agents (T3 PR 3).
+// ---------------------------------------------------------------------------
+
+export type NimbusUserToml = {
+  /** Optional override for self-person resolution; consumed by `nimbus catchup`. */
+  mePersonId?: string;
+};
+
+export const DEFAULT_NIMBUS_USER_TOML: NimbusUserToml = {};
+
+function parseNimbusTomlUserSection(source: string): Partial<NimbusUserToml> {
+  const lines = source.split(/\r?\n/);
+  let inSection = false;
+  const out: Partial<NimbusUserToml> = {};
+  for (const line of lines) {
+    const trimmed = stripComment(line).trim();
+    if (trimmed === "") continue;
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      inSection = trimmed === "[user]";
+      continue;
+    }
+    if (!inSection) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const valRaw = trimmed.slice(eq + 1).trim();
+    if (key === "me_person_id") {
+      const v = parseString(valRaw);
+      if (v.length > 0) out.mePersonId = v;
+    }
+  }
+  return out;
+}
+
+export function parseNimbusUserToml(
+  raw: string,
+  defaults: NimbusUserToml = DEFAULT_NIMBUS_USER_TOML,
+): NimbusUserToml {
+  return { ...defaults, ...parseNimbusTomlUserSection(raw) };
+}
+
+export function loadNimbusUserFromPath(tomlPath: string): NimbusUserToml {
+  if (!existsSync(tomlPath)) {
+    return structuredClone(DEFAULT_NIMBUS_USER_TOML);
+  }
+  try {
+    const raw = readFileSync(tomlPath, "utf8");
+    return parseNimbusUserToml(raw);
+  } catch {
+    return structuredClone(DEFAULT_NIMBUS_USER_TOML);
+  }
+}
+
+export function loadNimbusUserFromConfigDir(configDir: string): NimbusUserToml {
+  return loadNimbusUserFromPath(join(configDir, "nimbus.toml"));
+}
