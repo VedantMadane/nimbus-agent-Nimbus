@@ -33,6 +33,7 @@ import { GRAPH_V7_MIGRATION_SQL } from "../graph-v7-sql.ts";
 import { LAN_PEERS_V19_SQL } from "../lan-peers-v19-sql.ts";
 import { LLM_CONTEXT_WINDOW_V16_ALTER_SQL, LLM_MODELS_V16_SQL } from "../llm-models-v16-sql.ts";
 import { LLM_TASK_DEFAULTS_V20_SQL } from "../llm-task-defaults-v20-sql.ts";
+import { OBSIDIAN_NOTES_V26_SCHEMA_SQL } from "../obsidian-notes-v26-sql.ts";
 import { PERSON_HANDLES_V5_ALTER_SQL } from "../person-handles-v5-sql.ts";
 import { PERSON_LINKED_V4_ALTER_SQL } from "../person-linked-v4-sql.ts";
 import { QUERY_LATENCY_V14_SQL } from "../query-latency-v14-sql.ts";
@@ -353,6 +354,14 @@ function migrateIndexedV24ToV25(db: Database, now: number): void {
   })();
 }
 
+function migrateIndexedV25ToV26(db: Database, now: number): void {
+  db.transaction(() => {
+    db.exec(OBSIDIAN_NOTES_V26_SCHEMA_SQL);
+    db.exec("PRAGMA user_version = 26");
+    recordMigration(db, 26, "obsidian_notes shadow table (Wave A PR 2)", now);
+  })();
+}
+
 const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 0, toVersion: 1, apply: migrateIndexedV0ToV1 },
   { fromVersion: 1, toVersion: 2, apply: migrateIndexedV1ToV2 },
@@ -379,6 +388,7 @@ const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 22, toVersion: 23, apply: migrateIndexedV22ToV23 },
   { fromVersion: 23, toVersion: 24, apply: migrateIndexedV23ToV24 },
   { fromVersion: 24, toVersion: 25, apply: migrateIndexedV24ToV25 },
+  { fromVersion: 25, toVersion: 26, apply: migrateIndexedV25ToV26 },
 ];
 
 const BACKFILL_LABELS: readonly string[] = [
@@ -407,6 +417,7 @@ const BACKFILL_LABELS: readonly string[] = [
   "workflow_run.dry_run + workflow_run.params_override_json (WS5-D Polish) (backfilled)",
   "audit_log.session_id (transcript rehydration support) (backfilled)",
   "api_endpoint shadow table (Wave A PR 1) (backfilled)",
+  "obsidian_notes shadow table (Wave A PR 2) (backfilled)",
 ];
 
 /**
