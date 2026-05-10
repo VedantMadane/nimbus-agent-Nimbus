@@ -74,8 +74,9 @@ function extractAliases(fm: Record<string, unknown>): readonly string[] {
 
 function extractWikilinks(body: string): readonly string[] {
   const out: string[] = [];
-  let match: RegExpExecArray | null;
-  while ((match = WIKILINK_RE.exec(body)) !== null) {
+  // `WIKILINK_RE` is a `/g` regex so we use `matchAll` rather than the
+  // `while ((m = exec()) !== null)` form (Biome `noAssignInExpressions`).
+  for (const match of body.matchAll(WIKILINK_RE)) {
     const inner = match[1] ?? "";
     // Strip alias `|...` then heading `#...`
     const noAlias = inner.split("|")[0] ?? "";
