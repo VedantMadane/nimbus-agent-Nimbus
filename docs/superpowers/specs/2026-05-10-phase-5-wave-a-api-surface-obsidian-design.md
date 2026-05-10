@@ -33,111 +33,111 @@ These decisions framed the design and are not re-litigated below.
 | # | Decision | Reason |
 |---|---|---|
 | D1 | **Spec shape — one Wave A spec, multi-PR plan** | Mirrors how T3 was specced as one epic with three PRs; cleaner than two specs sequencing each other. |
-| D2 | **Both deliverables ship as first-party MCP connectors** | Matches `nimbus-connector-authoring.md` exactly; uniform lifecycle, registry, scaffold. Even though OpenAPI parsing is local, treating it as a connector keeps the engine ↔ data boundary clean (non-negotiable #4). |
+| D2 | **PR 1 follows the `filesystem-v2` gateway-side indexer pattern, not the MCP-package pattern** | The only existing precedent for a pure-local indexer in this codebase is `filesystem-v2-sync.ts` — gateway-side syncable + dedicated migration, no MCP package. Every `packages/mcp-connectors/*/` package wraps a remote API; none indexes purely-local files. The OpenAPI indexer has no remote API to wrap and the engine already reaches `api_endpoint` items via `searchLocalIndex` and the existing `index.query` / `index.search` IPC, so a separate MCP package would be near-empty and would duplicate the index query path. PR 2 (Obsidian) follows a **hybrid** pattern: gateway-side syncable for indexing, plus a small MCP package for the HITL-gated `appendToDailyNote` write tool (since HITL routes by `action.type` to an MCP-backed handler). |
 | D3 | **Discovery is filesystem-only in PR 1** | Avoids expanding the github/gitlab MCP surface; dogfoodable in this very repo; remote-repo spec discovery is a clean follow-up if user demand emerges. |
 | D4 | **Two PRs: OpenAPI then Obsidian** | Each PR fully shippable, matches T3 PR2/PR3 size, and OpenAPI's graph payoff lands first to enrich `nimbus impact` answers immediately. |
 | D5 | **Obsidian's `appendToDailyNote` write path is in-scope for Wave A** | The T1 spec's "no write-capable connector before T2" rule (Section 2 rule 1) explicitly scopes to **Extended** waves. Posture C's sandbox concern is about untrusted remote credentials, not local filesystem writes the user owns. The HITL gate (invariant `I2`) is the structural defense for this path. |
 
 ## Architecture
 
-Both connectors follow the standard Nimbus connector contract (`nimbus-connector-authoring.md`):
+PR 1 (`openapi-indexer`) is **gateway-side only** — sync handler + V25 migration, no MCP subprocess. Engine queries land on the indexed `api_endpoint` rows via the existing `searchLocalIndex` tool and `index.query` / `index.search` IPC.
+
+PR 2 (`obsidian`) is **hybrid** — gateway-side syncable for vault indexing + a thin MCP package that hosts the HITL-gated `appendToDailyNote` write tool, because HITL routes by `action.type` through the MCP dispatcher.
+
+Neither sub-project reads credentials. Neither makes a network call. Discovery for both is anchored in `[[filesystem.roots]]` (and, for Obsidian, the presence of `.obsidian/` directories).
 
 ```
-Engine (Mastra) ──► ToolExecutor ──► ConnectorDispatcher ──► MCP server process
-                          │                                          │
-                          └─ HITL gate (executor.ts)                 └─ filesystem only
-                          │  (writes only — Obsidian append)         (no network)
-```
-
-Neither connector reads credentials. Neither makes a network call. Both are spawned by the lazy-mesh based on the presence of `[[filesystem.roots]]` and (for Obsidian) the discovery of at least one vault.
-
-```
-[[filesystem.roots]] ──► filesystem connector (existing)
+[[filesystem.roots]] ──► filesystem-v2 sync (existing, gateway-side)
                     │
-                    ├──► openapi-indexer connector (Wave A PR 1)
+                    ├──► openapi-indexer sync (Wave A PR 1, gateway-side only)
                     │      └─ scans for openapi.* / swagger.* / asyncapi.* under each root
-                    │      └─ emits `api_endpoint` items
+                    │      └─ emits `api_endpoint` items into `item` + `api_endpoint` shadow
+                    │      └─ emits `api_endpoint` → `service` graph edges
                     │
-                    └──► obsidian connector (Wave A PR 2)
-                           └─ scans for `.obsidian/` directories under each root
-                           └─ emits `obsidian_note` items + backlink edges
-                           └─ exposes `appendToDailyNote` (HITL-gated write)
+                    └──► obsidian sync (Wave A PR 2, gateway-side)
+                           ├─ scans for `.obsidian/` directories under each root
+                           ├─ emits `obsidian_note` items + backlink edges
+                           └─ obsidian MCP server (PR 2, packages/mcp-connectors/obsidian/)
+                                 └─ `appendToDailyNote` (HITL-gated write tool)
 ```
 
 ---
 
-## PR 1 — `openapi-indexer` connector
+## PR 1 — `openapi-indexer` (gateway-side syncable)
 
 | Aspect | Decision |
 |---|---|
-| Package | `packages/mcp-connectors/openapi-indexer/` |
-| MCP server entry | `src/server.ts` → `dist/server.js` |
+| Implementation file | `packages/gateway/src/connectors/openapi-indexer-sync.ts` (mirrors `filesystem-v2-sync.ts` shape: exports `createOpenapiIndexerSyncable(options): Syncable`) |
+| Service id | `openapi` (used as the `item.service` value and as the `Syncable.serviceId`) |
+| MCP package | None — pure-local indexer, no remote API to wrap |
+| Registration | `packages/gateway/src/platform/assemble.ts` registers the syncable via `syncScheduler.register(createOpenapiIndexerSyncable({ roots: fsV2Roots, config: openapiToml }))` when `[[filesystem.roots]]` is non-empty |
 | Discovery | Recursive walk of `[[filesystem.roots]]`. Filename match (case-insensitive): `openapi.{yaml,yml,json}`, `swagger.{yaml,yml,json}`, `asyncapi.{yaml,yml,json}`. Default-ignored directory names: `node_modules/`, `.git/`, `dist/`, `build/`, `target/`, `.next/`, `out/`, `vendor/`, `.cache/`. Walk is depth-bounded: `[openapi].max_walk_depth` (default `8`) and a `[openapi].ignore_globs` array (default `[]`) are configurable in `nimbus.toml` so users with deep monorepos can adjust both bounds and exclusions. |
 | Parser | `@readme/openapi-parser` (handles OpenAPI 2.0 / 3.0 / 3.1, including `$ref` resolution). A small in-tree AsyncAPI 2.x reader (parses `channels` + `operations` only — no semantic validation). AsyncAPI 3.0 is not supported in PR 1 (see Non-goals). |
-| Item type | `api_endpoint` |
-| `api_endpoint` fields | `path` (string), `method` (string — `GET`/`POST`/...; `PUBLISH`/`SUBSCRIBE` for AsyncAPI), `operationId` (string?), `tags` (string[]), `deprecated` (bool), `service` (string — inferred), `spec_file` (string — absolute path), `spec_version` (string — e.g. `openapi-3.1.0` / `asyncapi-2.6.0`), `last_modified` (unix ms) |
-| Item ID format | `openapi:<sha256-of-absolute-spec-path-first-12-hex>#<METHOD>:<path>` — stable across syncs as long as the spec file is not moved. If the file is moved, the old IDs are deleted on the next sync and new IDs emitted at the new path; this is the same delete-then-upsert behavior used for endpoints removed from a re-parsed spec. |
-| Service inference | (1) Per-spec override in a sibling `nimbus.openapi.toml` (`service = "..."`) if present; (2) spec file's enclosing directory name when the spec is not at a filesystem-root top level (e.g., `services/payments-api/openapi.yaml` → `payments-api`); (3) the spec's `info.title` slugified; (4) deterministic fallback `service-<sha256-of-absolute-spec-path-first-8-hex>` when none of the above produce a non-empty value — guarantees collision-freeness across roots when both the enclosing directory and `info.title` are missing. |
-| MCP tools (read) | `list({ service?, deprecated? })`, `get({ id })`, `search({ query, limit })`. All three mandatory per `nimbus-connector-authoring.md`. |
-| MCP tools (write) | None. No HITL declaration in manifest. |
-| Sync handler | `ConnectorSyncHandler.sync(db, lastSyncToken)`: walk discovery roots, stat each candidate file, re-parse files whose mtime > `lastSyncToken`. Upsert endpoints by id. Delete endpoints absent from the new parse for any spec file that *was* re-parsed (sticky deletes — endpoints in unchanged spec files are preserved). `nextSyncToken` = max mtime seen. |
-| DB migration | **V25** — adds `api_endpoints` shadow table (one row per endpoint with structured columns) plus standard `items` rows for cross-cutting search. Composite index on `(service, path, method)`. See migration detail below. |
-| Graph edges | Emit `api_endpoint` → `service` (M:1) edges into the existing graph table on every upsert. `api_endpoint` → `repo_file` (M:1, via `spec_file`) is left as a future enrichment. |
-| Coverage gate | ≥70% line (connector standard; see `nimbus-testing.md`). |
-| Contract tests | `runContractTests()` from `@nimbus-dev/sdk` — manifest validity, mandatory tool surface, item-ID format, `SyncResult` shape. |
+| Item type | `api_endpoint` (the value of `item.type` — see existing `unified-item-v3-sql.ts`) |
+| `api_endpoint` `item` columns | Standard `item` row with `service = "openapi"`, `type = "api_endpoint"`, `external_id` = the per-endpoint id below, `title` = `<METHOD> <path>`, `body_preview` = `operationId` + tags joined, `metadata` = JSON of the structured fields. |
+| Structured columns (`api_endpoint` shadow table) | `path` (string), `method` (string — `GET`/`POST`/...; `PUBLISH`/`SUBSCRIBE` for AsyncAPI), `operation_id` (string?), `tags_json` (string), `deprecated` (0/1), `service_name` (string — inferred), `spec_file` (string — absolute path), `spec_version` (string — e.g. `openapi-3.1.0` / `asyncapi-2.6.0`), `last_modified` (unix ms). The `item.service` column is always `"openapi"` (the connector id); the inferred service that owns the endpoint is `api_endpoint.service_name`. |
+| External-id format | `<sha256-of-absolute-spec-path-first-12-hex>#<METHOD>:<path>` — combined with the `openapi:` prefix supplied by `itemPrimaryKey` to produce the `item.id` `openapi:<...>#<METHOD>:<path>`. Stable across syncs as long as the spec file is not moved. If the file is moved, the old IDs are deleted on the next sync and new IDs emitted at the new path; this is the same delete-then-upsert behavior used for endpoints removed from a re-parsed spec. |
+| Service-name inference | (1) Per-spec override in a sibling `nimbus.openapi.toml` (`service = "..."`) if present; (2) spec file's enclosing directory name when the spec is not at a filesystem-root top level (e.g., `services/payments-api/openapi.yaml` → `payments-api`); (3) the spec's `info.title` slugified; (4) deterministic fallback `service-<sha256-of-absolute-spec-path-first-8-hex>` when none of the above produce a non-empty value — guarantees collision-freeness across roots when both the enclosing directory and `info.title` are missing. |
+| Engine surface | None new. The agent reaches `api_endpoint` rows via the existing `searchLocalIndex` tool with a `type: "api_endpoint"` filter and via `index.query` / `index.search` IPC. No new MCP tools. |
+| Sync handler | `Syncable.sync(ctx, cursor)` walks discovery roots, stats each candidate file, parses files whose mtime > the cursor. Upserts endpoints via `upsertIndexedItem` (`item-store.ts`) plus a row in `api_endpoint`. Deletes endpoints absent from the new parse for any spec file that *was* re-parsed (sticky deletes — endpoints in unchanged spec files are preserved). New `cursor` = max mtime seen. |
+| DB migration | **V25** — adds `api_endpoint` shadow table (one row per endpoint with structured columns); standard cross-cutting search lands on the existing `item` / `item_fts` tables. Composite index on `(service_name, path, method)`. See migration detail below. |
+| Graph edges | Emit `api_endpoint` → `service` (M:1) edges into the existing `graph_relation` table on every upsert. `api_endpoint` → `repo_file` (M:1, via `spec_file`) is left as a future enrichment. |
+| Coverage gate | ≥80% line on `packages/gateway/src/connectors/openapi-indexer-sync.ts` and the V25 SQL helpers (matches the engine/sync coverage gates already enforced in CI for analogous gateway-side modules). |
 | Parsing fixture suite | OpenAPI 3.0, OpenAPI 3.1, Swagger 2.0, AsyncAPI 2.6 — at least one fixture per format with `$ref` resolution exercised. Plus an explicit **bad-input fixture suite**: invalid YAML, valid YAML that isn't a spec, OpenAPI with unresolvable `$ref`, OpenAPI 3.1 webhook-only doc, oversize spec (exceeds the configured limit) — each must fail soft and be skipped without aborting the sync. |
 | Spec size limit | Configurable via `[openapi].max_spec_bytes` in `nimbus.toml` (default `5_242_880` = 5 MiB). Enterprise specs that exceed this can raise the limit; specs above the limit are skipped with a one-line warning and counted in the connector's health snapshot so users can see how many are silently skipped. |
-| Integration test | Boot a real Gateway, point it at a temp `[[filesystem.roots]]` containing two specs, assert `api_endpoint` items appear in the index and a `list({ service: "..." })` call returns them. |
+| Integration test | Boot a real Gateway with a temp `[[filesystem.roots]]` containing two specs; trigger the syncable; assert `api_endpoint` items appear in the `item` table and an `index.query({ type: "api_endpoint", service: "..." })` (or equivalent local-index query) returns them. |
 
-**Why this is a connector and not a gateway subsystem.** The non-negotiable says the engine never reads cloud APIs directly. Even though spec parsing is local, treating it as a connector keeps the boundary uniform — same lifecycle, same registry, same MCP surface, same scaffold (`nimbus scaffold extension`). The integration cost is one entry in `connectors/registry.ts`. The `CONNECTOR_VAULT_SECRET_KEYS` manifest is not touched, since the connector has no credentials.
+**Why gateway-side and not an MCP package.** Every existing `packages/mcp-connectors/*/` package wraps a remote API; none indexes purely-local files. The only existing precedent for a pure-local indexer is `filesystem-v2-sync.ts` — gateway-side, no MCP package. The OpenAPI indexer matches that pattern exactly: no remote API, no credentials, and the engine already has typed access to `api_endpoint` rows via `searchLocalIndex` + `index.query`. Adding a near-empty MCP package would cost a subprocess + spawn config + secrets-manifest row for zero added engine capability. The `CONNECTOR_VAULT_SECRET_KEYS` manifest is not touched.
 
 ### V25 migration detail
 
+The V25 migration lives at `packages/gateway/src/index/api-endpoint-v25-sql.ts` (matching the existing per-version naming) and is wired into `packages/gateway/src/index/migrations/runner.ts` as `migrateIndexedV24ToV25`.
+
 ```sql
-CREATE TABLE api_endpoints (
-  id           TEXT PRIMARY KEY,           -- matches items.id
-  service      TEXT NOT NULL,
-  path         TEXT NOT NULL,
-  method       TEXT NOT NULL,
-  operation_id TEXT,
-  tags_json    TEXT NOT NULL DEFAULT '[]', -- stringified string[]
-  deprecated   INTEGER NOT NULL DEFAULT 0, -- 0/1
-  spec_file    TEXT NOT NULL,
-  spec_version TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS api_endpoint (
+  id            TEXT PRIMARY KEY,           -- FK to item.id (singular `item` table)
+  service_name  TEXT NOT NULL,              -- inferred service-that-owns-the-endpoint
+  path          TEXT NOT NULL,
+  method        TEXT NOT NULL,
+  operation_id  TEXT,
+  tags_json     TEXT NOT NULL DEFAULT '[]', -- stringified string[]
+  deprecated    INTEGER NOT NULL DEFAULT 0, -- 0/1
+  spec_file     TEXT NOT NULL,
+  spec_version  TEXT NOT NULL,
   last_modified INTEGER NOT NULL,           -- unix ms
-  created_at   INTEGER NOT NULL,
+  created_at    INTEGER NOT NULL,
   CHECK (deprecated IN (0, 1))
 );
 
-CREATE INDEX idx_api_endpoints_service_path_method
-  ON api_endpoints (service, path, method);
+CREATE INDEX IF NOT EXISTS idx_api_endpoint_service_path_method
+  ON api_endpoint (service_name, path, method);
 
-CREATE INDEX idx_api_endpoints_spec_file
-  ON api_endpoints (spec_file);
+CREATE INDEX IF NOT EXISTS idx_api_endpoint_spec_file
+  ON api_endpoint (spec_file);
 ```
 
-Per `nimbus-db-migrations.md`: append-only schema, single transaction, pre-migration backup is automatic.
+Per `nimbus-db-migrations.md`: append-only schema, single transaction, pre-migration backup is automatic. Table name uses the singular convention seen in `item`, `person`, `watcher` (rather than the plural `items`-style legacy).
 
 ### Acceptance criteria — PR 1
 
-- [ ] Package `packages/mcp-connectors/openapi-indexer/` created via `nimbus scaffold extension`.
-- [ ] `nimbus.extension.json` declares `permissions: ["filesystem:read"]`, no `hitlRequired` entries.
-- [ ] Mandatory `list`, `get`, `search` tools exposed; no write tools.
-- [ ] Item IDs follow `openapi:<sha-prefix>#<METHOD>:<path>`.
+- [ ] Sync handler implemented at `packages/gateway/src/connectors/openapi-indexer-sync.ts`, exporting `createOpenapiIndexerSyncable(options): Syncable` (mirrors `filesystem-v2-sync.ts`).
+- [ ] V25 migration SQL at `packages/gateway/src/index/api-endpoint-v25-sql.ts`; migration step `migrateIndexedV24ToV25` registered in `packages/gateway/src/index/migrations/runner.ts`.
+- [ ] V25 migration applied on a fresh DB; `api_endpoint` table + both indexes present; `_schema_migrations` row recorded.
+- [ ] Item rows land in the existing `item` table with `service = "openapi"`, `type = "api_endpoint"`, `external_id = "<sha-prefix>#<METHOD>:<path>"`; structured columns land in `api_endpoint` keyed by `item.id`.
 - [ ] Parser fixture suite green for OpenAPI 3.0 / 3.1, Swagger 2.0, AsyncAPI 2.6 (AsyncAPI 3.0 explicitly skipped — see Non-goals).
 - [ ] Bad-input fixture suite green: each malformed/oversized spec is skipped without aborting the sync.
 - [ ] Discovery walk respects `[openapi].max_walk_depth` (default 8) and `[openapi].ignore_globs`; default-ignored directory list (`node_modules/`, `.git/`, `dist/`, `build/`, `target/`, `.next/`, `out/`, `vendor/`, `.cache/`) is exercised by a fixture with one of each.
 - [ ] Spec-size threshold honors `[openapi].max_spec_bytes` (default 5 MiB); skipped-by-size count surfaces in the connector health snapshot.
-- [ ] Service inference falls through the four-step chain (override → enclosing dir → `info.title` slug → `service-<sha8>` deterministic fallback); a fixture exercises each step.
-- [ ] V25 migration applied; `api_endpoints` table and indexes present.
-- [ ] `api_endpoint` → `service` graph edges emitted on upsert.
-- [ ] `runContractTests()` green.
-- [ ] Integration test: real Gateway + temp filesystem root + two specs → endpoints queryable.
-- [ ] Coverage ≥70% on `packages/mcp-connectors/openapi-indexer/`.
-- [ ] Connector registered in `packages/gateway/src/connectors/registry.ts`.
-- [ ] `docs/architecture.md` schema reference updated with `api_endpoints` table row.
+- [ ] Service-name inference falls through the four-step chain (override → enclosing dir → `info.title` slug → `service-<sha8>` deterministic fallback); a fixture exercises each step.
+- [ ] `api_endpoint` → `service` graph edges emitted on upsert via `graph_relation` writes (same pattern as the existing graph populator).
+- [ ] Mtime-based delta sync: re-running with no file changes upserts zero items; touching one spec re-emits only its endpoints.
+- [ ] Sticky deletes: removing an endpoint from a re-parsed spec deletes that endpoint's `item` + `api_endpoint` rows; endpoints in unchanged spec files are preserved.
+- [ ] Connector registered in `packages/gateway/src/platform/assemble.ts` next to the existing filesystem-v2 registration; `localIndex.ensureConnectorSchedulerRegistration("openapi", ...)` called so health snapshots surface the new connector.
+- [ ] Integration test: real Gateway + temp filesystem root + two specs → endpoints queryable via `index.query`.
+- [ ] Unit + integration line coverage ≥80% on the new sync module and V25 SQL helpers.
+- [ ] `docs/architecture.md` schema reference updated with `api_endpoint` table row.
 - [ ] `docs/roadmap.md` "OpenAPI / AsyncAPI spec indexer" line flipped to `[x]`.
-- [ ] `CLAUDE.md` "Key File Locations" updated.
+- [ ] `CLAUDE.md` "Key File Locations" gets two new rows (sync module + V25 migration).
 - [ ] Preflight `bun run test:ci` green before push.
 
 ---
