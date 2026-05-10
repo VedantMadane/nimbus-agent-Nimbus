@@ -116,6 +116,12 @@ The same rule applies to production helpers that accept a `platform` argument an
 
 The `pr-quality-cross-platform` job (`.github/workflows/ci.yml`) runs gateway/CLI unit tests on macOS and Windows at PR time so this class of regression is caught before merge.
 
+### Using the `nimbus-*` skill set (Claude Code / compatible AI assistants)
+
+The repository ships several `nimbus-*` skills under `.claude/commands/` that codify how to do common contributor tasks correctly: invariant changes (`nimbus-security-invariants`, `nimbus-tool-output-envelope`, `nimbus-tauri-allowlist`), IPC additions (`nimbus-ipc`), connector authoring (`nimbus-connector-authoring`), built-in agents (`nimbus-agent-patterns`), DB migrations (`nimbus-db-migrations`), and testing layers (`nimbus-testing`). When working in Claude Code (or a compatible AI assistant that respects skills), they load automatically and prevent the most common cross-cutting mistakes — orphan security defenses, broken HITL invariants, dead-code allowlist entries, and the like.
+
+Direct browsing: see `.claude/commands/` and the index in `CLAUDE.md`. The skills are equally useful as plain reading material if you are not using an AI assistant.
+
 ### Before Opening a PR
 
 - [ ] `bun run typecheck` passes with zero errors

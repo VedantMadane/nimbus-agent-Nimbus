@@ -6,6 +6,7 @@
 
 *Cross-service incident context in under 100ms. Consent-gated automation. Your credentials never leave the machine.*
 
+[![Docs: nimbus-agent.dev](https://img.shields.io/badge/docs-nimbus--agent.dev-blueviolet)](https://nimbus-agent.dev)
 [![Built with Bun](https://img.shields.io/badge/runtime-Bun_1.2+-black?logo=bun)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/language-TypeScript_6.x-3178C6?logo=typescript)](https://typescriptlang.org)
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple)](https://modelcontextprotocol.io)
@@ -208,7 +209,12 @@ See the [roadmap](./roadmap.md) for depth and remaining gaps per connector.
 **Landed since `v0.1.0` (Phase 5 in flight):**
 
 - **`nimbus expert <topic-or-file>`** — first built-in agent: ranks team members with the most context on a file or topic from indexed PR authorship, review history, and incident involvement. Read-only, no HITL. T3 Team Intelligence PR 1 (2026-05-09).
+- **`nimbus impact <file-or-PR-url>`** — second built-in agent: reverse-dependency blast radius across services, pipelines, dashboards, and on-call rotations. Five parallel sub-agents over the relationship graph. Read-only, no HITL. `--json` for CI integration. T3 Team Intelligence PR 2 (2026-05-09).
 - **Parallel sub-agent dispatch** — `AgentCoordinator.executeAll` now runs sub-tasks concurrently rather than sequentially.
+
+**In planning:**
+
+- **`nimbus catchup --since <duration>`** — third built-in agent: personalized retrospective digest weighted by the user's historical involvement (services owned, repos contributed to, incidents responded to). T3 Team Intelligence PR 3 — design complete, implementation in flight. See [`docs/superpowers/plans/2026-05-09-phase-5-t3-pr3-catchup.md`](./superpowers/plans/2026-05-09-phase-5-t3-pr3-catchup.md).
 
 See [`docs/roadmap.md`](./roadmap.md) for the full delivery list and [`docs/cli-reference.md`](./cli-reference.md) for the complete CLI command reference.
 
@@ -555,7 +561,7 @@ nimbus extension list
 | **CI runner** | `windows-2025` | `macos-15` | `ubuntu-24.04` |
 | **Release** | `.zip` (unsigned, v0.1.0 cut-line) † | `.tar.gz` (unsigned, v0.1.0 cut-line) † | `.deb` (GPG-signed) + AppImage |
 
-† **Ubuntu 22.04 is supported for source builds only.** Pre-built Linux binaries are compiled on Ubuntu 24.04 and require **glibc ≥ 2.39** at runtime — Ubuntu 22.04 LTS, Debian 12, and RHEL 9 (and derivatives) will fail with `GLIBC_2.39 not found`. See [SECURITY.md](./SECURITY.md#linux-runtime-support--glibc-floor).
+† **Ubuntu 22.04 is supported for source builds only.** Pre-built Linux binaries are compiled on Ubuntu 24.04 and require **glibc ≥ 2.39** at runtime (Ubuntu 24.04+, Fedora 40+, Debian 13+, Arch / other current rolling releases). Ubuntu 22.04 LTS, Debian 12, and RHEL 9 (and derivatives) will fail with `GLIBC_2.39 not found`. See [SECURITY.md](./SECURITY.md#linux-runtime-support--glibc-floor) for the canonical supported-distro list and rationale.
 
 † **macOS and Windows ship unsigned in v0.1.0.** Cross-platform integrity is provided by the GPG-signed `SHA256SUMS.asc` manifest. macOS Gatekeeper and Windows SmartScreen will prompt on first run; this is expected. Apple Developer notarization and Windows Authenticode signing are deferred to a later point release — see [SECURITY.md](./SECURITY.md#v010-signing-cut-line).
 
