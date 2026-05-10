@@ -150,3 +150,23 @@ test("uses enclosing-directory name when spec lives one level under the root", a
   }>;
   expect(services.map((s) => s.service_name)).toEqual(["payments-api"]);
 });
+
+test("syncing emits graph_relation edges from api_endpoint to its service", async () => {
+  const root = mkdtempSync(join(tmpdir(), "openapi-sync-graph-"));
+  copyFileSync(join(FIX, "petstore-3.0.yaml"), join(root, "openapi.yaml"));
+  const sync = createOpenapiIndexerSyncable({
+    roots: [{ path: root, gitAware: false, codeIndex: false, dependencyGraph: false, exclude: [] }],
+    config: DEFAULT_OPENAPI_CONFIG,
+  });
+  const db = createMemoryIndexDb();
+  await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT), null);
+  const rels = db
+    .query(
+      `SELECT type FROM graph_relation
+       WHERE from_id IN (SELECT id FROM graph_entity WHERE type = 'api_endpoint')
+         AND to_id IN (SELECT id FROM graph_entity WHERE type = 'service')`,
+    )
+    .all() as Array<{ type: string }>;
+  expect(rels.length).toBeGreaterThanOrEqual(2);
+  expect(rels.every((r) => r.type === "targets")).toBe(true);
+});
