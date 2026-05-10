@@ -61,6 +61,7 @@ impl Default for HitlInbox {
 /// (see `allowlist_rejects_vault_and_raw_db_writes`). Destructive domain ops
 /// (`data.delete`) live at the Gateway level, not the raw db layer.
 pub const ALLOWED_METHODS: &[&str] = &[
+    "agents.catchup",
     "agents.expert",
     "agents.impact",
     "audit.export",
@@ -445,7 +446,8 @@ mod tests {
         // Security fix: remove extension.install → 55 total.
         // Phase 5 T3 PR 1 adds agents.expert → 58 total.
         // Phase 5 T3 PR 2 adds agents.impact → 59 total.
-        assert_eq!(ALLOWED_METHODS.len(), 59);
+        // Phase 5 T3 PR 3 adds agents.catchup → 60 total.
+        assert_eq!(ALLOWED_METHODS.len(), 60);
     }
 
     #[test]

@@ -1,0 +1,442 @@
+import type { Database } from "bun:sqlite";
+import { userInfo } from "node:os";
+import { AgentCoordinator, type SubTask } from "../engine/coordinator.ts";
+import type { CatchupBrief, CatchupItem, CatchupSection, GapNote } from "./_lib/findings.ts";
+import { detectEmptyIndex } from "./_lib/gap-notes.ts";
+import { type GitRunner, resolveSelfPerson } from "./_lib/self-person.ts";
+import { type SynthesizerLlm, synthesize } from "./_lib/synthesize.ts";
+
+const DEFAULT_SINCE_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
+const MAX_SINCE_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
+const PER_SERVICE_QUOTA = 50;
+
+export type CatchupInput = {
+  sinceMs?: number;
+  service?: string;
+  /** Test seam — override the active profile's [user] me_person_id. */
+  mePersonIdOverride?: string;
+  /** Test seam — replace the default `git config user.email` runner. */
+  runGitOverride?: GitRunner;
+  /** Test seam — replace the default `os.userInfo().username` lookup. */
+  osUsernameOverride?: string;
+};
+
+export type CatchupContext = {
+  db: Database;
+  llm?: SynthesizerLlm;
+  notify: (method: string, params: unknown) => void;
+  sessionId: string;
+};
+
+export type Involvement = {
+  ownedServices: string[];
+  activeRepos: string[];
+  incidentServices: string[];
+  collaboratorPersonIds: string[];
+};
+
+export type WindowItem = {
+  id: string;
+  service: string;
+  title: string;
+  modifiedAt: number;
+  repoLabel: string | null;
+  authorPersonId: string | null;
+};
+
+type SubAgentResult = {
+  // Each sub-agent returns a single typed slice of the involvement set or the
+  // window-item bag. The agent merges them in the post-Promise loop.
+  ownedServices?: string[];
+  activeRepos?: string[];
+  incidentServices?: string[];
+  collaboratorPersonIds?: string[];
+  windowItems?: WindowItem[];
+  gap?: GapNote;
+};
+
+function makeSubAgent(
+  fn: (db: Database, selfPersonId: string | null, sinceMs: number) => Promise<SubAgentResult>,
+  db: Database,
+  selfPersonId: string | null,
+  sinceMs: number,
+): SubTask {
+  return {
+    taskType: "agent_step",
+    prompt: "",
+    execute: async () => {
+      const out = await fn(db, selfPersonId, sinceMs);
+      return { text: JSON.stringify(out), tokensIn: 0, tokensOut: 0 };
+    },
+  };
+}
+
+export async function runCatchup(input: CatchupInput, ctx: CatchupContext): Promise<CatchupBrief> {
+  const start = performance.now();
+  const sinceMs = Math.min(input.sinceMs ?? DEFAULT_SINCE_MS, MAX_SINCE_MS);
+
+  const preflightGaps: GapNote[] = [];
+  const empty = detectEmptyIndex(ctx.db);
+  if (empty !== null) preflightGaps.push(empty);
+
+  // Stage 0 — synchronous self-person resolution. Must complete before fan-out
+  // because every Stage 1 sub-agent needs `selfPersonId`.
+  const osUsername = input.osUsernameOverride ?? safeOsUsername();
+  const resolution = await resolveSelfPerson(ctx.db, {
+    ...(input.mePersonIdOverride === undefined ? {} : { override: input.mePersonIdOverride }),
+    ...(input.runGitOverride === undefined ? {} : { runGit: input.runGitOverride }),
+    osUsername,
+  });
+  if (resolution.source === "unresolved") {
+    preflightGaps.push({
+      category: "missing_user_identity",
+      detail:
+        "Could not resolve the current user — no override / git email / OS username matched a known person.",
+      remediation:
+        "Set `[user] me_person_id` in your active profile's nimbus.toml, or run `nimbus people search <you>` to find your person id.",
+    });
+  }
+
+  // Stage 1 — five parallel sub-agents.
+  const coordinator = new AgentCoordinator({
+    sessionId: ctx.sessionId,
+    parentId: `catchup:${ctx.sessionId}`,
+    depth: 1,
+    toolCallCount: { value: 0 },
+  });
+  const tasks: SubTask[] = [
+    makeSubAgent(subOwnedServices, ctx.db, resolution.personId, sinceMs),
+    makeSubAgent(subActiveRepos, ctx.db, resolution.personId, sinceMs),
+    makeSubAgent(subRespondedIncidents, ctx.db, resolution.personId, sinceMs),
+    makeSubAgent(subCollaborators, ctx.db, resolution.personId, sinceMs),
+    makeSubAgent(subWindowItems, ctx.db, resolution.personId, sinceMs),
+  ];
+  const results = await coordinator.run(tasks);
+
+  // Merge sub-agent outputs.
+  const involvement: Involvement = {
+    ownedServices: [],
+    activeRepos: [],
+    incidentServices: [],
+    collaboratorPersonIds: [],
+  };
+  const windowItems: WindowItem[] = [];
+  const subAgentGaps: GapNote[] = [];
+  for (const r of results) {
+    if (r.status !== "done" || r.text === undefined) {
+      subAgentGaps.push({
+        category: "missing_connector",
+        detail: `catchup sub-agent #${r.taskIndex} failed${
+          r.errorText === undefined ? "" : `: ${r.errorText}`
+        }`,
+      });
+      continue;
+    }
+    const decoded: SubAgentResult = JSON.parse(r.text);
+    if (decoded.ownedServices !== undefined)
+      involvement.ownedServices.push(...decoded.ownedServices);
+    if (decoded.activeRepos !== undefined) involvement.activeRepos.push(...decoded.activeRepos);
+    if (decoded.incidentServices !== undefined)
+      involvement.incidentServices.push(...decoded.incidentServices);
+    if (decoded.collaboratorPersonIds !== undefined)
+      involvement.collaboratorPersonIds.push(...decoded.collaboratorPersonIds);
+    if (decoded.windowItems !== undefined) windowItems.push(...decoded.windowItems);
+    if (decoded.gap !== undefined) subAgentGaps.push(decoded.gap);
+  }
+
+  // Stage 2 — score, group, order.
+  let sections = scoreAndGroup(windowItems, involvement);
+  if (input.service !== undefined) {
+    sections = sections.filter((s) => s.serviceId === input.service);
+  }
+
+  return {
+    kind: "catchup",
+    agentVersion: 1,
+    generatedAt: Date.now(),
+    latencyMs: Math.round(performance.now() - start),
+    gaps: [...preflightGaps, ...subAgentGaps],
+    query: { sinceMs },
+    selfPersonId: resolution.personId,
+    involvement,
+    sections,
+  };
+}
+
+export async function emitCatchupBrief(
+  input: CatchupInput,
+  ctx: CatchupContext,
+): Promise<{ sessionId: string }> {
+  void (async () => {
+    const brief = await runCatchup(input, ctx);
+    const markdown = await synthesize(brief, ctx.llm === undefined ? {} : { llm: ctx.llm });
+    ctx.notify("catchup.briefReady", {
+      sessionId: ctx.sessionId,
+      brief: markdown,
+      findings: brief,
+    });
+  })().catch((err: unknown) => {
+    ctx.notify("catchup.briefError", {
+      sessionId: ctx.sessionId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
+  return { sessionId: ctx.sessionId };
+}
+
+function safeOsUsername(): string {
+  try {
+    return userInfo().username;
+  } catch {
+    return "";
+  }
+}
+
+// ============================================================================
+// Stage 2 — scoring + grouping.
+// ============================================================================
+
+const SCORE_OWNED_SERVICE = 1.0;
+const SCORE_ACTIVE_REPO = 0.7;
+const SCORE_INCIDENT_SERVICE = 0.7;
+const SCORE_COLLABORATOR = 0.5;
+const SCORE_DEFAULT = 0.1;
+
+function scoreItem(
+  item: WindowItem,
+  involvement: Involvement,
+): { score: number; reasons: string[] } {
+  const reasons: string[] = [];
+  let raw = 0;
+  if (involvement.ownedServices.includes(item.service)) {
+    raw += SCORE_OWNED_SERVICE;
+    reasons.push(`owned_service:${item.service}`);
+  }
+  if (item.repoLabel !== null && involvement.activeRepos.includes(item.repoLabel)) {
+    raw += SCORE_ACTIVE_REPO;
+    reasons.push(`active_repo:${item.repoLabel}`);
+  }
+  if (involvement.incidentServices.includes(item.service)) {
+    raw += SCORE_INCIDENT_SERVICE;
+    reasons.push(`incident_service:${item.service}`);
+  }
+  if (
+    item.authorPersonId !== null &&
+    involvement.collaboratorPersonIds.includes(item.authorPersonId)
+  ) {
+    raw += SCORE_COLLABORATOR;
+    reasons.push(`collaborator:${item.authorPersonId}`);
+  }
+  if (raw === 0) {
+    raw = SCORE_DEFAULT;
+    reasons.push("default");
+  }
+  // Normalise the bag of additive boosts into a 0..1 value. The maximum
+  // possible raw is OWNED + REPO + INCIDENT + COLLAB ≈ 2.9; clamp at 1.
+  const score = Math.min(raw, 1);
+  return { score, reasons };
+}
+
+export function scoreAndGroup(items: WindowItem[], involvement: Involvement): CatchupSection[] {
+  if (items.length === 0) return [];
+  // Group by service, scoring each item once. Track section aggregate score
+  // (sum of item scores) for cross-section ordering.
+  const buckets = new Map<string, { items: CatchupItem[]; aggregate: number; total: number }>();
+  for (const item of items) {
+    const { score, reasons } = scoreItem(item, involvement);
+    const ci: CatchupItem = {
+      itemId: item.id,
+      title: item.title,
+      modifiedAt: item.modifiedAt,
+      relevanceScore: score,
+      relevanceReasons: reasons,
+    };
+    const slot = buckets.get(item.service);
+    if (slot === undefined) {
+      buckets.set(item.service, { items: [ci], aggregate: score, total: 1 });
+    } else {
+      slot.items.push(ci);
+      slot.aggregate += score;
+      slot.total += 1;
+    }
+  }
+  // Order items within each section by score desc; tie-break on modifiedAt desc
+  // to keep the most recent on top of equal-score clusters.
+  const ordered = [...buckets.entries()].map(([serviceId, slot]) => ({
+    serviceId,
+    aggregate: slot.aggregate,
+    section: {
+      serviceId,
+      totalItemsInWindow: slot.total,
+      items: slot.items.sort((a, b) => {
+        if (b.relevanceScore !== a.relevanceScore) return b.relevanceScore - a.relevanceScore;
+        return b.modifiedAt - a.modifiedAt;
+      }),
+    } satisfies CatchupSection,
+  }));
+  ordered.sort((a, b) => b.aggregate - a.aggregate);
+  return ordered.map((o) => o.section);
+}
+
+// ============================================================================
+// Stage 1 — five sub-agents. Each is read-only SQL against the local index.
+// All SQL uses the real schema (item, sync_state, person).
+// ============================================================================
+
+const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
+
+async function subOwnedServices(
+  db: Database,
+  selfPersonId: string | null,
+  _sinceMs: number,
+): Promise<SubAgentResult> {
+  if (selfPersonId === null) return { ownedServices: [] };
+  const ninetyDaysAgo = Date.now() - NINETY_DAYS_MS;
+  // "Owned" approximated as: services where this person has the highest
+  // authorship density in the last 90 days. We pick services where they
+  // authored ≥ 5 items (a coarse threshold that defends against noise).
+  const rows = db
+    .query(
+      `SELECT service, COUNT(*) AS n
+         FROM item
+         WHERE author_id = ? AND modified_at >= ?
+         GROUP BY service
+         HAVING n >= 5
+         ORDER BY n DESC`,
+    )
+    .all(selfPersonId, ninetyDaysAgo) as Array<{ service: string; n: number }>;
+  return { ownedServices: rows.map((r) => r.service) };
+}
+
+async function subActiveRepos(
+  db: Database,
+  selfPersonId: string | null,
+  _sinceMs: number,
+): Promise<SubAgentResult> {
+  if (selfPersonId === null) return { activeRepos: [] };
+  const ninetyDaysAgo = Date.now() - NINETY_DAYS_MS;
+  // Repos where the user authored a PR in the last 90 days. Repo label is the
+  // graph_entity row of type 'repo' linked through item.external_id stem.
+  // We approximate via item.external_id LIKE matching of the form "owner/repo#NNN".
+  const rows = db
+    .query(
+      `SELECT DISTINCT
+         substr(external_id, 1, instr(external_id, '#') - 1) AS repo_label
+         FROM item
+         WHERE author_id = ?
+           AND modified_at >= ?
+           AND type = 'pr'
+           AND instr(external_id, '#') > 0`,
+    )
+    .all(selfPersonId, ninetyDaysAgo) as Array<{ repo_label: string }>;
+  return { activeRepos: rows.map((r) => r.repo_label).filter((s) => s.length > 0) };
+}
+
+async function subRespondedIncidents(
+  db: Database,
+  selfPersonId: string | null,
+  _sinceMs: number,
+): Promise<SubAgentResult> {
+  if (selfPersonId === null) return { incidentServices: [] };
+  const ninetyDaysAgo = Date.now() - NINETY_DAYS_MS;
+  // Services where the user has a `resolves` graph edge into an incident
+  // entity in the last 90 days. The edge may not exist yet (graph populator
+  // follow-up); if it doesn't, this returns the empty set silently — the
+  // population gap is not a per-call gap note (it would fire on every
+  // `catchup`, polluting output).
+  const rows = db
+    .query(
+      `SELECT DISTINCT i.service AS service
+         FROM graph_relation r
+         JOIN graph_entity   pe ON pe.id = r.from_id AND pe.type = 'person' AND pe.external_id = ?
+         JOIN graph_entity   ie ON ie.id = r.to_id   AND ie.type = 'incident'
+         JOIN item           i  ON i.id = ie.external_id
+         WHERE r.type = 'resolves' AND i.modified_at >= ?`,
+    )
+    .all(selfPersonId, ninetyDaysAgo) as Array<{ service: string }>;
+  return { incidentServices: rows.map((r) => r.service) };
+}
+
+async function subCollaborators(
+  db: Database,
+  selfPersonId: string | null,
+  _sinceMs: number,
+): Promise<SubAgentResult> {
+  if (selfPersonId === null) return { collaboratorPersonIds: [] };
+  const ninetyDaysAgo = Date.now() - NINETY_DAYS_MS;
+  // Collaborators are other people whose authored items the user has touched
+  // (via review or shared thread) in the last 90 days. Today's index lacks a
+  // direct review_relation, so we approximate via "authors of items in repos
+  // the user is also active in" — same-repo coauthors. ≥ 3 shared items is
+  // the threshold; below that the relationship is too tenuous to surface.
+  const rows = db
+    .query(
+      `SELECT author_id AS person_id, COUNT(*) AS n
+         FROM item
+         WHERE author_id IS NOT NULL
+           AND author_id != ?
+           AND modified_at >= ?
+           AND instr(external_id, '#') > 0
+           AND substr(external_id, 1, instr(external_id, '#') - 1) IN (
+             SELECT DISTINCT substr(external_id, 1, instr(external_id, '#') - 1)
+               FROM item
+               WHERE author_id = ? AND modified_at >= ? AND instr(external_id, '#') > 0
+           )
+         GROUP BY author_id
+         HAVING n >= 3`,
+    )
+    .all(selfPersonId, ninetyDaysAgo, selfPersonId, ninetyDaysAgo) as Array<{
+    person_id: string;
+    n: number;
+  }>;
+  return { collaboratorPersonIds: rows.map((r) => r.person_id) };
+}
+
+async function subWindowItems(
+  db: Database,
+  _selfPersonId: string | null,
+  sinceMs: number,
+): Promise<SubAgentResult> {
+  const sinceCutoff = Date.now() - sinceMs;
+  // All items modified in the window, capped per-service for latency.
+  // Window query is the dominant cost; we use an indexed range on modified_at.
+  const rows = db
+    .query(
+      `SELECT id, service, title, modified_at,
+              CASE WHEN instr(external_id, '#') > 0
+                   THEN substr(external_id, 1, instr(external_id, '#') - 1)
+                   ELSE NULL END AS repo_label,
+              author_id
+         FROM item
+         WHERE modified_at >= ?
+         ORDER BY service ASC, modified_at DESC`,
+    )
+    .all(sinceCutoff) as Array<{
+    id: string;
+    service: string;
+    title: string;
+    modified_at: number;
+    repo_label: string | null;
+    author_id: string | null;
+  }>;
+  // Apply per-service quota in JS (cheap) so we keep fan-out latency bounded
+  // even on a large index. SQLite doesn't have window-function-friendly
+  // syntax in the indexed-build path we rely on, so a single ORDER BY +
+  // sequential walk is cleaner than per-service subqueries.
+  const perService = new Map<string, number>();
+  const out: WindowItem[] = [];
+  for (const r of rows) {
+    const used = perService.get(r.service) ?? 0;
+    if (used >= PER_SERVICE_QUOTA) continue;
+    perService.set(r.service, used + 1);
+    out.push({
+      id: r.id,
+      service: r.service,
+      title: r.title,
+      modifiedAt: r.modified_at,
+      repoLabel: r.repo_label,
+      authorPersonId: r.author_id,
+    });
+  }
+  return { windowItems: out };
+}

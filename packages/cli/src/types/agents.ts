@@ -103,3 +103,47 @@ export function isImpactBrief(x: unknown): x is ImpactBrief {
     typeof b["latencyMs"] === "number"
   );
 }
+
+export type CatchupItem = {
+  itemId: string;
+  title: string;
+  modifiedAt: number;
+  relevanceScore: number;
+  relevanceReasons: string[];
+};
+
+export type CatchupSection = {
+  serviceId: string;
+  totalItemsInWindow: number;
+  items: CatchupItem[];
+};
+
+export type CatchupBrief = {
+  kind: "catchup";
+  agentVersion: 1;
+  generatedAt: number;
+  latencyMs: number;
+  gaps: GapNote[];
+  query: { sinceMs: number };
+  selfPersonId: string | null;
+  involvement: {
+    ownedServices: string[];
+    activeRepos: string[];
+    incidentServices: string[];
+    collaboratorPersonIds: string[];
+  };
+  sections: CatchupSection[];
+};
+
+export function isCatchupBrief(x: unknown): x is CatchupBrief {
+  if (x === null || typeof x !== "object") return false;
+  const b = x as Record<string, unknown>;
+  return (
+    b["kind"] === "catchup" &&
+    b["agentVersion"] === 1 &&
+    Array.isArray(b["gaps"]) &&
+    Array.isArray(b["sections"]) &&
+    typeof b["generatedAt"] === "number" &&
+    typeof b["latencyMs"] === "number"
+  );
+}

@@ -82,7 +82,32 @@ export function renderImpact(brief: ImpactBrief): string {
   return [header, "", ...sections, gaps, footer].filter((s) => s !== "").join("\n");
 }
 
-// PR 3 ships the body of renderCatchup.
-export function renderCatchup(_brief: CatchupBrief): string {
-  throw new Error("renderCatchup is implemented in T3 PR 3");
+function renderCatchupItem(item: {
+  title: string;
+  itemId: string;
+  relevanceScore: number;
+  relevanceReasons: string[];
+}): string {
+  const head = `- **${item.title}** (\`${item.itemId}\`, score ${item.relevanceScore.toFixed(2)})`;
+  if (item.relevanceReasons.length === 0) return head;
+  const reasons = item.relevanceReasons.map((r) => `   - ${r}`).join("\n");
+  return [head, reasons].join("\n");
+}
+
+export function renderCatchup(brief: CatchupBrief): string {
+  const header = "# Catchup";
+  const sections: string[] = [];
+  if (brief.sections.length === 0) {
+    sections.push("_no activity in the requested window_");
+  } else {
+    for (const s of brief.sections) {
+      const heading = `## ${s.serviceId} (${s.totalItemsInWindow} items in window)`;
+      const ordered = [...s.items].sort((a, b) => b.relevanceScore - a.relevanceScore);
+      const block = [heading, "", ...ordered.map(renderCatchupItem)].join("\n");
+      sections.push(block);
+    }
+  }
+  const gaps = renderGaps(brief.gaps);
+  const footer = renderLatency(brief.latencyMs);
+  return [header, "", ...sections, gaps, footer].filter((s) => s !== "").join("\n");
 }

@@ -1,6 +1,6 @@
 import { wrapToolOutput } from "../../engine/tool-output-envelope.ts";
-import type { ExpertBrief, ImpactBrief } from "./findings.ts";
-import { renderExpert, renderImpact } from "./render.ts";
+import type { CatchupBrief, ExpertBrief, ImpactBrief } from "./findings.ts";
+import { renderCatchup, renderExpert, renderImpact } from "./render.ts";
 
 export type SynthesizerLlm = {
   generateMarkdown: (prompt: string) => Promise<string | null>;
@@ -21,18 +21,20 @@ const SYNTHESIS_INSTRUCTIONS = [
   "- Output Markdown only — no preamble, no code fences around the whole answer.",
 ].join("\n");
 
-type SynthInput = ExpertBrief | ImpactBrief;
+type SynthInput = ExpertBrief | ImpactBrief | CatchupBrief;
 
 function deterministicRender(brief: SynthInput): string {
   if (brief.kind === "expert") return renderExpert(brief);
-  return renderImpact(brief);
+  if (brief.kind === "impact") return renderImpact(brief);
+  return renderCatchup(brief);
 }
 
 function toolNameFor(brief: SynthInput): string {
-  return brief.kind === "expert" ? "agents.expert" : "agents.impact";
+  if (brief.kind === "expert") return "agents.expert";
+  if (brief.kind === "impact") return "agents.impact";
+  return "agents.catchup";
 }
 
-// PR 3 widens this further to accept CatchupBrief once renderCatchup lands.
 export async function synthesize(brief: SynthInput, opts: SynthesizeOpts = {}): Promise<string> {
   const deterministic = deterministicRender(brief);
   if (opts.llm === undefined) return deterministic;

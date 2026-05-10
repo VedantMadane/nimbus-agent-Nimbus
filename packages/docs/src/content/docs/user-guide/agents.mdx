@@ -1,6 +1,6 @@
 ---
 title: Built-in agents
-description: Read-only agents for team intelligence — nimbus expert, nimbus impact, and what is coming next.
+description: Read-only agents for team intelligence — nimbus expert, nimbus impact, and nimbus catchup.
 ---
 
 import { CardGrid, LinkCard } from "@astrojs/starlight/components";
@@ -76,18 +76,43 @@ narrows the report to a single owning service.
 
 ---
 
-## Coming next — `nimbus catchup`
+## `nimbus catchup [--since <duration>]`
 
-The third built-in agent, **`nimbus catchup --since <duration>`**, is in
-flight. Unlike a uniform cross-service changelog, `catchup` is *personalised*:
-it weights everything that happened while you were away by your historical
+Answers *what changed while I was away, and which of it actually matters to
+me?* Unlike a uniform cross-service changelog, `catchup` is *personalised*: it
+weights everything that happened while you were away by your historical
 involvement — services you own, repos you contribute to, incidents you have
 responded to, people you collaborate with frequently.
 
-Default window: `3d`. Output: Markdown grouped by service, ordered by relevance
-score.
+```bash
+nimbus catchup
+nimbus catchup --since 7d
+nimbus catchup --since 1w --json
+nimbus catchup --service github
+```
 
-Track progress in the [roadmap](https://github.com/nimbus-agent/Nimbus/blob/main/docs/roadmap.md#team-intelligence).
+Five parallel sub-agents resolve the personalisation signals concurrently —
+owned services, active repos, responded incidents, frequent collaborators, and
+the window of items modified during the requested interval — and a Stage 2
+scorer ranks each window item against those signals before grouping by
+service.
+
+The self-person resolver runs synchronously up front in three tiers:
+`[user] me_person_id` from the active profile's `nimbus.toml` →
+`git config user.email` → OS username matched against `person.github_login`.
+If none matches, the brief renders a `missing_user_identity` gap note
+pointing at `nimbus config set user.me_person_id <id>`.
+
+Default window: `3d`. Maximum `--since`: `90d` (or `12w`). Output: Markdown
+grouped by service, ordered by aggregate relevance, with each item annotated
+by the signals that lifted its score (`owned_service:<id>`,
+`active_repo:<owner/repo>`, `incident_service:<id>`,
+`collaborator:<personId>`). Pipe `--json` for machine-readable output that
+round-trips through `JSON.parse`.
+
+**No new connectors required.** Reads exclusively from the local index.
+
+**Notification:** `catchup.briefReady { sessionId, brief, findings }`.
 
 ---
 
