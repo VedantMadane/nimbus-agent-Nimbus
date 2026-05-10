@@ -80,3 +80,37 @@ test("does not follow symlinks (file or directory)", () => {
   expect(first).toBeDefined();
   expect(first?.endsWith("openapi.yaml")).toBe(true);
 });
+
+test("ignoreGlobs excludes both files and directories", () => {
+  const root = mkdtempSync(join(tmpdir(), "openapi-discover-globs-"));
+  mkdirSync(join(root, "legacy"), { recursive: true });
+  mkdirSync(join(root, "current", "active"), { recursive: true });
+  writeFileSync(join(root, "openapi.yaml"), "");
+  writeFileSync(join(root, "legacy", "openapi.yaml"), ""); // dir-glob excluded
+  writeFileSync(join(root, "current", "active", "openapi.yaml"), "");
+  writeFileSync(join(root, "current", "swagger.json"), "{}");
+  // Pattern 1 prunes the `legacy/` directory; pattern 2 prunes a single file.
+  const files = discoverSpecFiles(root, {
+    maxWalkDepth: 8,
+    ignoreGlobs: ["legacy/**", "current/swagger.json"],
+  });
+  const rels = files
+    .map((f) => f.replace(`${root}/`, "").replace(`${root}\\`, "").replaceAll("\\", "/"))
+    .sort();
+  expect(rels).toEqual(["current/active/openapi.yaml", "openapi.yaml"]);
+});
+
+test("ignoreGlobs supports `?` single-char and literal special chars", () => {
+  const root = mkdtempSync(join(tmpdir(), "openapi-discover-globs-q-"));
+  writeFileSync(join(root, "openapi.yaml"), "");
+  writeFileSync(join(root, "swagger.json"), "{}");
+  // `?wagger.json` matches a single char before `wagger.json`, so swagger.json is excluded.
+  const files = discoverSpecFiles(root, {
+    maxWalkDepth: 8,
+    ignoreGlobs: ["?wagger.json"],
+  });
+  const rels = files
+    .map((f) => f.replace(`${root}/`, "").replace(`${root}\\`, "").replaceAll("\\", "/"))
+    .sort();
+  expect(rels).toEqual(["openapi.yaml"]);
+});
