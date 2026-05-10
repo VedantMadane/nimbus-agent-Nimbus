@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
-import { readFileSync, statSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readFileSync } from "node:fs";
 import type { NimbusFilesystemRootToml } from "../config/filesystem-toml.ts";
 import { deleteItemByPrimaryKey, upsertIndexedItemForSync } from "../index/item-store.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
@@ -181,19 +181,32 @@ export function createOpenapiIndexerSyncable(
           continue;
         }
         for (const specPath of entries) {
+          // Open once and use the file descriptor for both fstat and read.
+          // This eliminates the time-of-check / time-of-use race between a
+          // separate `statSync(path)` and `readFileSync(path)` — both calls
+          // now resolve through the same open inode rather than re-traversing
+          // the path.
           let mtimeMs = 0;
+          let source: string | undefined;
+          let fd: number | undefined;
           try {
-            mtimeMs = statSync(specPath).mtimeMs;
+            fd = openSync(specPath, "r");
+            mtimeMs = fstatSync(fd).mtimeMs;
+            if (mtimeMs > state.tip) {
+              source = readFileSync(fd, "utf8");
+            }
           } catch {
-            continue;
+            // file disappeared / unreadable — skip to next entry
+          } finally {
+            if (fd !== undefined) {
+              try {
+                closeSync(fd);
+              } catch {
+                // ignore close errors
+              }
+            }
           }
-          if (mtimeMs <= state.tip) {
-            continue;
-          }
-          let source = "";
-          try {
-            source = readFileSync(specPath, "utf8");
-          } catch {
+          if (source === undefined) {
             continue;
           }
           const parsed = parseSpec({
