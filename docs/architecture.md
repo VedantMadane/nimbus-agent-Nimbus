@@ -2,7 +2,7 @@
 
 **Version:** 1.0
 **Runtime:** Bun v1.2+ / TypeScript 6.x (strict)
-**Status:** Phase 4 (Presence) ✅ Complete (WS1–WS6 + S2 + B2-P1 + B3-P1/2 complete) · `v0.1.0` released 2026-05-09 (headless Gateway + CLI + VS Code extension; `desktop-v0.1.0` Tauri release vehicle deferred to Phase 6) · Phase 5 (The Extended Surface) 🔵 Active (T3 PR 1+2+3 ✅ — `nimbus expert` + `nimbus impact` (both 2026-05-09) + `nimbus catchup` (2026-05-10); T3 epic complete)
+**Status:** Phase 4 (Presence) ✅ Complete (WS1–WS6 + S2 + B2-P1 + B3-P1/2 complete) · `v0.1.0` released 2026-05-09 (headless Gateway + CLI + VS Code extension; `desktop-v0.1.0` Tauri release vehicle deferred to Phase 10) · Phase 5 (The Extended Surface) 🔵 Active (T3 PR 1+2+3 ✅ — `nimbus expert` + `nimbus impact` (both 2026-05-09) + `nimbus catchup` (2026-05-10); T3 epic complete)
 
 ---
 
@@ -1083,6 +1083,7 @@ const streamReq: JSONRPCRequest = {
 --                   "data_model" | "data_pipeline" | "dashboard" | "log_alarm"  -- Phase 5/6
 --                   "ml_model" | "data_quality_test"                             -- Phase 5/6 (pass 2)
 --                   "api_endpoint"                                               -- Phase 5 Wave A PR 1
+--                   "obsidian_note"                                              -- Phase 5 Wave A PR 2
 -- Note: "task" is not a currently emitted item_type; use "issue" for Linear/Jira items.
 CREATE TABLE indexed_items (
     id          TEXT PRIMARY KEY,   -- "<service>:<native_id>"
@@ -1180,6 +1181,35 @@ CREATE INDEX idx_api_endpoint_service_path_method
     ON api_endpoint(service_name, path, method);
 CREATE INDEX idx_api_endpoint_spec_file
     ON api_endpoint(spec_file);
+
+-- Obsidian vault note shadow (Phase 5 Wave A PR 2) — V26 migration.
+-- One row per indexed Markdown note, keyed by `item.id`. Body content
+-- lives in the standard `item` / `item_fts` tables (via upsertIndexedItem);
+-- this shadow table holds structured metadata only.
+--
+-- Caveat: `vault_id = sha256(absoluteVaultRootPath).slice(0, 12)`. Moving
+-- a vault re-issues every note id at the new path (delete-then-upsert).
+-- Any user-attached metadata (manual pins, manual graph edges in the UI)
+-- is orphaned. A future `nimbus connector obsidian remap-vault` migration
+-- command may bridge old and new IDs; out of scope for PR 2.
+CREATE TABLE obsidian_notes (
+    id                TEXT PRIMARY KEY,
+    vault_id          TEXT NOT NULL,
+    vault_name        TEXT NOT NULL,
+    path              TEXT NOT NULL,        -- relative to vault root, forward-slashed
+    title             TEXT NOT NULL,
+    frontmatter_json  TEXT NOT NULL DEFAULT '{}',
+    tags_json         TEXT NOT NULL DEFAULT '[]',
+    wikilinks_json    TEXT NOT NULL DEFAULT '[]',
+    daily_note_date   TEXT,                 -- ISO date or NULL
+    last_modified     INTEGER NOT NULL,
+    created_at        INTEGER NOT NULL
+);
+CREATE INDEX idx_obsidian_notes_vault_path
+    ON obsidian_notes(vault_id, path);
+CREATE INDEX idx_obsidian_notes_daily_note_date
+    ON obsidian_notes(daily_note_date)
+    WHERE daily_note_date IS NOT NULL;
 
 -- Query latency log (Phase 3.5) — batch-written from in-memory ring buffer
 CREATE TABLE query_latency_log (
