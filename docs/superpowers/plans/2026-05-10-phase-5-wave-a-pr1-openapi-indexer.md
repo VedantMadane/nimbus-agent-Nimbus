@@ -8,6 +8,14 @@
 
 **Tech Stack:** Bun v1.2+ / TypeScript 6.x strict; `bun:sqlite`; `@readme/openapi-parser`; `pino` for warn lines; existing helpers `upsertIndexedItem`, `upsertGraphEntity`, `upsertGraphRelation`, `recordMigration`.
 
+## Known limitations (explicitly accepted in PR 1)
+
+These are documented here so reviewers don't re-flag them and so a future contributor can pick them up:
+
+1. **External `$ref` in spec files is not resolved.** PR 1 extracts endpoints from the raw parsed document, not the dereferenced one. A spec that uses `$ref: "./other-file.yaml#/paths/..."` will only contribute the endpoints visible in the root document. Fixing this means switching `parseSpec` to async + I/O-aware via `OpenApiParser.dereference()`. Defer to a follow-up; track in the spec's Non-goals if user demand surfaces.
+2. **Orphaned `service` graph entities on rename.** When a user renames the directory that drove service-name inference (e.g., `services/payments-api/` → `services/payments/`), endpoints get re-keyed and re-pointed at the new `service` entity, but the old `service` entity remains in the graph until the next full graph rebuild. Acceptable for Wave A; full graph cleanup belongs to T6's typed-`dbRun` migration follow-up.
+3. **Symlinks are intentionally skipped.** The discovery walker does not follow symlinked files or directories. This avoids loops at the cost of missing intentional symlink-mounted spec dirs; if a user reports this, we can add an opt-in `[openapi].follow_symlinks = true` flag.
+
 ---
 
 ## File Structure
@@ -55,13 +63,15 @@ git checkout -b dev/asafgolombek/phase-5-wave-a-pr1-openapi-indexer origin/main
 Run: `bun run check-package @readme/openapi-parser`
 Expected: package exists, multiple maintainers, > 7 days old. (Per CLAUDE.md "Dependency Safety".) If the script warns or exits 1, stop and reconsider.
 
-- [ ] **Step 3: Add the dependency to the gateway workspace**
+- [ ] **Step 3: Add the dependency to the gateway workspace, pinned**
 
 ```bash
-bun add --filter packages/gateway @readme/openapi-parser
+bun add --filter packages/gateway @readme/openapi-parser@^19
 ```
 
-Expected: `packages/gateway/package.json` gets a new entry under `dependencies`; `bun.lock` updates. No other workspaces touched.
+Pin to `^19` because the implementation in Task 7 calls `OpenApiParser.YAML.parse`, which is the surface exposed in v19+. If the resolved minor is older, the parser unit tests will fail and Task 7 step 4 fallback (`js-yaml`) kicks in.
+
+Expected: `packages/gateway/package.json` gets a new entry under `dependencies` with the pinned `^19.x.x` range; `bun.lock` updates. No other workspaces touched.
 
 - [ ] **Step 4: Confirm typecheck still passes**
 
@@ -643,6 +653,31 @@ test("matches case-insensitively for known filenames", () => {
   const files = discoverSpecFiles(root, { maxWalkDepth: 8, ignoreGlobs: [] });
   expect(files.length).toBe(2);
 });
+
+test("does not follow symlinks (file or directory)", () => {
+  const { symlinkSync } = require("node:fs") as typeof import("node:fs");
+  const root = mkdtempSync(join(tmpdir(), "openapi-discover-symlink-"));
+  // Real spec at the root.
+  writeFileSync(join(root, "openapi.yaml"), "openapi: 3.0.0");
+  // Symlinked spec file pointing back at the real one.
+  try {
+    symlinkSync(join(root, "openapi.yaml"), join(root, "linked.yaml"));
+  } catch {
+    // Some Windows / restricted environments cannot create symlinks; skip the
+    // assertion in that case rather than failing.
+    return;
+  }
+  // Symlinked directory pointing back at the parent (would loop if followed).
+  try {
+    symlinkSync(root, join(root, "self"));
+  } catch {
+    // ignore — same reason as above
+  }
+  const files = discoverSpecFiles(root, { maxWalkDepth: 8, ignoreGlobs: [] });
+  // Only the real spec — the symlinked file and the symlinked dir are skipped.
+  expect(files.length).toBe(1);
+  expect(files[0].endsWith("openapi.yaml")).toBe(true);
+});
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -732,13 +767,23 @@ function walk(
   if (depth > opts.maxWalkDepth) {
     return;
   }
-  let entries: readonly { name: string; isDirectory: () => boolean; isFile: () => boolean }[] = [];
+  let entries: readonly {
+    name: string;
+    isDirectory: () => boolean;
+    isFile: () => boolean;
+    isSymbolicLink: () => boolean;
+  }[] = [];
   try {
     entries = readdirSync(dir, { withFileTypes: true });
   } catch {
     return;
   }
   for (const e of entries) {
+    // Never follow symlinks — protects against directory cycles and against
+    // a hostile vault that links into the user's home dir.
+    if (e.isSymbolicLink()) {
+      continue;
+    }
     const abs = join(dir, e.name);
     const rel = abs.slice(root.length + 1);
     if (e.isDirectory()) {
@@ -769,6 +814,13 @@ function walk(
     }
   }
 }
+
+// Performance note: we do NOT pre-compile `ignoreGlobs` into a single regex.
+// The `DEFAULT_IGNORE_DIRS` Set covers the high-fanout paths (`node_modules`,
+// `.git`, `dist`, ...) at O(1); `pathMatchesAnyGlob` runs only on directories
+// and files that survived that check, which is bounded. Pre-compilation is
+// a hot-path optimisation we can add later if a real workload shows it
+// matters.
 ```
 
 - [ ] **Step 4: Run tests to verify**
@@ -1625,20 +1677,30 @@ export function createOpenapiIndexerSyncable(
             infoTitle: parsed.infoTitle,
             rootPath: root,
           });
+          // One transaction per spec: upsert all of the spec's endpoints AND
+          // its sticky-delete pass commit together. This bounds DB round-trips
+          // for monorepos with many specs (a vault with 1k specs × 5 endpoints
+          // each becomes 1k transactions instead of 5k+ unbatched writes), and
+          // guarantees a spec is never half-applied if the process is killed
+          // mid-iteration.
           const keep = new Set<string>();
-          for (const ep of parsed.endpoints) {
-            const id = upsertEndpoint(ctx.db, {
-              specPath,
-              serviceName,
-              specVersion: parsed.specVersion,
-              ep,
-              mtimeMs,
-              syncedAt: now,
-            });
-            keep.add(id);
-            upserted++;
-          }
-          deleted += deleteEndpointsAbsentFromSpec(ctx.db, specPath, keep);
+          let perSpecDeleted = 0;
+          ctx.db.transaction(() => {
+            for (const ep of parsed.endpoints) {
+              const id = upsertEndpoint(ctx.db, {
+                specPath,
+                serviceName,
+                specVersion: parsed.specVersion,
+                ep,
+                mtimeMs,
+                syncedAt: now,
+              });
+              keep.add(id);
+              upserted++;
+            }
+            perSpecDeleted = deleteEndpointsAbsentFromSpec(ctx.db, specPath, keep);
+          })();
+          deleted += perSpecDeleted;
           if (mtimeMs > nextTip) {
             nextTip = mtimeMs;
           }
@@ -2257,18 +2319,28 @@ git commit -m "docs(phase-5): mark Wave A PR 1 (openapi-indexer) shipped"
 
 **Files:** none
 
-- [ ] **Step 1: Run the full CI-parity test suite**
+- [ ] **Step 1: Lint pass**
+
+Run: `bun run lint:fix`
+Expected: zero remaining issues; any auto-fixed Biome diffs get committed in this task. The code snippets in the plan use `typeof x === "object" && x !== null` and similar Biome-compliant patterns by design, but `lint:fix` catches stragglers.
+
+- [ ] **Step 2: Bundle-size sanity check**
+
+Run: `bun run build` (or `bun run build:debug` if `build` requires release-only secrets)
+Expected: build succeeds; `dist/` size for the gateway binary stays within an order of magnitude of the previous size. `@readme/openapi-parser` pulls `js-yaml` and `ajv` transitively; the resulting binary should still be well under the prior release's footprint. If the binary jumps by more than ~5 MiB, document and consider lazy-loading the parser at first sync rather than at module-load.
+
+- [ ] **Step 3: Run the full CI-parity test suite**
 
 Per the user's saved feedback: always run `bun run test:ci` before pushing any PR.
 
 Run: `bun run test:ci`
 Expected: all tests + lint + typecheck green. If any unrelated test fails because of CI-only environment expectations, document and proceed; otherwise stop and fix.
 
-- [ ] **Step 2: Push the branch**
+- [ ] **Step 4: Push the branch**
 
 Run: `git push -u origin dev/asafgolombek/phase-5-wave-a-pr1-openapi-indexer`
 
-- [ ] **Step 3: Open the PR**
+- [ ] **Step 5: Open the PR**
 
 Use `gh pr create` with the title `feat(phase-5): Wave A PR 1 — OpenAPI / AsyncAPI spec indexer` and a body summary that lists:
 
