@@ -33,6 +33,12 @@ export interface MeshSpawnContext {
   readonly vault: NimbusVault;
   readonly logger?: MeshLogger | undefined;
   readonly healthDb?: import("bun:sqlite").Database | undefined;
+  /**
+   * Absolute paths of `[[filesystem.roots]]` discovered at gateway boot.
+   * Used by `ensureObsidianMcp` to seed the obsidian MCP child via
+   * `OBSIDIAN_VAULT_PATHS_JSON`. Empty/undefined → obsidian MCP not started.
+   */
+  readonly obsidianVaultPaths?: readonly string[] | undefined;
   clearLazyIdle(key: string): void;
   getLazyClient(key: string): MCPClient | undefined;
   setLazyClient(key: string, client: MCPClient): void;

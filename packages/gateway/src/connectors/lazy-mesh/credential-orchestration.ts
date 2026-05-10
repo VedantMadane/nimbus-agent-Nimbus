@@ -20,6 +20,7 @@ import {
   ensureLinearMcp,
   ensureMicrosoftBundleMcp,
   ensureNotionMcp,
+  ensureObsidianMcp,
   ensurePagerdutyMcp,
   ensurePhase3BundleMcp,
   ensureSlackMcp,
@@ -148,5 +149,8 @@ export async function ensureCredentialConnectorsRunning(ctx: MeshSpawnContext): 
   await ensureCircleciIfVaultCreds(ctx);
   await ensurePagerdutyIfVaultCreds(ctx);
   await ensureKubernetesIfVaultCreds(ctx);
+  // Wave A PR 2 — Obsidian MCP starts when `[[filesystem.roots]]` are
+  // configured (no vault credential).
+  await ensureObsidianMcp(ctx);
   await ensurePhase3BundleMcp(ctx);
 }

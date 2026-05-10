@@ -625,3 +625,37 @@ export async function ensureKubernetesMcp(ctx: MeshSpawnContext): Promise<void> 
   ctx.bumpToolsEpoch();
   ctx.scheduleLazyDisconnect(slotKey);
 }
+
+/**
+ * Starts the Obsidian MCP child when `[[filesystem.roots]]` are configured.
+ * Obsidian indexing is purely local — the connector reads no vault credentials.
+ * Vault paths are passed via `OBSIDIAN_VAULT_PATHS_JSON` (the MCP server then
+ * discovers `.obsidian/` markers within those paths itself).
+ */
+export async function ensureObsidianMcp(ctx: MeshSpawnContext): Promise<void> {
+  const slotKey = LAZY_MESH.obsidian;
+  ctx.clearLazyIdle(slotKey);
+  if (ctx.getLazyClient(slotKey) !== undefined) {
+    ctx.scheduleLazyDisconnect(slotKey);
+    return;
+  }
+  const vaultPaths = ctx.obsidianVaultPaths ?? [];
+  if (vaultPaths.length === 0) {
+    return;
+  }
+  ctx.setLazyClient(
+    slotKey,
+    new MCPClient({
+      id: `nimbus-obsidian-${randomUUID()}`,
+      servers: {
+        obsidian: {
+          command: "bun",
+          args: [mcpConnectorServerScript("obsidian")],
+          env: extensionProcessEnv({ OBSIDIAN_VAULT_PATHS_JSON: JSON.stringify(vaultPaths) }),
+        },
+      },
+    }),
+  );
+  ctx.bumpToolsEpoch();
+  ctx.scheduleLazyDisconnect(slotKey);
+}

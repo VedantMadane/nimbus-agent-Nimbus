@@ -81,6 +81,8 @@ export type McpToolListingClient = {
  * `linear.issue.update` → `linear_linear_issue_update`;
  * `linear.comment.create` → `linear_linear_comment_create`.
  *
+ * Obsidian (HITL): `obsidian.note.append` → `obsidian_obsidian_append_to_daily_note`.
+ *
  * Jira (HITL): `jira.issue.create` → `jira_jira_issue_create`;
  * `jira.issue.update` → `jira_jira_issue_update`; `jira.comment.add` → `jira_jira_comment_add`.
  *

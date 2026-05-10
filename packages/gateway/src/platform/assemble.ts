@@ -262,6 +262,9 @@ async function createSchedulerWithMesh(
     // persistent_error in connector health and a warn log line.
     healthDb: db,
     logger: syncLogger,
+    // Wave A PR 2 — thread the absolute filesystem-root paths so the
+    // obsidian MCP child can discover `.obsidian/` markers itself.
+    obsidianVaultPaths: fsV2Roots.map((r) => r.path),
   });
   registerConnectorMeshSyncables(syncScheduler, connectorMesh);
   registerUserMcpSyncablesFromDatabase(db, syncScheduler, connectorMesh);
