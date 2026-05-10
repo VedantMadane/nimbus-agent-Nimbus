@@ -25,6 +25,7 @@ export default defineConfig({
             { label: "HITL & safety", link: "/user-guide/hitl-and-safety/" },
             { label: "Watchers", link: "/user-guide/watchers/" },
             { label: "Workflows", link: "/user-guide/workflows/" },
+            { label: "Built-in agents", link: "/user-guide/agents/" },
             { label: "Profiles", link: "/user-guide/profiles/" },
             { label: "Voice", link: "/user-guide/voice/" },
             { label: "VS Code extension", link: "/user-guide/vscode-extension/" },
@@ -36,7 +37,7 @@ export default defineConfig({
         {
           label: "Reference",
           items: [
-            { label: "Getting started", link: "/getting-started/" },
+            { label: "Run from source", link: "/getting-started/" },
             { label: "Query & HTTP", link: "/query-and-http/" },
             { label: "Telemetry", link: "/telemetry/" },
             { label: "Connectors (per-service)", autogenerate: { directory: "connectors" } },

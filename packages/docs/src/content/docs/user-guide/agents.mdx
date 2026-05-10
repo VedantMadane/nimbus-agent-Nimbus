@@ -1,0 +1,125 @@
+---
+title: Built-in agents
+description: Read-only agents for team intelligence — nimbus expert, nimbus impact, and what is coming next.
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+Built-in agents are first-party, read-only multi-agent flows that ship inside
+the Gateway. Each one decomposes a query into parallel sub-agents over your
+local index and returns a structured Markdown brief.
+
+Three properties hold for every built-in agent:
+
+- **Read-only.** No write tools in scope. The HITL consent gate is never
+  triggered.
+- **Parallel sub-agents.** The coordinator runs sub-tasks concurrently against
+  isolated tool scopes — typically 3–5 in parallel — so a brief assembles in
+  seconds rather than the sum of every sub-step.
+- **Local-first.** Every sub-agent reads from the local SQLite index. No live
+  API call is made unless a connector explicitly resolves a missing reference.
+
+---
+
+## `nimbus expert <topic-or-file>`
+
+Answers *who on my team has the most context on this?* by ranking team
+members against the relationship graph and indexed metadata: PR authorship via
+indexed code symbols, review participation patterns, Slack thread activity,
+and Linear / Jira ticket assignments.
+
+```bash
+nimbus expert src/billing/retry.ts
+nimbus expert "payment retry logic"
+```
+
+The output is a ranked Markdown brief. Each row carries a confidence score and
+the evidence behind it — for example *"authored 4 of the last 6 PRs touching
+this file, resolved 2 incidents tagged `payment-retry`"*. Pipe `--json` for
+machine-readable output.
+
+**No new connectors required.** The agent uses the people graph already
+populated by the Phase 2 cross-service identity linker.
+
+**Notification:** The Gateway emits `agents.expert.briefReady { sessionId,
+brief }` on completion. The CLI subscribes to this and renders the brief to
+stdout, respecting `NO_COLOR`.
+
+---
+
+## `nimbus impact <file-or-PR-url>`
+
+Answers *if I change this, what breaks?* by running a reverse-dependency query
+across the relationship graph. Five parallel sub-agents resolve, concurrently:
+
+- which **services** import the affected module (via indexed code symbols and
+  `depends_on` graph edges)
+- which **pipelines** would rebuild (via `pipeline_run` items linked to the
+  repo)
+- which **dashboards** pull from affected data models (via `upstream_refs`
+  graph edges)
+- which **on-call rotations** own the affected services (via the PagerDuty
+  schedule index)
+- which **owning teams** are responsible
+
+```bash
+nimbus impact src/billing/retry.ts
+nimbus impact https://github.com/your-org/your-repo/pull/312
+```
+
+Output is a structured impact report with blast radius grouped by category.
+Use `--json` for CI integration — the structure is stable and suitable for
+gating deploys based on impact thresholds. The optional `--service` filter
+narrows the report to a single owning service.
+
+**Notification:** `agents.impact.briefReady { sessionId, brief }`.
+
+---
+
+## Coming next — `nimbus catchup`
+
+The third built-in agent, **`nimbus catchup --since <duration>`**, is in
+flight. Unlike a uniform cross-service changelog, `catchup` is *personalised*:
+it weights everything that happened while you were away by your historical
+involvement — services you own, repos you contribute to, incidents you have
+responded to, people you collaborate with frequently.
+
+Default window: `3d`. Output: Markdown grouped by service, ordered by relevance
+score.
+
+Track progress in the [roadmap](https://github.com/nimbus-agent/Nimbus/blob/main/docs/roadmap.md#team-intelligence).
+
+---
+
+## Implementation reference
+
+Built-in agents live at `packages/gateway/src/agents/` in the repository. Each
+agent is a single file that uses `AgentCoordinator` to decompose into parallel
+sub-agents over scoped tool sets, then synthesises the results into a Markdown
+brief (deterministic renderer, with optional LLM polish when a model is
+configured).
+
+Authoring guidelines for new built-in agents live in the contributor reference
+at `.claude/commands/nimbus-agent-patterns.md`.
+
+---
+
+## Where to next
+
+<CardGrid>
+  <LinkCard
+    title="Your first query"
+    href="/user-guide/your-first-query/"
+    description="Free-form ask, structured query, and what happens under the hood."
+  />
+  <LinkCard
+    title="HITL & safety"
+    href="/user-guide/hitl-and-safety/"
+    description="Why built-in agents never trigger consent — and what does."
+  />
+  <LinkCard
+    title="Architecture overview"
+    href="/architecture-overview/"
+    description="The multi-agent coordinator, sub-agent isolation, and the LLM-facing tool envelope."
+  />
+</CardGrid>

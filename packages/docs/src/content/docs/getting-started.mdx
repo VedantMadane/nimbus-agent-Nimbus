@@ -1,30 +1,104 @@
 ---
-title: Getting started
-description: Install Bun, run the Gateway, and verify the CLI — under 10 minutes
+title: Run from source
+description: Clone the Nimbus monorepo, install Bun, run the Gateway and CLI from a development workspace.
+---
+
+This page is for contributors and integrators who want to run Nimbus directly
+from the source tree — for example, to test a local change to a connector or
+to debug Gateway behaviour. End users should follow [Install](/user-guide/install/)
+instead.
+
 ---
 
 ## Prerequisites
 
-1. Install [Bun](https://bun.sh/) v1.2 or newer.
-2. Clone the Nimbus repository and run `bun install` at the repo root.
+| Dependency | Version | Notes |
+|---|---|---|
+| [Bun](https://bun.sh/) | v1.2 or newer | Verify with `bun --version`. |
+| Git | any recent | The build embeds the short SHA and dirty flag. |
+| Linux only: `libsecret-1-dev` | system package | Required by the Vault. `sudo apt install libsecret-1-dev` on Debian / Ubuntu. |
+| Optional: Rust toolchain | stable | Only needed if building the Tauri desktop UI under `packages/ui`. |
 
-See [First-party connectors](/connectors/overview/) for how to authenticate and sync each service.
+`bun run dev-doctor` from the repo root checks every requirement above and
+prints actionable remediation for anything missing.
 
-## Run the Gateway
+---
 
-From the repository root:
-
-```bash
-bun run --filter @nimbus/cli dev
-```
-
-In another terminal, start the Gateway and CLI as documented in the main README (e.g. `nimbus start` from a packaged build, or the workspace dev flow you use locally).
-
-## Verify the CLI
+## Clone and install
 
 ```bash
-nimbus help
-nimbus doctor
+git clone https://github.com/nimbus-agent/Nimbus.git
+cd Nimbus
+bun install
 ```
 
-Return to the [home page](/) for an overview of the project.
+The first `bun install` resolves the workspace and downloads `sharp` and
+`@xenova/transformers` for the local embedding pipeline. This can take a
+minute on a first-time install and is cached for subsequent runs.
+
+---
+
+## Run the Gateway and CLI
+
+In one terminal, start the Gateway in the foreground (logs stream to stdout):
+
+```bash
+bun run --filter @nimbus/gateway dev
+```
+
+In a second terminal, run the CLI against the running Gateway:
+
+```bash
+bun run --filter @nimbus/cli dev -- ask "what is in my Drive?"
+```
+
+Or use the built binary if you have added `packages/cli/dist` to your `PATH`:
+
+```bash
+nimbus ask "what is in my Drive?"
+```
+
+---
+
+## Workspace layout
+
+| Package | Role |
+|---|---|
+| `packages/gateway` | The Gateway — JSON-RPC IPC, agent runtime, MCP mesh, Vault, local SQLite index. |
+| `packages/cli` | The `nimbus` command — thin client, talks to the Gateway over the local socket. |
+| `packages/ui` | The Tauri 2.0 desktop app (Rust shell + React renderer). |
+| `packages/client` | `@nimbus-dev/client` — typed IPC wrapper used by the CLI, the desktop app, and integrators. |
+| `packages/sdk` | `@nimbus-dev/sdk` — interfaces and contract tests for first-party and community connectors. |
+| `packages/mcp-connectors/*` | First-party MCP servers (Google Drive, Gmail, GitHub, Slack, Linear, etc.). |
+| `packages/vscode-extension` | The Nimbus VS Code extension. |
+
+The Gateway never imports from the CLI or UI; clients communicate with the
+Gateway exclusively over JSON-RPC. See the
+[Architecture overview](/architecture-overview/) for the full subsystem map.
+
+---
+
+## Useful scripts
+
+```bash
+bun run typecheck            # Strict TypeScript check across the workspace
+bun run lint                 # Biome (format + lint)
+bun test                     # Unit + integration tests
+bun run test:integration     # Integration tests against real SQLite
+bun run docs:build           # Build this documentation site
+bun run dev-doctor           # Contributor environment health check
+```
+
+The full command catalogue lives in the repository's `CLAUDE.md` and the
+per-package `package.json` files.
+
+---
+
+## Next steps
+
+- Read the [Architecture overview](/architecture-overview/) before touching
+  the Engine, Vault, or HITL executor.
+- For connector authoring, see the contributor walkthrough at
+  `docs/contributors/extension-author-walkthrough.md` in the repository.
+- Review the contributor checklist at `docs/CONTRIBUTING.md` before opening
+  a pull request.
