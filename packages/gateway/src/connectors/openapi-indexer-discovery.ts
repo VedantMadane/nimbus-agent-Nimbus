@@ -38,7 +38,10 @@ function matchesGlob(input: string, glob: string): boolean {
   let re = "^";
   for (let i = 0; i < glob.length; i++) {
     const ch = glob[i];
-    const next = glob[i + 1];
+    if (ch === undefined) {
+      continue;
+    }
+    const next: string | undefined = glob[i + 1];
     if (ch === "*" && next === "*") {
       re += ".*";
       i++;

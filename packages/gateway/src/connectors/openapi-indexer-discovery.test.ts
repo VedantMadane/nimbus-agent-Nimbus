@@ -76,5 +76,7 @@ test("does not follow symlinks (file or directory)", () => {
   const files = discoverSpecFiles(root, { maxWalkDepth: 8, ignoreGlobs: [] });
   // Only the real spec — the symlinked file and the symlinked dir are skipped.
   expect(files.length).toBe(1);
-  expect(files[0].endsWith("openapi.yaml")).toBe(true);
+  const first = files[0];
+  expect(first).toBeDefined();
+  expect(first?.endsWith("openapi.yaml")).toBe(true);
 });
