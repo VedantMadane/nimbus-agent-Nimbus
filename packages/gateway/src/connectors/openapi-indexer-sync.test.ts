@@ -170,3 +170,17 @@ test("syncing emits graph_relation edges from api_endpoint to its service", asyn
   expect(rels.length).toBeGreaterThanOrEqual(2);
   expect(rels.every((r) => r.type === "targets")).toBe(true);
 });
+
+test("skipped-by-size count is exposed via getLastSyncStats()", async () => {
+  const root = mkdtempSync(join(tmpdir(), "openapi-sync-stats-"));
+  copyFileSync(join(FIX, "petstore-3.0.yaml"), join(root, "openapi.yaml"));
+  // Force a too-large skip by setting maxSpecBytes very low.
+  const sync = createOpenapiIndexerSyncable({
+    roots: [{ path: root, gitAware: false, codeIndex: false, dependencyGraph: false, exclude: [] }],
+    config: { ...DEFAULT_OPENAPI_CONFIG, maxSpecBytes: 8 },
+  });
+  const db = createMemoryIndexDb();
+  await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT), null);
+  const stats = sync.getLastSyncStats();
+  expect(stats.skippedTooLarge).toBe(1);
+});

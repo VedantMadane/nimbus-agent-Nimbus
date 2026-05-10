@@ -14,9 +14,19 @@ const SERVICE_ID = "openapi";
 const DEFAULT_INTERVAL_MS = 10 * 60 * 1000;
 const INITIAL_SYNC_DEPTH_DAYS = 365;
 
+export type OpenapiSyncStats = {
+  skippedTooLarge: number;
+  skippedParseFailed: number;
+  skippedNotASpec: number;
+};
+
 export type OpenapiIndexerSyncableOptions = {
   roots: readonly NimbusFilesystemRootToml[];
   config?: OpenapiConfig;
+};
+
+export type OpenapiIndexerSyncable = Syncable & {
+  getLastSyncStats(): OpenapiSyncStats;
 };
 
 type CursorState = { tip: number };
@@ -126,12 +136,22 @@ function deleteEndpointsAbsentFromSpec(
   return deleted;
 }
 
-export function createOpenapiIndexerSyncable(options: OpenapiIndexerSyncableOptions): Syncable {
+export function createOpenapiIndexerSyncable(
+  options: OpenapiIndexerSyncableOptions,
+): OpenapiIndexerSyncable {
   const config = options.config ?? DEFAULT_OPENAPI_CONFIG;
+  let lastStats: OpenapiSyncStats = {
+    skippedTooLarge: 0,
+    skippedParseFailed: 0,
+    skippedNotASpec: 0,
+  };
   return {
     serviceId: SERVICE_ID,
     defaultIntervalMs: DEFAULT_INTERVAL_MS,
     initialSyncDepthDays: INITIAL_SYNC_DEPTH_DAYS,
+    getLastSyncStats(): OpenapiSyncStats {
+      return lastStats;
+    },
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();
       if (options.roots.length === 0) {
@@ -143,6 +163,11 @@ export function createOpenapiIndexerSyncable(options: OpenapiIndexerSyncableOpti
       let upserted = 0;
       let deleted = 0;
       let nextTip = state.tip;
+      const stats: OpenapiSyncStats = {
+        skippedTooLarge: 0,
+        skippedParseFailed: 0,
+        skippedNotASpec: 0,
+      };
 
       for (const rootCfg of options.roots) {
         const root = rootCfg.path;
@@ -177,6 +202,9 @@ export function createOpenapiIndexerSyncable(options: OpenapiIndexerSyncableOpti
             maxBytes: config.maxSpecBytes,
           });
           if (parsed.kind === "skipped") {
+            if (parsed.reason === "too_large") stats.skippedTooLarge++;
+            else if (parsed.reason === "parse_failed") stats.skippedParseFailed++;
+            else if (parsed.reason === "not_a_spec") stats.skippedNotASpec++;
             ctx.logger.warn({ specPath, reason: parsed.reason }, "openapi-indexer: skipped spec");
             continue;
           }
@@ -213,6 +241,7 @@ export function createOpenapiIndexerSyncable(options: OpenapiIndexerSyncableOpti
         }
       }
 
+      lastStats = stats;
       return {
         cursor: encodeCursor({ tip: nextTip }),
         itemsUpserted: upserted,
