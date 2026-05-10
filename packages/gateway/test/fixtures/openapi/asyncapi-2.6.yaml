@@ -1,0 +1,14 @@
+asyncapi: "2.6.0"
+info:
+  title: Notifications
+  version: 1.0.0
+channels:
+  user/signedup:
+    publish:
+      operationId: onUserSignedUp
+      message:
+        name: UserSignedUp
+    subscribe:
+      operationId: dispatchUserSignedUp
+      message:
+        name: UserSignedUp

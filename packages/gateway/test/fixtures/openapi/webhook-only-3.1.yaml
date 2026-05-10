@@ -1,0 +1,11 @@
+openapi: 3.1.0
+info:
+  title: Webhook Only
+  version: 1.0.0
+webhooks:
+  newOrder:
+    post:
+      operationId: newOrder
+      responses:
+        "200":
+          description: ok
