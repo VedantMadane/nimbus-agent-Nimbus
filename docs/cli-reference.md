@@ -216,7 +216,7 @@ nimbus expert --json src/billing/retry.ts
 
 **Read-only:** never triggers HITL, never makes a live API call — answered entirely from the local index.
 
-> **More built-in agents land in Phase 5 T3:** `nimbus catchup --since <duration>` (personalized retrospective digest) and `nimbus impact <file-or-PR-url>` (reverse-dependency blast radius) are planned but not yet shipped — see [`docs/roadmap.md#team-intelligence`](./roadmap.md#team-intelligence).
+> **Other built-in agents:** `nimbus impact <file-or-PR-url>` (reverse-dependency blast radius, shipped 2026-05-09) and `nimbus catchup --since <duration>` (personalized retrospective digest, shipped 2026-05-10) are also available — run `nimbus help` for usage, or see [`docs/roadmap.md#team-intelligence`](./roadmap.md#team-intelligence) for design notes.
 
 ---
 

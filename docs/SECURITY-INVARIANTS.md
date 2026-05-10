@@ -162,6 +162,37 @@ Companion files:
 3. An assertion is added to [`security-invariants.test.ts`](../packages/gateway/src/security-invariants.test.ts) that fails if the wiring is removed (typically a grep against the production source tree).
 4. The compact summary in `CLAUDE.md` and `GEMINI.md` is updated.
 
+## Worked example
+
+Suppose a future change introduces sub-agent tool scope enforcement: every sub-agent constructs a frozen `ReadonlySet<string>` of allowed tool ids and the dispatcher refuses any call outside that scope. Adding it correctly means landing all three artefacts in one commit.
+
+**1. Production wiring site** — in `packages/gateway/src/engine/sub-agent.ts`, the dispatcher consults the scope:
+
+```typescript
+function dispatchToolCall(toolId: string, scope: ReadonlySet<string>) {
+  if (!scope.has(toolId)) throw new Error(`tool ${toolId} not in scope`);
+  return tools[toolId].invoke(...);
+}
+```
+
+**2. Entry in this file** — a new `## I13 — Sub-agent tool scope enforcement` section naming the defense, the wiring site (`sub-agent.ts:dispatchToolCall`), the anti-pattern (any code that bypasses `dispatchToolCall`, or any mutable scope container), and the compliance recipe (always frozen sets; never call `tools[id].invoke()` directly).
+
+**3. Enforcement test** — in `packages/gateway/src/security-invariants.test.ts`:
+
+```typescript
+test("I13 — sub-agent dispatcher checks frozen tool scope", () => {
+  const source = readFileSync(
+    join(REPO_ROOT, "packages/gateway/src/engine/sub-agent.ts"),
+    "utf8"
+  );
+  expect(source).toMatch(/scope\.has\(toolId\)/);
+});
+```
+
+If a future refactor renames `dispatchToolCall` or removes the scope check, this test fails — and the invariant entry above must either be updated to match the new wiring site, or deleted in the same commit.
+
+**Why all three** — production wiring without a docs entry produces silent regressions on the next refactor (no audit trail). A docs entry without an enforcement test is an orphan defense (the B1 audit's exact finding for `extensionProcessEnv`, `checkLanMethodAllowed`, and the `<tool_output>` envelope). An enforcement test without a docs entry leaves future contributors guessing at what behaviour the test guards.
+
 ## How an invariant is retired
 
 If a future architectural change makes an invariant obsolete (e.g. moving to a different IPC framework supersedes I7), the entry is **deleted in the same commit** as the architectural change — never left in place as documentation drift. The audit trail is the git history of this file.
