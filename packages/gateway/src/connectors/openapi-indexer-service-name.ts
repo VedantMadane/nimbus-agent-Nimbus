@@ -35,8 +35,10 @@ function readOverride(specPath: string): string | undefined {
       const t = line.replace(/#.*$/, "").trim();
       const m = /^service\s*=\s*"([^"]*)"\s*$/.exec(t);
       if (m !== null) {
-        const v = m[1]!.trim();
-        return v === "" ? undefined : v;
+        const v = m[1]?.trim();
+        if (v !== undefined && v !== "") {
+          return v;
+        }
       }
     }
   } catch {
