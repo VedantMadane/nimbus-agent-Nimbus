@@ -69,6 +69,31 @@ test("re-running with no file changes upserts zero items", async () => {
   expect(second.itemsDeleted).toBe(0);
 });
 
+test("malformed and oversize specs are skipped without aborting the sync", async () => {
+  const root = mkdtempSync(join(tmpdir(), "openapi-sync-bad-"));
+  // Each fixture goes in a sub-dir named after its role so it is found as
+  // "<subdir>/openapi.yaml" — all discoverable by SPEC_FILENAME_RE.
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(join(root, "good"), { recursive: true });
+  mkdirSync(join(root, "broken"), { recursive: true });
+  mkdirSync(join(root, "junk"), { recursive: true });
+  mkdirSync(join(root, "broken-ref"), { recursive: true });
+  copyFileSync(join(FIX, "petstore-3.0.yaml"), join(root, "good", "openapi.yaml"));
+  copyFileSync(join(FIX, "bad-yaml.yaml"), join(root, "broken", "openapi.yaml"));
+  copyFileSync(join(FIX, "not-a-spec.yaml"), join(root, "junk", "openapi.yaml"));
+  copyFileSync(join(FIX, "unresolvable-ref.yaml"), join(root, "broken-ref", "openapi.yaml"));
+  const sync = createOpenapiIndexerSyncable({
+    roots: [{ path: root, gitAware: false, codeIndex: false, dependencyGraph: false, exclude: [] }],
+    config: { ...DEFAULT_OPENAPI_CONFIG, maxSpecBytes: 10 * 1024 * 1024 },
+  });
+  const db = createMemoryIndexDb();
+  const r = await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT), null);
+  // petstore-3.0 = 2 endpoints; unresolvable-ref now also surfaces 1 endpoint
+  // (raw extraction; broken $ref is in a response body that we never read).
+  // bad-yaml + not-a-spec are skipped soft.
+  expect(r.itemsUpserted).toBe(3);
+});
+
 test("removing an endpoint from a re-parsed spec deletes it; unchanged specs preserve their endpoints", async () => {
   const root = mkdtempSync(join(tmpdir(), "openapi-sync-sticky-"));
   copyFileSync(join(FIX, "petstore-3.0.yaml"), join(root, "openapi.yaml"));
