@@ -130,3 +130,23 @@ paths:
   }>;
   expect(remaining.map((r) => r.method).sort()).toEqual(["GET", "GET"]);
 });
+
+test("uses enclosing-directory name when spec lives one level under the root", async () => {
+  const root = mkdtempSync(join(tmpdir(), "openapi-sync-svc-"));
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(join(root, "services", "payments-api"), { recursive: true });
+  copyFileSync(
+    join(FIX, "petstore-3.0.yaml"),
+    join(root, "services", "payments-api", "openapi.yaml"),
+  );
+  const sync = createOpenapiIndexerSyncable({
+    roots: [{ path: root, gitAware: false, codeIndex: false, dependencyGraph: false, exclude: [] }],
+    config: DEFAULT_OPENAPI_CONFIG,
+  });
+  const db = createMemoryIndexDb();
+  await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT), null);
+  const services = db.query("SELECT DISTINCT service_name FROM api_endpoint").all() as Array<{
+    service_name: string;
+  }>;
+  expect(services.map((s) => s.service_name)).toEqual(["payments-api"]);
+});
