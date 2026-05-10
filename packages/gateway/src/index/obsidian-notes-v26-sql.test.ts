@@ -30,7 +30,7 @@ test("V26 schema creates obsidian_notes with documented columns and indexes", ()
   expect(idxNames.has("idx_obsidian_notes_daily_note_date")).toBe(true);
 });
 
-test("V26 vault_path index is unique and queryable", () => {
+test("V26 vault_path index is queryable", () => {
   const db = new Database(":memory:");
   db.exec(OBSIDIAN_NOTES_V26_SCHEMA_SQL);
   db.run(
