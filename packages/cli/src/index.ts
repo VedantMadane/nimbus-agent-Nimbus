@@ -22,6 +22,7 @@ import {
   runExtension,
   runImpactCli,
   runLan,
+  runMetricsCli,
   runPeople,
   runProfile,
   runQuery,
@@ -90,6 +91,7 @@ const COMMAND_HANDLERS: Readonly<Record<string, CommandHandler>> = {
   run: runWorkflowFromFile,
   scaffold: runScaffold,
   lan: runLan,
+  metrics: runMetricsCli,
 };
 
 const HELP_ALIASES = new Set(["help", "--help", "-h"]);
