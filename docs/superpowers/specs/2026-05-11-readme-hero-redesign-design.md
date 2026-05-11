@@ -65,6 +65,26 @@ leave the machine.                   │ ▶ play recording (asciinema)       �
 [Install]  [Docs]
 ```
 
+**Markup strategy.** The mockup above is the desktop view. GitHub's mobile renderer strips most CSS and forces fixed-width tables to scroll horizontally, so we cannot use `<table>` or styled `<div>` for the split. The pattern that survives GitHub's renderer (used by Bun, Astro, Tauri) is `<img align="right" width="480">` on the cast SVG immediately before the pitch prose. On desktop, text flows to the left of the floated image; on mobile, the image pushes above the text via natural reflow. The CTAs and badge row sit above the float, full-width.
+
+Concretely, the hero markup looks like:
+
+```html
+<picture><img align="right" width="480" alt="..." src="docs/assets/hero-cast-light.svg"></picture>
+
+# ☁️ Nimbus
+On-call intelligence. Local-first.
+
+[badges]
+
+Cross-service incident context in under 100ms. Consent-gated automation.
+Your credentials never leave the machine.
+
+[Install](#install) · [Docs](https://docs.nimbus-agent.dev)
+```
+
+The cast `<picture>` element wraps the `<img>` to provide the dark-theme `<source>`. `align="right"` is the load-bearing attribute.
+
 ### 5.2 README structure — "Punchy" depth
 
 Target ~280 lines, 8 sections.
@@ -73,30 +93,34 @@ Target ~280 lines, 8 sections.
 |---|---|---|---|
 | **1** | Hero | ~30 | Wordmark, headline, 1-line subhead, badge row (4), split layout (pitch + cast), two CTAs, credential footnote |
 | **2** | The problem | ~25 | 3 bullets — incident response / CVE exposure / data lineage. Each ends with the one-line answer Nimbus gives |
-| **3** | How it works | ~30 | One paragraph + Mermaid flowchart: 27 connectors → SQLite index → engine + HITL → CLI/UI/voice. Names "local", "consent-gated", "MCP" |
-| **4** | Quick start | ~40 | One install command per OS (`<details>` for non-default platforms), then `nimbus connector auth github && nimbus ask "..."` |
-| **5** | Connectors | ~30 | Two-row grayscale logo grid (shipped, planned) |
+| **3** | How it works | ~30 | One paragraph + custom SVG flowchart: connectors → SQLite index → engine + HITL → CLI/UI/voice. Names "local", "consent-gated", "MCP" |
+| **4** | Quick start | ~50 | Three OS install commands stacked vertically (Linux, macOS, Windows), all visible — no collapsed sections. Then `nimbus connector auth github && nimbus ask "..."`. Build-from-source as a single link |
+| **5** | Connectors | ~30 | Two-row single-color logo grid (shipped, planned) |
 | **6** | Trust & security | ~20 | One paragraph naming OS keystore, structural HITL, AGPL, audit log. Two links: SECURITY.md, SECURITY-INVARIANTS.md |
 | **7** | Roadmap | ~15 | 5-row table, current row highlighted |
 | **8** | Contributing · License · footer | ~25 | One paragraph each, footer nav |
-| | **Slack** | ~65 | Frontmatter, dividers, asides |
+| | **Slack** | ~55 | Frontmatter, dividers, asides |
 | | **Total** | **~280** | |
+
+Quick-start grew by ~10 lines (three visible OS commands instead of one default + collapsed) and the slack budget shrank by the same amount; total stays at ~280.
 
 ### 5.3 What gets cut and where it goes
 
-| Removed from README | Destination |
-|---|---|
-| 7 of 8 example bash snippets | Hero cast covers incident response; others move to `docs/examples.md` (later surfaced on docs site B) |
-| "Who It's For" role table | `docs/audiences.md` |
-| "Why Engineers Choose Nimbus" — 4 sub-sections | Collapses into §2 (problem) and §6 (trust); performance table moves to `docs/performance.md` with link to CI-published benches (sub-project D) |
-| "What's in v0.1.0" full delivery list | Link to release notes; one-line summary remains |
-| Tech Stack table | `docs/architecture.md` already has this — link from README |
-| Cross-Platform table | `docs/cross-platform.md` (extracted) |
-| Project Structure tree | `docs/architecture.md` (already covered) |
-| Testing section | `docs/testing.md` (extracted) |
-| Publishing Releases | `docs/release/` (already exists) |
-| Full Pricing table | One-paragraph footnote; full table → `nimbus-agent.dev/pricing` |
-| Extensions section | One-line + link to `docs/contributors/extension-author-walkthrough.md` |
+Critically: **"moved" means the existing content is relocated, not stubbed.** The destination files are populated with what's currently in the README — same prose, same tables, same numbers. The README links to them with confidence because the content is real. Sub-project B (docs site) then renders those files into a navigable site; until B ships, they're plain markdown that already reads cleanly on GitHub.
+
+| Removed from README | Destination | Content state |
+|---|---|---|
+| 7 of 8 example bash snippets | `docs/examples.md` | Carries the current 8 example sessions verbatim, minus the one used as the hero cast |
+| "Who It's For" role table | `docs/audiences.md` | Carries the current 6-row role table verbatim |
+| "Why Engineers Choose Nimbus" performance table | `docs/performance.md` | Carries the existing measurements verbatim (~20–80ms search, ~5ms list, ~50–200ms semantic, ~80ms cold start). **Not a stub.** Sub-project D later replaces these with CI-published numbers; until then the existing measured values are accurate |
+| "What's in v0.1.0" full delivery list | Link to release notes; one-line summary remains | Release notes already exist on GitHub Releases — no new file needed |
+| Tech Stack table | Already in `docs/architecture.md` — link from README | No move; the existing architecture.md is the canonical source |
+| Cross-Platform table | `docs/cross-platform.md` | Carries the current Windows/macOS/Linux feature matrix verbatim |
+| Project Structure tree | Already in `docs/architecture.md` — link from README | No move; already covered |
+| Testing section | `docs/testing.md` | Carries the current 5-layer pyramid + coverage gate list verbatim |
+| Publishing Releases | `docs/release/` (already exists) | No new file; existing runbooks are the target |
+| Full Pricing table | One-paragraph footnote in README; full table → `nimbus-agent.dev/pricing` | Pricing page exists on the marketing site; README footnote summarises in one sentence |
+| Extensions section | One-line + link to `docs/contributors/extension-author-walkthrough.md` | Walkthrough already exists |
 
 ### 5.4 Visual identity
 
@@ -104,9 +128,9 @@ Target ~280 lines, 8 sections.
 |---|---|---|---|
 | Wordmark | Custom SVG + ☁️ emoji | `docs/assets/nimbus-wordmark.svg` | JetBrains Mono rendered to SVG. Dark + light variants via `<picture>` |
 | Badge row | 4 badges, fixed order | inline in `docs/README.md` | docs · release · license · status |
-| Hero cast | Static SVG poster + asciinema.org link | `docs/demos/incident-response.cast` (source) + `docs/assets/hero-cast.svg` (rendered) | Re-renderable from `.cast` via `svg-term-cli` |
-| §3 diagram | Mermaid flowchart | inline in `docs/README.md` | ~12 lines of mermaid source |
-| Connector grid | Two-row table of grayscale SVG logos | `docs/assets/connectors/<name>.svg` | Logos sourced from each service's brand guidelines |
+| Hero cast | Static SVG poster + asciinema.org link | `docs/demos/incident-response.cast` (source) + `docs/assets/hero-cast-{light,dark}.svg` (rendered) | Re-renderable from `.cast` via `svg-term-cli` |
+| §3 diagram | Custom SVG flowchart (light + dark variants) | `docs/assets/architecture-{light,dark}.svg` | Hand-authored SVG; uses the same `#7c3aed` accent and JetBrains Mono lettering as the wordmark. Mermaid was considered and rejected — its default rendering would clash with the rest of the polished hero, and themed Mermaid still carries the Mermaid geometric idiom. Trade-off accepted: SVG is harder to diff than Mermaid source, but the architecture (connectors → index → engine → clients) is load-bearing and stable; updates will be rare |
+| Connector grid | Two-row table of single-color SVG logos | `docs/assets/connectors/<name>.svg` | Sourced from [Simple Icons](https://simpleicons.org/) (CC0-licensed, designed for exactly this monochrome-OSS-grid use case) or each service's officially-provided monochrome variant. **Not recoloured color logos** — Slack, GitHub, AWS, Microsoft brand guidelines all restrict recoloring; Simple Icons sidesteps that entirely |
 | OG / social card | 1200×630 PNG, SVG source | `docs/assets/og-card.svg` (source), `docs/og-card.png` (rendered) | CI step renders PNG; repo settings → Social preview points to the PNG |
 
 ### 5.5 Color & typography
@@ -171,6 +195,9 @@ These additions land alongside the README content changes in this sub-project. T
 3. **SVG render smoke** — small bun script: open each `docs/assets/*.svg`, parse, assert non-zero dimensions. New `audit:svg-assets` script.
 4. **OG card PNG render** — CI step using `resvg` (or `sharp`): render `docs/assets/og-card.svg` → `docs/og-card.png`. Commit if changed. New job in `release.yml` and on PRs that touch `docs/assets/og-card.svg`.
 5. **README screenshot in PR template** — `.github/pull_request_template.md` gains a checklist item: "If this PR touches `docs/README.md`, attach a screenshot of the rendered page (light + dark)."
+6. **CLI-command tripwire** — a bun script `scripts/audit/readme-cli-commands.ts` that greps `docs/README.md` for every `nimbus <subcommand>` literal and asserts each subcommand exists in `packages/cli/src/index.ts`'s command registry. Catches the failure mode where a command is renamed or removed and the README — and therefore the cast — silently drifts. New `audit:readme-cli` script. Runs on PR.
+
+   Note on a deferred heavier tripwire: an end-to-end test that runs `nimbus ask "what changed?"` against mocked connectors and hashes the output transcript would catch deeper drift (output formatting changes, ordering swaps), but the LLM router introduces non-determinism that would require mocking the LLM with a fixed transcript — multi-day plumbing. Deferred to sub-project D (CI/CD visibility), where the mock infrastructure to publish public benches will also support deterministic cast-drift snapshots.
 
 ## 9. Success criteria
 
@@ -189,12 +216,13 @@ Qualitative tests are the real ones; metrics are tiebreakers.
 
 | Risk | Mitigation |
 |---|---|
-| Cast scenario drifts from real CLI output | `docs/demos/incident-response.cast` is re-recordable; future automation can diff the cast transcript against a mock-gateway smoke test |
+| Cast scenario drifts from real CLI output | Two-layer mitigation. **Now:** the §8 CLI-command tripwire fails CI if any `nimbus <subcommand>` mentioned in the README disappears from the CLI registry. **Deferred to D:** end-to-end snapshot test that hashes the full `nimbus ask` output transcript against mocked connectors and a stubbed LLM transcript |
 | Slim README hides info contributors need | `CONTRIBUTING.md` and `docs/architecture.md` are untouched; sub-project B is the safety net |
 | Punchy structure feels too marketing for OSS audience | Every claim must be traceable to a runnable command or test; no inflated language |
 | GitHub strips OG card in some preview surfaces | OG card is fallback-aware: README share also has the social preview set in repo settings as a redundant signal |
 | Asciinema.org outage | Cast source is in-repo; can re-render to GIF as backup; future docs site (B) can self-host the player |
-| Existing readers see "broken links" if docs move targets don't exist yet | Pre-create the destination `docs/*.md` stub files in this sub-project, even if they only contain "Moved from README; full content in sub-project B" — keeps every link reachable |
+| Existing readers see "broken links" if docs move targets don't exist yet | Per §5.3 — destination files are populated with the relocated content, not stubbed. Every link resolves to real prose on day one |
+| Custom SVG architecture diagram is harder to update than a Mermaid source | Architecture is load-bearing and stable (connectors → index → engine → clients has not changed since Phase 1); updates will be rare. The SVG source is checked in and editable in any vector editor or by hand for typography tweaks |
 
 ## 11. File inventory
 
@@ -208,20 +236,23 @@ Qualitative tests are the real ones; metrics are tiebreakers.
 **Files added:**
 
 - `docs/superpowers/specs/2026-05-11-readme-hero-redesign-design.md` (this file).
-- `docs/assets/nimbus-wordmark.svg`
+- `docs/assets/nimbus-wordmark-light.svg`
 - `docs/assets/nimbus-wordmark-dark.svg`
 - `docs/assets/hero-cast-light.svg` (rendered from cast)
 - `docs/assets/hero-cast-dark.svg` (rendered from cast)
+- `docs/assets/architecture-light.svg` (custom-authored, replaces the rejected Mermaid)
+- `docs/assets/architecture-dark.svg`
 - `docs/assets/og-card.svg`
 - `docs/og-card.png` (rendered from `og-card.svg`)
-- `docs/assets/connectors/*.svg` (~27 service logos)
+- `docs/assets/connectors/*.svg` (~30 service logos sourced from Simple Icons or official monochrome variants)
 - `docs/demos/incident-response.cast`
-- `docs/examples.md` (relocated from README)
-- `docs/audiences.md` (relocated from README)
-- `docs/performance.md` (relocated from README; stub until D ships real benches)
-- `docs/cross-platform.md` (relocated from README)
-- `docs/testing.md` (relocated from README)
+- `docs/examples.md` (relocated from README — carries existing example sessions verbatim)
+- `docs/audiences.md` (relocated from README — carries existing role table verbatim)
+- `docs/performance.md` (relocated from README — carries existing measurements verbatim, **not a stub**)
+- `docs/cross-platform.md` (relocated from README — carries existing platform-feature matrix verbatim)
+- `docs/testing.md` (relocated from README — carries existing 5-layer pyramid verbatim)
 - `scripts/audit/svg-assets.ts`
+- `scripts/audit/readme-cli-commands.ts` (CLI-command tripwire, §8 item 6)
 
 **Files unchanged:**
 
@@ -255,15 +286,16 @@ A reasonable implementation order, expressed for the future writing-plans pass:
 1. **Asset production** (parallel-friendly):
    - Wordmark SVG (light + dark).
    - Record `incident-response.cast`.
-   - Render cast SVGs (light + dark).
-   - Source connector logos.
-   - Design OG card SVG; render PNG.
-2. **Content extraction**: move cut sections into `docs/*.md` stub destinations so links resolve.
-3. **README rewrite**: full rewrite per §5.2 against the produced assets.
-4. **CI additions**: `lychee`, `markdownlint`, `audit:svg-assets`, OG card render.
+   - Render cast SVGs (light + dark) via `svg-term-cli`.
+   - Architecture diagram SVG (light + dark) — hand-authored, matching wordmark typography and `#7c3aed` accent.
+   - Source connector logos from Simple Icons (or official monochrome variants where Simple Icons is unavailable).
+   - Design OG card SVG; render PNG via `resvg`.
+2. **Content extraction**: relocate cut sections into populated `docs/*.md` files (carries existing prose verbatim — not stubs).
+3. **README rewrite**: full rewrite per §5.2 against the produced assets, using the `<img align="right">` markup strategy from §5.1.
+4. **CI additions**: `lychee`, `markdownlint`, `audit:svg-assets`, OG card render, `audit:readme-cli` tripwire.
 5. **PR template addition**.
 6. **Repo settings**: upload OG PNG via GitHub settings → Social preview (manual step; documented in PR description).
-7. **Manual accessibility verification**: dark mode, mobile, screen reader, contrast.
+7. **Manual accessibility verification**: dark mode, mobile (real device), screen reader, contrast.
 8. **Manual qualitative validation**: show three SRE/Platform engineers, capture feedback.
 
 The writing-plans skill will turn this sequence into a step-by-step plan with verification gates.
