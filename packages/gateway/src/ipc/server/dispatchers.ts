@@ -1,3 +1,4 @@
+import { loadNimbusDoraFromConfigDir } from "../../config/nimbus-toml.ts";
 import { asRecord } from "../../connectors/unknown-record.ts";
 import { bindConsentChannel, ToolExecutor } from "../../engine/executor.ts";
 import type { ConnectorDispatcher } from "../../engine/types.ts";
@@ -10,6 +11,7 @@ import { DataRpcError, dispatchDataRpc } from "../data-rpc.ts";
 import { DiagnosticsRpcError, dispatchDiagnosticsRpc } from "../diagnostics-rpc.ts";
 import { generatePairingCode } from "../lan-pairing.ts";
 import { dispatchLlmRpc, LlmRpcError } from "../llm-rpc.ts";
+import { dispatchMetricsRpc, MetricsRpcError } from "../metrics-rpc.ts";
 import { dispatchPeopleRpc, PeopleRpcError } from "../people-rpc.ts";
 import { dispatchProfileRpc, ProfileRpcError } from "../profile-rpc.ts";
 import { dispatchReindexRpc, ReindexRpcError } from "../reindex-rpc.ts";
@@ -21,6 +23,7 @@ import {
   automationRpcSkipped,
   connectorRpcSkipped,
   diagnosticsRpcSkipped,
+  metricsRpcSkipped,
   peopleRpcSkipped,
   phase4RpcSkipped,
   type ServerCtx,
@@ -162,6 +165,34 @@ export async function tryDispatchAuditRpc(
     throw e;
   }
   return phase4RpcSkipped;
+}
+
+export async function tryDispatchMetricsRpc(
+  ctx: ServerCtx,
+  method: string,
+  params: unknown,
+): Promise<typeof metricsRpcSkipped | unknown> {
+  // Only `metrics.dora` is handled today (Phase 5 T4 PR 2). Returning the
+  // metrics-specific skip sentinel keeps the chain logic uniform with audit /
+  // profile while reserving the namespace for future `metrics.*` methods.
+  if (!method.startsWith("metrics.") || ctx.options.localIndex === undefined) {
+    return metricsRpcSkipped;
+  }
+  if (ctx.options.configDir === undefined) {
+    throw new RpcMethodError(-32603, "configDir is required for metrics.* RPCs");
+  }
+  const configDir = ctx.options.configDir;
+  try {
+    const out = await dispatchMetricsRpc(method, params, {
+      db: ctx.options.localIndex.getDatabase(),
+      loadConfig: () => loadNimbusDoraFromConfigDir(configDir),
+    });
+    if (out.kind === "hit") return out.value;
+  } catch (e) {
+    if (e instanceof MetricsRpcError) throw new RpcMethodError(e.rpcCode, e.message);
+    throw e;
+  }
+  return metricsRpcSkipped;
 }
 
 export async function tryDispatchReindexRpc(
@@ -359,6 +390,8 @@ export async function tryDispatchPhase4Rpc(
   if (updaterOutcome !== phase4RpcSkipped) return updaterOutcome;
   const auditOutcome = await tryDispatchAuditRpc(ctx, method, params);
   if (auditOutcome !== phase4RpcSkipped) return auditOutcome;
+  const metricsOutcome = await tryDispatchMetricsRpc(ctx, method, params);
+  if (metricsOutcome !== metricsRpcSkipped) return metricsOutcome;
   const dataOutcome = await tryDispatchDataRpc(ctx, method, params, clientId);
   if (dataOutcome !== phase4RpcSkipped) return dataOutcome;
   const lanOutcome = await tryDispatchLanRpc(ctx, method, params);
