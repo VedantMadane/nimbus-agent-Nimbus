@@ -1,6 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  DEFAULT_DEPLOY_WORKFLOW_PATTERN,
+  DEFAULT_EXCLUDE_PR_LABELS,
+  DEFAULT_INCIDENT_WINDOW_MINUTES,
+  type DoraServiceConfig,
+  parseDoraRepoUrn,
+} from "../metrics/dora-config.ts";
 import { processEnvGet } from "../platform/env-access.ts";
 
 export type NimbusEmbeddingToml = {
@@ -737,4 +744,120 @@ export function loadNimbusUserFromPath(tomlPath: string): NimbusUserToml {
 
 export function loadNimbusUserFromConfigDir(configDir: string): NimbusUserToml {
   return loadNimbusUserFromPath(join(configDir, "nimbus.toml"));
+}
+
+// ---------------------------------------------------------------------------
+// [metrics.dora.<service-id>] — DORA service map (Phase 5 T4 PR 2)
+// ---------------------------------------------------------------------------
+
+const DORA_TABLE_PREFIX = "[metrics.dora.";
+const DORA_KNOWN_KEYS: ReadonlySet<string> = new Set([
+  "repos",
+  "pagerduty_services",
+  "deploy_workflow_pattern",
+  "incident_window_minutes",
+  "exclude_pr_labels",
+]);
+
+function parseStringArray(raw: string): string[] {
+  const t = raw.trim();
+  if (!t.startsWith("[") || !t.endsWith("]")) {
+    throw new Error(`expected array, got: ${raw}`);
+  }
+  const inner = t.slice(1, -1).trim();
+  if (inner.length === 0) return [];
+  const out: string[] = [];
+  // Naive split — repos / pagerduty ids don't contain commas or quotes.
+  for (const part of inner.split(",")) {
+    const v = parseString(part);
+    if (v.length > 0) out.push(v);
+  }
+  return out;
+}
+
+export function parseNimbusDoraToml(raw: string): Map<string, DoraServiceConfig> {
+  const lines = raw.split(/\r?\n/);
+  const accum: Map<string, Record<string, string>> = new Map();
+  let currentId: string | undefined;
+  for (const line of lines) {
+    const trimmed = stripComment(line).trim();
+    if (trimmed === "") continue;
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      if (trimmed.startsWith(DORA_TABLE_PREFIX) && trimmed.endsWith("]")) {
+        const id = trimmed.slice(DORA_TABLE_PREFIX.length, -1);
+        if (id.length === 0) throw new Error("empty service id in [metrics.dora.<id>]");
+        currentId = id;
+        if (!accum.has(id)) accum.set(id, {});
+      } else {
+        currentId = undefined;
+      }
+      continue;
+    }
+    if (currentId === undefined) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    if (!DORA_KNOWN_KEYS.has(key)) {
+      throw new Error(`unknown key '${key}' in [metrics.dora.${currentId}]`);
+    }
+    const bucket = accum.get(currentId);
+    if (bucket !== undefined) {
+      bucket[key] = trimmed.slice(eq + 1).trim();
+    }
+  }
+  const out: Map<string, DoraServiceConfig> = new Map();
+  for (const [serviceId, kv] of accum.entries()) {
+    const reposRaw = kv["repos"];
+    if (reposRaw === undefined) {
+      throw new Error(`[metrics.dora.${serviceId}] missing required 'repos'`);
+    }
+    const repos = parseStringArray(reposRaw).map(parseDoraRepoUrn);
+    const pagerdutyServices =
+      kv["pagerduty_services"] === undefined ? [] : parseStringArray(kv["pagerduty_services"]);
+    const patternSrc =
+      kv["deploy_workflow_pattern"] === undefined
+        ? DEFAULT_DEPLOY_WORKFLOW_PATTERN
+        : parseString(kv["deploy_workflow_pattern"]);
+    let deployWorkflowPattern: RegExp;
+    try {
+      deployWorkflowPattern = new RegExp(patternSrc);
+    } catch (e) {
+      throw new Error(
+        `[metrics.dora.${serviceId}].deploy_workflow_pattern is not a valid regex: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      );
+    }
+    const windowRaw = kv["incident_window_minutes"];
+    const windowMins =
+      windowRaw === undefined ? DEFAULT_INCIDENT_WINDOW_MINUTES : parseIntDec(windowRaw);
+    if (windowMins === undefined || windowMins < 1 || windowMins > 1440) {
+      throw new Error(
+        `[metrics.dora.${serviceId}].incident_window_minutes must be 1..1440, got '${windowRaw}'`,
+      );
+    }
+    const excludePrLabels =
+      kv["exclude_pr_labels"] === undefined
+        ? Array.from(DEFAULT_EXCLUDE_PR_LABELS)
+        : parseStringArray(kv["exclude_pr_labels"]);
+    out.set(serviceId, {
+      serviceId,
+      repos,
+      pagerdutyServices,
+      deployWorkflowPattern,
+      incidentWindowMinutes: windowMins,
+      excludePrLabels,
+    });
+  }
+  return out;
+}
+
+export function loadNimbusDoraFromPath(tomlPath: string): Map<string, DoraServiceConfig> {
+  if (!existsSync(tomlPath)) return new Map();
+  const raw = readFileSync(tomlPath, "utf8");
+  return parseNimbusDoraToml(raw);
+}
+
+export function loadNimbusDoraFromConfigDir(configDir: string): Map<string, DoraServiceConfig> {
+  return loadNimbusDoraFromPath(join(configDir, "nimbus.toml"));
 }
