@@ -7,7 +7,7 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict
 **Linter:** Biome
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)
-**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence ✅ Complete (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C ✅ · WS5-D ✅ · WS6 ✅ · S2 graph-aware watchers ✅ · B3 Phase 1 ✅ · B3 Phase 2 ✅); **`v0.1.0` released 2026-05-09** (headless Gateway + CLI + VS Code extension; `desktop-v0.1.0` Tauri release deferred to Phase 10); **Phase 5** — Extended Surface 🔵 Active (T1 sequencing spec ✅ · T3 PR 1 coordinator parallelism + `nimbus expert` ✅ · T3 PR 2 `nimbus impact` ✅ · T3 PR 3 `nimbus catchup` ✅ · Wave A PR 1 OpenAPI / AsyncAPI spec indexer ✅ · Wave A PR 2 Obsidian vault connector ✅ · T4 PR 1 foundations in flight)
+**Status:** Phase 4 ✅ Complete · Phase 5 (Extended Surface) 🔵 Active · `v0.1.0` released 2026-05-09 (headless Gateway + CLI + VS Code extension; `desktop-v0.1.0` Tauri release deferred to Phase 13). Workstream-level status is in [`docs/roadmap.md`](./docs/roadmap.md).
 
 **Gemini CLI:** [`GEMINI.md`](./GEMINI.md) mirrors this file for the same repository — update both when changing commands, roadmap rows, or non-negotiables.
 
@@ -31,7 +31,7 @@ These constraints are architectural, not preferences. Do not suggest changes tha
 
 ## Security Invariants
 
-These are the structural defenses Nimbus relies on. Each one has a production wiring site and an enforcement test in `packages/gateway/src/security-invariants.test.ts` that fails if the defense is removed or orphaned. Full rationale, anti-patterns, and audit cross-references in [`docs/SECURITY-INVARIANTS.md`](./docs/SECURITY-INVARIANTS.md).
+Each invariant has a production wiring site and an enforcement test in `packages/gateway/src/security-invariants.test.ts`. Full rationale, anti-patterns, and audit cross-references in [`docs/SECURITY-INVARIANTS.md`](./docs/SECURITY-INVARIANTS.md).
 
 | # | Invariant | Wired at | Anti-pattern that regresses it |
 |---|---|---|---|
@@ -48,388 +48,26 @@ These are the structural defenses Nimbus relies on. Each one has a production wi
 | I11 | LLM-facing tool results wrapped via `wrapToolOutput` | `engine/agent.ts`, `engine/tool-output-envelope.ts` | New agent surface that feeds raw tool results to the LLM |
 | I12 | DPAPI calls pass `pOptionalEntropy` from `<configDir>/vault/.entropy` | `vault/win32.ts` | Dropping the entropy parameter "for compatibility" |
 
-When changing a wiring site referenced above, update both the test and `SECURITY-INVARIANTS.md` in the same commit. When retiring an invariant, delete the row — never leave it as documentation drift.
+When changing a wiring site, update both the test and `SECURITY-INVARIANTS.md` in the same commit. When retiring an invariant, delete the row — never leave it as documentation drift.
 
-**Static-time complement:** Phase 1 of the B3 structure audit added
-`scripts/structure-audit/check-nimbus-invariants.ts` which enforces I1
-(`spawn` under `connectors/` must use `extensionProcessEnv()`) and the
-vault-key allow-list at static time. The runtime tests in
-`packages/gateway/src/security-invariants.test.ts` remain authoritative
-for invariant wiring; the static checks catch regressions before the test
-runs. See `docs/structure-audit/baseline.md` for current findings.
+**Static-time complement:** `scripts/structure-audit/check-nimbus-invariants.ts` enforces I1 (`spawn` under `connectors/` must use `extensionProcessEnv()`) and the vault-key allow-list at static time. Runtime tests remain authoritative; the static checks fail before the test suite runs.
 
 ---
 
-## Key File Locations
+## Subsystems (monorepo)
 
-| File | Purpose |
-|---|---|
-| `packages/gateway/src/engine/executor.ts` | HITL gate — `HITL_REQUIRED` frozen set; most security-critical file |
-| `packages/gateway/src/platform/index.ts` | PAL — `createPlatformServices()` dispatch |
-| `packages/gateway/src/platform/win32.ts` | Windows platform implementation |
-| `packages/gateway/src/platform/darwin.ts` | macOS platform implementation |
-| `packages/gateway/src/platform/linux.ts` | Linux platform implementation |
-| `packages/gateway/src/vault/index.ts` | `NimbusVault` interface |
-| `packages/gateway/src/auth/google-access-token.ts` | Google per-service OAuth token resolution — `resolveGoogleOAuthVaultKey()`, `anyGoogleOAuthVaultPresent()` |
-| `packages/gateway/src/auth/oauth-vault-tokens.ts` | Generic OAuth token storage/refresh helpers — `getValidVaultOAuthAccessToken()`, `microsoftOAuthAccessFromConfig()` |
-| `packages/gateway/src/connectors/` | MCP connector mesh (`lazy-mesh/` — Phase 3 bundle spawns AWS/Azure/GCP/IaC/observability MCPs when vault keys exist) |
-| `packages/gateway/src/connectors/health.ts` | Connector health state machine — `transitionHealth()`, `ConnectorHealthSnapshot` |
-| `packages/gateway/src/connectors/connector-vault.ts` | Per-service OAuth vault key helpers + typed connector-secret reader — `perServiceOAuthVaultKey()`, `writePerServiceOAuthKey()`, `migrateToPerServiceOAuthKeys()`, `readConnectorSecret()` (Phase 4 / D11 Bucket B) |
-| `packages/gateway/src/connectors/connector-secrets-manifest.ts` | `CONNECTOR_VAULT_SECRET_KEYS` — per-connector PAT/API-key vault manifest; `clearConnectorVaultSecretKeys()` |
-| `packages/gateway/src/connectors/remove-intent.ts` | Connector removal — cascade vault + index cleanup via `executeRemoveIntent()` |
-| `packages/gateway/src/automation/graph-predicate.ts` | Graph predicate types, parser, evaluator; `parseGraphPredicate` / `itemMatchesGraphPredicate` / `countItemsMatchingGraphPredicate` / `listCandidateGraphRelations` |
-| `packages/gateway/src/automation/watcher-engine.ts` | Watcher evaluation loop; applies `graph_predicate_json` as a post-filter when `[automation].graph_conditions = true` |
-| `packages/gateway/src/index/watcher-graph-v22-sql.ts` | V22 migration — `watcher.graph_predicate_json` column |
-| `packages/gateway/src/index/workflow-run-columns-v23-sql.ts` | V23 migration — `dry_run` and `params_override_json` columns |
-| `packages/gateway/src/index/audit-session-v24-sql.ts` | V24 migration — `audit_log.session_id` column |
-| `packages/gateway/src/index/api-endpoint-v25-sql.ts` | V25 migration — `api_endpoint` shadow table for OpenAPI / AsyncAPI indexer (Phase 5 Wave A PR 1) |
-| `packages/gateway/src/connectors/openapi-indexer-sync.ts` | OpenAPI / AsyncAPI spec indexer — gateway-side syncable that emits `api_endpoint` items + `api_endpoint → service` graph edges (Phase 5 Wave A PR 1); `getLastSyncStats()` exposes skipped-spec counters |
-| `packages/gateway/src/index/obsidian-notes-v26-sql.ts` | V26 migration — `obsidian_notes` shadow table + `backlinks` `graph_relation_type` seed (Phase 5 Wave A PR 2) |
-| `packages/gateway/src/connectors/obsidian-sync.ts` | Obsidian vault connector — gateway-side syncable that emits `obsidian_note` items + `backlinks` graph edges via `syncObsidianNoteGraph` (Phase 5 Wave A PR 2) |
-| `packages/mcp-connectors/obsidian/src/server.ts` | Obsidian MCP server — `obsidian_list` / `_get` / `_search` reads + HITL-gated `obsidian_append_to_daily_note` (gated by `obsidian.note.append`); receives vault paths via `OBSIDIAN_VAULT_PATHS_JSON` |
-| `packages/gateway/openapi/v1.yaml` | Hand-authored OpenAPI 3.1 schema for the read-only HTTP API; reserved `/v1/metrics/dora` slot for T4 PR 2 (Phase 5 T4 PR 1) |
-| `packages/gateway/src/ipc/http-routes.ts` | `READ_ONLY_HTTP_ROUTES` — canonical route list; single source of truth for the OpenAPI drift CI gate (Phase 5 T4 PR 1) |
-| `packages/gateway/src/ipc/openapi-loader.ts` | `loadOpenApiJsonBytes` — cached YAML→JSON parse for `GET /v1/openapi.json` (Phase 5 T4 PR 1) |
-| `scripts/structure-audit/check-openapi-drift.ts` | OpenAPI drift detector — compares `v1.yaml` paths against `READ_ONLY_HTTP_ROUTES`; powers `audit:openapi-drift` CI gate (Phase 5 T4 PR 1) |
-| `docs/cli/use-in-ci.md` | Worked CI integration examples (GitHub Actions self-hosted, GitLab CI, Jenkins) using `nimbus query --json` (Phase 5 T4 PR 1) |
-| `docs/templates/nimbus-pre-commit.sh` | Bash pre-commit hook template — fail-open `nimbus diag --json` reachability check + incident/CI gates (Phase 5 T4 PR 1) |
-| `packages/gateway/src/sync/connectivity.ts` | Network connectivity probe — guards the sync scheduler against consuming backoff on offline events |
-| `packages/gateway/src/db/verify.ts` | `nimbus db verify` — non-destructive index integrity checks (integrity_check, FTS5, vec rowid, FK, schema version) |
-| `packages/gateway/src/db/repair.ts` | `nimbus db repair` — targeted recovery actions; writes audit log entry |
-| `packages/gateway/src/db/snapshot.ts` | Manual and scheduled snapshot management |
-| `packages/gateway/src/db/metrics.ts` | `IndexMetrics` — item counts, embedding coverage, query latency percentiles |
-| `packages/gateway/src/db/latency-ring-buffer.ts` | In-memory ring buffer for query latency samples; async batch flush to `query_latency_log` |
-| `packages/gateway/src/db/write.ts` | Central DB write wrapper — catches `SQLITE_FULL`, re-throws `DiskFullError` |
-| `packages/gateway/src/perf/` | B2 bench harness — `BenchHarness`, `PerfFixture`, `HistoryLine`, `bench-cli.ts`; one S2-a driver under `surfaces/` |
-| `packages/cli/src/commands/bench.ts` | `nimbus bench` CLI command — thin `Bun.spawn` wrapper around `bench-runner.ts` |
-| `scripts/structure-audit/lib.ts` | Shared B3 audit helpers — `REPO_ROOT`, `stripComments`, `countAnyInSource`, `iterateSourceFiles`, `auditOutputPath`; imported by every audit driver |
-| `docs/structure-audit/baseline.md` | Phase 1 baseline reference for the B3 structure audit; per-dimension starting state + Phase 2 thresholds |
-| `packages/gateway/src/telemetry/collector.ts` | Opt-in telemetry — aggregate counters only, no content, configurable endpoint |
-| `packages/gateway/src/config/profiles.ts` | Named configuration profiles (`work`, `personal`); Vault key prefixing |
-| `packages/gateway/src/llm/types.ts` | LLM provider interfaces — `LlmProvider`, `LlmTaskType`, `LlmModelInfo`, `LlmGenerateOptions/Result` |
-| `packages/gateway/src/llm/gpu-arbiter.ts` | `GpuArbiter` — single-slot GPU VRAM mutex with activity-aware timeout |
-| `packages/gateway/src/llm/ollama-provider.ts` | `OllamaProvider` — Ollama HTTP API wrapper (batch + streaming) |
-| `packages/gateway/src/llm/llamacpp-provider.ts` | `LlamaCppProvider` — llama-server HTTP API wrapper |
-| `packages/gateway/src/llm/router.ts` | `LlmRouter` — task-to-provider routing, air-gap enforcement, local/remote preference |
-| `packages/gateway/src/llm/registry.ts` | `LlmRegistry` — model discovery, `llm_models` DB sync, availability checks |
-| `packages/gateway/src/ipc/llm-rpc.ts` | `dispatchLlmRpc` — `llm.listModels` / `llm.getStatus` IPC handlers |
-| `packages/gateway/src/voice/service.ts` | `VoiceService` — STT (`whisper-cli`), TTS, wake-word loop |
-| `packages/gateway/src/voice/tts.ts` | `NativeTtsProvider` — `say` (macOS), PowerShell SAPI (Windows), `espeak-ng`/`spd-say` (Linux) |
-| `packages/gateway/src/ipc/voice-rpc.ts` | `dispatchVoiceRpc` — `voice.*` IPC handlers |
-| `packages/gateway/src/engine/coordinator.ts` | `AgentCoordinator` — multi-agent sub-task orchestration, depth + tool-call guards; `executeAll` runs sub-tasks in parallel (Phase 5 T3 PR 1) |
-| `packages/gateway/src/engine/sub-agent.ts` | `runSubAgent` — single sub-task executor with `sub_task_results` DB lifecycle |
-| `packages/gateway/src/agents/expert.ts` | First built-in agent — `nimbus expert <topic-or-file>`; parallel sub-agents over indexed PR authorship + review history + incident involvement; emits `agents.expert.briefReady` notification |
-| `packages/gateway/src/agents/impact.ts` | Second built-in agent — `nimbus impact <file-or-PR-url>`; reverse-dependency blast radius across services / pipelines / dashboards / oncall; 5 parallel sub-agents over the relationship graph; emits `agents.impact.briefReady` notification |
-| `packages/gateway/src/agents/_lib/findings.ts` | `ExpertBrief` / `ExpertFinding` / `Evidence` types + ranking helpers shared across built-in agents |
-| `packages/gateway/src/agents/_lib/gap-notes.ts` | Gap-note detectors (empty index, missing connector, missing entity type, missing relation emit) used by built-in agents |
-| `packages/gateway/src/agents/_lib/render.ts` | Deterministic Markdown renderer for `ExpertBrief` and `ImpactBrief` (used as fallback when LLM synthesis is unavailable) |
-| `packages/gateway/src/agents/_lib/synthesize.ts` | LLM synthesis layer for built-in agents; falls back to deterministic renderer when no LLM is available |
-| `packages/gateway/src/ipc/agents-rpc.ts` | `dispatchAgentsRpc` — `agents.expert` + `agents.impact` JSON-RPC handlers; rejects array payloads; emits `agents.expert.briefReady` and `agents.impact.briefReady` |
-| `packages/gateway/src/index/llm-models-v16-sql.ts` | V16 migration SQL — `llm_models` table + `sync_state.context_window_tokens` |
-| `packages/gateway/src/index/sub-task-results-v17-sql.ts` | V17 migration SQL — `sub_task_results` table for multi-agent persistence |
-| `packages/gateway/src/ipc/http-server.ts` | Read-only local HTTP API (`localhost` only, `SQLITE_OPEN_READONLY` connection) |
-| `packages/gateway/src/ipc/metrics-server.ts` | Prometheus-compatible metrics endpoint (`localhost` only, off by default) |
-| `packages/gateway/src/ipc/lan-crypto.ts` | NaCl box keypair generation, `sealBoxFrame` / `openBoxFrame` for LAN E2E encryption |
-| `packages/gateway/src/ipc/lan-pairing.ts` | `PairingWindow` — single-use base58 pairing code with 5-minute expiry |
-| `packages/gateway/src/ipc/lan-rate-limit.ts` | `LanRateLimiter` — per-IP sliding-window failure tracking and lockout |
-| `packages/gateway/src/ipc/lan-rpc.ts` | `LanError`, `checkLanMethodAllowed` — forbidden-method and write-grant enforcement for LAN peers |
-| `packages/gateway/src/ipc/lan-server.ts` | `LanServer` — `Bun.listen` TCP server; length-framed, NaCl box encrypted RPC after pairing handshake |
-| `packages/gateway/src/ipc/updater-rpc.ts` | `dispatchUpdaterRpc` — `updater.getStatus`, `updater.checkNow`, `updater.applyUpdate`, `updater.rollback` |
-| `packages/gateway/src/updater/updater.ts` | `Updater` state machine — manifest fetch, semver compare, download, Ed25519 verify, install |
-| `packages/gateway/src/updater/manifest-fetcher.ts` | `fetchUpdateManifest` — typed manifest fetch with `AbortController` timeout |
-| `packages/gateway/src/updater/signature-verifier.ts` | `verifyBinarySignature` — Ed25519 over SHA-256 of binary |
-| `packages/gateway/src/updater/public-key.ts` | Embedded Ed25519 updater public key; `NIMBUS_DEV_UPDATER_PUBLIC_KEY` override for tests |
-| `packages/gateway/src/index/lan-peers-v19-sql.ts` | V19 migration SQL — `lan_peers` table |
-| `packages/gateway/src/ipc/` | JSON-RPC 2.0 IPC server |
-| `packages/cli/src/index.ts` | CLI entry point |
-| `packages/cli/src/ipc-client/` | IPC client + consent channel |
-| `packages/cli/src/commands/query.ts` | `nimbus query` — structured index query with `--sql` guard |
-| `packages/cli/src/commands/config.ts` | `nimbus config get/set/list/validate/edit` |
-| `packages/cli/src/commands/profile.ts` | `nimbus profile create/list/switch/delete` |
-| `packages/cli/src/commands/diag.ts` | `nimbus diag` — full diagnostic snapshot; `slow-queries` subcommand |
-| `packages/cli/src/commands/doctor.ts` | `nimbus doctor` — environment health checks, actionable remediation output |
-| `packages/cli/src/commands/telemetry.ts` | `nimbus telemetry show/disable` |
-| `packages/cli/src/commands/expert.ts` | `nimbus expert <topic-or-file>` — calls `agents.expert` IPC, streams Markdown brief to stdout (respects `NO_COLOR`) |
-| `packages/cli/src/commands/impact.ts` | `nimbus impact <file-or-PR-url>` — calls `agents.impact` IPC, streams Markdown brief to stdout; supports `--json` / `--depth` (reserved) / `--service` filter |
-| `packages/cli/src/commands/tui.tsx` | `nimbus tui` entry — gateway check, fallback detection, Ink render orchestration |
-| `packages/cli/src/tui/App.tsx` | TUI root — state machine + Option-1 layout + narrow/short-terminal behavior |
-| `packages/cli/src/tui/state.ts` | Top-level state reducer: `idle` / `streaming` / `awaiting-hitl` / `disconnected` |
-| `packages/sdk/src/index.ts` | `@nimbus-dev/sdk` public API |
-| `packages/client/src/index.ts` | `@nimbus-dev/client` public API — `NimbusClient`, `MockClient` |
-| `packages/vscode-extension/` | `nimbus-vscode` (displayName "Nimbus Agent") — VS Code extension; published to Marketplace + Open VSX; current tag `vscode-v0.1.2` |
-| `packages/ui/src/ipc/client.ts` | `NimbusIpcClient` singleton, `createIpcClient()`, `parseError()` — includes credential redaction (5 forbidden keys) |
-| `packages/ui/src/ipc/types.ts` | Shared IPC types — `ConnectionState`, `DiagSnapshot`, `ConnectorSummary`, `ProfileListResult`, `TelemetryStatus`, `RouterDecision`/`RouterStatusResult`, `LlmModelInfo`/`LlmListModelsResult`, `LlmAvailabilityResult`, `LlmPullStartedResult`/`LlmPullProgressPayload`/`LlmPullTerminalPayload`, error types |
-| `packages/ui/src/store/index.ts` | `useNimbusStore` — Zustand v5 store with `persist` middleware; 11 slices composed; `partialize` whitelist excludes secrets |
-| `packages/ui/src/store/partialize.ts` | `persistPartialize` — 5-key whitelist + 5-key forbidden deep-scrub for Zustand persist |
-| `packages/ui/src/providers/GatewayConnectionProvider.tsx` | `onConnectionState` mirror + first-run routing logic |
-| `packages/ui/src/App.tsx` | `createBrowserRouter` — all UI routes including nested `/settings/*` |
-| `packages/ui/src/pages/QuickQuery.tsx` | Quick Query popup page — stream + auto-close |
-| `packages/ui/src/pages/Onboarding.tsx` | Onboarding wizard frame + step pills |
-| `packages/ui/src/pages/Dashboard.tsx` | Dashboard page (metrics strip + connector grid + audit feed) |
-| `packages/ui/src/pages/HitlPopup.tsx` | HITL popup page hosted inside the `hitl-popup` Tauri window |
-| `packages/ui/src/pages/Settings.tsx` | Settings layout — `SettingsSidebar` + `<Outlet />` for nested panel routes |
-| `packages/ui/src/pages/settings/ProfilesPanel.tsx` | Profiles panel — list, create, switch, delete with typed-name confirm guard |
-| `packages/ui/src/pages/settings/TelemetryPanel.tsx` | Telemetry panel — toggle, counter cards, payload sample expander |
-| `packages/ui/src/pages/settings/ConnectorsPanel.tsx` | Connectors panel — interval editor (60 s min inline-validated), depth selector, enable toggle, `connector.configChanged` reconcile, Dashboard deep-link highlight |
-| `packages/ui/src/pages/settings/connectors/interval-parts.ts` | Interval input parser/formatter shared by `ConnectorsPanel` |
-| `packages/ui/src/pages/settings/ModelPanel.tsx` | Model panel — `RouterStatus` cards, per-task default pickers, load/unload row actions, `PullDialog` launcher, re-attaches to in-flight pull via persisted `activePullId` |
-| `packages/ui/src/components/settings/model/RouterStatus.tsx` | Per-task router decision cards driven by `llm.getRouterStatus`; emits `llm.setDefault` |
-| `packages/ui/src/components/settings/model/PullDialog.tsx` | Streaming model pull dialog — provider radio filtered by `llm.getStatus`, 15 s stall detection via `setTimeout`, cancel via `llm.cancelPull` |
-| `packages/ui/src/components/hitl/HitlPopupPage.tsx` | Head-of-queue consent dialog; Approve / Reject → `consent.respond` |
-| `packages/ui/src/components/hitl/StructuredPreview.tsx` | Recursive, XSS-safe preview of `consent.request` details |
-| `packages/ui/src/components/chrome/Sidebar.tsx` | Labelled sidebar nav with pending-HITL badge |
-| `packages/ui/src/components/chrome/PageHeader.tsx` | Page title + profile/health pill |
-| `packages/ui/src/components/dashboard/ConnectorTile.tsx` | Single connector card with health dot + degradation tooltip |
-| `packages/ui/src/components/settings/SettingsSidebar.tsx` | Settings secondary nav — 7 panel entries with `NavLink` active styling |
-| `packages/ui/src/components/settings/PanelHeader.tsx` | Shared panel title + description + optional live-status pill |
-| `packages/ui/src/components/settings/PanelError.tsx` | Error state with optional Retry button |
-| `packages/ui/src/components/settings/StaleChip.tsx` | Offline / stale indicator chip |
-| `packages/ui/src/components/settings/PanelComingSoon.tsx` | Placeholder for panels not yet implemented |
-| `packages/ui/src/hooks/useIpcQuery.ts` | Typed polling hook (pauses on hidden / disconnected) |
-| `packages/ui/src/hooks/useIpcSubscription.ts` | Typed Tauri event listener hook |
-| `packages/ui/src/hooks/useConfirm.tsx` | Inline confirm dialog hook — supports typed-name confirmation |
-| `packages/ui/src/lib/restart.ts` | `restartApp()` — invokes Tauri `plugin:app\|restart`; fallback to `location.reload()` |
-| `packages/ui/src/store/slices/dashboard.ts` | Dashboard store slice (metrics / connectors / audit / highlight) |
-| `packages/ui/src/store/slices/hitl.ts` | HITL pending-request FIFO queue |
-| `packages/ui/src/store/slices/settings.ts` | Settings slice — `activePanel` navigation state |
-| `packages/ui/src/store/slices/profile.ts` | Profile slice — list, active, `lastFetchAt`, `actionInFlight`; persisted |
-| `packages/ui/src/store/slices/telemetry.ts` | Telemetry slice — `TelemetryStatus` + `telemetryActionInFlight`; transient |
-| `packages/ui/src/store/slices/connectors.ts` | Connectors slice — `PersistedConnectorRow[]` (persisted) + transient `perServiceInFlight` + `highlightService` + `patchConnectorRow` |
-| `packages/ui/src/store/slices/model.ts` | Model slice — `installedModels` + `activePullId` (persisted) + transient `routerStatus`, `pullProgress`, `pullStalled`, `loadedKeys` |
-| `packages/ui/src-tauri/src/gateway_bridge.rs` | Rust IPC bridge — `ALLOWED_METHODS` (60), `NO_TIMEOUT_METHODS` (4), `GLOBAL_BROADCAST_METHODS` (`profile.switched`), `rpc_call`, reconnect loop |
-| `packages/ui/src-tauri/src/tray.rs` | System tray icon, menu, state forwarding |
-| `packages/ui/src-tauri/src/quick_query.rs` | Quick Query window lifecycle — spawn/focus, focus-loss close |
-| `packages/ui/src-tauri/src/hitl_popup.rs` | HITL popup window lifecycle — spawn / focus / close |
-| `packages/ui/src-tauri/src/lib.rs` | Tauri app entry — plugins, tray init, global shortcut, macOS accessory mode |
-| `packages/ui/src-tauri/capabilities/default.json` | Tauri capability set — windows, permissions |
-| `docs/release/manual-smoke-headless.md` | Reusable manual smoke checklist for headless Gateway + CLI + VS Code releases; per-platform results matrix; companion Windows run sheet at `manual-smoke-headless-windows.md` |
-| `packages/ui/src/pages/settings/DataPanel.tsx` | Data panel — Export/Import/Delete wizard launcher with preflight stats |
-| `packages/ui/src/components/settings/data/ExportWizard.tsx` | Export wizard — passphrase gate, zxcvbn, overwrite confirm, progress, seed display |
-| `packages/ui/src/components/settings/data/ImportWizard.tsx` | Import wizard — passphrase + recovery-seed auth, version-compat error handling |
-| `packages/ui/src/components/settings/data/DeleteServiceDialog.tsx` | Delete service dialog — preflight preview, typed-name confirm, `data.delete` call |
-| `packages/ui/src/store/slices/data.ts` | Data store slice — exportFlow / importFlow / deleteFlow state machines + markDisconnected |
-| `docs/architecture.md` | Full subsystem design — read before modifying any subsystem |
-| `docs/roadmap.md` | Phases, acceptance criteria, Phase 3 delivered summary |
+- `packages/gateway` — Engine, MCP mesh, Vault, local index, IPC
+- `packages/cli` — Terminal client (CLI + Ink TUI)
+- `packages/ui` — Tauri 2.0 + React (desktop)
+- `packages/sdk` — `@nimbus-dev/sdk` for extensions (MIT)
+- `packages/client` — `@nimbus-dev/client` (typed IPC wrapper, MIT)
+- `packages/mcp-connectors/*` — First-party MCP servers (AGPL)
+- `packages/vscode-extension` — `nimbus-vscode` (Marketplace + Open VSX)
+- `packages/docs` — Astro Starlight documentation site
 
----
+**PAL:** All OS-specific logic lives under `packages/gateway/src/platform/` and is accessed via `PlatformServices` — never import `win32` / `darwin` / `linux` from business logic.
 
-## Development Workflow
-
-**Worktree directory:** `.worktrees/` (project-local, git-ignored)
-
-When setting up isolated workspaces for feature branches, use `.worktrees/<branch-name>`.
-
----
-
-## Commands
-
-```bash
-# Install all dependencies
-bun install
-
-# Type check all packages
-bun run typecheck
-
-# Lint (Biome — format + lint)
-bun run lint
-bun run lint:fix
-
-# Run all unit tests (workspace packages + scripts/)
-bun test
-
-# Run only scripts/**/*.test.ts (regen-slo, structure-audit, package-linux-installers, nimbus-verify)
-bun run test:scripts
-
-# Run with coverage
-bun run test:coverage
-
-# Coverage gates (enforced in CI) — run all: bun run test:ci
-bun run test:coverage:engine       # ≥85% threshold (engine)
-bun run test:coverage:agents       # ≥80% threshold (built-in agents)
-bun run test:coverage:vault        # ≥90% threshold (vault)
-bun run test:coverage:sync         # ≥80% threshold (sync scheduler)
-bun run test:coverage:rate-limiter # ≥85% threshold (per-provider rate limiter)
-bun run test:coverage:people       # ≥80% threshold (people graph + cross-service linker)
-bun run test:coverage:embedding    # ≥80% threshold (embedding)
-bun run test:coverage:workflow     # ≥80% threshold (workflow runner + store)
-bun run test:coverage:watcher      # ≥80% threshold (watcher engine + store + anomaly stub)
-bun run test:coverage:extensions   # ≥85% threshold (extension registry + manifest + verify)
-# Phase 3.5 coverage gates
-bun run test:coverage:db           # ≥85% threshold (verify, repair, snapshot, health, metrics, latency buffer)
-bun run test:coverage:health       # ≥85% threshold (connectors/health.ts)
-bun run test:coverage:config       # ≥80% threshold (config loader, profiles, env overrides)
-bun run test:coverage:client       # ≥80% threshold (@nimbus-dev/client)
-bun run test:coverage:telemetry    # ≥85% threshold (telemetry collector — payload safety gate)
-bun run test:coverage:doctor       # ≥80% threshold (nimbus doctor checks)
-bun run test:coverage:tui          # ≥80% threshold (packages/cli/src/tui — TUI components)
-bun run test:coverage:mcp          # ≥70% threshold (mcp-connectors)
-bun run test:coverage:sdk          # ≥80% threshold (@nimbus-dev/sdk)
-# Phase 4 WS4 coverage gates
-bun run test:coverage:updater      # ≥80% threshold (updater state machine + manifest fetcher)
-bun run test:coverage:lan          # ≥80% threshold (lan-crypto, lan-pairing, lan-rate-limit, lan-rpc, lan-server)
-bun run test:coverage:perf         # ≥80% threshold (perf bench harness)
-
-# Phase 4 WS5-A UI coverage gate (Vitest — separate runner)
-cd packages/ui && bunx vitest run --coverage  # ≥80% lines / ≥75% branches
-
-# Integration tests
-bun run test:integration
-
-# E2E CLI tests
-bun run test:e2e:cli
-
-# UI component tests (Vitest — separate from bun test)
-cd packages/ui && bunx vitest run
-cd packages/ui && bunx vitest run --coverage  # with branch/line coverage report
-
-# Build all packages
-bun run build
-
-# Full validate-and-build (runs CI test suite first, then builds)
-bun run build:debug    # debug build with sourcemaps (also: scripts/linux/build-debug.sh, scripts/windows/build-debug.ps1)
-bun run build:release  # production build (also: scripts/linux/build-release.sh, scripts/windows/build-release.ps1)
-
-# Clean all build outputs
-bun run clean
-
-# Workspace-aware deep clean (root + per-package node_modules + bun.lock)
-bun run clean-deep
-
-# Contributor environment health check (Bun version, node_modules, Rust, gcloud, libsecret on Linux)
-bun run dev-doctor
-
-# Security audit
-bun audit --audit-level high
-bun run audit:high                 # same as above (root script)
-
-# Phase 4 B3 — Structure audit (Phase 1 tooling complete; Phase 2 ranking pending)
-bun run audit:structure         # full pack via orchestrator (writes run-<ts>.json)
-bun run audit:boundaries        # dep-cruiser: D1 cross-pkg / D2 cycles / D3 PAL leakage
-bun run audit:duplication       # jscpd token-level duplication (D6)
-bun run audit:dead-code         # knip unused exports / orphan files (D7)
-bun run audit:any               # D8 any-count print mode
-bun scripts/structure-audit/count-any-usage.ts --check    # D8 CI gate (fails on regression OR reduction without --update)
-bun scripts/structure-audit/count-any-usage.ts --update   # rewrite docs/structure-audit/any-baseline.json
-bun run audit:invariants        # D10 spawn rule + D11 vault-key allow-list (binary, --binary-only)
-bun run audit:openapi-drift     # OpenAPI ↔ READ_ONLY_HTTP_ROUTES drift (Phase 5 T4 PR 1)
-# Baselines: docs/structure-audit/{any-baseline.json,db-run-census.json,churn-90d.json,baseline.md}
-# CI gate (reusable workflow): .github/workflows/_structure.yml — wired into ci.yml after Phase 3 top-5 fixes land
-
-# Headless binary bundle + Linux .deb / tarball (after compiling gateway + CLI to dist/)
-# Optional: set NIMBUS_EMBEDDING_MODEL_DIR to pre-downloaded MiniLM weights (or pass --embedding-model-dir) to embed them in the bundle output
-bun run package:headless
-bun run package:installers:linux -- --version 0.1.0
-
-# Phase 3.5 CLI commands (reference — not bun scripts)
-# nimbus query --service github --type pr --since 7d --json
-# nimbus query --sql "SELECT title FROM items WHERE pinned = 1" --pretty
-# nimbus config get <key> / set <key> <value> / list / validate / edit
-# nimbus profile create <name> / list / switch <name> / delete <name>
-# nimbus diag [--json]
-# nimbus diag slow-queries [--limit N] [--since <duration>]
-# nimbus doctor
-# nimbus db verify
-# nimbus db repair [--yes]
-# nimbus db snapshot
-# nimbus db restore <snapshot>
-# nimbus db snapshots list / backups list
-# nimbus db prune [--yes]
-# nimbus telemetry show
-# nimbus telemetry disable
-# nimbus serve [--port 7474]
-# nimbus docs [topic]
-# nimbus connector history <name>
-# nimbus connector reindex <name> [--depth <metadata_only|summary|full>]
-
-# Phase 4 WS3 — Data Sovereignty
-# nimbus data export --output <path.tar.gz> --passphrase <pw> [--no-index]
-# nimbus data import <path.tar.gz> [--passphrase <pw> | --recovery-seed <mnemonic>]
-# nimbus data delete --service <name> [--dry-run] [--yes]
-# nimbus audit verify [--full] [--since <id>]
-# nimbus audit export --output <path.json>
-
-# Phase 4 B2 — Perf bench (Phase 1A scaffolding)
-# nimbus bench --surface S2-a --runs 5 --corpus small --gha
-# nimbus bench --all --reference                     # interactive protocol confirmation required
-
-# Phase 4 WS4 — Release Infrastructure
-# nimbus update --check              # check for update; exit 1 if available, 0 if current
-# nimbus update [--yes]              # download, verify Ed25519 signature, invoke platform installer
-# nimbus lan enable [--allow-pairing]  # start LAN server; open 5-min pairing window (optional)
-# nimbus lan disable                 # stop LAN server
-# nimbus lan pair <host-ip> <code>   # exchange X25519 keys with a host using pairing code
-# nimbus lan status                  # show LAN server state and paired peers
-# nimbus lan list-peers              # list paired peers with id, direction, write-allowed
-# nimbus lan grant-write <peer-id>   # allow peer to call write/HITL methods
-# nimbus lan revoke-write <peer-id>  # remove write grant
-# nimbus lan remove-peer <peer-id>   # unpair a peer
-
-# Phase 5 T3 — Team Intelligence built-in agents
-# nimbus expert <topic-or-file>      # ranked list of team members with most context on a topic / file;
-#                                    # IPC: agents.expert; emits agents.expert.briefReady notification
-# nimbus impact <file-or-PR-url>     # reverse-dependency blast radius across services / pipelines / dashboards / oncall;
-#                                    # IPC: agents.impact; emits agents.impact.briefReady notification
-
-# Phase 4 env-var overrides (multi-agent loop guards)
-# NIMBUS_MAX_AGENT_DEPTH=3          max sub-agent recursion depth (1–10; default 3)
-# NIMBUS_MAX_TOOL_CALLS_PER_SESSION=20  hard cap on tool calls per session (1–200; default 20)
-# Exceeding either fires agent.gasLimitReached and halts new decomposition.
-
-# Phase 4 WS4 env-var overrides
-# NIMBUS_UPDATER_URL=<url>           override update manifest URL (default: official endpoint)
-# NIMBUS_UPDATER_DISABLE=true        disable auto-update checks entirely
-# NIMBUS_LAN_PORT=<port>             override LAN TCP listen port (default: 7475)
-# NIMBUS_DEV_UPDATER_PUBLIC_KEY=<base64>  override embedded Ed25519 public key (tests only)
-
-# LLM model selection — resolution priority: env > [llm] TOML > hardcoded default.
-# Bare model ids work; the engine auto-prefixes for Mastra (claude-* → anthropic/..., gpt-* / o1-* / o3-* / o4-* → openai/...).
-# NIMBUS_AGENT_MODEL=claude-sonnet-4-6              overrides [llm].remote_model       (Mastra agent)
-# NIMBUS_CLASSIFIER_MODEL=claude-haiku-4-5-20251001 overrides [llm].classifier_model   (Anthropic intent classifier)
-# NIMBUS_OPENAI_CLASSIFIER_MODEL=gpt-4o-mini        OpenAI classifier when ANTHROPIC_API_KEY is unset
-
-# Docs site (packages/docs)
-bun run docs:build                     # from repo root (workspace filter)
-cd packages/docs && bunx astro build   # build static docs site
-cd packages/docs && bunx astro dev     # local dev server
-
-# Extension author CI template (copy into extension repo `.github/workflows/`)
-# docs/templates/nimbus-extension-ci.yml
-
-# Publish @nimbus-dev/client (triggered by git tag client-v*)
-# git tag client-v0.1.0 && git push origin client-v0.1.0
-
-# Publish Nimbus VS Code extension (triggered by git tag vscode-v*)
-# Pushes to VS Code Marketplace + Open VSX + GitHub Release.
-# Requires repo secrets VSCE_PAT (Marketplace) + OVSX_PAT (Open VSX).
-# git tag vscode-v0.1.0 && git push origin vscode-v0.1.0
-```
-
----
-
-## Architecture Summary
-
-```
-[CLI]  [Tauri UI]
-  |         |
-  └────┬────┘
-       │ JSON-RPC 2.0 IPC
-       │ (domain socket / named pipe)
-       ▼
-[Gateway Process]
-  ├── Engine (Mastra)
-  │     ├── Intent Router (LLM classification)
-  │     ├── Task Planner (step decomposition)
-  │     ├── HITL Consent Gate  ←── structural, frozen whitelist
-  │     └── Tool Executor      ←── dispatches to MCP connectors only
-  ├── Platform Abstraction Layer (PAL)
-  │     ├── win32.ts   (Named Pipe, DPAPI, Registry autostart)
-  │     ├── darwin.ts  (Unix Socket, Keychain, LaunchAgents)
-  │     └── linux.ts   (Unix Socket, libsecret, systemd/XDG)
-  ├── Secure Vault  (NimbusVault interface → PAL implementation)
-  ├── Local Index   (bun:sqlite metadata + sqlite-vec embeddings)
-  ├── Connector Mesh (MCPClient → MCP server processes)
-  └── Extension Registry (sandboxed child processes, SHA-256 verified)
-```
+**Prerequisites:** Bun v1.2+; Rust for building the Tauri UI (`packages/ui/src-tauri`).
 
 ---
 
@@ -449,73 +87,32 @@ Circular dependencies are forbidden. The CLI and UI never import Gateway TypeScr
 
 ## Testing Philosophy
 
-A system that orchestrates real actions against real data cannot rely on developer confidence. Every behavioral contract is verified by automated tests on all three platforms.
+- **HITL tests** prove the gate fires for every action type in the whitelist, before the connector is called.
+- **Vault tests** prove no secret value is exposed through any interface.
+- **Integration tests** use real SQLite, real Bun subprocesses, fresh temp dirs per test — no mocks at the DB layer.
+- **E2E CLI tests** use a real Gateway subprocess + mock MCP servers — no real cloud calls.
+- **Coverage gates** are enforced in CI (Engine ≥85%, Vault ≥90%, Embedding ≥80%, plus scheduler/rate-limiter/people thresholds — see `.github/workflows/_test-suite.yml` and the `nimbus-commands` skill).
 
-- **HITL tests** prove the gate fires for every action type in the whitelist, before the connector is called
-- **Vault tests** prove no secret value is exposed through any interface
-- **Integration tests** use real SQLite, real Bun subprocesses, fresh temp dirs per test — no mocks at the DB layer
-- **E2E CLI tests** use a real Gateway subprocess + mock MCP servers (wire protocol, no real cloud calls)
-- **Coverage gates** are enforced in CI: Engine ≥85%, Vault ≥90%, Embedding ≥80%, plus scheduler, rate limiter, and people thresholds (see `.github/workflows/_test-suite.yml`)
+PRs gate on Ubuntu (`pr-quality`); pushes run the full Windows / macOS / Linux matrix.
 
----
-
-## Roadmap Context
-
-> Full roadmap with acceptance criteria and inter-quarter dependencies: [`docs/roadmap.md`](./docs/roadmap.md)
-
-| Phase | Theme | Status |
-|---|---|---|
-| Phase 1 | Foundation — Gateway, PAL, Vault, filesystem connector, HITL, CLI, CI | ✅ Complete |
-| Phase 2 | The Bridge — 15 MCP connectors, unified index, people graph, context ranker, installers | ✅ Complete |
-| Phase 3 | Intelligence — Semantic layer, extensions, CI/CD + cloud MCPs, workflows, watchers | ✅ Complete |
-| Phase 3.5 | Observability — Connector health model, `nimbus query` / `diag` / `doctor` / `db`, config profiles, `@nimbus-dev/client`, telemetry, docs site | ✅ Complete |
-| Phase 4 | Presence — Tauri UI, VS Code ext, local LLM (Ollama), multi-agent, data portability | ✅ Complete |
-| Phase 5 | The Extended Surface — browser/reading, IMAP, finance, CRM, HR, design connectors; Marketplace v2 | 🔵 Active |
-| Phase 6 | Team — federation, Team Vault, shared namespaces, SSO/SCIM, multi-user HITL, org policy | Planned |
-| Phase 7 | Engineering Excellence — service catalog (Backstage/Cortex/OpsLevel/Port), DORA metrics, feature flags, shared knowledge graph, `nimbus excellence` agent | Planned |
-| Phase 8 | Security Engineering — SAST/SCA (Snyk/Semgrep/SonarQube/GitGuardian), CSPM (Wiz/Prisma Cloud), IR/SOC (FireHydrant/Rootly/Tines), supply-chain (sigstore/Okta); `nimbus security` / `posture` / `incident` / `supply-chain` agents | Planned |
-| Phase 9 | AI Engineering Loop — LLM observability (Helicone/Langfuse/LangSmith/Braintrust), ML lifecycle (Arize/WhyLabs/Feast/Tecton), vector stores (Pinecone/Weaviate/Qdrant/Chroma), AI cost & governance; `nimbus model-health` / `rag-health` agents | Planned |
-| Phase 10 | The Autonomous Agent — standing approvals, scheduled tasks, incident correlation, fine-tuning, SRE loop, FinOps + sustainability connectors | Planned |
-| Phase 11 | Sovereign Mesh — P2P sync, mobile companion, hardware vault, DIDs, Digital Executor; i18n / l10n stretch | Planned |
-| Phase 12 | Enterprise — Docker/Helm, SIEM, compliance, SCIM, admin console, security audit, SLA, GRC platforms (Drata/Vanta/Secureframe) | Planned |
-| Phase 13 | Desktop Distribution — `desktop-v0.1.0` Tauri installers + signing; channel-reach stretch (Homebrew/winget/Chocolatey/Snap/Flatpak/AUR/MacPorts/Nix) | Planned |
-| Phase 14 | Agent Evolution / AI v2 — Multimodal I/O + Code Execution Sandbox (Core); Computer Use + Tool Generation + local instruction fine-tuning (Stretch) | Planned |
-
-When implementing, focus only on the current phase. Do not add Phase N+1 features in Phase N code.
+When implementing, focus on the current phase. Do not add Phase N+1 features in Phase N code.
 
 ---
 
-## Subsystems (monorepo)
+## Development Workflow
 
-- `packages/gateway` — Engine, MCP mesh, Vault, local index, IPC
-- `packages/cli` — Terminal client
-- `packages/ui` — Tauri 2.0 + React (desktop)
-- `packages/sdk` — `@nimbus-dev/sdk` for extensions (MIT)
-- `packages/mcp-connectors/*` — First-party MCP servers (AGPL)
+**Worktree directory:** `.worktrees/` (project-local, git-ignored). When setting up isolated workspaces for feature branches, use `.worktrees/<branch-name>`.
 
-**PAL:** All OS-specific logic lives under `packages/gateway/src/platform/` and is accessed via `PlatformServices` — never import `win32` / `darwin` / `linux` from business logic.
-
-**Prerequisites:** Bun v1.2+; Rust for building the Tauri UI (`packages/ui/src-tauri`).
+**Pre-flight before pushing a PR:** `bun run test:ci` (full CI parity). Full command catalogue + coverage thresholds + env-var overrides live in the [`nimbus-commands`](./.claude/commands/nimbus-commands.md) skill. File-location pointers live in [`nimbus-file-map`](./.claude/commands/nimbus-file-map.md).
 
 ---
 
-## Dependency Safety
+## See Also
 
-Before suggesting any `bun add` (or `bun add -d`) command, run:
-
-```bash
-bun run check-package <name>
-```
-
-The script fetches the package metadata from `registry.npmjs.org` and prints the author, maintainers, created date, and version count.
-
-Verify the result before proposing the install. **Do not propose `bun add`** if any of the following are true:
-
-- The script exits with code `1` (the package does not exist on npm)
-- The script emits the `< 7 days old` warning — newly-published packages are a common slopsquatting / typosquatting vector
-- The author/maintainer is unfamiliar for a name that resembles a well-known package (e.g. `expresss`, `lodahs`, `react-domm`)
-
-When all three checks pass, include the package's published age and maintainer in your suggestion so the user can confirm before installing.
+- [`docs/architecture.md`](./docs/architecture.md) — full subsystem design, IPC method catalogue, schema reference. Read before modifying any subsystem.
+- [`docs/roadmap.md`](./docs/roadmap.md) — phases, acceptance criteria, delivered summaries.
+- [`docs/SECURITY-INVARIANTS.md`](./docs/SECURITY-INVARIANTS.md) — I1–I12 rationale + anti-patterns.
+- [`docs/cli-reference.md`](./docs/cli-reference.md) — full CLI subcommand reference.
 
 ---
 
@@ -523,8 +120,10 @@ When all three checks pass, include the package's published age and maintainer i
 
 @.claude/commands/nimbus-agent-patterns.md
 @.claude/commands/nimbus-architecture.md
+@.claude/commands/nimbus-commands.md
 @.claude/commands/nimbus-connector-authoring.md
 @.claude/commands/nimbus-db-migrations.md
+@.claude/commands/nimbus-file-map.md
 @.claude/commands/nimbus-ipc.md
 @.claude/commands/nimbus-phase-4.md
 @.claude/commands/nimbus-security-invariants.md
