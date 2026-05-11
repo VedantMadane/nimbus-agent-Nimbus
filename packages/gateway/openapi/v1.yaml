@@ -81,11 +81,18 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [data]
+                required: [data, meta]
                 properties:
                   data:
                     type: array
                     items: { type: object }
+                  meta:
+                    type: object
+                    required: [total, limit, offset]
+                    properties:
+                      total: { type: integer }
+                      limit: { type: integer }
+                      offset: { type: integer }
 
   /v1/people:
     get:
