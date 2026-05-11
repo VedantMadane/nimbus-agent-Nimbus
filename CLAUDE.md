@@ -17,15 +17,15 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 
 These constraints are architectural, not preferences. Do not suggest changes that violate them:
 
-| # | Constraint | Implementation |
-|---|---|---|
-| 1 | **Local-first** | Machine is the source of truth; cloud is a connector |
-| 2 | **HITL is structural** | Consent gate is in the executor, not the prompt; cannot be bypassed or configured away |
-| 3 | **No plaintext credentials** | Vault only (DPAPI/Keychain/libsecret); never in logs/IPC/config |
-| 4 | **MCP as connector standard** | Engine never calls cloud APIs directly |
-| 5 | **Platform equality** | Windows/macOS/Linux are equally supported; PRs gate on Ubuntu (`pr-quality`); pushes run the full 3-OS matrix |
-| 6 | **AGPL-3.0 core / MIT SDK** | Dual license is intentional; do not change license fields |
-| 7 | **No `any`** | Use `unknown` for external data; TypeScript strict mode is non-negotiable |
+| #   | Constraint                    | Implementation                                                                                                |
+| --- | ----------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| 1   | **Local-first**               | Machine is the source of truth; cloud is a connector                                                          |
+| 2   | **HITL is structural**        | Consent gate is in the executor, not the prompt; cannot be bypassed or configured away                        |
+| 3   | **No plaintext credentials**  | Vault only (DPAPI/Keychain/libsecret); never in logs/IPC/config                                               |
+| 4   | **MCP as connector standard** | Engine never calls cloud APIs directly                                                                        |
+| 5   | **Platform equality**         | Windows/macOS/Linux are equally supported; PRs gate on Ubuntu (`pr-quality`); pushes run the full 3-OS matrix |
+| 6   | **AGPL-3.0 core / MIT SDK**   | Dual license is intentional; do not change license fields                                                     |
+| 7   | **No `any`**                  | Use `unknown` for external data; TypeScript strict mode is non-negotiable                                     |
 
 ---
 
@@ -33,20 +33,20 @@ These constraints are architectural, not preferences. Do not suggest changes tha
 
 Each invariant has a production wiring site and an enforcement test in `packages/gateway/src/security-invariants.test.ts`. Full rationale, anti-patterns, and audit cross-references in [`docs/SECURITY-INVARIANTS.md`](./docs/SECURITY-INVARIANTS.md).
 
-| # | Invariant | Wired at | Anti-pattern that regresses it |
-|---|---|---|---|
-| I1 | Child-process env scoping via `extensionProcessEnv()` | `connectors/lazy-mesh/` (every spawn across `mesh.ts`, `connector-spawns.ts`, `phase3-config.ts`, `user-mcp.ts`) | `spawn(..., { env: { ...process.env } })` anywhere under `connectors/` |
-| I2 | HITL frozen-set membership; `HITL_REQUIRED_BACKING` is module-private | `engine/executor.ts` `ToolExecutor.gate()` | New destructive RPC that skips `ToolExecutor` or omits the action type from the set |
-| I3 | HITL gate consults `action.type` only (NOT `payload.mcpToolId`) | `engine/executor.ts` `ToolExecutor.gate()` | Gating on `mcpToolId` or `resolvedToolId` — the set holds logical types, not MCP ids |
-| I4 | `hitlStatus` is set only by the consent gate | `engine/executor.ts` `ToolExecutor.gate()` | Hardcoding `hitlStatus: "approved"` in any handler |
-| I5 | `checkLanMethodAllowed` is intrinsic to `LanServer` | `ipc/lan-server.ts` `LanServer.handleEncryptedMessage()` | Moving the check into the dispatcher or any caller |
-| I6 | LAN bind defaults to `127.0.0.1` | `config/nimbus-toml.ts` | Defaulting to `0.0.0.0` or auto-binding all interfaces from an env var |
-| I7 | Tauri `ALLOWED_METHODS` matches gateway handlers; no RCE-class methods exposed to renderer | `ui/src-tauri/src/gateway_bridge.rs` | Adding `extension.install` / `connector.addMcp` to the renderer allowlist |
-| I8 | Tauri renderer CSP is restrictive (no `unsafe-inline`, no `unsafe-eval`) | `ui/src-tauri/tauri.conf.json` | `"csp": null` or loosening with `unsafe-*` |
-| I9 | All SQL uses bound parameters; identifiers go through `escapeIdentifier` | `db/write.ts`, `db/repair.ts`, `people/person-store.ts` | Template-literal SQL on caller-supplied data |
-| I10 | Constant-time compare for hashes / MACs / pairing codes | `extensions/verify-extensions.ts`, `updater/updater.ts`, `ipc/lan-pairing.ts` | `===` / `!==` on hash bytes |
-| I11 | LLM-facing tool results wrapped via `wrapToolOutput` | `engine/agent.ts`, `engine/tool-output-envelope.ts` | New agent surface that feeds raw tool results to the LLM |
-| I12 | DPAPI calls pass `pOptionalEntropy` from `<configDir>/vault/.entropy` | `vault/win32.ts` | Dropping the entropy parameter "for compatibility" |
+| #   | Invariant                                                                                  | Wired at                                                                                                         | Anti-pattern that regresses it                                                       |
+| --- | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| I1  | Child-process env scoping via `extensionProcessEnv()`                                      | `connectors/lazy-mesh/` (every spawn across `mesh.ts`, `connector-spawns.ts`, `phase3-config.ts`, `user-mcp.ts`) | `spawn(..., { env: { ...process.env } })` anywhere under `connectors/`               |
+| I2  | HITL frozen-set membership; `HITL_REQUIRED_BACKING` is module-private                      | `engine/executor.ts` `ToolExecutor.gate()`                                                                       | New destructive RPC that skips `ToolExecutor` or omits the action type from the set  |
+| I3  | HITL gate consults `action.type` only (NOT `payload.mcpToolId`)                            | `engine/executor.ts` `ToolExecutor.gate()`                                                                       | Gating on `mcpToolId` or `resolvedToolId` — the set holds logical types, not MCP ids |
+| I4  | `hitlStatus` is set only by the consent gate                                               | `engine/executor.ts` `ToolExecutor.gate()`                                                                       | Hardcoding `hitlStatus: "approved"` in any handler                                   |
+| I5  | `checkLanMethodAllowed` is intrinsic to `LanServer`                                        | `ipc/lan-server.ts` `LanServer.handleEncryptedMessage()`                                                         | Moving the check into the dispatcher or any caller                                   |
+| I6  | LAN bind defaults to `127.0.0.1`                                                           | `config/nimbus-toml.ts`                                                                                          | Defaulting to `0.0.0.0` or auto-binding all interfaces from an env var               |
+| I7  | Tauri `ALLOWED_METHODS` matches gateway handlers; no RCE-class methods exposed to renderer | `ui/src-tauri/src/gateway_bridge.rs`                                                                             | Adding `extension.install` / `connector.addMcp` to the renderer allowlist            |
+| I8  | Tauri renderer CSP is restrictive (no `unsafe-inline`, no `unsafe-eval`)                   | `ui/src-tauri/tauri.conf.json`                                                                                   | `"csp": null` or loosening with `unsafe-*`                                           |
+| I9  | All SQL uses bound parameters; identifiers go through `escapeIdentifier`                   | `db/write.ts`, `db/repair.ts`, `people/person-store.ts`                                                          | Template-literal SQL on caller-supplied data                                         |
+| I10 | Constant-time compare for hashes / MACs / pairing codes                                    | `extensions/verify-extensions.ts`, `updater/updater.ts`, `ipc/lan-pairing.ts`                                    | `===` / `!==` on hash bytes                                                          |
+| I11 | LLM-facing tool results wrapped via `wrapToolOutput`                                       | `engine/agent.ts`, `engine/tool-output-envelope.ts`                                                              | New agent surface that feeds raw tool results to the LLM                             |
+| I12 | DPAPI calls pass `pOptionalEntropy` from `<configDir>/vault/.entropy`                      | `vault/win32.ts`                                                                                                 | Dropping the entropy parameter "for compatibility"                                   |
 
 When changing a wiring site, update both the test and `SECURITY-INVARIANTS.md` in the same commit. When retiring an invariant, delete the row — never leave it as documentation drift.
 
@@ -125,7 +125,6 @@ When implementing, focus on the current phase. Do not add Phase N+1 features in 
 @.claude/commands/nimbus-db-migrations.md
 @.claude/commands/nimbus-file-map.md
 @.claude/commands/nimbus-ipc.md
-@.claude/commands/nimbus-phase-4.md
 @.claude/commands/nimbus-security-invariants.md
 @.claude/commands/nimbus-tauri-allowlist.md
 @.claude/commands/nimbus-testing.md
