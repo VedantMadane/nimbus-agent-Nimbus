@@ -1,0 +1,21 @@
+# Lychee link checker config — used by .github/workflows/docs-quality.yml
+exclude_path = [
+  ".claude/worktrees",
+  "node_modules",
+  ".git",
+  "packages/docs/dist",
+  "packages/docs/.astro",
+]
+exclude = [
+  # Asciinema casts get uploaded post-merge; skip until the ID exists
+  "asciinema\\.org/a/<id>",
+  # localhost references in code examples
+  "localhost",
+  "127\\.0\\.0\\.1",
+  # GitHub Releases anchors that are page-internal
+  "github\\.com/.*/releases/tag",
+]
+accept = ["200", "203", "204", "206", "301", "302", "304"]
+max_redirects = 5
+timeout = 30
+max_retries = 3
