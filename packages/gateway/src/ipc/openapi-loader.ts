@@ -2,13 +2,18 @@ import { readFileSync } from "node:fs";
 import yaml from "js-yaml";
 
 /**
- * Loads `packages/gateway/openapi/v1.yaml` once per absolute path and returns
- * the JSON-encoded bytes. Subsequent calls with the same path return the
- * cached bytes (`===` identity preserved).
+ * Loads an OpenAPI YAML file from an absolute path and returns the
+ * JSON-encoded bytes. The result is cached per absolute path; subsequent
+ * calls with the same path return the same `Uint8Array` (`===` identity
+ * preserved) so HTTP handlers can serve from memory without per-request
+ * parse cost.
  *
- * Throws with a wrapped error if the file is missing, unreadable, or contains
- * malformed YAML. The Gateway should fail to start on that error rather than
- * serve a stale or empty schema.
+ * Throws with a wrapped error if the file is missing, unreadable, or
+ * contains malformed YAML. The Gateway should fail to start on that error
+ * rather than serve a stale or empty schema.
+ *
+ * The single production caller is `packages/gateway/src/ipc/http-server.ts`,
+ * which passes the absolute path to `packages/gateway/openapi/v1.yaml`.
  */
 const cache = new Map<string, Uint8Array>();
 
@@ -34,9 +39,4 @@ export function loadOpenApiJsonBytes(absolutePath: string): Uint8Array {
   const bytes = new TextEncoder().encode(JSON.stringify(parsed));
   cache.set(absolutePath, bytes);
   return bytes;
-}
-
-/** Test-only — clears the in-memory cache. Not exported in the runtime path. */
-export function _clearOpenApiCache(): void {
-  cache.clear();
 }
