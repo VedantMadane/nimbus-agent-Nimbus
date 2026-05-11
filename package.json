@@ -65,6 +65,7 @@
     "audit:openapi-drift": "bun scripts/structure-audit/check-openapi-drift.ts --check",
     "audit:js-licenses": "bun scripts/structure-audit/check-js-licenses.ts --check",
     "audit:svg-assets": "bun scripts/audit/svg-assets.ts",
+    "audit:readme-cli": "bun scripts/audit/readme-cli-commands.ts",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "lint:markdown": "markdownlint-cli2",
