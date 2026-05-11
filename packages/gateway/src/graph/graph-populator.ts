@@ -71,6 +71,22 @@ function syncPrGraph(db: Database, row: IndexedItemGraphInput, now: number): voi
     });
     upsertGraphRelation(db, personEntityId, prEntityId, "authored", now);
   }
+
+  // Phase 5 T4 PR 2 (DORA Lead Time): when a PR is merged and the connector
+  // captured a merge_commit_sha, emit a `pr → commit` `merged_as` edge. The
+  // DORA calculator joins on this edge to compute commit-to-merge latency.
+  const merged = row.metadata["merged"] === true;
+  const mergeSha = stringField(row.metadata, "merge_commit_sha");
+  if (merged && mergeSha !== undefined && mergeSha.length > 0) {
+    const commitEntityId = upsertGraphEntity(db, {
+      type: "commit",
+      externalId: `${row.service}:${mergeSha}`,
+      label: mergeSha.slice(0, 12),
+      service: row.service,
+      metadata: { sha: mergeSha },
+    });
+    upsertGraphRelation(db, prEntityId, commitEntityId, "merged_as", now);
+  }
 }
 
 function syncIssueGraph(db: Database, row: IndexedItemGraphInput, now: number): void {
