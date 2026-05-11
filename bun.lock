@@ -7,6 +7,7 @@
       "devDependencies": {
         "@biomejs/biome": "^2.4.14",
         "dependency-cruiser": "^17.4.0",
+        "js-yaml": "^4.1.1",
         "jscpd": "^4.0.9",
         "knip": "^6.12.0",
         "tweetnacl": "^1.0.3",

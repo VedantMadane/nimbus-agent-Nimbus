@@ -4,8 +4,10 @@
  */
 
 import { Database } from "bun:sqlite";
+import { resolve } from "node:path";
 import { getAllConnectorHealth } from "../connectors/health.ts";
 import { buildItemListSql, parseRelativeSinceToWindowMs } from "../index/item-list-query.ts";
+import { loadOpenApiJsonBytes } from "./openapi-loader.ts";
 
 export type ReadOnlyHttpServerHandle = {
   readonly stop: () => void;
@@ -123,6 +125,16 @@ function handleAudit(url: URL, db: Database): Response {
   return json({ data: rows, meta: { total: rows.length, limit: lim, offset: 0 } });
 }
 
+const OPENAPI_YAML_PATH = resolve(import.meta.dir, "..", "..", "openapi", "v1.yaml");
+
+function handleOpenApiJson(): Response {
+  const bytes = loadOpenApiJsonBytes(OPENAPI_YAML_PATH);
+  return new Response(bytes, {
+    status: 200,
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
+}
+
 function dispatchReadOnlyGet(path: string, url: URL, db: Database): Response {
   if (path === "/v1/health") {
     return json({ status: "ok", gateway: "read_only_http" });
@@ -144,6 +156,9 @@ function dispatchReadOnlyGet(path: string, url: URL, db: Database): Response {
   }
   if (path === "/v1/audit") {
     return handleAudit(url, db);
+  }
+  if (path === "/v1/openapi.json") {
+    return handleOpenApiJson();
   }
   return new Response("Not Found", { status: 404 });
 }

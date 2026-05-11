@@ -1,0 +1,193 @@
+openapi: 3.1.0
+info:
+  title: Nimbus Local HTTP API
+  version: 1.0.0
+  description: |
+    Read-only HTTP surface served by `nimbus serve` on `127.0.0.1`.
+    Never exposed to a network outside the loopback interface.
+    See https://github.com/nimbus-agent/Nimbus/blob/main/docs/architecture.md
+    for the broader IPC story.
+  license:
+    name: AGPL-3.0
+servers:
+  - url: http://127.0.0.1:7474
+    description: Local Gateway (default port; override with NIMBUS_HTTP_PORT)
+paths:
+  /v1/health:
+    get:
+      operationId: getHealth
+      summary: Liveness check
+      responses:
+        "200":
+          description: Gateway is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, gateway]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+                  gateway:
+                    type: string
+
+  /v1/items:
+    get:
+      operationId: listItems
+      summary: List indexed items
+      parameters:
+        - { in: query, name: service, required: false, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { in: query, name: type, required: false, schema: { type: string } }
+        - { in: query, name: limit, required: false, schema: { type: integer, minimum: 1, maximum: 1000, default: 50 } }
+        - { in: query, name: since, required: false, schema: { type: string }, description: "Relative window, e.g. `7d`, `24h`." }
+        - { in: query, name: sinceMs, required: false, schema: { type: integer } }
+        - { in: query, name: untilMs, required: false, schema: { type: integer } }
+      responses:
+        "200":
+          description: A page of items.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItemPage"
+
+  /v1/items/{id}:
+    get:
+      operationId: getItem
+      summary: Fetch one indexed item by id
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: "Item found (or `data: null`)."
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    nullable: true
+                    type: object
+
+  /v1/connectors:
+    get:
+      operationId: listConnectors
+      summary: List connector health snapshots
+      responses:
+        "200":
+          description: Array of connector health rows.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items: { type: object }
+                  meta:
+                    type: object
+                    required: [total, limit, offset]
+                    properties:
+                      total: { type: integer }
+                      limit: { type: integer }
+                      offset: { type: integer }
+
+  /v1/people:
+    get:
+      operationId: listPeople
+      summary: List indexed people
+      responses:
+        "200":
+          description: A page of people.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { type: object } }
+                  meta:
+                    type: object
+                    required: [total, limit, offset]
+                    properties:
+                      total: { type: integer }
+                      limit: { type: integer }
+                      offset: { type: integer }
+
+  /v1/people/{id}:
+    get:
+      operationId: getPerson
+      summary: Fetch one person by id
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: "Person found (or `data: null`)."
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { nullable: true, type: object }
+
+  /v1/audit:
+    get:
+      operationId: listAuditLog
+      summary: Tail the audit log (most recent first)
+      parameters:
+        - { in: query, name: limit, required: false, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+      responses:
+        "200":
+          description: Recent audit entries.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { type: object } }
+                  meta:
+                    type: object
+                    required: [total, limit, offset]
+                    properties:
+                      total: { type: integer }
+                      limit: { type: integer }
+                      offset: { type: integer }
+
+  /v1/openapi.json:
+    get:
+      operationId: getOpenApiSchema
+      summary: This document, served as JSON
+      responses:
+        "200":
+          description: The full OpenAPI 3.1 schema rendered as JSON.
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v1/metrics/dora:
+    x-nimbus-status: reserved
+    description: |
+      Reserved for Phase 5 T4 PR 2. The drift CI gate exempts paths
+      whose `x-nimbus-status` is `reserved`. PR 2 replaces this stub.
+
+components:
+  schemas:
+    ItemPage:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { type: object }
+        meta:
+          type: object
+          required: [total, limit, offset]
+          properties:
+            total: { type: integer }
+            limit: { type: integer }
+            offset: { type: integer }

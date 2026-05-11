@@ -7,7 +7,7 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict
 **Linter:** Biome
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)
-**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence ✅ Complete (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C ✅ · WS5-D ✅ · WS6 ✅ · S2 graph-aware watchers ✅ · B3 Phase 1 ✅ · B3 Phase 2 ✅); **`v0.1.0` released 2026-05-09** (headless Gateway + CLI + VS Code extension; `desktop-v0.1.0` Tauri release deferred to Phase 10); **Phase 5** — Extended Surface 🔵 Active (T1 sequencing spec ✅ · T3 PR 1 coordinator parallelism + `nimbus expert` ✅ · T3 PR 2 `nimbus impact` ✅ · T3 PR 3 `nimbus catchup` ✅ · Wave A PR 1 OpenAPI / AsyncAPI spec indexer ✅ · Wave A PR 2 Obsidian vault connector ✅)
+**Status:** Phase 3.5 ✅ Complete; **Phase 4** — Presence ✅ Complete (WS1–4 ✅ · WS5-A ✅ · WS5-B ✅ · WS5-C ✅ · WS5-D ✅ · WS6 ✅ · S2 graph-aware watchers ✅ · B3 Phase 1 ✅ · B3 Phase 2 ✅); **`v0.1.0` released 2026-05-09** (headless Gateway + CLI + VS Code extension; `desktop-v0.1.0` Tauri release deferred to Phase 10); **Phase 5** — Extended Surface 🔵 Active (T1 sequencing spec ✅ · T3 PR 1 coordinator parallelism + `nimbus expert` ✅ · T3 PR 2 `nimbus impact` ✅ · T3 PR 3 `nimbus catchup` ✅ · Wave A PR 1 OpenAPI / AsyncAPI spec indexer ✅ · Wave A PR 2 Obsidian vault connector ✅ · T4 PR 1 foundations in flight)
 
 **Gemini CLI:** [`GEMINI.md`](./GEMINI.md) mirrors this file for the same repository — update both when changing commands, roadmap rows, or non-negotiables.
 
