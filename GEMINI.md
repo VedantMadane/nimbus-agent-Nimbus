@@ -185,6 +185,12 @@ runs. See `docs/structure-audit/baseline.md` for current findings.
 | `packages/ui/src/components/settings/data/ImportWizard.tsx` | Import wizard — passphrase + recovery-seed auth, version-compat error handling |
 | `packages/ui/src/components/settings/data/DeleteServiceDialog.tsx` | Delete service dialog — preflight preview, typed-name confirm, `data.delete` call |
 | `packages/ui/src/store/slices/data.ts` | Data store slice — exportFlow / importFlow / deleteFlow state machines + markDisconnected |
+| `packages/gateway/openapi/v1.yaml` | Hand-authored OpenAPI 3.1 schema for the read-only HTTP API; reserved `/v1/metrics/dora` slot for T4 PR 2 (Phase 5 T4 PR 1) |
+| `packages/gateway/src/ipc/http-routes.ts` | `READ_ONLY_HTTP_ROUTES` — canonical route list; single source of truth for the OpenAPI drift CI gate (Phase 5 T4 PR 1) |
+| `packages/gateway/src/ipc/openapi-loader.ts` | `loadOpenApiJsonBytes` — cached YAML→JSON parse for `GET /v1/openapi.json` (Phase 5 T4 PR 1) |
+| `scripts/structure-audit/check-openapi-drift.ts` | OpenAPI drift detector — compares `v1.yaml` paths against `READ_ONLY_HTTP_ROUTES`; powers `audit:openapi-drift` CI gate (Phase 5 T4 PR 1) |
+| `docs/cli/use-in-ci.md` | Worked CI integration examples (GitHub Actions self-hosted, GitLab CI, Jenkins) using `nimbus query --json` (Phase 5 T4 PR 1) |
+| `docs/templates/nimbus-pre-commit.sh` | Bash pre-commit hook template — fail-open `nimbus diag --json` reachability check + incident/CI gates (Phase 5 T4 PR 1) |
 | `docs/architecture.md` | Full subsystem design — read before modifying any subsystem |
 | `docs/roadmap.md` | Phases, acceptance criteria, Phase 3 delivered summary |
 
@@ -288,6 +294,7 @@ bun run audit:any               # D8 any-count print mode
 bun scripts/structure-audit/count-any-usage.ts --check    # D8 CI gate (fails on regression OR reduction without --update)
 bun scripts/structure-audit/count-any-usage.ts --update   # rewrite docs/structure-audit/any-baseline.json
 bun run audit:invariants        # D10 spawn rule + D11 vault-key allow-list (binary, --binary-only)
+bun run audit:openapi-drift     # OpenAPI ↔ READ_ONLY_HTTP_ROUTES drift (Phase 5 T4 PR 1)
 # Baselines: docs/structure-audit/{any-baseline.json,db-run-census.json,churn-90d.json,baseline.md}
 # CI gate (reusable workflow): .github/workflows/_structure.yml — wired into ci.yml after Phase 3 top-5 fixes land
 
