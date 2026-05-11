@@ -39,6 +39,7 @@ import {
 } from "../obsidian-notes-v26-sql.ts";
 import { PERSON_HANDLES_V5_ALTER_SQL } from "../person-handles-v5-sql.ts";
 import { PERSON_LINKED_V4_ALTER_SQL } from "../person-linked-v4-sql.ts";
+import { PR_COMMIT_RELATION_V27_SEED_SQL } from "../pr-commit-relation-v27-sql.ts";
 import { QUERY_LATENCY_V14_SQL } from "../query-latency-v14-sql.ts";
 import { SCHEDULER_V2_MIGRATION_SQL } from "../scheduler-schema-sql.ts";
 import { INITIAL_SCHEMA_SQL } from "../schema-sql.ts";
@@ -366,6 +367,14 @@ function migrateIndexedV25ToV26(db: Database, now: number): void {
   })();
 }
 
+function migrateIndexedV26ToV27(db: Database, now: number): void {
+  db.transaction(() => {
+    db.exec(PR_COMMIT_RELATION_V27_SEED_SQL);
+    db.exec("PRAGMA user_version = 27");
+    recordMigration(db, 27, "merged_as graph_relation_type (DORA Lead Time, T4 PR 2)", now);
+  })();
+}
+
 const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 0, toVersion: 1, apply: migrateIndexedV0ToV1 },
   { fromVersion: 1, toVersion: 2, apply: migrateIndexedV1ToV2 },
@@ -393,6 +402,7 @@ const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 23, toVersion: 24, apply: migrateIndexedV23ToV24 },
   { fromVersion: 24, toVersion: 25, apply: migrateIndexedV24ToV25 },
   { fromVersion: 25, toVersion: 26, apply: migrateIndexedV25ToV26 },
+  { fromVersion: 26, toVersion: 27, apply: migrateIndexedV26ToV27 },
 ];
 
 const BACKFILL_LABELS: readonly string[] = [
@@ -422,6 +432,7 @@ const BACKFILL_LABELS: readonly string[] = [
   "audit_log.session_id (transcript rehydration support) (backfilled)",
   "api_endpoint shadow table (Wave A PR 1) (backfilled)",
   "obsidian_notes shadow table (Wave A PR 2) (backfilled)",
+  "merged_as graph_relation_type (DORA Lead Time, T4 PR 2) (backfilled)",
 ];
 
 /**
