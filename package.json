@@ -66,6 +66,7 @@
     "audit:js-licenses": "bun scripts/structure-audit/check-js-licenses.ts --check",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
+    "lint:markdown": "markdownlint-cli2",
     "format": "biome format --write .",
     "test": "bun test packages/gateway packages/cli packages/sdk packages/client packages/mcp-connectors scripts",
     "test:ci": "bun scripts/run-tests.ts",
@@ -112,6 +113,7 @@
     "js-yaml": "^4.1.1",
     "jscpd": "^4.0.9",
     "knip": "^6.12.0",
+    "markdownlint-cli2": "^0.22.1",
     "tweetnacl": "^1.0.3",
     "typescript": "^6.0.3"
   }

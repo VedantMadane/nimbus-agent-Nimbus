@@ -57,7 +57,7 @@ bun test              # All unit tests
 
 ### Branch Naming
 
-```
+```text
 feat/short-description       # new capability
 fix/short-description        # bug fix
 refactor/short-description   # internal restructure, no behaviour change
@@ -69,7 +69,7 @@ docs/short-description       # documentation only
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/):
 
-```
+```text
 feat(vault): add libsecret backend for Linux
 fix(executor): prevent HITL bypass when tool name includes whitespace
 test(engine): add coverage for intent router edge cases
@@ -140,9 +140,11 @@ Direct browsing: see `.claude/commands/` and the index in `CLAUDE.md`. The skill
 Connectors live in `packages/mcp-connectors/`. They depend only on `@nimbus-dev/sdk`.
 
 1. Scaffold a new connector:
+
    ```bash
    nimbus scaffold extension --name your-service --output packages/mcp-connectors/your-service
    ```
+
 2. Implement the MCP server against the service's API
 3. Declare write/delete tools with `hitlRequired: true` in the manifest — the Gateway enforces HITL automatically
 4. Add integration tests using `MockGateway` from the SDK
@@ -166,7 +168,7 @@ Verify the printed author, maintainer, created date, and version count look reas
 
 ## Package Dependency Rules
 
-```
+```text
 gateway    ← must not import from cli or ui
 cli        ← IPC-only communication with gateway (no source imports)
 ui         ← IPC-only communication with gateway (no source imports)

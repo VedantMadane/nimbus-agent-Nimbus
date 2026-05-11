@@ -67,7 +67,7 @@ Select-String '\x1b\[' $log
 
 Type at the `nimbus>` prompt:
 
-```
+```text
 summarize the last 100 commits across my github repos
 ```
 
@@ -77,7 +77,7 @@ Verify: tokens flow continuously, prior `nimbus> ...` line does not redraw, the 
 
 Type:
 
-```
+```text
 draft a gmail to my own address summarising what I did this week
 ```
 
@@ -85,7 +85,7 @@ Verify: `--[ consent required ]--` banner appears mid-stream, prompt becomes `ni
 
 If `gmail.draft.create` is not gated on your config, substitute and reject:
 
-```
+```text
 open a github issue titled "smoke-test" in <your-test-repo>
 ```
 
@@ -135,7 +135,7 @@ mode con cols=120 lines=40   # restore
 
 ### 1.7 Cancel semantics (inside TUI)
 
-```
+```text
 summarize every commit, PR, and email I touched in the last 30 days
 ```
 
@@ -154,7 +154,7 @@ Skip on Windows. The smoke checklist explicitly limits this to Linux + macOS. Wi
 
 Paste this 5-paragraph block (~2 KB) into `QueryInput`:
 
-```
+```text
 Paragraph one. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation.
 
 Paragraph two. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident.
@@ -232,7 +232,7 @@ In any open file:
 
 In the focused chat panel, ask:
 
-```
+```text
 open a github issue titled "smoke-test-vscode" in <your-test-repo>
 ```
 

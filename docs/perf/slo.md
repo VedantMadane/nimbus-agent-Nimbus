@@ -13,6 +13,7 @@ These figures are measured on a **2020 M1 MacBook Air, 8 GB / 256 GB**. Performa
 For every measurement entry, `threshold` is the maximum allowed value for the **specified percentile of a multi-run aggregate** (median-of-medians across 5 runs — see spec §4.5). Almost all UX rows use **p95**; workload rows use the natural metric for their surface (items/sec for throughput, p95 RSS for memory, etc.).
 
 A bench fails when either:
+
 - the measured aggregate exceeds the absolute reference or GHA threshold, **or**
 - the run delta vs the most recent `main` history entry for the same `runner` exceeds the per-surface noise floor (`max(noise_floor_pct, absolute_noise_floor / previous × 100)`).
 

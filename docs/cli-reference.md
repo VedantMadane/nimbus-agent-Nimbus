@@ -584,6 +584,7 @@ nimbus doctor
 ```
 
 **Checks performed:**
+
 - Bun minimum version requirement
 - Linux: `secret-tool` available (libsecret)
 - Gateway IPC reachable
