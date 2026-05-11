@@ -170,10 +170,31 @@ paths:
                 type: object
 
   /v1/metrics/dora:
-    x-nimbus-status: reserved
-    description: |
-      Reserved for Phase 5 T4 PR 2. The drift CI gate exempts paths
-      whose `x-nimbus-status` is `reserved`. PR 2 replaces this stub.
+    get:
+      operationId: getDoraMetrics
+      summary: Compute the four DORA metrics for a configured service
+      parameters:
+        - in: query
+          name: service
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: since
+          required: false
+          schema:
+            type: string
+            default: "30d"
+          description: "Window: '<N>d' or '<N>h' (1..365)."
+      responses:
+        "200":
+          description: Four-metric envelope.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoraMetricsResult"
+        "400":
+          description: Bad request (missing/invalid service, malformed since).
 
 components:
   schemas:
@@ -191,3 +212,33 @@ components:
             total: { type: integer }
             limit: { type: integer }
             offset: { type: integer }
+    DoraMetricsResult:
+      type: object
+      required: [service, since_ms, computed_at, metrics]
+      properties:
+        service: { type: string }
+        since_ms: { type: integer }
+        computed_at: { type: string, format: date-time }
+        metrics:
+          type: object
+          required: [deployment_frequency, lead_time_for_changes, change_failure_rate, mttr]
+          properties:
+            deployment_frequency: { $ref: "#/components/schemas/DoraMetricValue" }
+            lead_time_for_changes: { $ref: "#/components/schemas/DoraMetricValue" }
+            change_failure_rate: { $ref: "#/components/schemas/DoraMetricValue" }
+            mttr: { $ref: "#/components/schemas/DoraMetricValue" }
+    DoraMetricValue:
+      type: object
+      required: [value, unit, sample, gap]
+      properties:
+        value:
+          type: number
+          nullable: true
+        unit:
+          type: string
+        sample:
+          type: integer
+        gap:
+          nullable: true
+          type: string
+          enum: [no_pagerduty_mapping, no_repos, no_deployment_data, low_sample, approximate_lead_time]
