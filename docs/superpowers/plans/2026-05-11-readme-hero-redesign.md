@@ -474,7 +474,63 @@ describe("validateReadmeCommands", () => {
 Run: `bun test scripts/audit/readme-cli-commands.test.ts`
 Expected: FAIL — functions not defined.
 
-- [ ] **Step 4: Implement the script**
+- [ ] **Step 4: Prefer import-based extraction if feasible**
+
+Regex over `packages/cli/src/index.ts` is brittle — a refactor that wraps `program.command("ask")` in a loop, helper, or spread call silently breaks the gate. Prefer dynamic import of a leaf module that exports the command names.
+
+Sub-step 4a — assess the entry point:
+
+```bash
+# Does index.ts have top-level side effects that would run on import?
+head -30 packages/cli/src/index.ts
+# Look for: top-level await, side-effect calls, immediate command parsing
+```
+
+Sub-step 4b — if the entry point has no top-level side effects, add (or use) a leaf-module export:
+
+If `packages/cli/src/commands/index.ts` (or similar) already exports a command-names array, import it.
+
+If not, add a tiny leaf module `packages/cli/src/commands/registry.ts`:
+
+```typescript
+// packages/cli/src/commands/registry.ts
+// Single source of truth for top-level subcommand names.
+// Used by both the CLI bootstrap and scripts/audit/readme-cli-commands.ts.
+
+export const COMMAND_NAMES = [
+  "ask",
+  "search",
+  "query",
+  "config",
+  "profile",
+  "diag",
+  "doctor",
+  "db",
+  "telemetry",
+  "connector",
+  "extension",
+  "workflow",
+  "status",
+  "audit",
+  "expert",
+  "impact",
+  "catchup",
+  "bench",
+  "tui",
+  "data",
+  "update",
+  "lan",
+  // … extend with any others; cross-check against docs/cli-reference.md
+] as const;
+
+export type CommandName = (typeof COMMAND_NAMES)[number];
+```
+
+Then have the existing entry-point use `COMMAND_NAMES` to drive its `.command(...)` calls (or at least add assertions that every name in the list is registered).
+
+Sub-step 4c — if the refactor is too invasive, fall back to the regex-extraction described in Step 5. Document the decision in a code comment at the top of `readme-cli-commands.ts`.
+
+- [ ] **Step 5: Implement the script**
 
 Create `scripts/audit/readme-cli-commands.ts`:
 
@@ -516,20 +572,29 @@ export function validateReadmeCommands(
 
 /**
  * Read the CLI's command registry and return the list of top-level subcommand names.
- * Adjust the import path / property name based on what Task 1.4 Step 1 found.
+ *
+ * PRIMARY PATH — import the typed registry. Set up in Task 1.4 Step 4b.
+ * This is the source of truth: the same array drives both the CLI's
+ * `.command(...)` calls and this audit.
+ *
+ * FALLBACK PATH — regex extraction. Only use if importing the registry is
+ * infeasible (top-level side effects in the entry point, no leaf module
+ * yet exposed). Document the decision in a code comment.
  */
-async function readRegisteredCommands(): Promise<string[]> {
-  // STEP 1 OUTPUT: replace with the actual import/extraction logic identified
-  // in the codebase audit. Two patterns are common:
-  //
-  //   (a) Imported: `import { COMMAND_NAMES } from "../../packages/cli/src/commands/registry";`
-  //   (b) Grep-extracted: regex over `packages/cli/src/index.ts` for `.command("…")`
-  //
-  // Default to grep-extraction until a structured export is added.
+export async function readRegisteredCommands(): Promise<string[]> {
+  try {
+    const mod = await import("../../packages/cli/src/commands/registry");
+    if (Array.isArray((mod as { COMMAND_NAMES?: readonly string[] }).COMMAND_NAMES)) {
+      return [...(mod as { COMMAND_NAMES: readonly string[] }).COMMAND_NAMES];
+    }
+  } catch {
+    // Registry module not present yet — fall through to regex extraction
+  }
+
+  // FALLBACK — regex over the CLI entry point
   const indexPath = "packages/cli/src/index.ts";
   const src = await readFile(indexPath, "utf-8");
   const names = new Set<string>();
-  // Match `.command("ask")` or `command: "ask"` patterns
   for (const m of src.matchAll(/\.command\(\s*["']([a-z][a-z0-9-]*)["']/g)) names.add(m[1]);
   for (const m of src.matchAll(/command:\s*["']([a-z][a-z0-9-]*)["']/g)) names.add(m[1]);
   return [...names];
@@ -562,30 +627,32 @@ if (import.meta.main) {
 }
 ```
 
-- [ ] **Step 5: Run the test — verify it passes**
+- [ ] **Step 6: Run the test — verify it passes**
 
 Run: `bun test scripts/audit/readme-cli-commands.test.ts`
 Expected: PASS (4 tests).
 
-- [ ] **Step 6: Validate the registry-extraction logic finds real commands**
+- [ ] **Step 7: Validate the registry-extraction logic finds real commands**
 
-Run: `bun -e "import('./scripts/audit/readme-cli-commands.ts').then(async (m) => console.log(await (m as any).readRegisteredCommands?.()))" 2>/dev/null` — or if that doesn't work because `readRegisteredCommands` is private, add a temporary `console.log` to the script's top-level CLI block and run `bun scripts/audit/readme-cli-commands.ts`.
+Run: `bun -e "import('./scripts/audit/readme-cli-commands.ts').then(async (m) => console.log(await (m as any).readRegisteredCommands()))"`. `readRegisteredCommands` is exported, so this works directly.
 
 Expected: at least 10 commands listed (`ask`, `connector`, `diag`, `doctor`, `query`, `config`, `profile`, `telemetry`, `db`, `expert`, `impact`, etc. per the spec's §13 inventory and the CLI reference at `docs/cli-reference.md`).
 
-If zero commands found, the extraction regex in `readRegisteredCommands()` needs adjustment — read `packages/cli/src/index.ts` directly and tune the regex to match what's there.
+If zero commands found:
+- The primary path (registry import) failed — verify `packages/cli/src/commands/registry.ts` exists and exports `COMMAND_NAMES` per Step 4b.
+- The fallback path (regex) also failed — the entry point's command-registration pattern changed; tune the regex to match what's in `packages/cli/src/index.ts`.
 
-- [ ] **Step 7: Run the tripwire against the current README**
+- [ ] **Step 8: Run the tripwire against the current README**
 
 Run: `bun run audit:readme-cli` (after adding the script entry below)
 
 If the tripwire reports missing commands, decide per command:
 - If the README mention is stale (removed command) — fix the README before this task ships.
-- If the extraction missed a real registered command — extend `readRegisteredCommands()`.
+- If the extraction missed a real registered command — extend `readRegisteredCommands()` (or add the name to the registry leaf module).
 
 Iterate until exit 0.
 
-- [ ] **Step 8: Add the script entry**
+- [ ] **Step 9: Add the script entry**
 
 Modify root `package.json`:
 
@@ -597,7 +664,7 @@ Modify root `package.json`:
 }
 ```
 
-- [ ] **Step 9: Add the workflow job**
+- [ ] **Step 10: Add the workflow job**
 
 Modify `.github/workflows/docs-quality.yml`:
 
@@ -614,10 +681,10 @@ Modify `.github/workflows/docs-quality.yml`:
       - run: bun run audit:readme-cli
 ```
 
-- [ ] **Step 10: Commit**
+- [ ] **Step 11: Commit**
 
 ```bash
-git add scripts/audit/readme-cli-commands.ts scripts/audit/readme-cli-commands.test.ts package.json .github/workflows/docs-quality.yml
+git add scripts/audit/readme-cli-commands.ts scripts/audit/readme-cli-commands.test.ts packages/cli/src/commands/registry.ts package.json .github/workflows/docs-quality.yml
 git commit -m "ci(docs): add README CLI-command tripwire — fails if a documented \`nimbus <cmd>\` disappears from the registry"
 ```
 
@@ -1146,6 +1213,8 @@ curl -fsSL https://cdn.simpleicons.org/<icon-name> \
 
 (Simple Icons CDN serves monochrome SVGs by default — exactly what we want.)
 
+> **Note for future maintainers.** Simple Icons also publishes the `simple-icons` npm package. A 10–20-line script could `import { siGithub, siSlack, ... } from "simple-icons"` and write each `.svg` member to disk programmatically — useful when bulk-refreshing logos after a Simple Icons release. We're not doing it in this task because the `curl` approach is one-shot work, doesn't add a multi-MB dev dep, and doesn't require a `bun run check-package` pre-flight. If a future refresh becomes routine, switch to the npm path.
+
 - [ ] **Step 3: Handle connectors without a Simple Icons entry**
 
 A few connectors may not have a Simple Icons entry (e.g., niche services or our own filesystem connector). For these:
@@ -1184,11 +1253,33 @@ git commit -m "feat(docs): add connector logo grid SVGs (Simple Icons + provenan
 ### Task 3.5: OG / social card SVG + PNG render
 
 **Files:**
+- Create: `docs/assets/fonts/JetBrainsMono-Regular.ttf`
+- Create: `docs/assets/fonts/JetBrainsMono-Bold.ttf`
+- Create: `docs/assets/fonts/LICENSE-OFL-1.1.txt`
 - Create: `docs/assets/og-card.svg`
 - Create: `docs/og-card.png` (rendered)
 - Create: `scripts/render-og-card.ts`
 - Modify: `.github/workflows/docs-quality.yml` — add OG card render job
 - Modify: `package.json` — add `render:og-card` script
+
+- [ ] **Step 0: Check in JetBrains Mono fonts**
+
+`@resvg/resvg-js` falls back silently to whatever monospace font is installed on the host when the requested family is missing. The `ubuntu-24.04` runner does not ship JetBrains Mono, so a CI render would diverge from the developer's local render. Fix this by checking the font into the repo and loading it explicitly.
+
+JetBrains Mono is licensed under the SIL Open Font License 1.1 — redistribution permitted.
+
+```bash
+mkdir -p docs/assets/fonts
+VER=2.304  # latest stable as of plan authorship; bump if a newer release is preferred
+curl -fsSL "https://github.com/JetBrains/JetBrainsMono/raw/v${VER}/fonts/ttf/JetBrainsMono-Regular.ttf" \
+  -o docs/assets/fonts/JetBrainsMono-Regular.ttf
+curl -fsSL "https://github.com/JetBrains/JetBrainsMono/raw/v${VER}/fonts/ttf/JetBrainsMono-Bold.ttf" \
+  -o docs/assets/fonts/JetBrainsMono-Bold.ttf
+curl -fsSL "https://github.com/JetBrains/JetBrainsMono/raw/v${VER}/OFL.txt" \
+  -o docs/assets/fonts/LICENSE-OFL-1.1.txt
+```
+
+Verify file sizes (~250KB each ttf, a few KB for the OFL text). Total checked-in size: ~500KB.
 
 - [ ] **Step 1: Design the SVG**
 
@@ -1212,13 +1303,21 @@ import { Resvg } from "@resvg/resvg-js";
 
 const SRC = "docs/assets/og-card.svg";
 const OUT = "docs/og-card.png";
+const FONT_DIR = "docs/assets/fonts";
 
 const svg = await readFile(SRC, "utf-8");
 const resvg = new Resvg(svg, {
   fitTo: { mode: "width", value: 1200 },
   background: "rgba(0, 0, 0, 0)",
   font: {
-    loadSystemFonts: true,
+    // Deterministic font loading: read the checked-in JetBrains Mono files
+    // explicitly so CI and local renders produce byte-identical PNGs.
+    // loadSystemFonts is OFF — system fallbacks would silently diverge on ubuntu-24.04.
+    loadSystemFonts: false,
+    fontFiles: [
+      `${FONT_DIR}/JetBrainsMono-Regular.ttf`,
+      `${FONT_DIR}/JetBrainsMono-Bold.ttf`,
+    ],
     defaultFontFamily: "JetBrains Mono",
   },
 });
@@ -1287,8 +1386,8 @@ If anything looks off, edit the SVG and re-render.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add docs/assets/og-card.svg docs/og-card.png scripts/render-og-card.ts package.json .github/workflows/docs-quality.yml
-git commit -m "feat(docs): add OG social card SVG + rendered PNG + CI render-and-diff gate"
+git add docs/assets/fonts/ docs/assets/og-card.svg docs/og-card.png scripts/render-og-card.ts package.json .github/workflows/docs-quality.yml
+git commit -m "feat(docs): add OG social card + JetBrains Mono fonts + CI render-and-diff gate"
 ```
 
 ---
@@ -1516,18 +1615,45 @@ If any fail, fix the README (or the relevant doc) and re-run until clean.
 Run: `wc -l docs/README.md`
 Expected: between 250 and 310 lines. If outside that window, either content is missing or the cuts didn't go deep enough — review against spec §5.2.
 
-- [ ] **Step 6: Visual smoke-check**
+- [ ] **Step 6: Visual smoke-check, with mobile fallback contingency**
 
 Open `docs/README.md` in:
 - GitHub's web preview (push the branch, open PR — but don't merge yet)
 - A local markdown previewer (VS Code, Obsidian, …) in light + dark mode
+- A real phone (iOS Safari + Android Chrome) — not just a narrowed desktop window. Mobile renderers behave differently from a 600px desktop viewport.
 
 Confirm:
-- Hero cast renders side-by-side with the pitch on desktop, stacks on mobile (test by narrowing the browser window to ~600px).
+- Hero cast renders side-by-side with the pitch on desktop.
+- On mobile, the cast image stacks above the pitch text via natural reflow — text wraps cleanly below or to the side without awkward fragmentation.
 - Wordmark renders crisp.
 - Architecture diagram renders.
 - Connector logo grid renders without horizontal scrolling.
-- Badge row is on a single line.
+- Badge row is on a single line on desktop and wraps cleanly on mobile.
+
+**Mobile-fallback contingency.** If the cast image on mobile causes awkward text wrapping, fragments the pitch, or the float renders inconsistently across iOS/Android — fall back to a stacked layout (no float). Replace the hero markup block in Step 2 with this alternative:
+
+```markdown
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/nimbus-wordmark-dark.svg">
+  <img alt="Nimbus" src="assets/nimbus-wordmark-light.svg" width="280">
+</picture>
+
+### On-call intelligence. Local-first.
+
+[badges]
+
+Cross-service incident context in under 100ms. Consent-gated automation.
+**Your credentials never leave the machine.**
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/hero-cast-dark.svg">
+  <img alt="nimbus ask 'payment-service alert — what changed?' — incident response in 18 seconds" src="assets/hero-cast-light.svg">
+</picture>
+
+[Install](#quick-start) · [Docs](https://nimbus-agent.dev) · [▶ Watch the cast](https://asciinema.org/a/<CAST_ID>)
+```
+
+This stacked layout sacrifices the desktop split for guaranteed mobile readability. Document the decision in the commit message so future maintainers know the float was tried and didn't survive mobile testing. The `align="right"` pattern is well-precedented (Bun, Astro, Tauri all ship it), so this fallback should be the exception — but it's the safe escape hatch.
 
 - [ ] **Step 7: Commit**
 
@@ -1671,6 +1797,13 @@ Success criteria (from spec §9):
 
 Capture feedback in this issue. If two or more subjects fail either criterion, file follow-up
 issues for the specific points of confusion.
+
+## Related follow-ups
+
+- **Automated cast re-recording.** Currently `docs/demos/incident-response.cast` is recorded
+  manually with the `asciinema` CLI. Investigate `asciinema-automation` or a similar headless
+  scripted-terminal tool to regenerate the cast from a deterministic input script. Pairs well
+  with the deferred output-hash tripwire in sub-project D.
 ```
 
 Label: `validation`, `documentation`, `phase-5`.
