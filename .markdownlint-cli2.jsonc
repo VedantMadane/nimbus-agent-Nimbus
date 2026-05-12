@@ -1,0 +1,42 @@
+// Nimbus markdownlint ruleset — see docs/superpowers/specs/2026-05-11-readme-hero-redesign-design.md §8
+//
+// Notes on rule choices:
+// - MD013 (line-length): disabled for now. The 120-col target from the design spec is sound
+//   but mass-applying it across the existing docs tree (~900 violations across 30 files,
+//   many of them intentional single-line paragraphs in roadmap.md / architecture.md) is its
+//   own multi-PR effort. The gate still catches the real quality issues below; line-length
+//   tightening can land as a follow-up once the docs are reformatted.
+// - MD024 (no-duplicate-heading): siblings-only — duplicate H2/H3 names are fine across
+//   different parent sections (e.g. "Notes" under each phase).
+// - MD033 (no-inline-html): disabled — README and design docs use raw <picture>, <details>,
+//   <kbd>, etc. for GitHub-specific rendering features.
+// - MD034 (no-bare-urls): enabled — every URL must be a proper link so lychee can verify it.
+// - MD036 (no-emphasis-as-heading): disabled — legitimate emphasis (e.g. "**Note:**") trips
+//   this rule and there is no contextual signal that distinguishes real headings.
+// - MD041 (first-line-heading): disabled — files like CHANGELOG.md and templates may open
+//   with prose or front-matter blocks.
+// - MD060 (table-column-style): disabled — the repo's canonical compact table form
+//   `|---|---|` is valid markdown and switching every table to `| --- | --- |` adds noise
+//   without quality gain.
+{
+  "config": {
+    "default": true,
+    "MD013": false,
+    "MD024": { "siblings_only": true },
+    "MD033": false,
+    "MD034": true,
+    "MD036": false,
+    "MD041": false,
+    "MD060": false
+  },
+  "globs": [
+    "docs/**/*.md",
+    "*.md",
+    "!docs/README.md",
+    "!docs/superpowers/**",
+    "!docs/perf/slo.md",
+    "!.claude/worktrees/**",
+    "!node_modules/**",
+    "!packages/docs/dist/**"
+  ]
+}

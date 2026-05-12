@@ -257,7 +257,7 @@ Commercial license also available now for organizations that need to embed Nimbu
 
 **Data integrity & recovery**
 
-- [x] **`nimbus db verify` / `repair` / snapshot / restore / prune / backups list`** — CLI + gateway `packages/gateway/src/db/*`
+- [x] **`nimbus db verify` / `repair` / snapshot / restore / prune / backups list** — CLI + gateway `packages/gateway/src/db/*`
 - [x] **Pre-migration backups + rollback tests** — backups under `<dataDir>/backups`; migration failure rollback covered in `packages/gateway/test/unit/db/migration-rollback.test.ts` (and FTS5 mismatch coverage in `verify.test.ts`)
 
 **Telemetry**
@@ -472,6 +472,7 @@ The B1 security audit completed in Phase 4. Three more initiatives are active or
 - [ ] **Generic IMAP connector** — any IMAP server (Fastmail, ProtonMail, self-hosted); credentials in Vault; `body_preview` indexing; `email.send` behind HITL via SMTP
 - [ ] **Fastmail MCP connector** — JMAP native (faster and more efficient than IMAP)
 - [ ] **ProtonMail MCP connector** — ProtonMail Bridge integration; local IMAP interface; read-only (E2EE precludes server-side access)
+
 #### Meetings & Async Video
 
 - [ ] **Zoom** — meeting metadata, recordings index, AI-generated transcripts (Zoom AI Companion); OAuth; read-only; `meeting.summary` and `meeting.transcript` item types; linked to calendar events via meeting URL
@@ -511,8 +512,6 @@ The B1 security audit completed in Phase 4. Three more initiatives are active or
 
 - [ ] **Local DB Schema Indexing** — index saved queries or schema documentation from local DB tools (pgAdmin, DBeaver, DataGrip); enables semantic recall of "that one SQL query I wrote last month"
 - [ ] **Vercel / Netlify** — deployment status, preview URLs, project metadata; correlate deploys with PR/Slack history
-
-#### Feature Flags
 
 #### Feature Flags
 
@@ -685,6 +684,7 @@ Depends on Team Vault (above) so service-account / SSO credentials can be shared
 - [ ] **GDPR/compliance at org level** — `nimbus team purge --user <id>` removes a user's contributions from all shared namespaces; writes a signed deletion record
 
 <a id="deferred-from-phase-5"></a>
+
 ### Deferred from Phase 5
 
 Items moved here from Phase 5 per the T1 sequencing spec (`docs/superpowers/specs/2026-05-06-phase-5-sequencing-design.md`). Read-only counterparts of split items remain in Phase 5.
@@ -815,7 +815,7 @@ Capstone. Ties Waves 1–3 together; works on a solo machine, federation amplifi
 **Goal:** Bring the security practitioner's tool surface into the local index and ship the four built-in security agents that turn that surface into actionable briefs. Read-first; every write tool gates on HITL with rich diff preview because security writes (acknowledging vulnerabilities, rotating secrets, suppressing findings) are decisions with downstream consequences. Full design in [`docs/superpowers/specs/2026-05-10-phase-8-security-engineering-design.md`](./superpowers/specs/2026-05-10-phase-8-security-engineering-design.md).
 
 > **Composes with Phase 7 (Engineering Excellence):** Phase 7 scorecards consume security-posture metrics produced here (open-vuln count, secret-rotation overdue count); Phase 8 service-attribution joins back to the Phase 7 service catalog so a finding routes to its owner team without a live API call.
-
+>
 > **Composes with Phase 10 (The Autonomous Agent):** Phase 10's incident correlation engine queries security findings from the Phase 8 index. The two `nimbus incident*` agents are deliberately distinct — Phase 8's `nimbus incident` is security-shaped (attacker indicators, exposed endpoints, vuln CVEs, IR runbooks); Phase 10's `nimbus incident-brief` is operational (deploy → PR → commit → CI → Slack). When both ship, each brief includes a section sourced from the other domain.
 
 ### Dependencies
@@ -888,7 +888,7 @@ Capstone. Ties Waves 1–3 together; works on a solo machine, federation amplifi
 **Goal:** Bring the tool surface that ML engineers and AI-product teams already use into the local index, and ship `nimbus model-health` + `nimbus rag-health` to surface actionable status without a live API call. Read-first for ingestion; HITL on the few write tools (`prompt.deploy`, `model.promote-stage`, `feature.publish`) because pushing a prompt or promoting a model is a production change. Full design in [`docs/superpowers/specs/2026-05-10-phase-9-ai-engineering-loop-design.md`](./superpowers/specs/2026-05-10-phase-9-ai-engineering-loop-design.md).
 
 > **Composes with Phase 8 (Security Engineering):** supply-chain attestations from Phase 8 Wave 4 extend to model artifacts — a deployed model can be queried "does it have a signed SLSA provenance? what's its base-model dependency CVE state?"
-
+>
 > **Composes with Phase 10 (The Autonomous Agent):** Phase 10's incident correlation engine pulls AI-Eng Loop signals when an LLM-backed feature is in the affected scope. Phase 10's standing-approval engine can suppress noise from `nimbus model-health` after N consecutive identical decisions.
 
 ### Dependencies
@@ -1176,6 +1176,7 @@ Connectors for the GRC tools enterprises already use to evidence SOC 2 / ISO 270
 - Code signing certificate procurement (Apple Developer Program enrollment + Windows EV cert)
 
 <a id="desktop-release-vehicle"></a>
+
 ### Desktop Release Vehicle
 
 The Tauri desktop UI was code-complete in Phase 4 (WS5-A through WS5-D) but did not ship as a release artifact in `v0.1.0`. Phase 13 is the release vehicle: signed installers, a per-OS `build-ui` matrix in `release.yml`, and the Tauri-specific security audit follow-ups deferred from B1. The desktop tag is `desktop-v0.1.0`, gated independently of the headless `v0.1.0` and `vscode-v0.1.0` tags.

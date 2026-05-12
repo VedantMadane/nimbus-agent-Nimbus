@@ -59,7 +59,7 @@ Wrong architecture. Nimbus v0.1.0 only ships a Windows x64 binary. On Windows on
 
 ### PowerShell execution policy blocks `nimbus-verify.ps1`
 
-```
+```text
 File C:\...\nimbus-verify.ps1 cannot be loaded. The file is not digitally signed.
   or
 ...because running scripts is disabled on this system.

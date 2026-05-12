@@ -100,7 +100,7 @@ export interface PlatformPaths {
 
 To maintain strict subsystem isolation and ensure cross-platform portability, Nimbus enforces the following import rules:
 
-```
+```text
 gateway    ← no imports from cli or ui
 cli        ← IPC-only communication with gateway (no source imports)
 ui         ← IPC-only communication with gateway (no source imports)
@@ -211,7 +211,7 @@ The Engine implements a **sense → plan → gate → act → compose** cognitiv
 
 ### Cognitive Loop
 
-```
+```text
 User Input (natural language or structured command)
     │
     ▼
@@ -440,7 +440,7 @@ steps:
 
 *Phase 1 — Preview.* The engine routes and plans all steps without executing any tool calls. Every step that would trigger HITL is identified. A structured plan is shown and the user must confirm before Phase 2 begins:
 
-```
+```text
 Script: weekly-cleanup (4 steps)
 
   Step 1  Find PDFs not opened in 90 days       READ — no approval needed
@@ -863,7 +863,7 @@ server.start();
 
 The Tauri desktop application ships an Extension Marketplace panel. It is not a cloud service. The registry index is a JSON file fetched from `https://registry.nimbus-agent.dev/index.json` and cached locally. All installation, validation, and loading is performed by the local Gateway.
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │  Extensions                              [+ Install from npm]│
 ├─────────────────────────────────────────────────────────────┤
@@ -913,7 +913,7 @@ Model lifecycle (list, pull, load, unload, status) is managed via the `llm.*` IP
 
 The multi-agent system extends the single-agent cognitive loop with a **Coordinator** layer. The Coordinator decomposes complex tasks into independent sub-tasks and dispatches each to a **Worker** agent with an isolated tool scope.
 
-```
+```text
 [Coordinator Agent]
     ├── Decomposes intent into parallel sub-tasks
     ├── Assigns each sub-task a scoped tool set
@@ -1035,7 +1035,7 @@ The five planned phases beyond Phase 5 each introduce subsystems that extend —
 
 ### Startup Sequence and Failure Modes
 
-```
+```text
 1.  Detect platform → instantiate PlatformServices (PAL)
     ✗ Unsupported platform → fatal: Gateway exits with error
 
@@ -1439,7 +1439,7 @@ A static-time complement (`scripts/structure-audit/check-nimbus-invariants.ts`) 
 
 ## Directory Structure
 
-```
+```text
 nimbus/
 ├── packages/
 │   ├── gateway/
