@@ -1,5 +1,7 @@
 # Perf bench fixtures
 
+## What this is
+
 Synthetic HTTP-trace generators + MSW v2 handlers used by the S6 sync-throughput drivers. The verification table below documents which connector traffic each fixture intercepts.
 
 ## Connector HTTP-layer verification (PR-B-2b-1, Task 2)
@@ -28,3 +30,11 @@ Tests register `setupServer` with `onUnhandledRequest: "error"`
 (sentinel against connector drift). Driver runtime uses `"warn"`
 because the spawned gateway emits unrelated outbound HTTP
 (telemetry, update-manifest probe, etc.).
+
+## See also
+
+- [Nimbus Developer Guide](https://nimbus-agent.dev/)
+
+## License
+
+MIT

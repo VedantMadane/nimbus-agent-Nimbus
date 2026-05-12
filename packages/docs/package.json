@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "bun ../../scripts/copy-shared-docs-assets.ts",
+    "prebuild": "bun ../../scripts/copy-shared-docs-assets.ts",
     "astro": "astro",
     "dev": "astro dev",
     "build": "astro check && astro build",
@@ -13,6 +15,7 @@
     "@astrojs/check": "^0.9.9",
     "@astrojs/starlight": "^0.38.4",
     "astro": "^6.2.1",
+    "sharp": "^0.34.5",
     "starlight-links-validator": "0.24.0",
     "typescript": "^6.0.3"
   }

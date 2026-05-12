@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "docs/**"
+      - "packages/docs/**"
       - "**/*.md"
       - ".github/workflows/docs-quality.yml"
       - ".markdownlint-cli2.jsonc"
@@ -12,6 +13,7 @@ on:
     branches: [main]
     paths:
       - "docs/**"
+      - "packages/docs/**"
       - "**/*.md"
       - ".markdownlint-cli2.jsonc"
 
@@ -134,3 +136,51 @@ jobs:
 
       - name: Run README CLI-command tripwire
         run: bun run audit:readme-cli
+
+  package-readmes:
+    name: Package READMEs audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Nimbus CI
+        uses: ./.github/actions/setup-nimbus-ci
+
+      - name: Run package READMEs audit
+        run: bun run audit:package-readmes
+
+  docs-build:
+    name: Starlight build test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Nimbus CI
+        uses: ./.github/actions/setup-nimbus-ci
+
+      - name: Run build
+        run: bun --cwd packages/docs run build
