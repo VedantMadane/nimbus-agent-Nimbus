@@ -77,4 +77,22 @@ pagerduty_services = ["P12ABCD"]
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBeDefined();
   });
+
+  it("returns generic 500 (no message leak) when the config loader throws", async () => {
+    // Replace the valid config with one that fails to parse — bad regex causes
+    // `loadNimbusDoraFromConfigDir` to throw, which must bubble up to the
+    // outer `fetch` catch and return a generic "internal_error" — never the
+    // raw exception message (CodeQL: information exposure through stack trace).
+    writeFileSync(
+      join(dir, "nimbus.toml"),
+      `[metrics.dora.payment-service]
+repos = ["github:nimbus-agent/payments"]
+deploy_workflow_pattern = "["
+`,
+    );
+    const res = await fetch(`http://127.0.0.1:${port}/v1/metrics/dora?service=payment-service`);
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe("internal_error");
+  });
 });

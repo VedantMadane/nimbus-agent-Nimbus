@@ -158,8 +158,9 @@ async function handleMetricsDora(
   }
   const sinceRaw = url.searchParams.get("since");
   const since = sinceRaw === null || sinceRaw === "" ? "30d" : sinceRaw;
+  let out: Awaited<ReturnType<typeof dispatchMetricsRpc>>;
   try {
-    const out = await dispatchMetricsRpc(
+    out = await dispatchMetricsRpc(
       "metrics.dora",
       { service, since },
       {
@@ -169,17 +170,22 @@ async function handleMetricsDora(
         ...(opts.nowMs === undefined ? {} : { nowMs: opts.nowMs }),
       },
     );
-    if (out.kind === "miss") {
-      // `metrics.dora` should always hit; treat a miss as an internal error.
-      return json({ error: "metrics.dora dispatcher returned miss" }, 500);
-    }
-    return json(out.value);
   } catch (e) {
+    // Only validation errors are surfaced to the client. Any other error
+    // bubbles to the outer `fetch` catch which returns a generic 500 —
+    // prevents internal details (paths, SQL fragments, stack frames) from
+    // reaching the response body.
     if (e instanceof MetricsRpcError) {
       return json({ error: e.message }, 400);
     }
-    return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+    throw e;
   }
+  if (out.kind === "miss") {
+    // `metrics.dora` should always hit; treat a miss as an internal error
+    // and let the outer catch produce a generic 500 response.
+    throw new Error("metrics.dora dispatcher returned miss");
+  }
+  return json(out.value);
 }
 
 async function dispatchReadOnlyGet(
