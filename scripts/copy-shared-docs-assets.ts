@@ -1,8 +1,8 @@
 import { copyFile, mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 async function main() {
-  const rootDir = process.cwd();
+  const rootDir = resolve(import.meta.dir, "..");
   const srcDir = join(rootDir, "docs", "assets");
   const destDir = join(rootDir, "packages", "docs", "src", "assets");
 
