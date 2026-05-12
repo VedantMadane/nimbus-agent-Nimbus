@@ -5,11 +5,15 @@
 
 import { Database } from "bun:sqlite";
 import { resolve } from "node:path";
-import { loadNimbusDoraFromConfigDir } from "../config/nimbus-toml.ts";
+import {
+  loadNimbusDoraFromConfigDir,
+  loadNimbusServiceConfigsFromConfigDir,
+} from "../config/nimbus-toml.ts";
 import { getAllConnectorHealth } from "../connectors/health.ts";
 import { buildItemListSql, parseRelativeSinceToWindowMs } from "../index/item-list-query.ts";
 import { dispatchMetricsRpc, MetricsRpcError } from "./metrics-rpc.ts";
 import { loadOpenApiJsonBytes } from "./openapi-loader.ts";
+import { dispatchPreflightRpc, PreflightRpcError } from "./preflight-rpc.ts";
 
 /**
  * Optional context for the read-only HTTP server. Threaded through to handlers
@@ -195,6 +199,58 @@ async function handleMetricsDora(
   return json(out.value);
 }
 
+async function handleDeployPreflight(
+  url: URL,
+  db: Database,
+  opts: ReadOnlyHttpServerOptions,
+): Promise<Response> {
+  const service = url.searchParams.get("service");
+  if (service === null || service === "") {
+    return json({ error: "missing required query param: service" }, 400);
+  }
+  const targetRef = url.searchParams.get("target_ref");
+  if (targetRef === null || targetRef === "") {
+    return json({ error: "missing required query param: target_ref" }, 400);
+  }
+  const maxFindingsRaw = url.searchParams.get("max_findings");
+  const maxFindings =
+    maxFindingsRaw === null || maxFindingsRaw === ""
+      ? undefined
+      : Number.parseInt(maxFindingsRaw, 10);
+  if (maxFindings !== undefined && !Number.isInteger(maxFindings)) {
+    return json({ error: "max_findings must be an integer" }, 400);
+  }
+  let out: Awaited<ReturnType<typeof dispatchPreflightRpc>>;
+  try {
+    out = await dispatchPreflightRpc(
+      "deploy.preflight",
+      maxFindings === undefined
+        ? { service, target_ref: targetRef }
+        : { service, target_ref: targetRef, max_findings: maxFindings },
+      {
+        db,
+        loadConfig: () =>
+          opts.configDir === undefined
+            ? new Map()
+            : loadNimbusServiceConfigsFromConfigDir(opts.configDir),
+        ...(opts.nowMs === undefined ? {} : { nowMs: opts.nowMs }),
+      },
+    );
+  } catch (e) {
+    // Same safe-error pattern as handleMetricsDora: only PreflightRpcError
+    // surfaces as 400. Everything else bubbles to the outer fetch catch
+    // which returns a generic 500.
+    if (e instanceof PreflightRpcError) {
+      return json({ error: e.message }, 400);
+    }
+    throw e;
+  }
+  if (out.kind === "miss") {
+    throw new Error("deploy.preflight dispatcher returned miss");
+  }
+  return json(out.value);
+}
+
 async function dispatchReadOnlyGet(
   path: string,
   url: URL,
@@ -224,6 +280,9 @@ async function dispatchReadOnlyGet(
   }
   if (path === "/v1/metrics/dora") {
     return handleMetricsDora(url, db, opts);
+  }
+  if (path === "/v1/preflight/deploy") {
+    return handleDeployPreflight(url, db, opts);
   }
   if (path === "/v1/openapi.json") {
     return handleOpenApiJson();

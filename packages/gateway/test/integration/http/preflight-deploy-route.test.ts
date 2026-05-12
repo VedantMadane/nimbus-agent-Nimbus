@@ -1,0 +1,94 @@
+import { Database } from "bun:sqlite";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { runIndexedSchemaMigrations } from "../../../src/index/migrations/runner.ts";
+import { startReadOnlyHttpServer } from "../../../src/ipc/http-server.ts";
+import {
+  PREFLIGHT_FIXTURE_NOW_MS,
+  seedPaymentServicePreflightFixture,
+} from "../../fixtures/preflight/payment-service/seed.ts";
+
+describe("GET /v1/preflight/deploy", () => {
+  let dir: string;
+  let handle: ReturnType<typeof startReadOnlyHttpServer> | undefined;
+  let port: number;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "nimbus-preflight-http-"));
+    const dbPath = join(dir, "nimbus.db");
+    const db = new Database(dbPath);
+    runIndexedSchemaMigrations(db, 27);
+    seedPaymentServicePreflightFixture(db);
+    db.close();
+    writeFileSync(
+      join(dir, "nimbus.toml"),
+      `[metrics.dora.payment-service]
+repos = ["github:nimbus-agent/payments"]
+pagerduty_services = ["P12ABCD"]
+`,
+    );
+    port = 30000 + Math.floor(Math.random() * 30000);
+    handle = startReadOnlyHttpServer(dbPath, port, {
+      configDir: dir,
+      nowMs: () => PREFLIGHT_FIXTURE_NOW_MS,
+    });
+  });
+
+  afterEach(() => {
+    handle?.stop();
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* non-fatal */
+    }
+  });
+
+  it("returns the preflight envelope for a configured service", async () => {
+    const res = await fetch(
+      `http://127.0.0.1:${port}/v1/preflight/deploy?service=payment-service&target_ref=main`,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      service: string;
+      target_ref: string;
+      verdict: string;
+      checks: Record<string, unknown>;
+    };
+    expect(body.service).toBe("payment-service");
+    expect(body.target_ref).toBe("main");
+    expect(body.verdict).toBe("warn");
+    expect(body.checks).toHaveProperty("active_p1_incidents");
+    expect(body.checks).toHaveProperty("failing_ci_runs");
+    expect(body.checks).toHaveProperty("merge_conflicts");
+  });
+
+  it("returns 400 when service param is missing", async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/v1/preflight/deploy?target_ref=main`);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBeDefined();
+  });
+
+  it("returns 400 when target_ref param is missing", async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/v1/preflight/deploy?service=payment-service`);
+    expect(res.status).toBe(400);
+  });
+
+  it("returns generic 500 (no message leak) when the config loader throws", async () => {
+    writeFileSync(
+      join(dir, "nimbus.toml"),
+      `[metrics.dora.payment-service]
+repos = ["github:nimbus-agent/payments"]
+deploy_workflow_pattern = "["
+`,
+    );
+    const res = await fetch(
+      `http://127.0.0.1:${port}/v1/preflight/deploy?service=payment-service&target_ref=main`,
+    );
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe("internal_error");
+  });
+});
