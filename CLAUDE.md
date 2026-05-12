@@ -73,7 +73,7 @@ When changing a wiring site, update both the test and `SECURITY-INVARIANTS.md` i
 
 ## Package Dependency Rules
 
-```
+```text
 gateway    ← no imports from cli or ui
 cli        ← IPC-only communication with gateway (no source imports)
 ui         ← IPC-only communication with gateway (no source imports)

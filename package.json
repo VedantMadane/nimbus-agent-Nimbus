@@ -64,8 +64,11 @@
     "audit:doc-refs": "bun scripts/structure-audit/check-doc-references.ts --check",
     "audit:openapi-drift": "bun scripts/structure-audit/check-openapi-drift.ts --check",
     "audit:js-licenses": "bun scripts/structure-audit/check-js-licenses.ts --check",
+    "audit:svg-assets": "bun scripts/audit/svg-assets.ts",
+    "audit:readme-cli": "bun scripts/audit/readme-cli-commands.ts",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
+    "lint:markdown": "markdownlint-cli2",
     "format": "biome format --write .",
     "test": "bun test packages/gateway packages/cli packages/sdk packages/client packages/mcp-connectors scripts",
     "test:ci": "bun scripts/run-tests.ts",
@@ -109,10 +112,13 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.14",
+    "@resvg/resvg-js": "^2.6.2",
+    "@types/bun": "^1.3.13",
     "dependency-cruiser": "^17.4.0",
     "js-yaml": "^4.1.1",
     "jscpd": "^4.0.9",
     "knip": "^6.12.0",
+    "markdownlint-cli2": "^0.22.1",
     "tweetnacl": "^1.0.3",
     "typescript": "^6.0.3"
   }

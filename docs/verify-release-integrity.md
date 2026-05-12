@@ -6,7 +6,7 @@ Nimbus releases ship with a **GPG-signed `SHA256SUMS` manifest** that gives any 
 
 ## The Integrity Chain
 
-```
+```text
 user's trust root
   └─ project GPG public key fingerprint          ← published in four places:
      ├─ keys.openpgp.org (keyserver)

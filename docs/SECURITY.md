@@ -51,6 +51,7 @@ Nimbus is built for engineers who run systems in production and security practit
 Nimbus owns and enforces security **within its process boundary**. What sits below that boundary — the operating system, the disk, the physical machine — is outside Nimbus's control.
 
 **Nimbus's side of the boundary:**
+
 - Credential storage (OS-native keystore only, zero plaintext)
 - HITL enforcement (structural, executor-level)
 - Extension sandboxing (child process isolation, manifest integrity)
@@ -59,6 +60,7 @@ Nimbus owns and enforces security **within its process boundary**. What sits bel
 - Audit logging (every action and HITL decision, before execution)
 
 **Your side of the boundary:**
+
 - Strong OS login or biometric authentication
 - Screen locking when unattended
 - Disk encryption — BitLocker (Windows), FileVault (macOS), LUKS (Linux)
@@ -230,6 +232,7 @@ Phase 5 will introduce standing approvals: pre-authorized patterns that allow re
 | Rule revocation window | Revoked rules take effect immediately; any in-flight session that already passed the gate completes, but no new calls are approved. |
 
 **Design constraints (enforced at implementation time):**
+
 - Standing rules are stored in SQLite, not in config files — they are subject to the same integrity checks as the rest of the local index.
 - No standing rule may cover `vault.*` or `db.*` tool calls.
 - The rule editor in the UI must show a diff preview of the scope before saving.
@@ -331,9 +334,11 @@ Plan a rotation at least once every 12 months, and immediately on any of these t
 
 1. **Reset the embedded public key.** `scripts/generate-updater-keypair.ts` refuses to run if `packages/gateway/src/updater/public-key.ts` already contains a non-dev key (an intentional safety against accidental rotation). On a feature branch, replace the body of `UPDATER_PUBLIC_KEY_BASE64` with `"<DEV-PLACEHOLDER>"` so the script will run.
 2. **Generate the new keypair** locally on an air-gapped or hardened workstation:
+
    ```bash
    bun scripts/generate-updater-keypair.ts
    ```
+
    The script prints the new public key (base64 + hex) to stdout and writes the new private key to a freshly-created temp file under `<tmpdir>/nimbus-updater-key-*/updater-private.b64` (mode `0600`).
 3. **Update the embedded public key** in `packages/gateway/src/updater/public-key.ts` (and the test override `NIMBUS_DEV_UPDATER_PUBLIC_KEY` if used) using the printed base64 value. Land via PR.
 4. **Cut a transitional release** that ships *both* the old and new public key as trusted (the updater accepts either signature). This release must be signed with the **old** key.
@@ -368,7 +373,7 @@ Verifying a release on any platform follows the same `SHA256SUMS.asc` workflow d
 
 **Project GPG fingerprint (v0.1.0 and later):**
 
-```
+```text
 5A20 457C CD8B 53FF AA94 5240 886A DA6B 487C AB6E
 ```
 

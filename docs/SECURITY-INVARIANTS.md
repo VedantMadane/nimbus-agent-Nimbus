@@ -5,6 +5,7 @@ Canonical list of structural defenses Nimbus relies on. Each invariant names the
 **The rule:** every invariant below has at least one enforcement test in [`packages/gateway/src/security-invariants.test.ts`](../packages/gateway/src/security-invariants.test.ts). If you change the wiring, the test must be updated in the same commit; if you remove the defense, the test must fail.
 
 Companion files:
+
 - [`SECURITY.md`](./SECURITY.md) — public-facing security model and reporting policy
 - [`architecture.md`](./architecture.md) §Security Model — threat-to-mitigation table
 - [`CLAUDE.md`](../CLAUDE.md) / [`GEMINI.md`](../GEMINI.md) — compact summary table for AI assistants
@@ -113,7 +114,7 @@ Companion files:
 
 **Wired at:** `db/write.ts`, `db/repair.ts` (`escapeIdentifier`), `people/person-store.ts` (per-field parameter binding after S5-F5 fix).
 
-**Anti-pattern:** template-literal SQL on caller-supplied data (`db.run(\`UPDATE ... SET ${field} = ${value}\`)`). S5-F5 was a `sets.join()` template in `patchPerson` that built SQL from caller-supplied field names.
+**Anti-pattern:** template-literal SQL on caller-supplied data (``db.run(`UPDATE ... SET ${field} = ${value}`)``). S5-F5 was a `sets.join()` template in `patchPerson` that built SQL from caller-supplied field names.
 
 **How to comply:** read S5-F5 before adding any new SQL. Identifier-shaped inputs go through `escapeIdentifier`; everything else binds. There is no "internal callers are trusted" carve-out.
 

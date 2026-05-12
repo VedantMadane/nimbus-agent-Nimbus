@@ -32,6 +32,7 @@ Closes #
 - [ ] No credentials, tokens, or secret values appear in logs, IPC messages, config, or test fixtures
 - [ ] Platform-specific code is behind the `PlatformServices` abstraction (no OS checks in business logic)
 - [ ] The HITL consent gate has not been weakened, bypassed, or made configurable
+- [ ] If this PR touches `docs/README.md`, a screenshot of the rendered page (light + dark) is attached in the Screenshots / Output section below
 
 ## Coverage (if engine/ or vault/ was changed)
 

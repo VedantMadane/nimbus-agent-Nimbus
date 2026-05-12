@@ -96,6 +96,7 @@ For persistent installations: stop the launchd service first (`./svc.sh stop && 
 **Account isolation (mandatory if persistent).** Create a dedicated macOS user account on the M1 Air whose home directory holds only the runner agent and Bun. The account does not log into the operator's iCloud, has no access to the main keychain, and runs no other software. The runner's working directory is fully isolated from operator data.
 
 **Token hygiene.**
+
 - Never check the registration token into git or copy it into any persistent file. The token expires in ~1 hour.
 - The runner has access to repo write tokens during workflow execution (`GITHUB_TOKEN`). The `_perf-reference.yml` workflow's `permissions:` block scopes that to `contents: write` + `pull-requests: write` — no `actions: write`, no organisation-level scopes.
 - `gh auth login` (used by the operator before runner registration) stores the token in the macOS Keychain by default; `~/.config/gh/hosts.yml` exists but holds only a pointer (or the raw token if `--insecure-storage` was used or the Keychain was unavailable). Treat the saved token like any OAuth credential — revoke via `gh auth logout` when done.
