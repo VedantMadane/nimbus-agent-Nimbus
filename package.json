@@ -4,7 +4,7 @@
   "private": true,
   "overrides": {
     "sharp": "0.34.5",
-    "protobufjs": "7.5.5",
+    "protobufjs": "7.5.8",
     "fast-uri": "3.1.2"
   },
   "workspaces": [
