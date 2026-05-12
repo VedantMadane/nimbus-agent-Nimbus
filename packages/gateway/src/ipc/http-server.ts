@@ -22,6 +22,13 @@ export type ReadOnlyHttpServerOptions = {
 };
 
 export type ReadOnlyHttpServerHandle = {
+  /**
+   * The actual TCP port the server bound to. When the caller passed `port = 0`,
+   * this is the OS-assigned free port — useful for integration tests that want
+   * to avoid the flake of picking a random port that may collide on shared CI
+   * runners.
+   */
+  readonly port: number;
   readonly stop: () => void;
 };
 
@@ -226,7 +233,9 @@ async function dispatchReadOnlyGet(
 
 /**
  * @param dbPath Absolute path to `nimbus.db`
- * @param port   TCP port to bind on `127.0.0.1`
+ * @param port   TCP port to bind on `127.0.0.1`. Pass `0` to let the OS pick a
+ *               free port; the actual port is exposed on the returned
+ *               `handle.port` (preferred for integration tests).
  * @param opts   Optional context — `configDir` enables config-aware routes
  *               (e.g. `/v1/metrics/dora`); `nowMs` is a clock injector for tests.
  */
@@ -255,7 +264,16 @@ export function startReadOnlyHttpServer(
     },
   });
 
+  // Bun's server.port is typed `number | undefined` to cover unix-socket-style
+  // servers; for the hostname+port style we always use here it is always set.
+  const actualPort = server.port;
+  if (typeof actualPort !== "number") {
+    throw new Error(
+      `startReadOnlyHttpServer: Bun.serve did not bind a TCP port (server.port=${String(actualPort)})`,
+    );
+  }
   return {
+    port: actualPort,
     stop(): void {
       try {
         server.stop();

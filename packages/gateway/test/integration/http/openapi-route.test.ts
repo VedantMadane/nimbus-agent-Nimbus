@@ -8,7 +8,7 @@ import { startReadOnlyHttpServer } from "../../../src/ipc/http-server.ts";
 describe("GET /v1/openapi.json", () => {
   let tmpDir: string;
   let dbPath: string;
-  let handle: { stop: () => void } | undefined;
+  let handle: ReturnType<typeof startReadOnlyHttpServer> | undefined;
   let port: number;
 
   beforeEach(() => {
@@ -16,9 +16,10 @@ describe("GET /v1/openapi.json", () => {
     dbPath = join(tmpDir, "nimbus.db");
     // Empty schema is fine — the openapi route does not query the DB.
     new Database(dbPath).close();
-    // Pick a high random port to avoid collisions with running gateways.
-    port = 49000 + Math.floor(Math.random() * 1000);
-    handle = startReadOnlyHttpServer(dbPath, port);
+    // Pass port = 0 so the OS picks a free port; eliminates the random-port
+    // collision risk under shared CI runners.
+    handle = startReadOnlyHttpServer(dbPath, 0);
+    port = handle.port;
   });
 
   afterEach(() => {
