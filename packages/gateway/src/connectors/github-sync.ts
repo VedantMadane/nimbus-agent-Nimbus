@@ -42,6 +42,44 @@ function extractLabelNames(raw: unknown): string[] {
   return out;
 }
 
+// Tuning knobs for the mergeable_state refresh policy. Hardcoded for v0.1.0;
+// could be promoted to per-connector config (e.g., a [github.sync] block)
+// in a follow-up if user feedback asks for it — see plan review §3.2.
+const MERGEABLE_STATE_REFRESH_FRESHNESS_MS = 24 * 60 * 60 * 1000; // 24h
+const MERGEABLE_STATE_UPDATED_WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // 7d
+
+export type MergeableStateRefreshInput = {
+  readonly mergeableState: string | null;
+  readonly mergeableStateFetchedAtMs: number | null;
+  readonly updatedAtMs: number;
+  readonly nowMs: number;
+};
+
+/**
+ * Decides whether an open PR needs a detail-endpoint fetch to refresh
+ * `mergeable_state` (Phase 5 T4 PR 3a). Returns true iff:
+ *   - mergeable_state is null OR was fetched > 24h ago (thrash guard),
+ *   - AND the PR's `updated_at` is within the last 7 days
+ *     (avoids re-fetching long-stale PRs nobody is working on).
+ *
+ * NOTE: The github sync is currently events-driven (`/users/{login}/events`),
+ * not a list-pass over `/repos/{owner}/{repo}/pulls`. PullRequestEvent
+ * payloads populate `mergeable_state` whenever a PR is touched, but stale
+ * open PRs that haven't had activity in the events feed do not refresh.
+ * Driving this policy from a periodic refresh pass is deferred; the
+ * preflight calculator handles missing state via its `unknown_mergeable_state`
+ * gap branch. See Task 2 disposition in
+ * docs/superpowers/plans/2026-05-12-phase-5-t4-pr3a-preflight.md §Step 11.
+ */
+export function shouldRefreshMergeableState(input: MergeableStateRefreshInput): boolean {
+  const updatedAge = input.nowMs - input.updatedAtMs;
+  if (updatedAge > MERGEABLE_STATE_UPDATED_WINDOW_MS) return false;
+  if (input.mergeableState === null) return true;
+  if (input.mergeableStateFetchedAtMs === null) return true;
+  const refreshAge = input.nowMs - input.mergeableStateFetchedAtMs;
+  return refreshAge > MERGEABLE_STATE_REFRESH_FRESHNESS_MS;
+}
+
 /**
  * Builds the metadata object stored alongside an indexed `pr` item.
  *
@@ -49,10 +87,17 @@ function extractLabelNames(raw: unknown): string[] {
  * `merge_commit_sha` when the PR was merged, plus `labels`. The graph
  * populator emits a `pr → commit` `merged_as` edge when both signals
  * are present; the DORA calculator joins on this edge.
+ *
+ * Phase 5 T4 PR 3a (preflight): captures `mergeable` + `mergeable_state`
+ * + `mergeable_state_fetched_at_ms` when present on the input payload.
+ * PullRequestEvent payloads populate these fields when GitHub has
+ * computed them; the preflight calculator surfaces conflicts via
+ * `mergeable_state === "dirty"`.
  */
 export function extractPrMetadataForIndex(
   repoFull: string,
   pr: Record<string, unknown>,
+  nowMs: number = Date.now(),
 ): Record<string, unknown> {
   const merged = pr["merged"] === true;
   const user = asRecord(pr["user"]);
@@ -66,6 +111,15 @@ export function extractPrMetadataForIndex(
     user: login,
     labels: extractLabelNames(pr["labels"]),
   };
+  const mergeable = pr["mergeable"];
+  if (typeof mergeable === "boolean") {
+    out["mergeable"] = mergeable;
+  }
+  const mergeableState = stringField(pr, "mergeable_state");
+  if (mergeableState !== undefined && mergeableState.length > 0) {
+    out["mergeable_state"] = mergeableState;
+    out["mergeable_state_fetched_at_ms"] = nowMs;
+  }
   if (merged) {
     const mergedAtIso = stringField(pr, "merged_at");
     if (mergedAtIso !== undefined) {
@@ -175,7 +229,7 @@ function upsertFromPullRequest(
   const modified = modifiedMsFromGithubTimestamps(pr, now);
   const user = asRecord(pr["user"]);
   const authorId = resolveGithubActorPersonId(ctx.db, user);
-  const meta = extractPrMetadataForIndex(repoFull, pr);
+  const meta = extractPrMetadataForIndex(repoFull, pr, now);
   const externalId = `${repoFull}#${String(num)}`;
   upsertIndexedItemForSync(ctx, {
     service: SERVICE_ID,

@@ -33,6 +33,9 @@ describe("github-sync: PR metadata enrichment", () => {
     expect(out.merged_at).toBeUndefined();
     expect(out.merge_commit_sha).toBeUndefined();
     expect(out.labels).toEqual([]);
+    expect(out.mergeable).toBeUndefined();
+    expect(out.mergeable_state).toBeUndefined();
+    expect(out.mergeable_state_fetched_at_ms).toBeUndefined();
   });
 
   it("tolerates a labels array of strings (defensive)", () => {
