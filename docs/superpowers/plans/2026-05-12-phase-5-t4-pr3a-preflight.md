@@ -596,6 +596,9 @@ Expected: FAIL — `shouldRefreshMergeableState` not exported.
 Add to `packages/gateway/src/connectors/github-sync.ts`, near the `extractPrMetadataForIndex` helper:
 
 ```ts
+// Tuning knobs for the mergeable_state refresh policy. Hardcoded for v0.1.0;
+// could be promoted to per-connector config (e.g., a [github.sync] block)
+// in a follow-up if user feedback asks for it — see plan review §3.2.
 const MERGEABLE_STATE_REFRESH_FRESHNESS_MS = 24 * 60 * 60 * 1000; // 24h
 const MERGEABLE_STATE_UPDATED_WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // 7d
 
@@ -679,21 +682,41 @@ Pseudocode for the wiring (adapt to the actual function names and rate-limiter A
   const candidates = openPrIds
     .map((id) => db.query("SELECT id, metadata FROM item WHERE id = ?").get(id))
     .filter(/* parse metadata, apply shouldRefreshMergeableState */);
-  // Run details concurrently up to the per-provider RateLimiter cap.
-  await Promise.all(
+  // Run details concurrently up to the per-provider RateLimiter cap. Use
+  // allSettled so a single deleted PR (404) or transient 403 doesn't abort
+  // the entire batch — surviving PRs still get refreshed.
+  const results = await Promise.allSettled(
     candidates.map((c) =>
       rateLimiter.run("github", async () => {
-        const detail = await fetchPrDetail(c.repoFull, c.number);
-        const enriched = extractPrMetadataForIndex(c.repoFull, detail, Date.now());
-        upsertItemMetadata(db, c.id, enriched);
+        try {
+          const detail = await fetchPrDetail(c.repoFull, c.number);
+          const enriched = extractPrMetadataForIndex(c.repoFull, detail, Date.now());
+          upsertItemMetadata(db, c.id, enriched);
+        } catch (e) {
+          // Handle 404 (deleted PR) and 403 (private/archived repo) as
+          // expected outcomes: skip this candidate, leave its existing
+          // metadata in place. Re-throw 429 so the RateLimiter / connector
+          // health path picks it up; re-throw 5xx so the sync cycle's
+          // outer error envelope sees it.
+          if (isHttpStatus(e, 404) || isHttpStatus(e, 403)) return;
+          throw e;
+        }
       }),
     ),
   );
+  // Optional: count + log silently-dropped candidates for visibility.
+  const dropped = results.filter((r) => r.status === "rejected").length;
+  if (dropped > 0) {
+    logger.warn({ dropped }, "github mergeable_state refresh: some details unavailable");
+  }
 ```
+
+(`isHttpStatus(e, n)` is a tiny helper — implement next to `fetchPrDetail`: `return e instanceof HttpError && e.status === n` or equivalent, using whatever error shape the connector's fetch wrapper already throws.)
 
 **This step has the most file-dependent shape.** Before writing code, read `github-sync.ts` carefully:
 - Find the existing PR sync loop and the RateLimiter call site (used by the list-endpoint requests).
 - Match the existing pattern — same `RateLimiter` instance, same connector-id string, same error-handling envelope (a 429 should still flip the connector to `rate_limited`).
+- **Verify the `RateLimiter` actually supports concurrent in-flight requests for a single provider key.** If it serializes (e.g., a mutex per provider rather than a token bucket with a concurrency cap), the `Promise.allSettled` above still works correctly — it just degrades to sequential behavior. That's acceptable for v0.1.0; the contract test in Step 12 should still pass. If you want true concurrency, the RateLimiter's per-provider behavior is a separate change outside this PR's scope.
 
 If the file's existing structure makes this wiring awkward (e.g., the sync function is a generator, not a flat list-pass), **report back as DONE_WITH_CONCERNS** noting the structural mismatch — the spec's contract test below will catch any wiring mistake regardless.
 
@@ -1374,6 +1397,8 @@ function selectFailingCiRuns(
   const servicePlaceholders = ciServices.map(() => "?").join(",");
   const conclusionPlaceholders = FAILED_CONCLUSIONS.map(() => "?").join(",");
   // Window function: pick the row with MAX(modified_at) per workflow grouping key.
+  // Requires SQLite ≥ 3.25 (window functions, 2018). Bun's bundled SQLite is
+  // current (>= 3.39 as of Bun 1.2) so this is safely supported.
   // Grouping key (COALESCE ladder): workflow_name → title → head_sha:branch.
   const sql = `
     WITH ranked AS (
@@ -2020,6 +2045,15 @@ Expected: FAIL — module not found.
 Create `packages/gateway/src/ipc/preflight-rpc.ts`:
 
 ```ts
+/**
+ * Phase 5 T4 PR 3a — `deploy.preflight` JSON-RPC handler.
+ *
+ * Surface: CLI, HTTP, and the GitHub Action — NOT LLM-facing. Security
+ * invariant I11 (wrapToolOutput) therefore does not apply here. If a future
+ * built-in agent registers `deploy.preflight` as a tool, the wrap must be
+ * added at the agent's tool-registration site per `nimbus-tool-output-envelope`
+ * (wrap at the agent surface, not in the tool handler).
+ */
 import type { Database } from "bun:sqlite";
 import type { ServiceConfig } from "../metrics/dora-config.ts";
 import { computeDeployPreflight, type DeployPreflightResult } from "../preflight/preflight.ts";
@@ -2934,7 +2968,15 @@ export async function runDeployCli(args: readonly string[]): Promise<void> {
     } else {
       process.stdout.write(`${formatPretty(result, shouldUseColor())}\n`);
     }
-    // Mode → exit code
+    // Exit-code convention (consistent across nimbus subcommands):
+    //   0  = success (verdict ok, OR warn with mode≠block)
+    //   1  = user/logic error: usage problems (handled earlier via thrown
+    //        Error → exit 1) AND the explicit "block triggered" outcome.
+    //        These share code 1 by design: from a CI script's POV, both
+    //        mean "the deploy step should not proceed."
+    //   2  = infrastructure: gateway not running, IPC error, malformed
+    //        envelope. Distinguishes "couldn't check" from "checked and
+    //        found things." Matches `nimbus metrics dora`'s convention.
     if (parsed.mode === "block" && result.verdict === "warn") {
       process.exit(1);
     }
@@ -3747,6 +3789,16 @@ First-party GitHub Action for the Nimbus pre-deploy index check. Calls the local
 | `warn` (default) | 0 | 0 | 0 | 0 |
 | `block` | 0 | 1 | 1 | 0 |
 
+## Versioning
+
+This release uses **fully-pinned tags** (`v0.1.0`, `v0.1.1`, …). Users should reference specific versions while the Action is in v0.x:
+
+```yaml
+uses: nimbus-agent/query-action@v0.1.0
+```
+
+A `v0` major-version moving tag is **intentionally not provided yet** — the Action's input contract may still evolve before v1.0.0. Once v1.0.0 ships, the project will adopt the `actions/checkout@v1`-style major tag pattern.
+
 ## Building from source
 
 Source lives in the Nimbus monorepo at `packages/github-actions/preflight-query/`. Build with:
@@ -3963,6 +4015,21 @@ EOF
 - `PreflightMode` (`"warn" | "block" | "off"`) is identical in `deploy.ts` (CLI), `render.ts` (Action), and the `action.yml` input description — checked.
 - `PreflightGap` union: `null | "no_pagerduty_mapping" | "no_repos" | "no_target_ref" | "unknown_mergeable_state"`. Identical across `preflight.ts`, the OpenAPI YAML, and the rendering layer — checked. (`no_target_ref` is structurally reachable only when callers omit `target_ref` via raw CLI; the IPC param validation rejects it before computation.)
 - Default values (`mode=warn`, `max_findings=10`, `timeout-ms=10000`) consistent between `action.yml`, `deploy.ts`, and the spec — checked.
+
+---
+
+## Plan Review Disposition
+
+External review (Gemini CLI, 2026-05-12) raised six items. Resolved as follows:
+
+| # | Item | Disposition | Action |
+|---|---|---|---|
+| 2.1 | `Promise.all` reject-fast risk on parallel detail fetches + RateLimiter concurrency contract | **FIX** | Task 2 Step 11 switched to `Promise.allSettled` with per-result error handling. 404 (deleted PR) and 403 (private/archived repo) are treated as expected outcomes — skip that candidate, leave existing metadata. 429 and 5xx still propagate so the RateLimiter / connector health path catches them. Plan also adds an explicit "verify the RateLimiter actually supports per-provider concurrency" note for the implementer. |
+| 2.2 | I11 (`wrapToolOutput`) reminder for `deploy.preflight` | **EXPLAIN** | `deploy.preflight` is CLI/HTTP/Action-facing, never LLM-facing. I11 fires at agent-tool registration, not the IPC handler. Added an explicit doc comment in Task 5's `preflight-rpc.ts` so future readers don't accidentally register it as a Mastra tool without wrapping at that registration site. |
+| 2.3 | SQLite window-function version requirement | **EXPLAIN** | Bun's bundled SQLite is ≥ 3.39 as of Bun 1.2; window functions landed in 3.25 (2018). Safe. Added a one-line comment next to the `ROW_NUMBER() OVER (...)` SQL stating the minimum version. |
+| 2.4 | CLI exit-code convention | **EXPLAIN** | Plan's convention is consistent with `nimbus metrics dora`: 0 = success, 1 = user/logic (usage **and** block-triggered findings — both mean "deploy step shouldn't proceed"), 2 = infrastructure. Added an explicit comment in Task 7's `deploy.ts` documenting the mapping. |
+| 3.1 | `@v0` major-version tag pattern | **DEFER** | v0.1.0 is the first release; pinning to specific versions is the right default until the input contract is stable. Added a "Versioning" section to the Action's README stating the policy and the v1.0.0 plan. |
+| 3.2 | Configurable mergeable_state freshness | **EXPLAIN** | YAGNI for v0.1.0. Added a code comment above the `MERGEABLE_STATE_REFRESH_FRESHNESS_MS` / `MERGEABLE_STATE_UPDATED_WINDOW_MS` constants noting that promotion to per-connector config (e.g., a `[github.sync]` block) is the natural follow-up if operators ask. |
 
 ---
 
