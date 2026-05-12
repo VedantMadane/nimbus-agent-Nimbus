@@ -116,13 +116,15 @@ export type DeployPreflightResult = {
 
 ### 4.2 — Verdict rule
 
-`verdict = "ok"` iff every check has `count === 0` **and** every check has `gap === null`. Otherwise `verdict = "warn"`. Any non-null gap counts as a warn signal so a misconfigured service still surfaces visibly. The server never emits `"block"` — that mapping happens client-side based on the Action's `mode`.
+`verdict = "ok"` iff every check has `count === 0`. Otherwise `verdict = "warn"`. **Gaps are informational only** — they surface in the response body so operators can see why a check returned 0 (no PagerDuty mapping configured, target_ref missing, etc.) but do **not** flip the verdict to `warn`. This avoids forcing every service onto every supported provider: a user without PagerDuty gets `verdict: "ok"` (assuming the other checks have `count === 0`) plus `active_p1_incidents.gap: "no_pagerduty_mapping"` so they can see the check ran but had no data to evaluate.
+
+The server never emits `"block"` — that mapping happens client-side based on the Action's `mode`.
 
 ### 4.3 — Query semantics
 
 1. **Active P1 incidents** — `service='pagerduty' AND type='incident' AND json_extract(metadata, '$.pagerduty_service_id') IN (cfg.pagerdutyServices) AND json_extract(metadata, '$.status') IN ('triggered','acknowledged') AND json_extract(metadata, '$.severity') = 'P1'`. Two queries: `COUNT(*)` for `count`, then `SELECT ... LIMIT max_findings` ordered by `opened_at_ms DESC` for the sample. `gap = "no_pagerduty_mapping"` when `cfg.pagerdutyServices.length === 0`.
 
-2. **Failing CI runs on `target_ref`** — `service IN (cfg.repos → providerServiceColumns().ciServices) AND type='ci_run' AND json_extract(metadata, '$.branch') = ? AND json_extract(metadata, '$.conclusion') IN ('failure','cancelled','timed_out')`. Filter to the **most recent run per workflow name**: the same workflow can have many failing historical runs, but only the latest matters for "is it safe to deploy *now*". Implementation: SQL window over `workflow_name`, `branch`, `service`, picking `MAX(modified_at_ms)`. `gap = "no_repos"` when the URN-to-service-column map is empty. `gap = "no_target_ref"` is rejected at param-validation time (target_ref is required), so this gap appears only when the caller omits it via raw CLI/IPC use without the Action; param validation makes it unreachable via HTTP.
+2. **Failing CI runs on `target_ref`** — `service IN (cfg.repos → providerServiceColumns().ciServices) AND type='ci_run' AND json_extract(metadata, '$.branch') = ? AND json_extract(metadata, '$.conclusion') IN ('failure','cancelled','timed_out')`. Filter to the **most recent run per workflow**: the same workflow can have many failing historical runs, but only the latest matters for "is it safe to deploy *now*". Grouping key is a 3-tier fallback: prefer `metadata.workflow_name` if it's populated by the connector; fall back to `item.title` (the github_actions connector stores the workflow name there, and most other CI connectors do the same); final fallback to `(head_sha, branch)` if the first two are absent. Implementation: SQL window with `COALESCE(json_extract(metadata, '$.workflow_name'), title, head_sha || ':' || json_extract(metadata, '$.branch'))` as the partition key, picking `MAX(modified_at_ms)`. `gap = "no_repos"` when the URN-to-service-column map is empty. `gap = "no_target_ref"` is rejected at param-validation time (target_ref is required), so this gap appears only when the caller omits it via raw CLI/IPC use without the Action; param validation makes it unreachable via HTTP.
 
 3. **Open PRs with merge conflicts** — `service IN (cfg.repos → prServices) AND type='pr' AND json_extract(metadata, '$.state') = 'open' AND json_extract(metadata, '$.mergeable_state') = 'dirty'`. A separate `SELECT COUNT(*)` over the same `service IN (...) AND type='pr' AND state='open' AND mergeable_state IS NULL` populates a secondary counter. If that counter > 0, emit `gap = "unknown_mergeable_state"` and document in the response: operators learn that the index is incomplete and the `count` they're seeing is a lower bound.
 
@@ -184,9 +186,9 @@ Policy (sub-option **b** from the brainstorm):
 - For an open PR whose indexed metadata already has `mergeable_state` set with a freshness timestamp < 24h, skip the detail fetch.
 - For an open PR older than 7 days with no `mergeable_state` indexed, leave `mergeable_state` as `null` and accept the lower-bound count + `unknown_mergeable_state` gap.
 
-This bounds detail-API cost to roughly the number of recently active open PRs per sync cycle while keeping the freshest signals up to date. A new contract test asserts:
+This bounds detail-API cost to roughly the number of recently active open PRs per sync cycle while keeping the freshest signals up to date. The set of PRs that pass the 7d / 24h filter is fetched **in parallel** subject to the existing `RateLimiter`'s per-provider concurrency cap — a sync cycle should not stall on serialized network I/O when ten or twenty open PRs need refreshing. A new contract test asserts:
 
-- The detail fetch is rate-limited via the existing `RateLimiter`.
+- The detail fetches run concurrently up to the `RateLimiter` cap (no serialization beyond what the rate limiter enforces).
 - A 429 from the detail endpoint transitions the github connector to `rate_limited` health (same path the list endpoint uses).
 - `mergeable_state_fetched_at_ms` is captured alongside `mergeable_state` in the indexed metadata so the 24h freshness check is self-contained.
 
@@ -220,7 +222,8 @@ packages/github-actions/preflight-query/
 | `gateway-url` | string | no | `http://localhost:7474` | Base URL of the Gateway's read-only HTTP API. Self-hosted runner default. |
 | `mode` | string | no | `warn` | One of `warn`, `block`, `off`. `off` always exits 0; useful for soft rollout. |
 | `max-findings` | string | no | `10` | Cap on findings per check rendered as annotations (1..50). |
-| `timeout-ms` | string | no | `10000` | HTTP timeout. Beyond this → "Gateway unreachable" annotation + exit code per `mode`. |
+| `timeout-ms` | string | no | `10000` | HTTP timeout. Beyond this → "Gateway unreachable" annotation + exit code per `mode` and `allow-gateway-failure`. |
+| `allow-gateway-failure` | boolean | no | `false` | When `true`, an unreachable Gateway never fails the workflow regardless of `mode` (still emits the warn annotation). Lets operators block on findings while tolerating infrastructure outages on the local runner. |
 
 ### 6.3 — `action.yml` outputs
 
@@ -236,11 +239,13 @@ packages/github-actions/preflight-query/
 
 ### 6.5 — Exit-code mapping
 
-| `mode` | server `verdict='ok'` | server `verdict='warn'` | Gateway unreachable |
-|---|---|---|---|
-| `off` | 0 | 0 | 0 (annotation only) |
-| `warn` (default) | 0 | 0 (annotations + summary) | 0 (annotation: degraded) |
-| `block` | 0 | 1 | 1 (treats unreachable as failure) |
+| `mode` | server `verdict='ok'` | server `verdict='warn'` | Gateway unreachable, `allow-gateway-failure=false` (default) | Gateway unreachable, `allow-gateway-failure=true` |
+|---|---|---|---|---|
+| `off` | 0 | 0 | 0 (annotation only) | 0 |
+| `warn` (default) | 0 | 0 (annotations + summary) | 0 (annotation: degraded) | 0 |
+| `block` | 0 | 1 | 1 (treats unreachable as failure) | 0 (degraded annotation only) |
+
+The `allow-gateway-failure` column only changes the `mode: block` row in practice. The other two modes already exit 0 on unreachable, so the input is a no-op for them.
 
 ### 6.6 — Rendering
 
@@ -321,7 +326,7 @@ None required. The Gateway is local-only; the runner reaches it via `http://loca
 
 ## 10. Open questions to revisit in the implementation plan
 
-- **`workflow_name` on the failing-CI query** — the github_actions connector stores workflow identifiers as part of the `title` field, not as a structured metadata key. Implementation plan needs to verify whether `metadata.workflow_name` exists or whether we group by `title` instead. If neither is stable, fall back to "most recent CI run per (head_sha, branch)" — coarser but never wrong.
+- **`workflow_name` grouping key for the failing-CI query** — Resolved during review: §4.3's `COALESCE` ladder picks `metadata.workflow_name` if populated, otherwise `title` (which the github_actions connector and most other CI connectors use for the workflow name), with a final `(head_sha, branch)` fallback. Implementation plan still needs to verify per-connector populating behavior (gitlab, jenkins, circleci) so the ladder degrades gracefully on each.
 - **`updated_at` source for the github-sync 7d freshness cutoff** — confirm the existing list-endpoint sync captures `updated_at`. If it's stored on the indexed item as `modified_at`, the cutoff trivially holds; if it's on `metadata.updated_at`, we need to make sure it's populated.
 - **`max_findings` per check vs across the envelope** — current spec is per-check. An operator with 200 failing CI runs and 0 of anything else gets 10 CI annotations. Verify this is what we want vs. a single envelope-wide cap.
 - **Pretty-mode rendering of `gap` notes** — DORA renders `[gap_name]` next to the value. Preflight has structured findings, not a single value. Confirm whether the CLI pretty card shows gaps inline next to counts or in a footer.
@@ -336,3 +341,20 @@ These belong in the implementation plan's "design choices" section, not in this 
 - `docs/superpowers/specs/2026-05-10-phase-5-t4-cicd-data-layer-design.md` — original T4 design.
 - `docs/superpowers/plans/2026-05-11-phase-5-t4-pr2-dora-metrics.md` — DORA implementation plan (mirror this shape).
 - `.claude/commands/nimbus-ipc.md`, `.claude/commands/nimbus-testing.md`, `.claude/commands/nimbus-connector-authoring.md` — cross-cutting authoring contracts.
+- [`2026-05-12-phase-5-t4-pr3a-preflight-review-feedback.md`](./2026-05-12-phase-5-t4-pr3a-preflight-review-feedback.md) — Gemini CLI review; dispositions captured below.
+
+---
+
+## 12. Review Disposition
+
+External review (Gemini CLI, 2026-05-12) raised seven items. Resolved as follows:
+
+| # | Item | Disposition | Action |
+|---|---|---|---|
+| 2.1 | Verdict `warn` perpetual for users intentionally not on PagerDuty (`gap: "no_pagerduty_mapping"` set verdict to `warn`) | **FIX** | §4.2 rewritten: gaps are informational only; only `count > 0` flips the verdict. A user without PagerDuty now gets `verdict: "ok"` plus the gap note, instead of a permanent warn. |
+| 2.2 | github-sync `mergeable_state` detail-fetch concurrency unspecified | **FIX (light)** | §5.2 amended: detail-fetches run in parallel up to the existing `RateLimiter` per-provider concurrency cap; a contract test asserts the concurrency rather than serialization. |
+| 2.3 | `workflow_name` grouping fallback strategy | **FIX** | §4.3 adopted a 3-tier `COALESCE` ladder (`metadata.workflow_name` → `title` → `(head_sha, branch)`). Better than the previous "coarser but never wrong" fallback because `title` is in practice the stable per-workflow identifier across most CI connectors. §10's open question reframed: implementation plan now only needs to verify per-connector `title` populating behavior, not invent a grouping strategy. |
+| 2.4 | `mode: block` exits 1 on unreachable Gateway — too aggressive for infrastructure flakiness | **FIX (small)** | Added `allow-gateway-failure` boolean input (default `false`, preserving current behavior). §6.5 table extended with a new column. Lets operators block on real findings while tolerating local-runner infra outages. |
+| 3.1 | `--quiet` / `--porcelain` CLI flag | **DEFER** | `--json` already enables `jq -r .verdict` for shell scripting (the standard pattern). Adding a redundant flag for v0.1.0 is YAGNI. Re-evaluate in v0.2.0 if operator feedback asks for it. |
+| 3.2 | `computed_at` ISO string vs epoch-ms consistency | **EXPLAIN — no change** | DORA's `DoraMetricsResult.computed_at` is already ISO 8601. Preflight follows DORA, which is the relevant convention for these envelope types. Telemetry that uses epoch-ms (e.g., latency ring buffer) serves a different purpose (high-frequency observability) and isn't comparable. |
+| 3.3 | I11 (`wrapToolOutput`) reminder for new IPC method | **EXPLAIN — no change required for v0.1.0** | `deploy.preflight` is exposed to the CLI / HTTP / Action surfaces — none of which feed an LLM. I11 fires when results reach a model context window, which happens at agent-tool registration sites (`engine/agent.ts`'s `wrapToolForLlm`), not at the IPC handler. If a future built-in agent registers `deploy.preflight` as a tool (e.g., a Phase 7 release-readiness agent), the wrap goes at that registration site per `nimbus-tool-output-envelope`'s "wrap at the agent surface, not in the tool handler" rule. No v0.1.0 work required. |
