@@ -24,7 +24,7 @@ A running Nimbus Gateway. See https://nimbus-agent.dev/install for setup.
 
 ## See also
 
-- [Nimbus User Guide](https://nimbus-agent.dev/user-guide/)
+- [Nimbus User Guide](https://nimbus-agent.dev/user-guide/vscode-extension/)
 
 ## License
 

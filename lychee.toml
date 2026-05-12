@@ -20,6 +20,7 @@ exclude = [
   "npmjs\\.com",           # 403 to non-browser UAs
   "opengraph\\.xyz",       # aggressive 429 rate limit
   "tauri\\.app",           # intermittent connection failures from runners
+  "nimbus-agent\\.dev",    # exclude until PR 1 DNS propagates
 ]
 accept = ["200", "203", "204", "206", "301", "302", "304"]
 max_redirects = 5
