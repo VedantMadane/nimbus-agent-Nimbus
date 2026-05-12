@@ -5,7 +5,7 @@ import {
 } from "../../../src/connectors/github-sync.ts";
 
 describe("github-sync: PR mergeable_state enrichment", () => {
-  it("captures mergeable + mergeable_state when present on a merged PR", () => {
+  it("captures mergeable, mergeable_state, and mergeable_state_fetched_at_ms on an open PR", () => {
     const pr = {
       number: 42,
       state: "open",
@@ -16,9 +16,11 @@ describe("github-sync: PR mergeable_state enrichment", () => {
       user: { login: "alice" },
       draft: false,
     };
-    const out = extractPrMetadataForIndex("nimbus-agent/payments", pr);
+    const nowMs = 1_715_000_000_000;
+    const out = extractPrMetadataForIndex("nimbus-agent/payments", pr, nowMs);
     expect(out.mergeable).toBe(true);
     expect(out.mergeable_state).toBe("clean");
+    expect(out.mergeable_state_fetched_at_ms).toBe(nowMs);
   });
 
   it("captures mergeable_state='dirty' on a conflict PR", () => {
@@ -32,9 +34,11 @@ describe("github-sync: PR mergeable_state enrichment", () => {
       user: { login: "bob" },
       draft: false,
     };
-    const out = extractPrMetadataForIndex("nimbus-agent/payments", pr);
+    const nowMs = 1_715_000_000_000;
+    const out = extractPrMetadataForIndex("nimbus-agent/payments", pr, nowMs);
     expect(out.mergeable).toBe(false);
     expect(out.mergeable_state).toBe("dirty");
+    expect(out.mergeable_state_fetched_at_ms).toBe(nowMs);
   });
 
   it("omits mergeable + mergeable_state when not present on input (list-endpoint shape)", () => {
@@ -124,7 +128,7 @@ describe("github-sync: mergeable_state refresh-policy boundaries", () => {
   const DAY = 86_400_000;
   const HOUR = 3_600_000;
 
-  it("returns false when updated_at is exactly at the 7d window edge", () => {
+  it("returns true when updated_at is exactly at the 7d window edge", () => {
     const now = 1_715_000_000_000;
     expect(
       shouldRefreshMergeableState({
