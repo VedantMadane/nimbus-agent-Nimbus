@@ -21,6 +21,7 @@ Usage:
   nimbus impact <file-or-PR-url>   Reverse-dependency blast radius across services / pipelines / dashboards
                                    (--depth is accepted but reserved for future recursive traversal)
   nimbus catchup [--since 3d] [--json] [--service <id>]   Personalised retrospective digest weighted by your involvement
+  nimbus metrics dora --service <id> [--since 30d] [--json]   DORA four-key metrics for a configured service
   nimbus vault set <k> <v>  Store a secret
   nimbus vault get <k>      Read a secret (prompts first)
   nimbus vault delete <k>    Remove a secret

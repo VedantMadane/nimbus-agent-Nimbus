@@ -1,0 +1,7 @@
+{
+  "_derivation": "DORA values hand-derived from seedPaymentServiceFixture() at FIXTURE_NOW_MS=1715000000000 with a 30-day window. deployment_frequency: 13 deploys (8 GHA + 4 GitLab + 1 Jenkins) / 30 days = 0.4333. lead_time_for_changes: median over 18 PR→deploy lead times (8 GHA × 3600s + 4 GitLab × 7200s + 6 extra PRs with valid matches; 3 reverts excluded by label; 1 extra PR excluded because its same-SHA deploy precedes the PR merge). Even-count median floor((3600+7200)/2) = 5400. change_failure_rate: 3 failed deploys / 13 total = 0.2308 — inc_outside opens 90min before its preceding deploy so it does NOT attribute. mttr: 4 resolved incidents with durations [1200, 1500, 1800, 1800] seconds. Even-count median floor((1500+1800)/2) = 1650. inc_outside contributes to MTTR (resolved) but NOT to CFR (no preceding deploy in window).",
+  "deployment_frequency": { "value": 0.43333333333333335, "sample": 13 },
+  "lead_time_for_changes": { "value": 5400, "sample": 18 },
+  "change_failure_rate": { "value": 0.23076923076923078, "sample": 13 },
+  "mttr": { "value": 1650, "sample": 4 }
+}

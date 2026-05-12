@@ -1,0 +1,367 @@
+/**
+ * Phase 5 T4 PR 2 — DORA metric calculators.
+ *
+ * Pure functions over the unified `item` table. Each calculator reads only the
+ * rows in `[nowMs - sinceMs, nowMs]` and returns `null` with a {@link DoraGap}
+ * note when the data is insufficient. See `docs/dora.md` for the full
+ * methodology.
+ */
+
+import type { Database } from "bun:sqlite";
+import type { DoraServiceConfig, ParsedDoraRepoUrn } from "./dora-config.ts";
+import { providerServiceColumns } from "./dora-config.ts";
+
+export type DoraGap =
+  | null
+  | "no_pagerduty_mapping"
+  | "no_repos"
+  | "no_deployment_data"
+  | "low_sample"
+  | "approximate_lead_time";
+
+export type DoraMetricValue = {
+  readonly value: number | null;
+  readonly unit: string;
+  readonly sample: number;
+  readonly gap: DoraGap;
+};
+
+export type DoraMetricsResult = {
+  readonly service: string;
+  readonly since_ms: number;
+  readonly computed_at: string;
+  readonly metrics: {
+    readonly deployment_frequency: DoraMetricValue;
+    readonly lead_time_for_changes: DoraMetricValue;
+    readonly change_failure_rate: DoraMetricValue;
+    readonly mttr: DoraMetricValue;
+  };
+};
+
+const LOW_SAMPLE_THRESHOLD = 3;
+
+function gapOrNull(metric: DoraMetricValue): DoraMetricValue {
+  if (metric.value !== null && metric.sample < LOW_SAMPLE_THRESHOLD && metric.gap === null) {
+    return { ...metric, gap: "low_sample" };
+  }
+  return metric;
+}
+
+/** Median of a non-empty pre-sorted ascending array. Floor of the mean for even counts. */
+function medianOfSorted(sorted: readonly number[]): number {
+  const n = sorted.length;
+  if (n === 0) throw new Error("medianOfSorted: empty array");
+  if (n % 2 === 1) {
+    const v = sorted[(n - 1) / 2];
+    if (v === undefined) throw new Error("medianOfSorted: undefined entry");
+    return v;
+  }
+  const a = sorted[n / 2 - 1];
+  const b = sorted[n / 2];
+  if (a === undefined || b === undefined) throw new Error("medianOfSorted: undefined entry");
+  return Math.floor((a + b) / 2);
+}
+
+function distinctCiServiceColumns(repos: readonly ParsedDoraRepoUrn[]): string[] {
+  const out = new Set<string>();
+  for (const r of repos) {
+    for (const s of providerServiceColumns(r.provider).ciServices) out.add(s);
+  }
+  return Array.from(out);
+}
+
+function distinctPrServiceColumns(repos: readonly ParsedDoraRepoUrn[]): string[] {
+  const out = new Set<string>();
+  for (const r of repos) {
+    for (const s of providerServiceColumns(r.provider).prServices) out.add(s);
+  }
+  return Array.from(out);
+}
+
+/**
+ * Matches `metadata.repo` (GitHub / Bitbucket), `metadata.project` (GitLab),
+ * `metadata.jobName` (Jenkins), or `external_id` fallback (CircleCI). Combined per provider.
+ */
+function repoLikeMatchesUrn(
+  metadata: Record<string, unknown> | null,
+  externalId: string,
+  urn: ParsedDoraRepoUrn,
+): boolean {
+  if (metadata === null) return false;
+  switch (urn.provider) {
+    case "github":
+    case "bitbucket":
+      return metadata["repo"] === urn.providerId;
+    case "gitlab":
+      return metadata["project"] === urn.providerId || metadata["repo"] === urn.providerId;
+    case "jenkins":
+      return metadata["jobName"] === urn.providerId;
+    case "circleci":
+      // CircleCI item externalIds embed the slug rather than expose a `repo`/`project`
+      // metadata key. Substring match is intentional but means two configs whose
+      // providerIds are prefixes of one another may both match a single deploy.
+      // Operators should pick providerIds that are not prefixes of any other.
+      return externalId.includes(urn.providerId);
+  }
+}
+
+type CiRunRow = {
+  id: string;
+  external_id: string;
+  title: string;
+  modified_at: number;
+  metadata: string | null;
+};
+
+function selectDeploys(
+  db: Database,
+  cfg: DoraServiceConfig,
+  nowMs: number,
+  sinceMs: number,
+): CiRunRow[] {
+  const ciServices = distinctCiServiceColumns(cfg.repos);
+  if (ciServices.length === 0) return [];
+  const placeholders = ciServices.map(() => "?").join(",");
+  const rows = db
+    .query(
+      `SELECT id, external_id, title, modified_at, metadata
+       FROM item
+       WHERE service IN (${placeholders})
+         AND type = 'ci_run'
+         AND modified_at >= ?
+         AND modified_at <= ?`,
+    )
+    .all(...ciServices, nowMs - sinceMs, nowMs) as CiRunRow[];
+  const out: CiRunRow[] = [];
+  for (const row of rows) {
+    if (!cfg.deployWorkflowPattern.test(row.title)) continue;
+    const meta = row.metadata ? (JSON.parse(row.metadata) as Record<string, unknown>) : null;
+    if (meta === null || meta["conclusion"] !== "success") continue;
+    if (!cfg.repos.some((u) => repoLikeMatchesUrn(meta, row.external_id, u))) continue;
+    out.push(row);
+  }
+  return out;
+}
+
+export function deploymentFrequency(
+  db: Database,
+  cfg: DoraServiceConfig,
+  nowMs: number,
+  sinceMs: number,
+): DoraMetricValue {
+  if (cfg.repos.length === 0) {
+    return { value: null, unit: "deploys_per_day", sample: 0, gap: "no_repos" };
+  }
+  const deploys = selectDeploys(db, cfg, nowMs, sinceMs);
+  if (deploys.length === 0) {
+    return { value: null, unit: "deploys_per_day", sample: 0, gap: "no_deployment_data" };
+  }
+  const days = sinceMs / 86_400_000;
+  const value = deploys.length / days;
+  return gapOrNull({ value, unit: "deploys_per_day", sample: deploys.length, gap: null });
+}
+
+type PrRow = {
+  id: string;
+  modified_at: number;
+  metadata: string | null;
+};
+
+export function leadTimeForChanges(
+  db: Database,
+  cfg: DoraServiceConfig,
+  nowMs: number,
+  sinceMs: number,
+): DoraMetricValue {
+  if (cfg.repos.length === 0) {
+    return { value: null, unit: "seconds_median", sample: 0, gap: "no_repos" };
+  }
+  const deploys = selectDeploys(db, cfg, nowMs, sinceMs);
+  if (deploys.length === 0) {
+    return { value: null, unit: "seconds_median", sample: 0, gap: "no_deployment_data" };
+  }
+  const prServices = distinctPrServiceColumns(cfg.repos);
+  if (prServices.length === 0) {
+    return { value: null, unit: "seconds_median", sample: 0, gap: "approximate_lead_time" };
+  }
+  const placeholders = prServices.map(() => "?").join(",");
+  const prRows = db
+    .query(
+      `SELECT id, modified_at, metadata FROM item
+       WHERE service IN (${placeholders})
+         AND type = 'pr'
+         AND modified_at >= ?
+         AND modified_at <= ?`,
+    )
+    .all(...prServices, nowMs - sinceMs, nowMs) as PrRow[];
+
+  type DeployIdx = {
+    headSha: string | null;
+    modifiedAt: number;
+  };
+  const deployIdx: DeployIdx[] = deploys.map((d) => {
+    const meta = d.metadata ? (JSON.parse(d.metadata) as Record<string, unknown>) : null;
+    const rawHead = meta === null ? undefined : meta["headSha"];
+    const headSha = typeof rawHead === "string" ? rawHead : null;
+    return { headSha, modifiedAt: d.modified_at };
+  });
+
+  const leadTimes: number[] = [];
+  let anyApproximate = false;
+  for (const pr of prRows) {
+    const meta = pr.metadata ? (JSON.parse(pr.metadata) as Record<string, unknown>) : null;
+    if (meta === null || meta["merged"] !== true) continue;
+    const mergedAtRaw = meta["merged_at"];
+    const mergedAt = typeof mergedAtRaw === "number" ? mergedAtRaw : null;
+    if (mergedAt === null) continue;
+    const labelsRaw = meta["labels"];
+    const labels: readonly unknown[] = Array.isArray(labelsRaw) ? labelsRaw : [];
+    if (labels.some((l) => typeof l === "string" && cfg.excludePrLabels.includes(l))) continue;
+    const mergeShaRaw = meta["merge_commit_sha"];
+    const mergeSha = typeof mergeShaRaw === "string" ? mergeShaRaw : null;
+    if (mergeSha === null) {
+      anyApproximate = true;
+      continue;
+    }
+    const match = deployIdx.find((d) => d.headSha === mergeSha && d.modifiedAt >= mergedAt);
+    if (match === undefined) {
+      anyApproximate = true;
+      continue;
+    }
+    leadTimes.push(Math.floor((match.modifiedAt - mergedAt) / 1000));
+  }
+  if (leadTimes.length === 0) {
+    return {
+      value: null,
+      unit: "seconds_median",
+      sample: 0,
+      gap: anyApproximate ? "approximate_lead_time" : "no_deployment_data",
+    };
+  }
+  leadTimes.sort((a, b) => a - b);
+  const median = medianOfSorted(leadTimes);
+  return gapOrNull({
+    value: median,
+    unit: "seconds_median",
+    sample: leadTimes.length,
+    gap: anyApproximate ? "approximate_lead_time" : null,
+  });
+}
+
+type IncidentRow = {
+  id: string;
+  modified_at: number;
+  metadata: string | null;
+  synced_at: number;
+};
+
+type ResolvedIncident = {
+  opened: number;
+  resolved: number;
+  pdService: string;
+};
+
+function selectResolvedIncidents(
+  db: Database,
+  cfg: DoraServiceConfig,
+  nowMs: number,
+  sinceMs: number,
+): ResolvedIncident[] {
+  if (cfg.pagerdutyServices.length === 0) return [];
+  const placeholders = cfg.pagerdutyServices.map(() => "?").join(",");
+  const rows = db
+    .query(
+      `SELECT i.id, i.modified_at, i.metadata, i.synced_at
+       FROM item i
+       WHERE i.service = 'pagerduty'
+         AND i.type = 'incident'
+         AND json_extract(i.metadata, '$.pagerduty_service_id') IN (${placeholders})
+         AND i.modified_at >= ?
+         AND i.modified_at <= ?`,
+    )
+    .all(...cfg.pagerdutyServices, nowMs - sinceMs, nowMs) as IncidentRow[];
+  const out: ResolvedIncident[] = [];
+  for (const r of rows) {
+    const meta = r.metadata ? (JSON.parse(r.metadata) as Record<string, unknown>) : null;
+    if (meta === null || meta["status"] !== "resolved") continue;
+    const openedRaw = meta["opened_at_ms"];
+    const opened = typeof openedRaw === "number" ? openedRaw : r.synced_at;
+    const pdRaw = meta["pagerduty_service_id"];
+    const pdService = typeof pdRaw === "string" ? pdRaw : "";
+    out.push({ opened, resolved: r.modified_at, pdService });
+  }
+  return out;
+}
+
+export function changeFailureRate(
+  db: Database,
+  cfg: DoraServiceConfig,
+  nowMs: number,
+  sinceMs: number,
+): DoraMetricValue {
+  if (cfg.repos.length === 0) {
+    return { value: null, unit: "ratio", sample: 0, gap: "no_repos" };
+  }
+  const deploys = selectDeploys(db, cfg, nowMs, sinceMs);
+  if (deploys.length === 0) {
+    return { value: null, unit: "ratio", sample: 0, gap: "no_deployment_data" };
+  }
+  if (cfg.pagerdutyServices.length === 0) {
+    return { value: null, unit: "ratio", sample: deploys.length, gap: "no_pagerduty_mapping" };
+  }
+  const incidents = selectResolvedIncidents(db, cfg, nowMs, sinceMs);
+  const windowMs = cfg.incidentWindowMinutes * 60_000;
+  const sortedDeploys = deploys
+    .map((d) => ({ id: d.id, t: d.modified_at }))
+    .sort((a, b) => a.t - b.t);
+  const failedDeployIds = new Set<string>();
+  for (const inc of incidents) {
+    let attributed: string | undefined;
+    for (const d of sortedDeploys) {
+      if (d.t <= inc.opened && inc.opened - d.t <= windowMs) attributed = d.id;
+      if (d.t > inc.opened) break;
+    }
+    if (attributed !== undefined) failedDeployIds.add(attributed);
+  }
+  const value = failedDeployIds.size / deploys.length;
+  return gapOrNull({ value, unit: "ratio", sample: deploys.length, gap: null });
+}
+
+export function mttr(
+  db: Database,
+  cfg: DoraServiceConfig,
+  nowMs: number,
+  sinceMs: number,
+): DoraMetricValue {
+  if (cfg.pagerdutyServices.length === 0) {
+    return { value: null, unit: "seconds_median", sample: 0, gap: "no_pagerduty_mapping" };
+  }
+  const incidents = selectResolvedIncidents(db, cfg, nowMs, sinceMs);
+  if (incidents.length === 0) {
+    return { value: null, unit: "seconds_median", sample: 0, gap: "low_sample" };
+  }
+  const durations = incidents.map((i) => Math.max(0, Math.floor((i.resolved - i.opened) / 1000)));
+  durations.sort((a, b) => a - b);
+  const median = medianOfSorted(durations);
+  const lowSampleGap: DoraGap = durations.length < LOW_SAMPLE_THRESHOLD ? "low_sample" : null;
+  return { value: median, unit: "seconds_median", sample: durations.length, gap: lowSampleGap };
+}
+
+export function computeDoraMetrics(
+  db: Database,
+  cfg: DoraServiceConfig,
+  nowMs: number,
+  sinceMs: number,
+): DoraMetricsResult {
+  return {
+    service: cfg.serviceId,
+    since_ms: sinceMs,
+    computed_at: new Date(nowMs).toISOString(),
+    metrics: {
+      deployment_frequency: deploymentFrequency(db, cfg, nowMs, sinceMs),
+      lead_time_for_changes: leadTimeForChanges(db, cfg, nowMs, sinceMs),
+      change_failure_rate: changeFailureRate(db, cfg, nowMs, sinceMs),
+      mttr: mttr(db, cfg, nowMs, sinceMs),
+    },
+  };
+}

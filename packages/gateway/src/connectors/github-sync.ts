@@ -20,6 +20,68 @@ const SERVICE_ID = "github";
 const CURSOR_PREFIX = "nimbus-ghub1:";
 const USER_URL = "https://api.github.com/user";
 
+function extractLabelNames(raw: unknown): string[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out: string[] = [];
+  for (const entry of raw) {
+    if (typeof entry === "string") {
+      out.push(entry);
+      continue;
+    }
+    const r = asRecord(entry);
+    if (r === undefined) {
+      continue;
+    }
+    const name = stringField(r, "name");
+    if (name !== undefined && name.length > 0) {
+      out.push(name);
+    }
+  }
+  return out;
+}
+
+/**
+ * Builds the metadata object stored alongside an indexed `pr` item.
+ *
+ * Phase 5 T4 PR 2 (DORA Lead Time): captures `merged_at` (ms) and
+ * `merge_commit_sha` when the PR was merged, plus `labels`. The graph
+ * populator emits a `pr → commit` `merged_as` edge when both signals
+ * are present; the DORA calculator joins on this edge.
+ */
+export function extractPrMetadataForIndex(
+  repoFull: string,
+  pr: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged = pr["merged"] === true;
+  const user = asRecord(pr["user"]);
+  const login = user === undefined ? undefined : stringField(user, "login");
+  const out: Record<string, unknown> = {
+    number: numberField(pr, "number"),
+    repo: repoFull,
+    state: stringField(pr, "state"),
+    draft: pr["draft"] === true,
+    merged,
+    user: login,
+    labels: extractLabelNames(pr["labels"]),
+  };
+  if (merged) {
+    const mergedAtIso = stringField(pr, "merged_at");
+    if (mergedAtIso !== undefined) {
+      const ms = Date.parse(mergedAtIso);
+      if (Number.isFinite(ms)) {
+        out["merged_at"] = ms;
+      }
+    }
+    const sha = stringField(pr, "merge_commit_sha");
+    if (sha !== undefined && sha.length > 0) {
+      out["merge_commit_sha"] = sha;
+    }
+  }
+  return out;
+}
+
 function eventsUrlFor(login: string): string {
   return `https://api.github.com/users/${encodeURIComponent(login)}/events?per_page=100`;
 }
@@ -112,16 +174,8 @@ function upsertFromPullRequest(
   const htmlUrl = stringField(pr, "html_url");
   const modified = modifiedMsFromGithubTimestamps(pr, now);
   const user = asRecord(pr["user"]);
-  const login = user === undefined ? undefined : stringField(user, "login");
   const authorId = resolveGithubActorPersonId(ctx.db, user);
-  const meta: Record<string, unknown> = {
-    number: num,
-    repo: repoFull,
-    state: stringField(pr, "state"),
-    draft: pr["draft"] === true,
-    merged: pr["merged"] === true,
-    user: login,
-  };
+  const meta = extractPrMetadataForIndex(repoFull, pr);
   const externalId = `${repoFull}#${String(num)}`;
   upsertIndexedItemForSync(ctx, {
     service: SERVICE_ID,

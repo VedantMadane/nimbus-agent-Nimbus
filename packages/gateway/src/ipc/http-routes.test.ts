@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { READ_ONLY_HTTP_ROUTES } from "./http-routes.ts";
 
 describe("READ_ONLY_HTTP_ROUTES", () => {
-  it("includes the seven existing endpoints plus /v1/openapi.json", () => {
+  it("includes the seven existing endpoints plus /v1/openapi.json and /v1/metrics/dora", () => {
     const paths = READ_ONLY_HTTP_ROUTES.map((r) => r.path);
     expect(paths).toEqual([
       "/v1/audit",
@@ -10,6 +10,7 @@ describe("READ_ONLY_HTTP_ROUTES", () => {
       "/v1/health",
       "/v1/items",
       "/v1/items/{id}",
+      "/v1/metrics/dora",
       "/v1/openapi.json",
       "/v1/people",
       "/v1/people/{id}",

@@ -5,9 +5,21 @@
 
 import { Database } from "bun:sqlite";
 import { resolve } from "node:path";
+import { loadNimbusDoraFromConfigDir } from "../config/nimbus-toml.ts";
 import { getAllConnectorHealth } from "../connectors/health.ts";
 import { buildItemListSql, parseRelativeSinceToWindowMs } from "../index/item-list-query.ts";
+import { dispatchMetricsRpc, MetricsRpcError } from "./metrics-rpc.ts";
 import { loadOpenApiJsonBytes } from "./openapi-loader.ts";
+
+/**
+ * Optional context for the read-only HTTP server. Threaded through to handlers
+ * that need configDir-scoped helpers (e.g. `/v1/metrics/dora` resolves
+ * `[metrics.dora.<service>]` sections from `<configDir>/nimbus.toml`).
+ */
+export type ReadOnlyHttpServerOptions = {
+  readonly configDir?: string;
+  readonly nowMs?: () => number;
+};
 
 export type ReadOnlyHttpServerHandle = {
   readonly stop: () => void;
@@ -135,7 +147,53 @@ function handleOpenApiJson(): Response {
   });
 }
 
-function dispatchReadOnlyGet(path: string, url: URL, db: Database): Response {
+async function handleMetricsDora(
+  url: URL,
+  db: Database,
+  opts: ReadOnlyHttpServerOptions,
+): Promise<Response> {
+  const service = url.searchParams.get("service");
+  if (service === null || service === "") {
+    return json({ error: "missing required query param: service" }, 400);
+  }
+  const sinceRaw = url.searchParams.get("since");
+  const since = sinceRaw === null || sinceRaw === "" ? "30d" : sinceRaw;
+  let out: Awaited<ReturnType<typeof dispatchMetricsRpc>>;
+  try {
+    out = await dispatchMetricsRpc(
+      "metrics.dora",
+      { service, since },
+      {
+        db,
+        loadConfig: () =>
+          opts.configDir === undefined ? new Map() : loadNimbusDoraFromConfigDir(opts.configDir),
+        ...(opts.nowMs === undefined ? {} : { nowMs: opts.nowMs }),
+      },
+    );
+  } catch (e) {
+    // Only validation errors are surfaced to the client. Any other error
+    // bubbles to the outer `fetch` catch which returns a generic 500 —
+    // prevents internal details (paths, SQL fragments, stack frames) from
+    // reaching the response body.
+    if (e instanceof MetricsRpcError) {
+      return json({ error: e.message }, 400);
+    }
+    throw e;
+  }
+  if (out.kind === "miss") {
+    // `metrics.dora` should always hit; treat a miss as an internal error
+    // and let the outer catch produce a generic 500 response.
+    throw new Error("metrics.dora dispatcher returned miss");
+  }
+  return json(out.value);
+}
+
+async function dispatchReadOnlyGet(
+  path: string,
+  url: URL,
+  db: Database,
+  opts: ReadOnlyHttpServerOptions,
+): Promise<Response> {
   if (path === "/v1/health") {
     return json({ status: "ok", gateway: "read_only_http" });
   }
@@ -157,6 +215,9 @@ function dispatchReadOnlyGet(path: string, url: URL, db: Database): Response {
   if (path === "/v1/audit") {
     return handleAudit(url, db);
   }
+  if (path === "/v1/metrics/dora") {
+    return handleMetricsDora(url, db, opts);
+  }
   if (path === "/v1/openapi.json") {
     return handleOpenApiJson();
   }
@@ -165,22 +226,29 @@ function dispatchReadOnlyGet(path: string, url: URL, db: Database): Response {
 
 /**
  * @param dbPath Absolute path to `nimbus.db`
+ * @param port   TCP port to bind on `127.0.0.1`
+ * @param opts   Optional context — `configDir` enables config-aware routes
+ *               (e.g. `/v1/metrics/dora`); `nowMs` is a clock injector for tests.
  */
-export function startReadOnlyHttpServer(dbPath: string, port: number): ReadOnlyHttpServerHandle {
+export function startReadOnlyHttpServer(
+  dbPath: string,
+  port: number,
+  opts: ReadOnlyHttpServerOptions = {},
+): ReadOnlyHttpServerHandle {
   const db = new Database(dbPath, { readonly: true, create: false });
   db.run("PRAGMA query_only = ON");
 
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port,
-    fetch(req: Request): Response {
+    async fetch(req: Request): Promise<Response> {
       if (req.method !== "GET") {
         return new Response("Method Not Allowed", { status: 405 });
       }
       const url = new URL(req.url);
       const path = url.pathname;
       try {
-        return dispatchReadOnlyGet(path, url, db);
+        return await dispatchReadOnlyGet(path, url, db, opts);
       } catch {
         return json({ error: "internal_error" }, 500);
       }
