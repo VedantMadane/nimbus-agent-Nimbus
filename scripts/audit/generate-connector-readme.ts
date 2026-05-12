@@ -3,15 +3,42 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const SLUGS = [
-  "aws", "azure", "bitbucket", "circleci", "confluence", "datadog", "discord", 
-  "gcp", "github", "github-actions", "gitlab", "gmail", "google-drive", 
-  "google-photos", "grafana", "iac", "jenkins", "jira", "kubernetes", 
-  "linear", "newrelic", "notion", "obsidian", "onedrive", "outlook", 
-  "pagerduty", "sentry", "slack", "teams"
+  "aws",
+  "azure",
+  "bitbucket",
+  "circleci",
+  "confluence",
+  "datadog",
+  "discord",
+  "gcp",
+  "github",
+  "github-actions",
+  "gitlab",
+  "gmail",
+  "google-drive",
+  "google-photos",
+  "grafana",
+  "iac",
+  "jenkins",
+  "jira",
+  "kubernetes",
+  "linear",
+  "newrelic",
+  "notion",
+  "obsidian",
+  "onedrive",
+  "outlook",
+  "pagerduty",
+  "sentry",
+  "slack",
+  "teams",
 ];
 
 function toDisplayName(slug: string) {
-  return slug.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  return slug
+    .split("-")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
 }
 
 async function main() {
@@ -24,8 +51,26 @@ async function main() {
     const displayName = toDisplayName(slug);
     const description = `Nimbus MCP connector for ${displayName}. Indexes and provides context from ${displayName} to the Nimbus agent.`;
 
-    const docPathMdx = join(rootDir, "packages", "docs", "src", "content", "docs", "connectors", `${slug}.mdx`);
-    const docPathMd = join(rootDir, "packages", "docs", "src", "content", "docs", "connectors", `${slug}.md`);
+    const docPathMdx = join(
+      rootDir,
+      "packages",
+      "docs",
+      "src",
+      "content",
+      "docs",
+      "connectors",
+      `${slug}.mdx`,
+    );
+    const docPathMd = join(
+      rootDir,
+      "packages",
+      "docs",
+      "src",
+      "content",
+      "docs",
+      "connectors",
+      `${slug}.md`,
+    );
 
     let seeAlsoUrl = "https://nimbus-agent.dev/user-guide/connectors/";
     if (existsSync(docPathMdx) || existsSync(docPathMd)) {

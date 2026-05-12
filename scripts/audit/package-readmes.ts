@@ -1,4 +1,4 @@
-import { readFile, readdir, access } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const SCOPE: readonly { path: string; tier: "public" | "internal" }[] = [
@@ -18,29 +18,35 @@ const REQUIRED_SECTIONS = {
 export function extractH2Headings(content: string): string[] {
   const headings: string[] = [];
   const regex = /^##\s+(.+)$/gm;
-  let match;
-  while ((match = regex.exec(content)) !== null) {
+  for (const match of content.matchAll(regex)) {
     if (match[1]) headings.push(match[1].trim().toLowerCase());
   }
   return headings;
 }
 
-export function validatePackageReadme(content: string, tier: "public" | "internal", filePath: string): string | null {
+export function validatePackageReadme(
+  content: string,
+  tier: "public" | "internal",
+  filePath: string,
+): string | null {
   const headings = extractH2Headings(content);
   const required = REQUIRED_SECTIONS[tier];
-  
+
   for (const req of required) {
     if (!headings.includes(req)) {
-      const expectedOriginalCase = tier === "public" 
-        ? "What this is, Install, Quickstart, See also, License"
-        : "What this is, See also, License";
+      const expectedOriginalCase =
+        tier === "public"
+          ? "What this is, Install, Quickstart, See also, License"
+          : "What this is, See also, License";
       return `Missing required section in '${filePath}': '## ${req.charAt(0).toUpperCase() + req.slice(1)}'. Expected H2 headings for tier '${tier}' (case-insensitive): ${expectedOriginalCase}.`;
     }
   }
   return null;
 }
 
-async function discoverConnectors(rootDir: string): Promise<{ path: string; tier: "public" | "internal" }[]> {
+async function discoverConnectors(
+  rootDir: string,
+): Promise<{ path: string; tier: "public" | "internal" }[]> {
   const connectorsPath = join(rootDir, "packages", "mcp-connectors");
   try {
     const entries = await readdir(connectorsPath, { withFileTypes: true });
@@ -71,7 +77,7 @@ async function main() {
         console.error(error);
         failed = true;
       }
-    } catch (e) {
+    } catch (_e) {
       console.error(`Missing README.md in '${pkg.path}'`);
       failed = true;
     }

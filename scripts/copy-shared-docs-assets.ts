@@ -12,7 +12,7 @@ async function main() {
     "architecture-light.svg",
     "architecture-dark.svg",
     "nimbus-wordmark-light.svg",
-    "nimbus-wordmark-dark.svg"
+    "nimbus-wordmark-dark.svg",
   ];
 
   for (const file of files) {
