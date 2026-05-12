@@ -34,6 +34,7 @@
     "*.md",
     "!docs/README.md",
     "!docs/superpowers/**",
+    "!docs/perf/slo.md",
     "!.claude/worktrees/**",
     "!node_modules/**",
     "!packages/docs/dist/**"
