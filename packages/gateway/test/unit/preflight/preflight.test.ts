@@ -1,0 +1,479 @@
+import { Database } from "bun:sqlite";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { runIndexedSchemaMigrations } from "../../../src/index/migrations/runner.ts";
+import type { ServiceConfig } from "../../../src/metrics/dora-config.ts";
+import { computeDeployPreflight } from "../../../src/preflight/preflight.ts";
+
+function seedIncident(
+  db: Database,
+  id: string,
+  opts: {
+    status: "triggered" | "acknowledged" | "resolved";
+    severity: string;
+    pagerdutyServiceId: string;
+    openedAtMs: number;
+    title?: string;
+    url?: string;
+  },
+) {
+  const meta = {
+    status: opts.status,
+    severity: opts.severity,
+    pagerduty_service_id: opts.pagerdutyServiceId,
+    opened_at_ms: opts.openedAtMs,
+  };
+  db.run(
+    `INSERT INTO item (id, service, type, external_id, title, body_preview, url, canonical_url,
+                       modified_at, author_id, metadata, synced_at, pinned)
+     VALUES (?, 'pagerduty', 'incident', ?, ?, '', ?, NULL, ?, NULL, ?, ?, 0)`,
+    [
+      id,
+      id,
+      opts.title ?? "Incident",
+      opts.url ?? null,
+      opts.openedAtMs,
+      JSON.stringify(meta),
+      opts.openedAtMs,
+    ],
+  );
+}
+
+function seedCiRun(
+  db: Database,
+  id: string,
+  opts: {
+    service: string;
+    title: string;
+    conclusion: "success" | "failure" | "cancelled" | "timed_out";
+    branch: string;
+    headSha?: string;
+    workflowName?: string;
+    modifiedAtMs: number;
+    url?: string;
+  },
+) {
+  const meta: Record<string, unknown> = {
+    conclusion: opts.conclusion,
+    branch: opts.branch,
+  };
+  if (opts.headSha) meta.headSha = opts.headSha;
+  if (opts.workflowName) meta.workflow_name = opts.workflowName;
+  db.run(
+    `INSERT INTO item (id, service, type, external_id, title, body_preview, url, canonical_url,
+                       modified_at, author_id, metadata, synced_at, pinned)
+     VALUES (?, ?, 'ci_run', ?, ?, '', ?, NULL, ?, NULL, ?, ?, 0)`,
+    [
+      id,
+      opts.service,
+      id,
+      opts.title,
+      opts.url ?? null,
+      opts.modifiedAtMs,
+      JSON.stringify(meta),
+      opts.modifiedAtMs,
+    ],
+  );
+}
+
+function seedPr(
+  db: Database,
+  id: string,
+  opts: {
+    service: string;
+    repo?: string;
+    project?: string;
+    number: number;
+    state: "open" | "closed";
+    title?: string;
+    mergeableState?: string | null;
+    modifiedAtMs: number;
+    url?: string;
+  },
+) {
+  const meta: Record<string, unknown> = {
+    number: opts.number,
+    state: opts.state,
+  };
+  if (opts.repo) meta.repo = opts.repo;
+  if (opts.project) meta.project = opts.project;
+  if (opts.mergeableState !== undefined) meta.mergeable_state = opts.mergeableState;
+  db.run(
+    `INSERT INTO item (id, service, type, external_id, title, body_preview, url, canonical_url,
+                       modified_at, author_id, metadata, synced_at, pinned)
+     VALUES (?, ?, 'pr', ?, ?, '', ?, NULL, ?, NULL, ?, ?, 0)`,
+    [
+      id,
+      opts.service,
+      id,
+      opts.title ?? `PR #${opts.number}`,
+      opts.url ?? null,
+      opts.modifiedAtMs,
+      JSON.stringify(meta),
+      opts.modifiedAtMs,
+    ],
+  );
+}
+
+function cfg(overrides: Partial<ServiceConfig> = {}): ServiceConfig {
+  return {
+    serviceId: "payment-service",
+    repos: [{ provider: "github", providerId: "nimbus-agent/payments" }],
+    pagerdutyServices: ["P12ABCD"],
+    deployWorkflowPattern: /^[Dd]eploy/,
+    incidentWindowMinutes: 60,
+    excludePrLabels: ["revert"],
+    ...overrides,
+  };
+}
+
+describe("computeDeployPreflight: verdict + envelope", () => {
+  let dir: string;
+  let db: Database;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "nimbus-preflight-"));
+    db = new Database(join(dir, "nimbus.db"));
+    runIndexedSchemaMigrations(db, 27);
+  });
+  afterEach(() => {
+    db.close();
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* non-fatal */
+    }
+  });
+
+  it("returns verdict='ok' when every check has count===0 even with gaps present", () => {
+    const now = 1_715_000_000_000;
+    // No pagerduty services configured → no_pagerduty_mapping gap, but verdict still ok.
+    const out = computeDeployPreflight(db, cfg({ pagerdutyServices: [] }), "main", now, 10);
+    expect(out.verdict).toBe("ok");
+    expect(out.checks.active_p1_incidents.count).toBe(0);
+    expect(out.checks.active_p1_incidents.gap).toBe("no_pagerduty_mapping");
+    expect(out.service).toBe("payment-service");
+    expect(out.target_ref).toBe("main");
+    expect(out.computed_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it("returns verdict='warn' when any check has count>0", () => {
+    const now = 1_715_000_000_000;
+    seedIncident(db, "pagerduty:inc_1", {
+      status: "triggered",
+      severity: "P1",
+      pagerdutyServiceId: "P12ABCD",
+      openedAtMs: now - 60_000,
+    });
+    const out = computeDeployPreflight(db, cfg(), "main", now, 10);
+    expect(out.verdict).toBe("warn");
+    expect(out.checks.active_p1_incidents.count).toBe(1);
+  });
+});
+
+describe("computeDeployPreflight: active_p1_incidents check", () => {
+  let dir: string;
+  let db: Database;
+  const now = 1_715_000_000_000;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "nimbus-preflight-inc-"));
+    db = new Database(join(dir, "nimbus.db"));
+    runIndexedSchemaMigrations(db, 27);
+  });
+  afterEach(() => {
+    db.close();
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* non-fatal */
+    }
+  });
+
+  it("counts triggered + acknowledged P1 incidents on the configured PD service", () => {
+    seedIncident(db, "pagerduty:inc_1", {
+      status: "triggered",
+      severity: "P1",
+      pagerdutyServiceId: "P12ABCD",
+      openedAtMs: now - 60_000,
+    });
+    seedIncident(db, "pagerduty:inc_2", {
+      status: "acknowledged",
+      severity: "P1",
+      pagerdutyServiceId: "P12ABCD",
+      openedAtMs: now - 120_000,
+    });
+    seedIncident(db, "pagerduty:inc_3", {
+      status: "resolved",
+      severity: "P1",
+      pagerdutyServiceId: "P12ABCD",
+      openedAtMs: now - 180_000,
+    });
+    seedIncident(db, "pagerduty:inc_4", {
+      status: "triggered",
+      severity: "P2",
+      pagerdutyServiceId: "P12ABCD",
+      openedAtMs: now - 240_000,
+    });
+    const out = computeDeployPreflight(db, cfg(), "main", now, 10);
+    expect(out.checks.active_p1_incidents.count).toBe(2);
+    expect(out.checks.active_p1_incidents.gap).toBeNull();
+  });
+
+  it("excludes incidents on other PagerDuty services", () => {
+    seedIncident(db, "pagerduty:other_svc", {
+      status: "triggered",
+      severity: "P1",
+      pagerdutyServiceId: "P-OTHER",
+      openedAtMs: now - 60_000,
+    });
+    const out = computeDeployPreflight(db, cfg(), "main", now, 10);
+    expect(out.checks.active_p1_incidents.count).toBe(0);
+  });
+
+  it("emits gap='no_pagerduty_mapping' when cfg.pagerdutyServices is empty", () => {
+    const out = computeDeployPreflight(db, cfg({ pagerdutyServices: [] }), "main", now, 10);
+    expect(out.checks.active_p1_incidents.count).toBe(0);
+    expect(out.checks.active_p1_incidents.gap).toBe("no_pagerduty_mapping");
+  });
+
+  it("caps findings to max_findings (most recent first)", () => {
+    for (let i = 0; i < 15; i++) {
+      seedIncident(db, `pagerduty:inc_${i}`, {
+        status: "triggered",
+        severity: "P1",
+        pagerdutyServiceId: "P12ABCD",
+        openedAtMs: now - i * 60_000,
+      });
+    }
+    const out = computeDeployPreflight(db, cfg(), "main", now, 5);
+    expect(out.checks.active_p1_incidents.count).toBe(15);
+    expect(out.checks.active_p1_incidents.findings.length).toBe(5);
+    // Most-recent first → first finding is the most recently opened (smallest age).
+    expect(out.checks.active_p1_incidents.findings[0]?.id).toBe("pagerduty:inc_0");
+  });
+});
+
+describe("computeDeployPreflight: failing_ci_runs check", () => {
+  let dir: string;
+  let db: Database;
+  const now = 1_715_000_000_000;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "nimbus-preflight-ci-"));
+    db = new Database(join(dir, "nimbus.db"));
+    runIndexedSchemaMigrations(db, 27);
+  });
+  afterEach(() => {
+    db.close();
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* non-fatal */
+    }
+  });
+
+  it("counts only failing/cancelled/timed_out runs on the target branch", () => {
+    seedCiRun(db, "github_actions:r1", {
+      service: "github_actions",
+      title: "Deploy production",
+      conclusion: "failure",
+      branch: "main",
+      workflowName: "Deploy production",
+      modifiedAtMs: now - 60_000,
+    });
+    seedCiRun(db, "github_actions:r2", {
+      service: "github_actions",
+      title: "CI lint",
+      conclusion: "success",
+      branch: "main",
+      workflowName: "CI lint",
+      modifiedAtMs: now - 30_000,
+    });
+    seedCiRun(db, "github_actions:r3", {
+      service: "github_actions",
+      title: "Deploy production",
+      conclusion: "failure",
+      branch: "feature-x",
+      workflowName: "Deploy production",
+      modifiedAtMs: now - 90_000,
+    });
+    const out = computeDeployPreflight(db, cfg(), "main", now, 10);
+    expect(out.checks.failing_ci_runs.count).toBe(1);
+  });
+
+  it("groups by workflow_name and keeps only the most recent failing run per workflow", () => {
+    // Three failures on the same workflow → count should be 1 (latest only).
+    seedCiRun(db, "github_actions:old", {
+      service: "github_actions",
+      title: "Deploy production",
+      conclusion: "failure",
+      branch: "main",
+      workflowName: "Deploy production",
+      modifiedAtMs: now - 3 * 60_000,
+    });
+    seedCiRun(db, "github_actions:mid", {
+      service: "github_actions",
+      title: "Deploy production",
+      conclusion: "failure",
+      branch: "main",
+      workflowName: "Deploy production",
+      modifiedAtMs: now - 2 * 60_000,
+    });
+    seedCiRun(db, "github_actions:newest", {
+      service: "github_actions",
+      title: "Deploy production",
+      conclusion: "failure",
+      branch: "main",
+      workflowName: "Deploy production",
+      modifiedAtMs: now - 60_000,
+    });
+    const out = computeDeployPreflight(db, cfg(), "main", now, 10);
+    expect(out.checks.failing_ci_runs.count).toBe(1);
+    expect(out.checks.failing_ci_runs.findings[0]?.id).toBe("github_actions:newest");
+  });
+
+  it("falls back to title when workflow_name is missing", () => {
+    seedCiRun(db, "github_actions:no_wf", {
+      service: "github_actions",
+      title: "Build and Test",
+      conclusion: "failure",
+      branch: "main",
+      modifiedAtMs: now - 60_000,
+    });
+    seedCiRun(db, "github_actions:no_wf_2", {
+      service: "github_actions",
+      title: "Build and Test",
+      conclusion: "failure",
+      branch: "main",
+      modifiedAtMs: now - 120_000,
+    });
+    const out = computeDeployPreflight(db, cfg(), "main", now, 10);
+    // Same title → grouped to one workflow → 1 failing run (the latest).
+    expect(out.checks.failing_ci_runs.count).toBe(1);
+  });
+
+  it("emits gap='no_repos' when cfg.repos is empty", () => {
+    const out = computeDeployPreflight(db, cfg({ repos: [] }), "main", now, 10);
+    expect(out.checks.failing_ci_runs.count).toBe(0);
+    expect(out.checks.failing_ci_runs.gap).toBe("no_repos");
+  });
+});
+
+describe("computeDeployPreflight: merge_conflicts check", () => {
+  let dir: string;
+  let db: Database;
+  const now = 1_715_000_000_000;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "nimbus-preflight-pr-"));
+    db = new Database(join(dir, "nimbus.db"));
+    runIndexedSchemaMigrations(db, 27);
+  });
+  afterEach(() => {
+    db.close();
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* non-fatal */
+    }
+  });
+
+  it("counts open PRs with mergeable_state='dirty' on matching repos", () => {
+    seedPr(db, "github:pr_1", {
+      service: "github",
+      repo: "nimbus-agent/payments",
+      number: 1,
+      state: "open",
+      mergeableState: "dirty",
+      modifiedAtMs: now - 60_000,
+    });
+    seedPr(db, "github:pr_2", {
+      service: "github",
+      repo: "nimbus-agent/payments",
+      number: 2,
+      state: "open",
+      mergeableState: "clean",
+      modifiedAtMs: now - 30_000,
+    });
+    seedPr(db, "github:pr_3_closed", {
+      service: "github",
+      repo: "nimbus-agent/payments",
+      number: 3,
+      state: "closed",
+      mergeableState: "dirty",
+      modifiedAtMs: now - 90_000,
+    });
+    const out = computeDeployPreflight(db, cfg(), "main", now, 10);
+    expect(out.checks.merge_conflicts.count).toBe(1);
+    expect(out.checks.merge_conflicts.gap).toBeNull();
+  });
+
+  it("emits gap='unknown_mergeable_state' when any matching open PR has null mergeable_state", () => {
+    seedPr(db, "github:pr_dirty", {
+      service: "github",
+      repo: "nimbus-agent/payments",
+      number: 1,
+      state: "open",
+      mergeableState: "dirty",
+      modifiedAtMs: now - 60_000,
+    });
+    seedPr(db, "github:pr_unknown", {
+      service: "github",
+      repo: "nimbus-agent/payments",
+      number: 2,
+      state: "open",
+      mergeableState: null,
+      modifiedAtMs: now - 30_000,
+    });
+    const out = computeDeployPreflight(db, cfg(), "main", now, 10);
+    expect(out.checks.merge_conflicts.count).toBe(1); // Only dirty counts.
+    expect(out.checks.merge_conflicts.gap).toBe("unknown_mergeable_state");
+  });
+
+  it("excludes PRs from non-matching repos", () => {
+    seedPr(db, "github:other_repo", {
+      service: "github",
+      repo: "nimbus-agent/other",
+      number: 1,
+      state: "open",
+      mergeableState: "dirty",
+      modifiedAtMs: now - 60_000,
+    });
+    const out = computeDeployPreflight(db, cfg(), "main", now, 10);
+    expect(out.checks.merge_conflicts.count).toBe(0);
+  });
+});
+
+describe("computeDeployPreflight: max_findings", () => {
+  let dir: string;
+  let db: Database;
+  const now = 1_715_000_000_000;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "nimbus-preflight-max-"));
+    db = new Database(join(dir, "nimbus.db"));
+    runIndexedSchemaMigrations(db, 27);
+  });
+  afterEach(() => {
+    db.close();
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* non-fatal */
+    }
+  });
+
+  it("caps findings independently per check", () => {
+    for (let i = 0; i < 12; i++) {
+      seedPr(db, `github:pr_${i}`, {
+        service: "github",
+        repo: "nimbus-agent/payments",
+        number: i,
+        state: "open",
+        mergeableState: "dirty",
+        modifiedAtMs: now - i * 60_000,
+      });
+    }
+    const out = computeDeployPreflight(db, cfg(), "main", now, 3);
+    expect(out.checks.merge_conflicts.count).toBe(12);
+    expect(out.checks.merge_conflicts.findings.length).toBe(3);
+  });
+});
