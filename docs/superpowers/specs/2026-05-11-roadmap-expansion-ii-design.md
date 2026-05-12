@@ -67,7 +67,7 @@ The asymmetry feels accidental, not principled. The Creation wave fills it.
 | `nimbus meeting-notes <recording-or-transcript>` | Summarizes a meeting recording (via Phase 4 voice STT) or pre-existing transcript into action items + decisions + attendees; cross-links into existing notes (Obsidian / Notion) | Pure output unless `--append-to <vault-path>`; HITL-gated on append |
 | `nimbus retro <incident-id>` | Generates a draft incident retro: timeline from indexed alerts/commits/messages, contributing factors from related historical incidents, action items from open mitigations | Pure output unless `--apply-to-firehydrant` etc.; HITL-gated |
 
-All five follow the existing [`nimbus-agent-patterns`](../../.claude/commands/nimbus-agent-patterns.md) skill: read-only by default, HITL-free reads, decomposed via `AgentCoordinator` where parallelism helps (mostly for `retro` and `meeting-notes`), Markdown output to stdout, `--apply` flag for write side-effects that always traverse the HITL gate.
+All five follow the existing [`nimbus-agent-patterns`](../../../.claude/commands/nimbus-agent-patterns.md) skill: read-only by default, HITL-free reads, decomposed via `AgentCoordinator` where parallelism helps (mostly for `retro` and `meeting-notes`), Markdown output to stdout, `--apply` flag for write side-effects that always traverse the HITL gate.
 
 ### Slot
 

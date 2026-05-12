@@ -10,10 +10,10 @@
 [![Built with Bun](https://img.shields.io/badge/runtime-Bun_1.2+-black?logo=bun)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/language-TypeScript_6.x-3178C6?logo=typescript)](https://typescriptlang.org)
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple)](https://modelcontextprotocol.io)
-[![Platforms](https://img.shields.io/badge/platforms-Windows_%7C_macOS_%7C_Linux-blue)]()
+![Platforms](https://img.shields.io/badge/platforms-Windows_%7C_macOS_%7C_Linux-blue)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](../LICENSE)
 [![Release: v0.1.0](https://img.shields.io/badge/release-v0.1.0-brightgreen)](https://github.com/nimbus-agent/Nimbus/releases/tag/v0.1.0)
-[![Status: Phase 5 Active](https://img.shields.io/badge/status-Phase_5_Active-blue)]()
+![Status: Phase 5 Active](https://img.shields.io/badge/status-Phase_5_Active-blue)
 
 </div>
 

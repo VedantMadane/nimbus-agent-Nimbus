@@ -25,7 +25,7 @@ macOS and Windows binaries are unaffected by this change.
 
 Report privately via one of these channels:
 
-1. **GitHub private vulnerability reporting** — use "Report a vulnerability" on the [Security tab](../../../security/advisories/new) (preferred)
+1. **GitHub private vulnerability reporting** — use "Report a vulnerability" on the [Security tab](https://github.com/nimbus-agent/Nimbus/security/advisories/new) (preferred)
 2. **Email** — contact the maintainers at the address listed in the repository profile
 
 Include:

@@ -47,8 +47,8 @@ bun test              # All unit tests
 
 ### 3. Find Something to Work On
 
-- Issues tagged [`good-first-issue`](../../issues?q=is%3Aissue+is%3Aopen+label%3Agood-first-issue) are the best starting point
-- Issues tagged [`help-wanted`](../../issues?q=is%3Aissue+is%3Aopen+label%3Ahelp-wanted) are open for contributors
+- Issues tagged [`good-first-issue`](https://github.com/nimbus-agent/Nimbus/issues?q=is%3Aissue+is%3Aopen+label%3Agood-first-issue) are the best starting point
+- Issues tagged [`help-wanted`](https://github.com/nimbus-agent/Nimbus/issues?q=is%3Aissue+is%3Aopen+label%3Ahelp-wanted) are open for contributors
 - **Open a discussion before starting any large PR.** Architecture decisions belong in a discussion, not in a surprise diff
 
 ---
@@ -205,4 +205,4 @@ For security vulnerabilities, **do not open a public issue** — see [`SECURITY.
 
 ## Questions
 
-Open a [GitHub Discussion](../../discussions) rather than an issue. Issues are for confirmed bugs and accepted feature requests.
+Open a [GitHub Discussion](https://github.com/nimbus-agent/Nimbus/discussions) rather than an issue. Issues are for confirmed bugs and accepted feature requests.

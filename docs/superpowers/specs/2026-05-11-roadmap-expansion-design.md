@@ -39,7 +39,7 @@ Proposed for the **Phase 5 Extended queue** at the end-of-T6 re-planning checkpo
 
 **`quote` long-document handling (v1 limitation).** Retrieval is row-level: a 50-page Notion doc is one row, so `quote` returns the doc + a snippet extracted on-output via BM25 highlight (the highest-scoring paragraph around the matched terms), not chunk-level precision. True chunk-level retrieval — citing the exact paragraph in a 50-page doc — requires chunk-level embedding routing (per-paragraph rows in the vec index), which T6 does **not** currently include (T6 ships `vec_items_1536` multi-model embedding, which is per-item-type, not per-chunk). Chunk-level retrieval is a follow-up primitive worth its own spec; for v1, `quote` is row-level with BM25-highlight snippets, and the brief notes "snippet from a long source — open the link to verify the exact phrasing."
 
-All three follow the existing [`nimbus-agent-patterns`](../../.claude/commands/nimbus-agent-patterns.md) skill: read-only, HITL-free, decomposed via `AgentCoordinator.executeAll` for parallelism, emits `agents.<name>.briefReady` notification, CLI command at `packages/cli/src/commands/<name>.ts`.
+All three follow the existing [`nimbus-agent-patterns`](../../../.claude/commands/nimbus-agent-patterns.md) skill: read-only, HITL-free, decomposed via `AgentCoordinator.executeAll` for parallelism, emits `agents.<name>.briefReady` notification, CLI command at `packages/cli/src/commands/<name>.ts`.
 
 ### Dependencies
 

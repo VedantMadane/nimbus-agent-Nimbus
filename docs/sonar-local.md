@@ -79,7 +79,7 @@ If you need to upgrade beyond these thresholds (for example, to align Sonar's co
 
 For reproducing a full scan before pushing (e.g. when CI is unavailable, or to debug a gate failure that's hard to triage from the SonarCloud UI alone):
 
-1. Install a JRE and the [SonarScanner CLI](https://docs.sonarsource.com/sonarqube-cloud/advanced-setup/ci-integration-overview/).
+1. Install a JRE and the [SonarScanner CLI](https://docs.sonarsource.com/sonarqube-cloud/).
 2. Generate a token (**My Account** → **Security**) and export it:
 
    ```bash
