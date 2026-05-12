@@ -1,0 +1,19 @@
+{
+  "_derivation": "Hand-derived from seedPaymentServicePreflightFixture() at PREFLIGHT_FIXTURE_NOW_MS=1715000000000 with target_ref='main' and max_findings=10. active_p1_incidents=1 (inc_active triggered P1; inc_resolved excluded by status). failing_ci_runs=1 (ci_main_fail on main; the two feature-x failures excluded by branch; ci_main_pass excluded by conclusion). merge_conflicts=1 with gap='unknown_mergeable_state' (pr_dirty is dirty; pr_unknown has null mergeable_state which triggers the gap but doesn't count; pr_clean excluded). Verdict='warn' because every count > 0.",
+  "service": "payment-service",
+  "target_ref": "main",
+  "verdict": "warn",
+  "checks": {
+    "active_p1_incidents": { "count": 1, "gap": null, "first_finding_id": "pagerduty:inc_active" },
+    "failing_ci_runs": {
+      "count": 1,
+      "gap": null,
+      "first_finding_id": "github_actions:ci_main_fail"
+    },
+    "merge_conflicts": {
+      "count": 1,
+      "gap": "unknown_mergeable_state",
+      "first_finding_id": "github:pr_dirty"
+    }
+  }
+}
