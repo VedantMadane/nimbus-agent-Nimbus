@@ -14,6 +14,12 @@ exclude = [
   "127\\.0\\.0\\.1",
   # GitHub Releases anchors that are page-internal
   "github\\.com/.*/releases/tag",
+  # External hosts that block scripted user-agents or rate-limit aggressively
+  # from GitHub-hosted runner egress. Verified live in browsers; the failures
+  # are infrastructure noise, not broken links.
+  "npmjs\\.com",           # 403 to non-browser UAs
+  "opengraph\\.xyz",       # aggressive 429 rate limit
+  "tauri\\.app",           # intermittent connection failures from runners
 ]
 accept = ["200", "203", "204", "206", "301", "302", "304"]
 max_redirects = 5

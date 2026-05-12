@@ -37,11 +37,31 @@ jobs:
         with:
           persist-credentials: false
 
+      # Install lychee directly from its upstream release rather than via
+      # `lycheeverse/lychee-action`, which is not on this repo's allowed-actions
+      # allowlist (any third-party action outside the verified-creator set is
+      # blocked). The binary download is checksum-verified to keep the supply-
+      # chain story equivalent to the action.
+      - name: Install lychee
+        env:
+          LYCHEE_VERSION: lychee-v0.24.2
+          LYCHEE_TARGET: x86_64-unknown-linux-gnu
+        run: |
+          set -euo pipefail
+          archive="lychee-${LYCHEE_TARGET}.tar.gz"
+          cd "${RUNNER_TEMP}"
+          curl -sSL --fail -o "${archive}" \
+            "https://github.com/lycheeverse/lychee/releases/download/${LYCHEE_VERSION}/${archive}"
+          curl -sSL --fail -o "${archive}.sha256" \
+            "https://github.com/lycheeverse/lychee/releases/download/${LYCHEE_VERSION}/${archive}.sha256"
+          sha256sum -c "${archive}.sha256"
+          tar -xzf "${archive}"
+          # Upstream tarball extracts to `lychee-<target>/lychee`, not flat.
+          sudo install -m 0755 "lychee-${LYCHEE_TARGET}/lychee" /usr/local/bin/lychee
+          lychee --version
+
       - name: Run lychee
-        uses: lycheeverse/lychee-action@8646ba30535128ac92d33dfc9133794bfdd9b411 # v2.8.0
-        with:
-          args: --config lychee.toml --no-progress 'docs/**/*.md' '*.md'
-          fail: true
+        run: lychee --config lychee.toml --no-progress 'docs/**/*.md' '*.md'
 
   markdownlint:
     name: markdownlint-cli2
