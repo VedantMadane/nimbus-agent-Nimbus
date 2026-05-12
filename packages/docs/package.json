@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "bun ../../scripts/copy-shared-docs-assets.ts",
+    "prebuild": "bun ../../scripts/copy-shared-docs-assets.ts",
     "astro": "astro",
     "dev": "astro dev",
     "build": "astro check && astro build",

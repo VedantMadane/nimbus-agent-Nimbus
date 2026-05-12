@@ -1,8 +1,8 @@
 # Nimbus for VS Code
 
-Local-first AI agent for the editor. Ask, search, and run workflows against your private Nimbus index — all running on your machine.
+## What this is
 
-## What it does
+Local-first AI agent for the editor. Ask, search, and run workflows against your private Nimbus index — all running on your machine.
 
 - **Ask** — chat with the Nimbus agent in a side panel; results stream token-by-token.
 - **Search** — query your local Nimbus index across every connected service from the command palette.
@@ -14,9 +14,17 @@ VS Code Marketplace: `ext install nimbus-agent.nimbus-vscode`
 Open VSX (Cursor, VSCodium): `ext install nimbus-agent.nimbus-vscode`
 Manual: download the `.vsix` from the GitHub Release and run `code --install-extension nimbus-<ver>.vsix`.
 
+## Quickstart
+
+After installing, click the Nimbus icon in the sidebar or run `Nimbus: Open Chat` from the command palette.
+
 ## Requires
 
 A running Nimbus Gateway. See https://nimbus-agent.dev/install for setup.
+
+## See also
+
+- [Nimbus User Guide](https://nimbus-agent.dev/user-guide/)
 
 ## License
 
