@@ -105,27 +105,26 @@ describe("Platform Abstraction Layer", () => {
     }
   }, 15000); // 15s timeout to allow for migrations on fresh DB
 
-  it("uses the documented IPC path pattern per OS", async () => {
-    const { createPlatformServices } = await import("./index.ts");
-    const services = await createPlatformServices();
-    try {
-      const { paths } = services;
-      const os = platform();
-      if (os === "win32") {
-        expect(paths.socketPath.toLowerCase()).toBe(
-          String.raw`\\.\pipe\nimbus-gateway`.toLowerCase(),
-        );
-      } else {
-        expect(paths.socketPath).toContain("nimbus-gateway.sock");
-      }
-    } finally {
-      await services.syncScheduler?.stop().catch(() => {});
-      await services.connectorMesh?.disconnect().catch(() => {});
-      services.disposeSidecars?.();
-      services.localIndex?.close();
-      await new Promise((r) => setTimeout(r, 100));
+  it("uses the documented IPC path pattern per OS", () => {
+    // The socket path is determined entirely by the per-OS PlatformPaths
+    // factory — no need to assemble the full PlatformServices stack (DB
+    // migrations, vault, connector mesh, sync scheduler) just to read one
+    // string. The end-to-end shape is covered by the sibling test above.
+    const os = platform();
+    const paths =
+      os === "win32"
+        ? createWindowsPaths()
+        : os === "darwin"
+          ? createDarwinPaths()
+          : createLinuxPaths();
+    if (os === "win32") {
+      expect(paths.socketPath.toLowerCase()).toBe(
+        String.raw`\\.\pipe\nimbus-gateway`.toLowerCase(),
+      );
+    } else {
+      expect(paths.socketPath).toContain("nimbus-gateway.sock");
     }
-  }, 15000); // 15s timeout to allow for migrations on fresh DB (matches sibling test above)
+  });
 
   it("throws PlatformInitError for missing Linux secret-tool (subprocess)", () => {
     if (platform() !== "linux") {
