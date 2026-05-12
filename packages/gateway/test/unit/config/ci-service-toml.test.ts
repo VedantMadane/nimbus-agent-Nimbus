@@ -41,6 +41,47 @@ mystery = "yes"
 `;
     expect(() => parseNimbusCiServiceToml(raw)).toThrow(/unknown key/i);
   });
+
+  it("rejects an empty service id in [ci.service.]", () => {
+    expect(() => parseNimbusCiServiceToml(`[ci.service.]\nrepos = ["github:org/x"]\n`)).toThrow(
+      /empty service id/i,
+    );
+  });
+
+  it("rejects an invalid deploy_workflow_pattern regex via the CI parser path", () => {
+    const raw = `
+[ci.service.bad-regex]
+repos = ["github:org/svc"]
+deploy_workflow_pattern = "["
+`;
+    expect(() => parseNimbusCiServiceToml(raw)).toThrow(/deploy_workflow_pattern/);
+  });
+
+  it("rejects an out-of-range incident_window_minutes via the CI parser path", () => {
+    const raw = `
+[ci.service.bad-window]
+repos = ["github:org/svc"]
+incident_window_minutes = 1441
+`;
+    expect(() => parseNimbusCiServiceToml(raw)).toThrow(/incident_window_minutes/);
+  });
+
+  it("fills in all defaults when only 'repos' is set", () => {
+    const raw = `
+[ci.service.defaults]
+repos = ["github:org/d"]
+`;
+    const parsed = parseNimbusCiServiceToml(raw);
+    const cfg = parsed.get("defaults");
+    if (cfg === undefined) throw new Error("defaults missing");
+    expect(cfg.pagerdutyServices).toEqual([]);
+    // DEFAULT_INCIDENT_WINDOW_MINUTES = 60
+    expect(cfg.incidentWindowMinutes).toBe(60);
+    // DEFAULT_EXCLUDE_PR_LABELS = ["revert"]
+    expect(cfg.excludePrLabels).toEqual(["revert"]);
+    // DEFAULT_DEPLOY_WORKFLOW_PATTERN = "^[Dd]eploy" — test by matching
+    expect("Deploy production".match(cfg.deployWorkflowPattern)).not.toBeNull();
+  });
 });
 
 describe("loadNimbusServiceConfigsFromConfigDir", () => {

@@ -751,7 +751,8 @@ export function loadNimbusUserFromConfigDir(configDir: string): NimbusUserToml {
 // ---------------------------------------------------------------------------
 
 const DORA_TABLE_PREFIX = "[metrics.dora.";
-const DORA_KNOWN_KEYS: ReadonlySet<string> = new Set([
+// Canonical set of service-config keys shared by [metrics.dora.<id>] and [ci.service.<id>] parsers.
+const SERVICE_CONFIG_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "repos",
   "pagerduty_services",
   "deploy_workflow_pattern",
@@ -855,7 +856,7 @@ export function parseNimbusDoraToml(raw: string): Map<string, ServiceConfig> {
     const eq = trimmed.indexOf("=");
     if (eq <= 0) continue;
     const key = trimmed.slice(0, eq).trim();
-    if (!DORA_KNOWN_KEYS.has(key)) {
+    if (!SERVICE_CONFIG_KNOWN_KEYS.has(key)) {
       throw new Error(`unknown key '${key}' in [metrics.dora.${currentId}]`);
     }
     const bucket = accum.get(currentId);
@@ -906,7 +907,7 @@ export function parseNimbusCiServiceToml(raw: string): Map<string, ServiceConfig
     const eq = trimmed.indexOf("=");
     if (eq <= 0) continue;
     const key = trimmed.slice(0, eq).trim();
-    if (!DORA_KNOWN_KEYS.has(key)) {
+    if (!SERVICE_CONFIG_KNOWN_KEYS.has(key)) {
       throw new Error(`unknown key '${key}' in [ci.service.${currentId}]`);
     }
     const bucket = accum.get(currentId);
