@@ -234,7 +234,7 @@ For each entry plus every dynamically-discovered connector:
 - Assert `README.md` exists.
 - Extract H2 headings (`/^## (.+?)$/m`, normalize to lowercase).
 - Assert every required-tier section is present.
-- Emit a per-package status line; exit `1` if any failed with a clear "missing section" diagnostic.
+- Emit a per-package status line; exit `1` if any failed. The diagnostic enumerates the exact required-section strings for the tier — e.g. `Missing required section in 'packages/sdk/README.md': '## Quickstart'. Expected H2 headings for tier 'public' (case-insensitive): What this is, Install, Quickstart, See also, License.` — so contributors can copy-paste the canonical form rather than guess at variants. Heading matching stays strict (no regex tolerance) on purpose: tolerance would create ambiguity about which form is canonical.
 
 **PR-2-specific risks:**
 
@@ -275,7 +275,7 @@ The heaviest single PR in B. 30 files: 1 internal package + 29 first-party MCP c
 - `## Install` says "Bundled with Nimbus — no separate install" (these are first-party).
 - `## Quickstart` embeds `nimbus connector auth <slug>` then `nimbus ask "..."`.
 - `## See also` links to:
-  - `https://nimbus-agent.dev/user-guide/connectors/<slug>/` (if the page exists in `packages/docs/src/content/docs/connectors/`)
+  - `https://nimbus-agent.dev/user-guide/connectors/<slug>/` — emitted only if the generator finds `<slug>.mdx` or `<slug>.md` under `packages/docs/src/content/docs/connectors/` via `node:fs.existsSync()`. Otherwise the bullet falls back to the connector overview page `https://nimbus-agent.dev/user-guide/connectors/`.
   - `https://nimbus-agent.dev/architecture-overview/`
   - `https://nimbus-agent.dev/user-guide/hitl-and-safety/`
 - Slug derived from the directory name (`packages/mcp-connectors/github/` → `github`).
@@ -297,10 +297,9 @@ The heaviest single PR in B. 30 files: 1 internal package + 29 first-party MCP c
 | File | Change |
 |---|---|
 | `packages/docs/src/content/docs/index.mdx` | **Rewrite.** Use Starlight's `template: splash` + `hero:` frontmatter. |
-| `packages/docs/src/assets/nimbus-wordmark-light.svg` | Copy from `docs/assets/nimbus-wordmark-light.svg`. |
-| `packages/docs/src/assets/nimbus-wordmark-dark.svg` | Copy from `docs/assets/nimbus-wordmark-dark.svg`. |
-| `packages/docs/src/assets/architecture-light.svg` | Copy from `docs/assets/architecture-light.svg`. |
-| `packages/docs/src/assets/architecture-dark.svg` | Copy from `docs/assets/architecture-dark.svg`. |
+| `scripts/copy-shared-docs-assets.ts` | **New.** ~20-line Bun script copying the four shared SVGs from `docs/assets/` to `packages/docs/src/assets/` at build time. Source-of-truth stays at `docs/assets/`; the copies are gitignored. |
+| `packages/docs/package.json` | Add `"predev": "bun ../../scripts/copy-shared-docs-assets.ts"` and `"prebuild": "bun ../../scripts/copy-shared-docs-assets.ts"` so `bun run dev` and the publish workflow both refresh the assets before reading them. |
+| `.gitignore` | Add `packages/docs/src/assets/nimbus-wordmark-*.svg` and `packages/docs/src/assets/architecture-*.svg`. |
 
 **Splash structure (`index.mdx`):**
 
@@ -314,7 +313,8 @@ hero:
     Cross-service incident context in under 100 ms. Consent-gated automation.
     Your credentials never leave the machine.
   image:
-    file: ../../assets/architecture-light.svg
+    light: ../../assets/architecture-light.svg
+    dark: ../../assets/architecture-dark.svg
     alt: 30 connectors → local SQLite index → engine + HITL → CLI · UI · voice
   actions:
     - text: Install
@@ -366,9 +366,8 @@ Three structural choices:
 
 | Risk | Mitigation |
 |---|---|
-| Starlight's `hero.image.file` doesn't support light/dark variants | Fall back to a hand-rolled `<picture>` in MDX with `<Image>` from `astro:assets`. ~10 extra lines. |
 | Architecture SVG looks oversized at splash hero scale | Test with `bun --cwd packages/docs run dev`; constrain via `style="max-width: 720px"` if needed. |
-| Asset duplication (`docs/assets/` ↔ `packages/docs/src/assets/`) drifts | Acknowledged debt. Follow-up: a copy step in `docs-publish.yml` that pulls `docs/assets/` → `packages/docs/src/assets/` before build. Out of scope for B. |
+| Copied assets fall out of sync with `docs/assets/` source-of-truth | Resolved by design. `scripts/copy-shared-docs-assets.ts` runs as a `predev`/`prebuild` hook in `packages/docs/package.json`; every local dev start and CI build refreshes the four SVG copies. The copies are gitignored, so the source-of-truth at `docs/assets/` is the only set of files in git. |
 
 ---
 
@@ -401,7 +400,7 @@ Three structural choices:
 | Generator-produced connector READMEs ship without per-connector polish | Polish step explicit in PR 4 plan. Lint enforces structure only; content quality is a human review item. |
 | Starlight upgrade breaks the splash hero shape | Splash uses the documented `template: splash` API. `docs-publish.yml` builds on every push to main, so an upgrade PR has its build verified in CI before merge. |
 | Per-package README template churns | Required-sections list lives in one place (`scripts/audit/package-readmes.ts`). Any change requires a follow-up sweep PR; the lint refuses to merge until the sweep is complete. |
-| Asset duplication (`docs/assets/` + `packages/docs/src/assets/`) drifts | Acknowledged debt. Tracked as a follow-up — likely a copy step in the publish workflow. Out of B's scope. |
+| Copied assets drift from `docs/assets/` source-of-truth | Resolved by design (see §5.6). `scripts/copy-shared-docs-assets.ts` runs from `predev`/`prebuild`; copies are gitignored. |
 
 ---
 
@@ -413,8 +412,8 @@ Three structural choices:
 | 2 | 3 (template + lint + lint test) | 2 (`package.json`, `docs-quality.yml`) | 4 (existing READMEs) | 9 |
 | 3 | 1 (`sdk/README.md`) | 2 (`client` + `vscode-extension` content fill-in) | — | 3 |
 | 4 | 31 (generator + `docs/README.md` + 29 connector READMEs) | — | — | 31 |
-| 5 | 4 (4 SVG copies) | 1 (`index.mdx`) | — | 5 |
-| **Total (union)** | **40** | **6** | **4** | **~50** |
+| 5 | 1 (`scripts/copy-shared-docs-assets.ts`) | 3 (`index.mdx`, `package.json`, `.gitignore`) | — | 4 |
+| **Total (union)** | **37** | **8** | **4** | **~49** |
 
 The "Reshaped" column in PR 2 overlaps with "Modified" in PR 3 for `client` + `vscode-extension` — they are touched twice across the PR train but counted once in the total union.
 
@@ -427,7 +426,6 @@ The "Reshaped" column in PR 2 overlaps with "Modified" in PR 3 for `client` + `v
 | Sidebar IA restructure | Future polish (post-B) |
 | Custom Starlight theme / fonts / accent CSS | Future polish (post-B) |
 | PR-branch preview deployments | Future enhancement |
-| Source-of-truth consolidation for `docs/assets/` ↔ `packages/docs/src/assets/` | Tracked follow-up |
 | Auto-generated connector README sections from `nimbus.extension.json` on every connector PR | "G follow-up" per §12 of Sub-project A |
 | Marketplace listing automation for `client` / `sdk` npm publishes | Lives with release-tooling, not docs |
 | Site analytics / cookie banner | Deliberately out of scope (telemetry-cautious project) |
@@ -446,3 +444,17 @@ The "Reshaped" column in PR 2 overlaps with "Modified" in PR 3 for `client` + `v
 - [Phase 5 sequencing — plan-of-plans](./2026-05-06-phase-5-sequencing-design.md)
 - [Nimbus architecture reference](../../architecture.md)
 - [Security invariants](../../SECURITY-INVARIANTS.md) — none are touched by B
+
+---
+
+## 11. Design-review reconciliation
+
+External review of this spec ([`2026-05-12-sub-project-B-docs-publish-design-review.md`](./2026-05-12-sub-project-B-docs-publish-design-review.md), 2026-05-12, Gemini CLI) raised five points. Reconciled here for the record so future readers know each was weighed:
+
+| # | Reviewer concern | Status | Resolution |
+|---|---|---|---|
+| 1 | Starlight supports `hero.image.{light,dark}` natively (PR 5) | **Accepted** | §5.6's splash code block updated to use the `light`/`dark` keys. The risk row about a hand-rolled `<picture>` fallback was removed — `@astrojs/starlight@^0.38.4` (installed) supports the variant frontmatter since v0.20. |
+| 2 | Prebuild copy script avoids asset duplication debt (PR 5) | **Accepted** | PR 5 restructured: a new `scripts/copy-shared-docs-assets.ts` is run from `predev`/`prebuild` hooks in `packages/docs/package.json`, copying the four SVGs from `docs/assets/` to `packages/docs/src/assets/`. The copies are gitignored; source-of-truth stays at `docs/assets/`. §5.6 file table, §5.6 risk row, §7 risk row, §8 inventory, and §9 out-of-scope all updated. |
+| 3 | Lint forgiveness for heading variations (PR 2) | **Accepted (partial)** | §5.3's lint diagnostic now mandates enumerating the canonical required-section strings so contributors can copy-paste the exact form. Regex tolerance was deliberately **not** added: tolerance creates ambiguity about which heading is canonical, which is worse than a strict-but-friendly error message. |
+| 4 | Generator page-existence check (PR 4) | **Accepted** | §5.5 now names the check explicitly: the generator uses `node:fs.existsSync()` to look for `<slug>.mdx` or `<slug>.md` under `packages/docs/src/content/docs/connectors/`; falls back to the connector overview page when neither exists. |
+| 5 | GitHub Pages artifact path (PR 1) | **Confirmation** | Reviewer confirmed `packages/docs/dist` matches Astro's default output dir and that the apex-domain config needs no `base` change in `astro.config.mjs`. No action — recorded for posterity. |
