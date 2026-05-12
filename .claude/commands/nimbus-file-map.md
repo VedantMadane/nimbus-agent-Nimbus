@@ -96,6 +96,15 @@ This is the curated pointer index. Source-of-truth is the working tree — verif
 | `packages/gateway/src/agents/_lib/render.ts` | Deterministic Markdown fallback renderer |
 | `packages/gateway/src/agents/_lib/synthesize.ts` | LLM synthesis layer with deterministic fallback |
 
+## Metrics
+
+| File | Purpose |
+|---|---|
+| `packages/gateway/src/metrics/dora.ts` | Four pure DORA calculators: `deploymentFrequency`, `leadTimeForChanges`, `changeFailureRate`, `mttr`. Returns `DoraMetricsResult` envelope. |
+| `packages/gateway/src/metrics/dora-config.ts` | `DoraServiceConfig` type + URN parser + provider→service-column map. |
+| `packages/gateway/src/ipc/metrics-rpc.ts` | `dispatchMetricsRpc` — `metrics.dora` JSON-RPC handler. |
+| `packages/cli/src/commands/metrics.ts` | `nimbus metrics dora --service <id> [--since 30d] [--json]`. |
+
 ## IPC
 
 | File | Purpose |

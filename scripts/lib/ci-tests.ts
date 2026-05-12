@@ -107,6 +107,7 @@ function runCoverageGates(): void {
     { script: "test:coverage:telemetry" },
     { script: "test:coverage:db" },
     { script: "test:coverage:health" },
+    { script: "test:coverage:metrics" },
     { script: "test:coverage:doctor" },
     { script: "test:coverage:tui" },
     { script: "test:coverage:mcp" },

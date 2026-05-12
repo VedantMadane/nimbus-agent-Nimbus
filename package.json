@@ -91,6 +91,7 @@
     "test:coverage:telemetry": "bun test packages/gateway/src/config/telemetry-toml.test.ts packages/gateway/test/unit/telemetry --coverage --coverage-threshold-lines=85",
     "test:coverage:db": "bun test packages/gateway/test/unit/db --coverage --coverage-threshold-lines=85",
     "test:coverage:health": "bun test packages/gateway/test/unit/connectors/health.test.ts --coverage --coverage-threshold-lines=85",
+    "test:coverage:metrics": "bun test packages/gateway/test/unit/metrics/ packages/gateway/test/integration/metrics/ packages/gateway/test/unit/ipc/metrics-rpc.test.ts packages/gateway/test/integration/http/metrics-dora-route.test.ts --coverage --coverage-threshold-lines=80",
     "test:coverage:doctor": "bun test packages/cli/src/commands/doctor*.test.ts --coverage --coverage-threshold-lines=80",
     "test:coverage:mcp": "bun test packages/mcp-connectors --coverage --coverage-threshold-lines=70",
     "test:coverage:tui": "bun test packages/cli/src/tui/ --coverage --coverage-threshold-lines=80",

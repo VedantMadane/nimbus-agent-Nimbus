@@ -81,6 +81,9 @@ bun run test:coverage:updater         # ≥80% (updater state machine + manifest
 bun run test:coverage:lan             # ≥80% (lan-crypto, lan-pairing, lan-rate-limit, lan-rpc, lan-server)
 bun run test:coverage:perf            # ≥80% (perf bench harness)
 
+# Phase 5 T4 — CI/CD data layer
+bun run test:coverage:metrics         # ≥80% (DORA calculators + IPC)
+
 # UI Vitest gate
 cd packages/ui && bunx vitest run --coverage   # ≥80% lines / ≥75% branches
 ```
@@ -201,6 +204,12 @@ nimbus lan remove-peer <peer-id>
 ```bash
 nimbus expert <topic-or-file>     # IPC: agents.expert; emits agents.expert.briefReady
 nimbus impact <file-or-PR-url>    # IPC: agents.impact; emits agents.impact.briefReady
+```
+
+### Phase 5 T4 — CI/CD data layer
+
+```bash
+nimbus metrics dora --service <id> [--since 30d] [--json]   # four DORA metrics from the local index
 ```
 
 ## Environment-variable overrides
