@@ -25,18 +25,49 @@ function getIntInput(name: string, fallback: number): number {
   return Number.isInteger(n) ? n : fallback;
 }
 
+// Hardcoded allowlist of output names this Action declares in action.yml.
+// Any other name is rejected — guards against an attacker-controlled call
+// site smuggling a new output key into GITHUB_OUTPUT.
+const ALLOWED_OUTPUT_NAMES: ReadonlySet<string> = new Set([
+  "verdict",
+  "incident-count",
+  "failing-ci-count",
+  "merge-conflict-count",
+  "result-json",
+]);
+
 function setOutput(name: string, value: string): void {
+  if (!ALLOWED_OUTPUT_NAMES.has(name)) {
+    throw new Error(`refusing to set unknown output: ${name}`);
+  }
   const outFile = process.env.GITHUB_OUTPUT;
   if (outFile === undefined) return;
-  // Use the delimiter form so multi-line values (result-json) work.
-  const delim = `EOF_${Math.random().toString(36).slice(2)}`;
+  // Loop until the random delimiter is collision-free with the (possibly
+  // tainted) value, matching @actions/core's prepareKeyValueMessage. The
+  // collision probability is astronomically low, but the loop turns a
+  // dataflow risk into a structural guarantee that the heredoc parser
+  // cannot be escaped by adversarial output content.
+  let delim: string;
+  do {
+    delim = `EOF_${Math.random().toString(36).slice(2)}`;
+  } while (value.includes(delim));
   appendFileSync(outFile, `${name}<<${delim}\n${value}\n${delim}\n`);
 }
+
+// Cap on bytes written to GITHUB_STEP_SUMMARY per Action run. GitHub's
+// own limit is 1 MiB; this is a tighter bound that also serves as a DoS
+// guard against an adversarial Gateway returning a multi-gigabyte body.
+const STEP_SUMMARY_MAX_BYTES = 64 * 1024;
 
 function writeJobSummary(md: string): void {
   const file = process.env.GITHUB_STEP_SUMMARY;
   if (file === undefined) return;
-  appendFileSync(file, `${md}\n`);
+  // Truncate before write. The summary is rendered as markdown through
+  // GitHub's HTML sanitizer (raw <script>, event handlers, etc. are
+  // stripped server-side), so the remaining risk is markdown-injection
+  // phishing only — capped length prevents flooding.
+  const safe = md.length > STEP_SUMMARY_MAX_BYTES ? md.slice(0, STEP_SUMMARY_MAX_BYTES) : md;
+  appendFileSync(file, `${safe}\n`);
 }
 
 function emitAnnotation(level: "warning" | "error", message: string): void {

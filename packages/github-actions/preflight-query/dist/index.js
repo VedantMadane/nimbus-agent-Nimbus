@@ -82,21 +82,36 @@ function getIntInput(name, fallback) {
   const n = Number.parseInt(raw, 10);
   return Number.isInteger(n) ? n : fallback;
 }
+var ALLOWED_OUTPUT_NAMES = new Set([
+  "verdict",
+  "incident-count",
+  "failing-ci-count",
+  "merge-conflict-count",
+  "result-json"
+]);
 function setOutput(name, value) {
+  if (!ALLOWED_OUTPUT_NAMES.has(name)) {
+    throw new Error(`refusing to set unknown output: ${name}`);
+  }
   const outFile = process.env.GITHUB_OUTPUT;
   if (outFile === undefined)
     return;
-  const delim = `EOF_${Math.random().toString(36).slice(2)}`;
+  let delim;
+  do {
+    delim = `EOF_${Math.random().toString(36).slice(2)}`;
+  } while (value.includes(delim));
   appendFileSync(outFile, `${name}<<${delim}
 ${value}
 ${delim}
 `);
 }
+var STEP_SUMMARY_MAX_BYTES = 64 * 1024;
 function writeJobSummary(md) {
   const file = process.env.GITHUB_STEP_SUMMARY;
   if (file === undefined)
     return;
-  appendFileSync(file, `${md}
+  const safe = md.length > STEP_SUMMARY_MAX_BYTES ? md.slice(0, STEP_SUMMARY_MAX_BYTES) : md;
+  appendFileSync(file, `${safe}
 `);
 }
 function emitAnnotation(level, message) {
