@@ -327,7 +327,7 @@ components:
     PreflightGap:
       nullable: true
       type: string
-      enum: [no_pagerduty_mapping, no_repos, no_target_ref, unknown_mergeable_state]
+      enum: [no_pagerduty_mapping, no_repos, unknown_mergeable_state]
     IncidentFinding:
       type: object
       required: [id, title, status, severity, opened_at_ms, pagerduty_service_id, url]

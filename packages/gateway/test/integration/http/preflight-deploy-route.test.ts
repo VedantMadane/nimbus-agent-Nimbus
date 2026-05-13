@@ -29,11 +29,14 @@ repos = ["github:nimbus-agent/payments"]
 pagerduty_services = ["P12ABCD"]
 `,
     );
-    port = 30000 + Math.floor(Math.random() * 30000);
-    handle = startReadOnlyHttpServer(dbPath, port, {
+    // Pass port = 0 so the OS picks a free port; reading `handle.port` after
+    // start eliminates the random-port-collision flake that hit this test on
+    // shared CI runners (port 40370 in use → `Failed to start server`).
+    handle = startReadOnlyHttpServer(dbPath, 0, {
       configDir: dir,
       nowMs: () => PREFLIGHT_FIXTURE_NOW_MS,
     });
+    port = handle.port;
   });
 
   afterEach(() => {

@@ -14,12 +14,7 @@ import type { Database } from "bun:sqlite";
 import type { ParsedDoraRepoUrn, ServiceConfig } from "../metrics/dora-config.ts";
 import { providerServiceColumns } from "../metrics/dora-config.ts";
 
-export type PreflightGap =
-  | null
-  | "no_pagerduty_mapping"
-  | "no_repos"
-  | "no_target_ref"
-  | "unknown_mergeable_state";
+export type PreflightGap = null | "no_pagerduty_mapping" | "no_repos" | "unknown_mergeable_state";
 
 export type IncidentFinding = {
   readonly id: string;

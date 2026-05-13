@@ -5,10 +5,7 @@
 
 import { Database } from "bun:sqlite";
 import { resolve } from "node:path";
-import {
-  loadNimbusDoraFromConfigDir,
-  loadNimbusServiceConfigsFromConfigDir,
-} from "../config/nimbus-toml.ts";
+import { loadNimbusServiceConfigsFromConfigDir } from "../config/nimbus-toml.ts";
 import { getAllConnectorHealth } from "../connectors/health.ts";
 import { buildItemListSql, parseRelativeSinceToWindowMs } from "../index/item-list-query.ts";
 import { dispatchMetricsRpc, MetricsRpcError } from "./metrics-rpc.ts";
@@ -177,7 +174,9 @@ async function handleMetricsDora(
       {
         db,
         loadConfig: () =>
-          opts.configDir === undefined ? new Map() : loadNimbusDoraFromConfigDir(opts.configDir),
+          opts.configDir === undefined
+            ? new Map()
+            : loadNimbusServiceConfigsFromConfigDir(opts.configDir),
         ...(opts.nowMs === undefined ? {} : { nowMs: opts.nowMs }),
       },
     );
