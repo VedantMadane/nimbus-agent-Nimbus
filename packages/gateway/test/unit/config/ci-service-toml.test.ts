@@ -113,7 +113,7 @@ repos = ["gitlab:org/b"]
     expect(merged.get("svc-b")?.repos[0]?.provider).toBe("gitlab");
   });
 
-  it("on same id, [ci.service.<id>] wins and a warning is logged", () => {
+  it("on same id, [ci.service.<id>] wins and a warning is written to stderr", () => {
     writeFileSync(
       join(dir, "nimbus.toml"),
       `[metrics.dora.svc-a]
@@ -124,13 +124,16 @@ repos = ["gitlab:org/ci-version"]
 `,
     );
     const warnings: string[] = [];
-    const orig = console.warn;
-    console.warn = (msg: unknown) => warnings.push(String(msg));
+    const orig = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array): boolean => {
+      warnings.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+      return true;
+    }) as typeof process.stderr.write;
     try {
       const merged = loadNimbusServiceConfigsFromConfigDir(dir);
       expect(merged.get("svc-a")?.repos[0]?.provider).toBe("gitlab");
     } finally {
-      console.warn = orig;
+      process.stderr.write = orig;
     }
     expect(warnings.length).toBe(1);
     expect(warnings[0]).toMatch(/svc-a/);

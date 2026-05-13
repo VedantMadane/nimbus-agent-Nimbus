@@ -934,9 +934,9 @@ export function loadNimbusServiceConfigsFromConfigDir(
   const merged: Map<string, ServiceConfig> = new Map(dora);
   for (const [id, cfg] of ci.entries()) {
     if (merged.has(id)) {
-      console.warn(
+      process.stderr.write(
         `[ci.service.${id}] and [metrics.dora.${id}] both define service '${id}'; ` +
-          `using [ci.service.${id}].`,
+          `using [ci.service.${id}].\n`,
       );
     }
     merged.set(id, cfg);
