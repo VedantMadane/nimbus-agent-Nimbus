@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LINUX_ONLY_THRESHOLDS, runBenchCli } from "./bench-cli.ts";
+import { runQueryLatency100kOnce } from "./surfaces/bench-query-latency-100k.ts";
 
 let dir = "";
 let historyPath = "";
@@ -85,10 +86,19 @@ describe("runBenchCli — PR-B-2a registrations", () => {
   });
 
   test("--surface S2-b on --gha measures the medium tier (override to small for test speed)", async () => {
-    const exitCode = await runBenchCli(
-      ["--surface", "S2-b", "--runs", "1", "--corpus", "small", "--gha"],
-      { runId: "s2b-test", historyPath, fixtureCacheDir: dir, stdout: () => {} },
-    );
+    // S2-b pins to the medium (100k-row) tier in production; `--corpus` does
+    // not override it. Use the wrapper's documented test-only `overrideTier`
+    // escape hatch to keep the fixture small so the test fits its budget.
+    const exitCode = await runBenchCli(["--surface", "S2-b", "--runs", "1", "--gha"], {
+      runId: "s2b-test",
+      historyPath,
+      fixtureCacheDir: dir,
+      stdout: () => {},
+      surfaceDriverOverrides: {
+        "S2-b": (opts, runOpts) =>
+          runQueryLatency100kOnce(opts, { ...runOpts, overrideTier: "small" }),
+      },
+    });
     expect(exitCode).toBe(0);
     const line = readHistoryLine();
     expect(line.surfaces["S2-b"]?.samples_count).toBe(100);

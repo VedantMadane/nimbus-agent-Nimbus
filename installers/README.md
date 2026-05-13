@@ -1,5 +1,7 @@
 # Nimbus headless installers (Q2 §7.9)
 
+## What this is
+
 Ship the **CLI** (`nimbus`) and **Gateway** (`nimbus-gateway`) as siblings — the same layout produced by `bun run package:headless` and expected by `packages/cli/src/lib/resolve-gateway-launch.ts` (`NIMBUS_GATEWAY_EXECUTABLE` override optional).
 
 | Platform | Mechanism | CI / release |
@@ -39,6 +41,10 @@ export NIMBUS_RELEASE_VERSION=1.2.3
 bash installers/macos/build-pkg.sh dist/headless-bundle
 ```
 
-## Out of scope
+## See also
 
-Bundling MCP connector server binaries inside these installers is a future follow-up (see [`docs/roadmap.md`](../docs/roadmap.md)).
+- [`docs/roadmap.md`](../docs/roadmap.md) (Bundling MCP connector server binaries inside these installers is a future follow-up)
+
+## License
+
+MIT

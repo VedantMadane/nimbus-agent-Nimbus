@@ -145,3 +145,6 @@ nimbus
 
 # Per-run audit-orchestrator output (committed artifacts are tracked separately)
 docs/structure-audit/run-*.json
+
+packages/docs/src/assets/nimbus-wordmark-*.svg
+packages/docs/src/assets/architecture-*.svg
