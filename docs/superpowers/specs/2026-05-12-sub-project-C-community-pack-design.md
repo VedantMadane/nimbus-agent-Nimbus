@@ -26,7 +26,7 @@ Sub-project A's PR template already has the README screenshot checklist. Sub-pro
 | 3 | GFI curation | **Criteria doc + seed batch (8–12 issues).** Criteria appended to `docs/CONTRIBUTING.md`; seed issues created across ≥3 packages. |
 | 4 | Discussions reshape | **Curate set + seed pinned threads.** Slim to 5 categories (drop Polls, rename Show-and-tell → "Show your workflow", toggle Ideas + Q&A to answerable). 4 pinned seed threads. Discussion templates for Q&A and Ideas. |
 | 5 | FUNDING.yml | **Skip.** Defer until GitHub Sponsors / Open Collective is real; an empty FUNDING.yml shows a broken Sponsor button. Tracked in §9. |
-| 6 | Community files location (`CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`) | **Leave in `docs/`.** GitHub auto-discovers them there for the Community Standards detector. Moving to `.github/` adds churn without functional benefit. |
+| 6 | Community files location (`CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, **new** `SUPPORT.md`) | **Leave in `docs/`.** GitHub auto-discovers them there for the Community Standards detector. Moving to `.github/` adds churn without functional benefit. New `SUPPORT.md` (added by C) follows the same convention — placed at `docs/SUPPORT.md`. |
 | 7 | Approach shape | **Three-PR train** (code-side config → Discussions infra + ops → GFI on-ramp). Approach 1 from the brainstorm. |
 
 ---
@@ -39,7 +39,7 @@ Sub-project A's PR template already has the README screenshot checklist. Sub-pro
 - A "how do I…?" question hitting the issue picker is directed to Discussions Q&A; a "I think I found a vulnerability" question is directed to `docs/SECURITY.md`'s private channel.
 - The Discussions tab shows 5 purpose-built categories and 4 pinned seed threads (welcome, FAQ, roadmap input, show-your-workflow starter) within 24 h of PR 2's merge.
 - `docs/CONTRIBUTING.md` defines what makes a Nimbus GFI; 8–12 seeded GFI issues are open across ≥3 distinct `pkg:*` labels within 24 h of PR 3's merge.
-- A new contributor can find SUPPORT.md or Discussions from the repo's root navigation within 30 seconds.
+- A new contributor can find `docs/SUPPORT.md` (linked from the GitHub Community Profile sidebar) or Discussions from the repo's root navigation within 30 seconds.
 
 ### Non-goals
 
@@ -85,7 +85,7 @@ Sub-project C introduces eight new files, modifies two existing files, and appli
 | Documentation Issue Form | `.github/ISSUE_TEMPLATE/documentation_issue.yml` | Required: page/path, what's wrong, suggested fix. Auto-labels: `documentation`, `needs-triage`. | 1 |
 | Issue picker config | `.github/ISSUE_TEMPLATE/config.yml` | `blank_issues_enabled: false`; contact links to Discussions Q&A, Ideas, General, and `docs/SECURITY.md`. | 1 |
 | PR template polish | `.github/PULL_REQUEST_TEMPLATE.md` | Add one new optional section: `## Linked Discussion`, between `## Related Issue` and `## Type of Change`. | 1 |
-| Support decision tree | `.github/SUPPORT.md` | ~50 lines. Routes usage questions → Discussions Q&A; bugs → Issues; features → Discussions Ideas or Issues; security → SECURITY.md; chat → Discussions General. | 1 |
+| Support decision tree | `docs/SUPPORT.md` | ~50 lines. Routes usage questions → Discussions Q&A; bugs → Issues; features → Discussions Ideas or Issues; security → SECURITY.md; chat → Discussions General. Lives in `docs/` to match the §2 #6 decision; GitHub Community Standards auto-discovers it there. | 1 |
 | Q&A discussion template | `.github/DISCUSSION_TEMPLATE/q-a.yml` | Prompts: what are you trying to do, what have you tried, environment. Title prefix `Q&A: `. Labels: `question`, `needs-triage`. | 2 |
 | Ideas discussion template | `.github/DISCUSSION_TEMPLATE/ideas.yml` | Prompts: problem, proposed solution, fit with local-first model, willing to build. Title prefix `Idea: `. Labels: `enhancement`, `needs-triage`. | 2 |
 | GFI criteria section | `docs/CONTRIBUTING.md` | New `## What makes a good first issue?` section between "Find Something to Work On" and "Development Workflow". | 3 |
@@ -109,7 +109,7 @@ Sub-project C introduces eight new files, modifies two existing files, and appli
 | `.github/ISSUE_TEMPLATE/documentation_issue.yml` | **New.** No predecessor — pure addition. |
 | `.github/ISSUE_TEMPLATE/config.yml` | **New.** Blank-issue disable + 4 contact links. |
 | `.github/PULL_REQUEST_TEMPLATE.md` | **Modified.** Add `## Linked Discussion` section. |
-| `.github/SUPPORT.md` | **New.** Decision-tree document. |
+| `docs/SUPPORT.md` | **New.** Decision-tree document. |
 
 **Bug report Issue Form shape (illustrative — exact field set lifted from current `bug_report.md`):**
 
@@ -213,8 +213,13 @@ body:
     id: additional
     attributes:
       label: Additional Context
-      description: Logs, screenshots, related issues, anything else that helps.
+      description: |
+        Logs, screenshots, related issues, anything else that helps.
+
+        **Highly recommended:** paste the output of `nimbus diag --json` here — it's a structured snapshot (gateway version, index metrics, connector health, recent slow queries) with credentials redacted. It's the fastest path to a diagnosis.
 ```
+
+Why `nimbus diag --json` rather than a free-form log file: the CLI command exists today, the output is structured (parseable for triage), and the redaction is already enforced by the structured logger (no leaked credentials). There is no canonical user-facing `nimbus.log` file path — logs are written by the structured logger to platform-specific locations, and asking new users to find them is friction we don't need.
 
 The same migration pattern applies to `feature_request.yml` (checkbox group for non-negotiables, dropdown for roadmap phase) and `connector_request.yml` (checkbox groups for read/write ops, dropdown for willing-to-build). `documentation_issue.yml` is a slim form (3 required textareas + a `pkg:*` dropdown).
 
@@ -237,6 +242,8 @@ contact_links:
     about: Talking-shop, casual questions, "is anyone else seeing X?".
 ```
 
+**Note on absolute URLs in `config.yml`:** GitHub's `config.yml` schema does **not** support relative URLs in `contact_links` — every link must be absolute. This means a fork of the repo with Issues enabled will surface contact links pointing back to upstream `nimbus-agent/Nimbus` (forks would see "Q&A in nimbus-agent/Nimbus Discussions" rather than their own). This is intentional and desirable here: security reports and Q&A traffic from forks should reach the upstream maintainer team, not be silently scattered into per-fork Issues. Recorded explicitly so future readers don't try to "fix" it with relative URLs.
+
 **PR template addition (single new section):**
 
 Insert this **between** `## Related Issue` and `## Type of Change`:
@@ -244,8 +251,10 @@ Insert this **between** `## Related Issue` and `## Type of Change`:
 ```markdown
 ## Linked Discussion
 
-<!-- Optional. If this PR resolves a Discussions Ideas thread or implements something agreed in Q&A, link it here. -->
+<!-- Optional but encouraged. If this PR implements an idea agreed in Discussions Ideas, answers a Q&A, or addresses something flagged in General, paste the discussion URL here so a maintainer can update or mark-answered the thread after merge. Note: GitHub does NOT auto-close Discussions from PR merges (only Issues via `Closes #N`); this is a manual step. -->
 ```
+
+Why the prompt mentions manual update: `Closes #N` keywords only resolve Issues, not Discussions. A merge does not auto-mark a Discussions Ideas thread as "built" — that's a maintainer follow-up step. Calling it out in the template avoids the misconception that linking a Discussion does the right thing automatically.
 
 Everything else in the existing PR template — the screenshot checklist, non-negotiables, coverage requirements, testing section — stays untouched. The "screenshot checklist" callout from A §12 is the existing `## Non-Negotiables Checklist` bullet about README-touching PRs; that bullet remains as-is.
 
@@ -275,10 +284,10 @@ Large features benefit from a Discussions Ideas thread before a PR. Small featur
 → [Connector request form](https://github.com/nimbus-agent/Nimbus/issues/new?template=connector_request.yml)
 
 ## "I want to contribute" — contributor onboarding
-→ [`docs/CONTRIBUTING.md`](../docs/CONTRIBUTING.md) and look for issues labeled [`good first issue`](https://github.com/nimbus-agent/Nimbus/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).
+→ [`CONTRIBUTING.md`](./CONTRIBUTING.md) and look for issues labeled [`good first issue`](https://github.com/nimbus-agent/Nimbus/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).
 
 ## "I think I found a security vulnerability" — DO NOT open a public issue
-→ [`docs/SECURITY.md`](../docs/SECURITY.md)
+→ [`SECURITY.md`](./SECURITY.md)
 
 The file documents the private reporting channel and disclosure timeline.
 
@@ -415,6 +424,7 @@ body:
 | Maintainer-authored FAQ drifts from `docs/architecture.md` | FAQ thread is pinned; quarterly review feasible. Link from FAQ to architecture.md for the canonical answer. |
 | Slug mismatch breaks `q-a.yml` or `ideas.yml` template | The Q&A category's slug is `q-a` already; we don't rename it. Smoke-test by submitting a draft discussion after PR merges. |
 | Renaming Show-and-tell breaks the one existing discussion's URL | Keep slug `show-and-tell` when renaming (the slug is independently editable in the rename dialog). |
+| Discussion templates may not honor `validations.required` the same way Issue Forms do | GitHub's docs describe discussion templates as sharing the same `body` schema as Issue Forms, but `validations.required` enforcement on discussions is not explicitly documented. Smoke test in PR 2's ops checklist: open a draft discussion in Q&A and submit with required fields blank — if it submits without error, `required` is prompt-only on discussions. Accept that outcome (the form-shape still prompts users); do not block PR 2 on it. |
 
 ### 5.4 — PR 3: GFI on-ramp
 
@@ -435,13 +445,13 @@ The `good first issue` label is a contract, not a suggestion. An issue carrying 
 |---|---|
 | **Scope** | 1–3 files touched, ≤ 100 LOC change |
 | **Time estimate** | 1–3 hours for a first-time contributor (assumes TypeScript familiarity; no Bun/SQLite/Tauri-specific knowledge required) |
-| **Mentor pinged** | Issue body names one maintainer the contributor can `@mention` for guidance. The named maintainer commits to responding within 48 h |
+| **Mentor pinged** | Issue body names one maintainer the contributor can `@mention` for guidance. The named maintainer commits to responding within 48 h **(business days, excluding weekends and holidays)** |
 | **Definition of done** | Issue body has a concrete checklist of what "complete" means (file changed + behavior verified + test added) |
 | **Test surface** | Either an existing test file exists for the area, or the issue specifies the test file to add |
 | **Security-invariant clear** | Issue does NOT touch `engine/executor.ts`, `vault/`, `ipc/lan-server.ts`, `ui/src-tauri/src/gateway_bridge.rs`, or any I1–I12 wiring site. Issues touching those are explicitly **not** GFI regardless of size |
 | **Labels** | `good first issue` + `help wanted` (optional) + `pkg:<area>` |
 
-If your mentor hasn't responded in 48 h, ping `@nimbus-agent/maintainers` on the issue.
+If your mentor hasn't responded in 48 h (business days, excluding weekends and holidays), ping `@nimbus-agent/maintainers` on the issue.
 
 **For maintainers:** before applying the `good first issue` label, run through the table above. If any row fails, fix the issue body or use a different label (`help wanted` is more permissive — no mentor commitment, larger scope OK).
 ```
@@ -459,6 +469,35 @@ If your mentor hasn't responded in 48 h, ping `@nimbus-agent/maintainers` on the
    - **Docs site connector pages.** Source: existing #243 issue split into per-connector issues for the 5–6 most-requested connectors. Yield: 2–3 issues.
 3. **Distribute mentor names** across the 12 issues. Aim for 3–4 distinct maintainers each named on 3–4 issues — avoids any one maintainer becoming the 48-h-response bottleneck.
 4. **Apply the issue template consistently** — title prefix `gfi: `, body uses: problem · definition of done · suggested approach · mentor.
+5. **Track the seed batch in PR 3's description** as a literal checklist that is filled in as issues are created. Use this exact shape so reviewers can confirm completeness before merging the criteria doc:
+
+   ```markdown
+   ## Seed batch tracking (fill in as issues are created)
+
+   Source pool: under-covered test surfaces
+   - [ ] #___ (mentor: @___, pkg: ___)
+   - [ ] #___ (mentor: @___, pkg: ___)
+   - [ ] #___ (mentor: @___, pkg: ___)
+
+   Source pool: CLI ergonomics polish
+   - [ ] #___ (mentor: @___, pkg: ___)
+   - [ ] #___ (mentor: @___, pkg: ___)
+
+   Source pool: connector error-message clarity
+   - [ ] #___ (mentor: @___, pkg: ___)
+   - [ ] #___ (mentor: @___, pkg: ___)
+
+   Source pool: docs site connector pages
+   - [ ] #___ (mentor: @___, pkg: ___)
+   - [ ] #___ (mentor: @___, pkg: ___)
+
+   Mentor distribution check (each maintainer named on 3–4 issues):
+   - @maintainerA: ___ issues
+   - @maintainerB: ___ issues
+   - @maintainerC: ___ issues
+   ```
+
+   Issue creation is **delegated**, not centralized: each maintainer creates the issues that name them as mentor (commitment is implicit in self-creation). The PR author audits the checklist before requesting final review.
 
 **Three load-bearing details:**
 
@@ -495,7 +534,7 @@ If your mentor hasn't responded in 48 h, ping `@nimbus-agent/maintainers` on the
 
 ### 6.2 — Qualitative (acceptance signals, not merge gates)
 
-- A first-time visitor lands on the repo's root, finds Discussions or SUPPORT.md from the GitHub repo nav within 30 seconds.
+- A first-time visitor lands on the repo's root, finds Discussions or `docs/SUPPORT.md` (via the GitHub Community Profile sidebar) within 30 seconds.
 - A bug report opened by a new contributor includes OS, Bun version, and Nimbus version without being asked (the form enforces it).
 - A "how do I…?" question lands in Discussions Q&A rather than Issues — measured 30 days post-merge by comparing the ratio of Q&A-vs-Issues "how" questions.
 - A maintainer can scan a seeded GFI issue and confirm scope/mentor/DoD without reading code first.
@@ -508,7 +547,7 @@ If your mentor hasn't responded in 48 h, ping `@nimbus-agent/maintainers` on the
 |---|---|
 | Issue Forms YAML schema mistake ships broken to main | Smoke-test each form via a draft issue within 1 h of PR 1 merge; pre-stage a revert PR before merging. |
 | Discussions reshape ops accidentally deletes a non-Polls category | Ops checklist names categories explicitly; only `Polls` is destructive. Snapshot via `gh api graphql` before and after. |
-| Seed GFI batch sets expectations the maintainer team can't meet (48-h SLA × 12 issues) | Distribute mentor names across 3–4 maintainers (each named on 3–4 issues); treat 48-h SLA as soft; document fallback in criteria section ("If mentor hasn't responded in 48 h, ping `@nimbus-agent/maintainers`"). |
+| Seed GFI batch sets expectations the maintainer team can't meet (48-h SLA × 12 issues) | Distribute mentor names across 3–4 maintainers (each named on 3–4 issues); treat 48-h SLA as soft (explicitly business-days only in the criteria section); document fallback in criteria section ("If mentor hasn't responded in 48 h, ping `@nimbus-agent/maintainers`"). |
 | Sub-project C lands but Discussions remains empty | The 4 pinned seed threads in PR 2 are the seeding mechanism. Track Discussions activity 30 days post-merge as the qualitative signal in §6.2. |
 | `config.yml` contact links rot when Discussions URLs change | The URLs use category slugs that PR 2 explicitly preserves (§5.3 "keep slug `show-and-tell`"; Q&A and Ideas not renamed). Lychee link-check on every PR catches future breakage. |
 
@@ -518,7 +557,7 @@ If your mentor hasn't responded in 48 h, ping `@nimbus-agent/maintainers` on the
 
 | PR | New | Modified | Deleted (replaced) | Total file changes |
 |---|---|---|---|---|
-| 1 | 6 (`bug_report.yml`, `feature_request.yml`, `connector_request.yml`, `documentation_issue.yml`, `config.yml`, `SUPPORT.md`) | 1 (`PULL_REQUEST_TEMPLATE.md`) | 3 (`bug_report.md`, `feature_request.md`, `connector_request.md`) | 10 |
+| 1 | 6 (`bug_report.yml`, `feature_request.yml`, `connector_request.yml`, `documentation_issue.yml`, `config.yml` in `.github/ISSUE_TEMPLATE/`; `docs/SUPPORT.md`) | 1 (`.github/PULL_REQUEST_TEMPLATE.md`) | 3 (`.github/ISSUE_TEMPLATE/{bug_report,feature_request,connector_request}.md`) | 10 |
 | 2 | 2 (`q-a.yml`, `ideas.yml` discussion templates) | — | — | 2 |
 | 3 | — | 1 (`docs/CONTRIBUTING.md`) | — | 1 |
 | **Total (union)** | **8** | **2** | **3** | **13 file changes** + **~16–20 GitHub-side ops** (4 Issue Form smoke tests + category reshape + 4 pinned threads + ~12 seed issues + audit of 4 existing GFIs) |
@@ -550,3 +589,19 @@ If your mentor hasn't responded in 48 h, ping `@nimbus-agent/maintainers` on the
 - [Phase 5 sequencing — plan-of-plans](./2026-05-06-phase-5-sequencing-design.md)
 - [Nimbus architecture reference](../../architecture.md) — unchanged by C.
 - [Security invariants](../../SECURITY-INVARIANTS.md) — none touched by C.
+
+---
+
+## 11. Design-review reconciliation
+
+External review of this spec ([`2026-05-12-sub-project-C-community-pack-design-review.md`](./2026-05-12-sub-project-C-community-pack-design-review.md), 2026-05-12) raised four suggestions and three open questions. Reconciled here for the record so future readers know each was weighed:
+
+| # | Reviewer concern | Status | Resolution |
+|---|---|---|---|
+| 1 | `SUPPORT.md` should live in `docs/` (not `.github/`) to match the §2 #6 decision on `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md` location | **Accepted** | Moved to `docs/SUPPORT.md`. §2 #6, §5.1 component table, §5.2 file row, the SUPPORT.md content example (relative links flipped from `../docs/X.md` to `./X.md`), §8 inventory, and §1 goals all updated. GitHub Community Standards auto-discovers `docs/SUPPORT.md` the same way it does the other three. |
+| 2 | The 48-h GFI mentor SLA needs a "business days" clarifier to prevent maintainer weekend guilt | **Accepted** | §5.4 GFI criteria table now reads "within 48 h (business days, excluding weekends and holidays)" and the §5.4 fallback note mirrors it. §7 risk row updated to reference the business-days qualification. |
+| 3 | `config.yml` uses absolute URLs that point fork users' contact links back to upstream `nimbus-agent/Nimbus` | **Accepted (documentation only)** | Added an explanatory paragraph in §5.2 after the `config.yml` shape: behavior is intentional (security reports and Q&A from forks should reach upstream maintainers, not get silently scattered into per-fork Issues). No config change — GitHub's schema doesn't support relative URLs in `contact_links`. |
+| 4 | `bug_report.yml` should prompt for log attachment | **Accepted (modified)** | The "Additional Context" textarea description now recommends pasting `nimbus diag --json` output rather than free-form log files. Rationale recorded inline: the CLI exists today, output is structured (parseable for triage), and credential redaction is already enforced by the structured logger. There is no canonical `nimbus.log` path users could be pointed to. |
+| Q1 | Are we 100% certain discussion templates support `validations.required` and dropdowns the same as Issue Forms? | **Acknowledged + smoke-test deferred** | GitHub's docs say discussion templates share the `body` schema with Issue Forms, but `validations.required` enforcement on discussions is not explicitly documented. Added a §5.3 risk row: PR 2's smoke test opens a draft Q&A discussion with required fields blank — if it submits without error, we accept `required` as prompt-only on discussions and do not block PR 2. |
+| Q2 | PR 3 seed-issue coordination is hand-wavy: who creates them, how is it tracked? | **Accepted** | §5.4 ops checklist now includes a literal Markdown checklist template that PR 3's description must use, with placeholders for each issue number / mentor / pkg. Explicit instruction: "Issue creation is delegated, not centralized: each maintainer creates the issues that name them as mentor; the PR author audits the checklist before final review." |
+| Q3 | The `## Linked Discussion` PR template section may be ignored without a coupled action prompt | **Accepted (prompt tightened)** | §5.2 PR template addition now has a more directive HTML comment that explicitly warns: GitHub does NOT auto-close Discussions on merge (`Closes #N` is Issues-only), so linking a Discussion implies a manual maintainer follow-up (mark answered / mark built). Calling this out avoids the misconception that linking does the right thing automatically. |
