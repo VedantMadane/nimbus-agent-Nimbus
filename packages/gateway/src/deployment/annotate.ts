@@ -114,21 +114,17 @@ function validate(input: DeploymentAnnotateInput, nowMs: number): DeploymentAnno
       throw new AnnotateError("workflow_url", "workflow_url must be http(s)");
     }
   }
-  if (input.run_id !== undefined) {
-    if (
-      typeof input.run_id !== "string" ||
-      input.run_id.length === 0 ||
-      input.run_id.length > RUN_ID_MAX
-    ) {
+  // Empty string is treated as absent (matches the external-id helper's
+  // `!== undefined && !== ""` contract) so callers passing `run_id: ""`
+  // (e.g. GH Action inputs that default to "") fall through to the
+  // next tier instead of getting a "must be 1..64 chars" error.
+  if (input.run_id !== undefined && input.run_id !== "") {
+    if (typeof input.run_id !== "string" || input.run_id.length > RUN_ID_MAX) {
       throw new AnnotateError("run_id", `run_id must be 1..${RUN_ID_MAX} chars`);
     }
   }
-  if (input.job_id !== undefined) {
-    if (
-      typeof input.job_id !== "string" ||
-      input.job_id.length === 0 ||
-      input.job_id.length > JOB_ID_MAX
-    ) {
+  if (input.job_id !== undefined && input.job_id !== "") {
+    if (typeof input.job_id !== "string" || input.job_id.length > JOB_ID_MAX) {
       throw new AnnotateError("job_id", `job_id must be 1..${JOB_ID_MAX} chars`);
     }
   }
@@ -151,12 +147,15 @@ export function annotateDeployment(
   const deployEnvs = opts.deployEnvironments ?? DEFAULT_DEPLOY_ENVIRONMENTS;
   const doraEligible = input.status === "success" && deployEnvs.includes(input.environment);
 
-  let isNew = false;
-  db.transaction(() => {
+  // Bind `isNew` to a successful commit by RETURNING it from the
+  // transaction closure. If the writes below throw, the transaction
+  // rolls back and `isNew` is never assigned at all — preventing a
+  // stale `true` from leaking back to the caller after rollback.
+  const isNew = db.transaction(() => {
     const existing = db
       .query("SELECT 1 AS one FROM item WHERE service = ? AND external_id = ? LIMIT 1")
       .get(input.provider, externalId) as { one: number } | null;
-    isNew = existing === null;
+    const isNewInner = existing === null;
     const title = `Deploy ${input.service} → ${input.environment} (${input.sha.slice(0, 7)})`;
     const metadata = JSON.stringify({
       nimbus_service_id: input.service,
@@ -230,12 +229,13 @@ export function annotateDeployment(
         environment: input.environment,
         sha: input.sha,
         external_id: externalId,
-        is_new: isNew,
+        is_new: isNewInner,
         dora_eligible: doraEligible,
       }),
       timestamp: nowMs,
     });
-  })();
+    return isNewInner;
+  })() as boolean;
 
   return {
     external_id: externalId,
