@@ -266,6 +266,8 @@ jobs:
             script: "test:coverage:health"
           - name: Metrics
             script: "test:coverage:metrics"
+          - name: Preflight
+            script: "test:coverage:preflight"
           - name: Doctor
             script: "test:coverage:doctor"
           - name: MCP
