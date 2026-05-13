@@ -80,7 +80,7 @@ The Action is the operator's primary integration point; the CLI is the equivalen
 
 | Path | Responsibility |
 |---|---|
-| `packages/gateway/src/index/deployment-v27-sql.ts` | V27 migration SQL: `deployment_items` shadow table (provider, nimbus_service_id, environment, sha, ref, started_at_ms, finished_at_ms, conclusion, workflow_url, ci_run_external_id) + indexes on `(nimbus_service_id, environment, started_at_ms DESC)` and `(provider, sha)`. `UNIQUE(external_id)` for idempotency. |
+| `packages/gateway/src/index/deployment-v28-sql.ts` | V28 migration SQL: `deployment_items` shadow table (provider, nimbus_service_id, environment, sha, ref, started_at_ms, finished_at_ms, conclusion, workflow_url, ci_run_external_id) + indexes on `(nimbus_service_id, environment, started_at_ms DESC)` and `(provider, sha)`. `UNIQUE(external_id)` for idempotency. |
 | `packages/gateway/src/deployment/annotate.ts` | Pure `annotateDeployment(db, input, nowMs)` — validates input, computes `external_id`, upserts the `item` row (`type = "deployment"`) and `deployment_items` shadow row inside a single transaction, writes the audit row, returns the canonical envelope. SELECT/INSERT only, no I/O beyond the DB. |
 | `packages/gateway/src/deployment/types.ts` | `DeploymentAnnotateInput`, `DeploymentAnnotateResult`, `DeploymentConclusion` (`success` \| `failure` \| `cancelled` \| `in_progress`). `DeploymentProvider` enum. |
 | `packages/gateway/src/deployment/external-id.ts` | `computeDeploymentExternalId(input)` — the three-tier rule from §5.3. Pure function with its own unit tests. |
@@ -106,7 +106,7 @@ The Action is the operator's primary integration point; the CLI is the equivalen
 | `packages/gateway/test/unit/ipc/http-rate-limit.test.ts` | 60/min sliding window; per-token isolation; `Retry-After` header value. |
 | `packages/gateway/test/integration/http/deployments-post-route.test.ts` | `POST /v1/deployments` round-trip + the full error matrix from §5.5. |
 | `packages/gateway/test/integration/metrics/dora-deployment-source.test.ts` | DORA prefers `deployment` items when present + falls back to `ci_run` regex + `mixed_source` gap when both have rows in the window. |
-| `packages/gateway/test/integration/db/migration-v27.test.ts` | V27 migration runs cleanly + idempotent rerun + pre-migration backup written + rollback on injected throw. |
+| `packages/gateway/test/integration/db/migration-v27.test.ts` | V28 migration runs cleanly + idempotent rerun + pre-migration backup written + rollback on injected throw. |
 | `packages/gateway/test/fixtures/deployments/payment-service/seed.ts` | Programmatic fixture: 3 annotated deploys (2 prod, 1 staging) + 2 `ci_run` rows matching the regex (one in window, one outside) — drives the mixed-source test. |
 | `packages/gateway/test/e2e/scenarios/deploy-annotate.e2e.test.ts` | In-process e2e: CLI → IPC → fixture-seeded service → query `item` + `deployment_items` rows. |
 
@@ -114,7 +114,7 @@ The Action is the operator's primary integration point; the CLI is the equivalen
 
 | Path | Change |
 |---|---|
-| `packages/gateway/src/index/migrations/runner.ts` | Append `INDEXED_SCHEMA_STEPS` entry for V27 deployment shadow table. |
+| `packages/gateway/src/index/migrations/runner.ts` | Append `INDEXED_SCHEMA_STEPS` entry for V28 deployment shadow table. |
 | `packages/gateway/src/ipc/http-server.ts` | Open second `SQLITE_OPEN_READWRITE` handle in server context; route `POST` paths through `dispatchWriteRoute`; return `405` for unlisted writes; mount only when `http_api.deployment_token` is present in the vault (otherwise return `503 write_surface_disabled`); close write handle on `stop()`. |
 | `packages/gateway/src/ipc/http-routes.ts` | Rename `READ_ONLY_HTTP_ROUTES` → `HTTP_ROUTES`; append `{ method: "POST", path: "/v1/deployments" }`. Update `nimbus-file-map` skill note accordingly. |
 | `scripts/structure-audit/check-openapi-drift.ts` | Read the renamed `HTTP_ROUTES` const. Verify methods match (not just paths). |
@@ -122,7 +122,7 @@ The Action is the operator's primary integration point; the CLI is the equivalen
 | `packages/gateway/src/ipc/server/context.ts` | Add `deploymentRpcSkipped` sentinel. |
 | `packages/gateway/src/metrics/dora.ts` | `selectDeploys` checks for `type = "deployment"` rows first, falls back to existing `ci_run` regex when none found; emits `gap: "mixed_source"` when both sources have rows in the same window. |
 | `packages/gateway/src/metrics/dora.test.ts` | New unit tests for the three branches: annotated-only, regex-only, mixed. |
-| `packages/gateway/src/connectors/connector-secrets-manifest.ts` | Add `"http_api.deployment_token"` to the vault-key allow-list (a system namespace key, not connector-scoped — flagged accordingly). |
+| `packages/gateway/src/ipc/http-auth.ts` (NEW, listed above) | Owns the `HTTP_API_DEPLOYMENT_TOKEN_VAULT_KEY = "http_api.deployment_token"` constant. System-level key — does **not** belong in `connector-secrets-manifest.ts` (which is keyed by `ConnectorServiceId`). The static vault-key allow-list audit (`scripts/structure-audit/check-nimbus-invariants.ts`) builds its regex from connector-manifest value suffixes (`oauth`, `pat`, `api_token`, …); `deployment_token` is not one of those suffixes, so this key is not subject to the D11 audit and no allow-list entry is needed. |
 | `packages/gateway/src/config/nimbus-toml.ts` | Extend the `[ci.service.<id>]` (and the back-compat `[metrics.dora.<id>]`) parser with an optional `deploy_environments` array. Default: `["prod"]`. Validation: each entry matches `^[a-z0-9][a-z0-9._-]*$`. |
 | `packages/gateway/src/metrics/dora-config.ts` | Add `deployEnvironments: readonly string[]` to `ServiceConfig`. Default applied by the loader when the key is omitted. |
 | `packages/gateway/openapi/v1.yaml` | Add `POST /v1/deployments` operation + `DeploymentAnnotateInput` / `DeploymentAnnotateResult` component schemas + `bearer-auth` security scheme. |
@@ -142,7 +142,7 @@ The Action is the operator's primary integration point; the CLI is the equivalen
 ### Files explicitly NOT touched
 
 - `packages/ui/src-tauri/src/gateway_bridge.rs` — `deployment.annotate` is NOT added to `ALLOWED_METHODS`. Renderer never initiates deploys.
-- `packages/gateway/src/engine/executor.ts` (`HITL_REQUIRED`) — this is not an LLM-initiated action; the HTTP write surface lives outside the executor. Audit row carries `hitl_status = "external_write"`.
+- `packages/gateway/src/engine/executor.ts` (`HITL_REQUIRED`) — this is not an LLM-initiated action; the HTTP write surface lives outside the executor. Audit row uses the existing `hitl_status = "not_required"` value (the column has a CHECK constraint); the "external_write" semantic is encoded in `action_type` (`"deployment.annotated"`).
 
 ## 5. Contracts
 
@@ -249,7 +249,6 @@ Every request — success or failure — writes one row:
   source_ip: "127.0.0.1" | "local",
   result_code: <http-status>,
   external_id: <external-id-or-null>,
-  hitl_status: "external_write",
   ts_ms: <now>
 }
 ```
@@ -257,6 +256,8 @@ Every request — success or failure — writes one row:
 `token_fingerprint` is the first 8 hex chars of `sha256(token)` — enough to tell rotated tokens apart, not enough to recover the token. Logged on `401` so brute-force attempts are visible. **The raw token is never logged.**
 
 `source_ip` is `"local"` for IPC-originated calls (CLI), `"127.0.0.1"` for HTTP-originated calls (Action + curl).
+
+**Implementation note:** the row goes through `appendAuditEntry(db, …)` (the canonical chain-append helper at `packages/gateway/src/db/audit-chain.ts`), which writes through the BLAKE3 chain and the existing `row_hash` / `prev_hash` columns. The `hitl_status` column is CHECK-constrained to `'approved'|'rejected'|'not_required'` — annotation rows always set `hitl_status = 'not_required'` (consent does not apply), and the "external_write" semantic is conveyed by the `action_type` value (`"deployment.annotated"` vs `"deployment.annotation_rejected"`). Every field shown above except `action_type`, `hitl_status`, `timestamp` lives inside the JSON-serialized `action_json` blob.
 
 ### 5.7. DORA integration contract
 
@@ -316,7 +317,7 @@ The third assertion is the chore-on-purpose: every future write route bumps it e
 | Vault unreachable (Keychain locked on macOS during screen lock) | `503 vault_unavailable`; Action treats as gateway failure (honors `allow-gateway-failure`) | Don't fail closed when the operator's keychain blips |
 | Duplicate post (same `external_id`) | `200 OK is_new: false`; single new audit row | Retries from CI shouldn't pollute the index |
 | Race: two posts with same `external_id` arrive concurrently | SQLite transaction serializes; second post sees `is_new: false` | The shadow table has `UNIQUE(external_id)`; `INSERT OR REPLACE` is atomic |
-| Migration V27 fails mid-run | Existing migration runner restores the pre-V27 backup and exits non-zero; the Gateway aborts startup. On the next attempted start the runner sees the rolled-back ledger row and retries from V26. Existing readonly GET surface is irrelevant at that point — startup has not progressed far enough to bind the HTTP port. | Inherits the Phase 3.5 rollback contract — no manual cleanup needed |
+| Migration V28 fails mid-run | Existing migration runner restores the pre-V28 backup and exits non-zero; the Gateway aborts startup. On the next attempted start the runner sees the rolled-back ledger row and retries from V26. Existing readonly GET surface is irrelevant at that point — startup has not progressed far enough to bind the HTTP port. | Inherits the Phase 3.5 rollback contract — no manual cleanup needed |
 | Write handle exhausted / `SQLITE_BUSY` | Single retry with 50 ms backoff, then `503 db_busy` | Matches `db/write.ts` retry policy |
 | `http_api.deployment_token` absent | `POST /v1/deployments` returns `503 write_surface_disabled` with a hint; GET routes continue serving | Off-by-default for safety; operator opts in by setting the vault key |
 
@@ -369,7 +370,7 @@ The companion follow-up — **T4 PR 4 (PagerDuty connector enrichment)** — rem
 | Unit | `metrics/dora.test.ts` (extend) | `selectDeploys` three branches: annotated-only, regex-only, mixed (asserts `gap: "mixed_source"`) |
 | Integration | `http/deployments-post-route.test.ts` | Full round-trip: `200` first post; `200 is_new=false` retry; `400` per field; `400 unknown_service`; `401` no token; `405` on GET; `413` oversize; `429` after 60/min; `503 write_surface_disabled` when vault key absent; `503 vault_unavailable` when vault read fails |
 | Integration | `metrics/dora-deployment-source.test.ts` | Fixture: 3 annotated + 2 regex `ci_run` in the same 30d window; assert `deploymentFrequency` counts the 3 annotated, emits `mixed_source` |
-| Integration | `db/migration-v27.test.ts` | V27 migration runs cleanly on a fresh DB; idempotent rerun; pre-migration backup written; rolls back on injected throw |
+| Integration | `db/migration-v27.test.ts` | V28 migration runs cleanly on a fresh DB; idempotent rerun; pre-migration backup written; rolls back on injected throw |
 | E2E (CLI) | `e2e/scenarios/deploy-annotate.e2e.test.ts` | In-process Gateway + CLI subprocess: `nimbus deploy annotate ...` → asserts `item` + `deployment_items` rows + audit row + `200 is_new=false` on retry |
 | E2E (smoke) | `cli/test/e2e/deploy-annotate.smoke.e2e.test.ts` | No-Gateway: missing args, unknown status, help text |
 | Action (its own repo) | `annotate-action/src/main.test.ts` | Mock-fetch matrix: `200` / `200 is_new=false` / `401` / `429` / `503` / network-fail × `allow-gateway-failure` true/false |
@@ -392,7 +393,7 @@ The companion follow-up — **T4 PR 4 (PagerDuty connector enrichment)** — rem
 - **Risk:** Reviewer pushback on putting a write surface on the same port as the read API.
   **Mitigation:** I13 is the architectural answer — the per-route allowlist + dedicated dispatcher makes the read/write split as strong as a port split would be, and operators only configure one URL. If reviewer disagrees, the implementation plan can fork a `port + 1` write server without changing the IPC method or the calculator contract — only `http-server.ts` and the Action's URL input change.
 - **Risk:** `selectAnnotatedDeploys` query plan is slower than the existing `ci_run` regex match.
-  **Mitigation:** V27 indexes on `(nimbus_service_id, environment, started_at_ms DESC)` make the lookup O(log n). Integration test measures wall time and fails if `dora-deployment-source.test.ts` exceeds the same latency budget as the existing `dora-real-db.test.ts`.
+  **Mitigation:** V28 indexes on `(nimbus_service_id, environment, started_at_ms DESC)` make the lookup O(log n). Integration test measures wall time and fails if `dora-deployment-source.test.ts` exceeds the same latency budget as the existing `dora-real-db.test.ts`.
 
 ## 12. Out of scope (recorded)
 
