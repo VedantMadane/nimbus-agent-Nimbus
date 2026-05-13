@@ -20,6 +20,7 @@ import { AUDIT_CHAIN_V18_SCHEMA_SQL } from "../audit-chain-v18-sql.ts";
 import { AUDIT_SESSION_V24_SCHEMA_SQL } from "../audit-session-v24-sql.ts";
 import { CONNECTOR_DEPTH_V21_SQL } from "../connector-depth-v21-sql.ts";
 import { CONNECTOR_HEALTH_V13_SQL } from "../connector-health-v13-sql.ts";
+import { DEPLOYMENT_V28_SCHEMA_SQL } from "../deployment-v28-sql.ts";
 import {
   EMBEDDING_V6_MIGRATION_SQL,
   EMBEDDING_V6_NO_VEC_MIGRATION_SQL,
@@ -375,6 +376,14 @@ function migrateIndexedV26ToV27(db: Database, now: number): void {
   })();
 }
 
+function migrateIndexedV27ToV28(db: Database, now: number): void {
+  db.transaction(() => {
+    db.exec(DEPLOYMENT_V28_SCHEMA_SQL);
+    db.exec("PRAGMA user_version = 28");
+    recordMigration(db, 28, "deployment_items shadow table (T4 PR 3b)", now);
+  })();
+}
+
 const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 0, toVersion: 1, apply: migrateIndexedV0ToV1 },
   { fromVersion: 1, toVersion: 2, apply: migrateIndexedV1ToV2 },
@@ -403,6 +412,7 @@ const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 24, toVersion: 25, apply: migrateIndexedV24ToV25 },
   { fromVersion: 25, toVersion: 26, apply: migrateIndexedV25ToV26 },
   { fromVersion: 26, toVersion: 27, apply: migrateIndexedV26ToV27 },
+  { fromVersion: 27, toVersion: 28, apply: migrateIndexedV27ToV28 },
 ];
 
 const BACKFILL_LABELS: readonly string[] = [
@@ -433,6 +443,7 @@ const BACKFILL_LABELS: readonly string[] = [
   "api_endpoint shadow table (Wave A PR 1) (backfilled)",
   "obsidian_notes shadow table (Wave A PR 2) (backfilled)",
   "merged_as graph_relation_type (DORA Lead Time, T4 PR 2) (backfilled)",
+  "deployment_items shadow table (T4 PR 3b) (backfilled)",
 ];
 
 /**
