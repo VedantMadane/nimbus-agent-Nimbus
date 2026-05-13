@@ -65,20 +65,7 @@ test/short-description       # test-only changes
 docs/short-description       # documentation only
 ```
 
-### Commit Style
-
-Follow [Conventional Commits](https://www.conventionalcommits.org/):
-
-```text
-feat(vault): add libsecret backend for Linux
-fix(executor): prevent HITL bypass when tool name includes whitespace
-test(engine): add coverage for intent router edge cases
-docs(contributing): clarify platform equality requirement
-```
-
-Keep commits focused. One logical change per commit.
-
-## Commit message format
+### Commit message format
 
 Nimbus uses [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) so that `release-please` can derive the next version and generate the `CHANGELOG.md` automatically when a release PR merges.
 
