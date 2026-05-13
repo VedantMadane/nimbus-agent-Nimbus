@@ -403,6 +403,8 @@ The companion follow-up — **T4 PR 4 (PagerDuty connector enrichment)** — rem
 - Backfilling historic deploys from existing `ci_run` rows (operators can replay their CI history if they care).
 - A `POST /v1/incidents` companion. PagerDuty enrichment (T4 PR 4) is the right next step.
 - Adding `deployment.annotate` to the Tauri renderer allowlist.
+- **Stale `in_progress` deployment sweeper.** Annotations with `status = "in_progress"` that never receive a follow-up `success` / `failure` post (e.g. workflow crashed mid-deploy) remain in the index as `in_progress` indefinitely. DORA filters with `WHERE conclusion = 'success'`, so the four metrics are unaffected; the rows are only visible to "what's currently deploying" agent queries. A periodic sweeper (`in_progress > 24h → cancelled`) is a Phase 6 hygiene PR — the threshold needs operator input and isn't load-bearing for this PR.
+- **Per-metric environment overrides.** Each service has one `deploy_environments` list applied uniformly to all four DORA metrics. Per-metric overrides (e.g. DF counts staging + prod, CFR counts prod only) are explicit scope creep — none of the four metrics is asking for it today. Revisit if operator feedback after launch surfaces a real need.
 
 ## 13. Review dispositions
 

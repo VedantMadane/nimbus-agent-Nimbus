@@ -1507,6 +1507,7 @@ Create `packages/gateway/src/ipc/http-write-routes.ts`:
  */
 
 import type { Database } from "bun:sqlite";
+import { appendAuditEntry } from "../db/audit-chain.ts";
 import { dispatchDeploymentRpc, DeploymentRpcError } from "./deployment-rpc.ts";
 import { requireBearer, tokenFingerprint } from "./http-auth.ts";
 import { HttpWriteRateLimiter, type RateLimitCheck } from "./http-rate-limit.ts";
@@ -1548,6 +1549,42 @@ function jsonResponse(
   });
 }
 
+/**
+ * Writes a rejection audit row. The `appendAuditEntry` helper carries the
+ * BLAKE3 chain so brute-force probes are tamper-evident (S2 disposition).
+ * Failures of the audit write itself never break the response — the row
+ * is best-effort. The catch is silent rather than logging to stderr so
+ * a corrupted audit chain cannot fingerprint the rejection path.
+ */
+function recordRejection(
+  ctx: WriteRouteContext,
+  args: {
+    readonly tokenFingerprint: string;
+    readonly resultCode: number;
+    readonly reason: string;
+    readonly externalId?: string;
+    readonly service?: string;
+  },
+): void {
+  try {
+    appendAuditEntry(ctx.writeDb, {
+      actionType: "deployment.annotation_rejected",
+      hitlStatus: "not_required",
+      actionJson: JSON.stringify({
+        token_fingerprint: args.tokenFingerprint,
+        source_ip: "127.0.0.1",
+        result_code: args.resultCode,
+        reason: args.reason,
+        service: args.service ?? null,
+        external_id: args.externalId ?? null,
+      }),
+      timestamp: ctx.nowMs(),
+    });
+  } catch {
+    /* audit best-effort */
+  }
+}
+
 export async function dispatchWriteRoute(
   req: Request,
   ctx: WriteRouteContext,
@@ -1569,6 +1606,9 @@ export async function dispatchWriteRoute(
 
   const auth = requireBearer(req, { expectedToken: ctx.expectedToken });
   if (auth.surfaceDisabled === true) {
+    // No audit row here: the surface isn't on, so brute-forcing it is
+    // structurally impossible. Logging a row per probe would create a
+    // disk-fill vector for an attacker that can't actually authenticate.
     return jsonResponse(
       {
         error: "write_surface_disabled",
@@ -1579,6 +1619,11 @@ export async function dispatchWriteRoute(
     );
   }
   if (!auth.ok) {
+    recordRejection(ctx, {
+      tokenFingerprint: auth.fingerprint,
+      resultCode: 401,
+      reason: "unauthorized",
+    });
     return jsonResponse({ error: "unauthorized" }, 401);
   }
 
@@ -1588,6 +1633,11 @@ export async function dispatchWriteRoute(
       0,
       Math.ceil((limit.resetMs - ctx.nowMs()) / 1000),
     );
+    recordRejection(ctx, {
+      tokenFingerprint: auth.fingerprint,
+      resultCode: 429,
+      reason: "rate_limited",
+    });
     return jsonResponse(
       { error: "rate_limited" },
       429,
@@ -1600,6 +1650,11 @@ export async function dispatchWriteRoute(
   if (lenHeader !== null) {
     const n = Number.parseInt(lenHeader, 10);
     if (Number.isInteger(n) && n > MAX_BODY_BYTES) {
+      recordRejection(ctx, {
+        tokenFingerprint: auth.fingerprint,
+        resultCode: 413,
+        reason: "payload_too_large",
+      });
       return jsonResponse({ error: "payload_too_large" }, 413, rateLimitHeaders(limit));
     }
   }
@@ -1607,15 +1662,30 @@ export async function dispatchWriteRoute(
   try {
     text = await req.text();
   } catch {
+    recordRejection(ctx, {
+      tokenFingerprint: auth.fingerprint,
+      resultCode: 400,
+      reason: "invalid_body",
+    });
     return jsonResponse({ error: "invalid_body" }, 400, rateLimitHeaders(limit));
   }
   if (text.length > MAX_BODY_BYTES) {
+    recordRejection(ctx, {
+      tokenFingerprint: auth.fingerprint,
+      resultCode: 413,
+      reason: "payload_too_large",
+    });
     return jsonResponse({ error: "payload_too_large" }, 413, rateLimitHeaders(limit));
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
+    recordRejection(ctx, {
+      tokenFingerprint: auth.fingerprint,
+      resultCode: 400,
+      reason: "invalid_json",
+    });
     return jsonResponse({ error: "invalid_json" }, 400, rateLimitHeaders(limit));
   }
 
@@ -1629,6 +1699,12 @@ export async function dispatchWriteRoute(
     if (typeof svc === "string" && svc.length > 0) {
       const known = ctx.knownServices();
       if (!known.includes(svc)) {
+        recordRejection(ctx, {
+          tokenFingerprint: auth.fingerprint,
+          resultCode: 400,
+          reason: "unknown_service",
+          service: svc,
+        });
         return jsonResponse(
           { error: "unknown_service", service: svc, known_services: known.slice(0, 25) },
           400,
@@ -1645,11 +1721,24 @@ export async function dispatchWriteRoute(
           : { deployEnvironments: ctx.deployEnvironments }),
       });
       if (out.kind === "hit") {
+        // Success audit is written INSIDE annotateDeployment — do not
+        // double-write here.
         return jsonResponse(out.value, 200, rateLimitHeaders(limit));
       }
+      recordRejection(ctx, {
+        tokenFingerprint: auth.fingerprint,
+        resultCode: 500,
+        reason: "internal_error_miss",
+      });
       return jsonResponse({ error: "internal_error" }, 500, rateLimitHeaders(limit));
     } catch (e) {
       if (e instanceof DeploymentRpcError) {
+        recordRejection(ctx, {
+          tokenFingerprint: auth.fingerprint,
+          resultCode: 400,
+          reason: e.field === undefined ? "invalid_request" : `invalid_${e.field}`,
+          service: typeof svc === "string" ? svc : undefined,
+        });
         return jsonResponse(
           {
             error: "invalid_request",
@@ -1661,6 +1750,11 @@ export async function dispatchWriteRoute(
       }
       // Suppress internal details from the response body. The token
       // fingerprint and audit row capture forensic context.
+      recordRejection(ctx, {
+        tokenFingerprint: auth.fingerprint,
+        resultCode: 500,
+        reason: "internal_error",
+      });
       return jsonResponse({ error: "internal_error" }, 500, rateLimitHeaders(limit));
     }
   }
@@ -2053,6 +2147,56 @@ describe("POST /v1/deployments", () => {
     });
     expect(res.status).toBe(429);
     expect(res.headers.get("Retry-After")).not.toBeNull();
+  });
+
+  test("401 writes a deployment.annotation_rejected audit row (S2 disposition)", async () => {
+    handle = await startServer();
+    await fetch(url(handle), {
+      method: "POST",
+      headers: { authorization: "Bearer nope", "content-type": "application/json" },
+      body: JSON.stringify(validBody),
+    });
+    const db = new Database(dbPath, { readonly: true });
+    const row = db
+      .query(
+        "SELECT action_type, hitl_status, action_json FROM audit_log WHERE action_type = ? ORDER BY id DESC LIMIT 1",
+      )
+      .get("deployment.annotation_rejected") as
+      | { action_type: string; hitl_status: string; action_json: string }
+      | null;
+    expect(row).not.toBeNull();
+    expect(row?.hitl_status).toBe("not_required");
+    const parsed = JSON.parse(row!.action_json) as Record<string, unknown>;
+    expect(parsed.result_code).toBe(401);
+    expect(parsed.reason).toBe("unauthorized");
+    expect(typeof parsed.token_fingerprint).toBe("string");
+    db.close();
+  });
+
+  test("429 writes a deployment.annotation_rejected audit row", async () => {
+    handle = await startServer();
+    for (let i = 0; i < 60; i++) {
+      await fetch(url(handle), {
+        method: "POST",
+        headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+        body: JSON.stringify({ ...validBody, run_id: `${i}` }),
+      });
+    }
+    await fetch(url(handle), {
+      method: "POST",
+      headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify({ ...validBody, run_id: "overflow" }),
+    });
+    const db = new Database(dbPath, { readonly: true });
+    const row = db
+      .query(
+        "SELECT action_json FROM audit_log WHERE action_type = 'deployment.annotation_rejected' AND action_json LIKE '%rate_limited%' ORDER BY id DESC LIMIT 1",
+      )
+      .get() as { action_json: string } | null;
+    expect(row).not.toBeNull();
+    const parsed = JSON.parse(row!.action_json) as Record<string, unknown>;
+    expect(parsed.result_code).toBe(429);
+    db.close();
   });
 });
 ```
@@ -2586,6 +2730,21 @@ describe("parseDeployAnnotateArgs", () => {
       ArgParseError,
     );
   });
+  test("rejects service id with bad characters (S3 disposition)", () => {
+    const bad = [...baseArgs];
+    bad[bad.indexOf("--service") + 1] = "Bad Service";
+    expect(() => parseDeployAnnotateArgs(bad)).toThrow(ArgParseError);
+  });
+  test("rejects sha with non-hex characters", () => {
+    const bad = [...baseArgs];
+    bad[bad.indexOf("--sha") + 1] = "ghij1234";
+    expect(() => parseDeployAnnotateArgs(bad)).toThrow(ArgParseError);
+  });
+  test("rejects env with uppercase characters", () => {
+    const bad = [...baseArgs];
+    bad[bad.indexOf("--env") + 1] = "PROD";
+    expect(() => parseDeployAnnotateArgs(bad)).toThrow(ArgParseError);
+  });
 });
 ```
 
@@ -2753,6 +2912,25 @@ export function parseDeployAnnotateArgs(argv: readonly string[]): DeployAnnotate
   if (environment === undefined) throw new ArgParseError("--env is required");
   if (status === undefined) throw new ArgParseError("--status is required");
   if (started_at_ms === undefined) throw new ArgParseError("--started-at is required");
+
+  // Mirror the gateway-side validation so users get a clear error before the
+  // IPC round-trip (S3 disposition from the plan review).
+  const SERVICE_RE = /^[a-z0-9][a-z0-9._-]*$/;
+  if (service.length > 64 || !SERVICE_RE.test(service)) {
+    throw new ArgParseError(
+      `--service must be 1..64 chars matching ${SERVICE_RE.source} (lowercase, starts with [a-z0-9])`,
+    );
+  }
+  const ENV_RE = /^[a-z0-9][a-z0-9._-]*$/;
+  if (environment.length > 32 || !ENV_RE.test(environment)) {
+    throw new ArgParseError(
+      `--env must be 1..32 chars matching ${ENV_RE.source}`,
+    );
+  }
+  const SHA_RE = /^[0-9a-fA-F]{7,64}$/;
+  if (!SHA_RE.test(sha)) {
+    throw new ArgParseError("--sha must be 7..64 hex chars");
+  }
 
   const out: DeployAnnotateArgs = {
     service,
@@ -3356,29 +3534,54 @@ This writes `dist/index.js`. Commit the bundle alongside source.
 
 Lead with:
 
-```markdown
+````markdown
 # nimbus-agent/annotate-action
 
 Record a deploy in your local Nimbus Gateway after a CI deploy completes.
 
 ## Getting started
 
-1. On the self-hosted runner host, set the bearer token:
+1. **On the self-hosted runner host**, generate and store the bearer token in the Nimbus Vault:
+
    ```sh
    nimbus vault set http_api.deployment_token "$(openssl rand -hex 32)"
    ```
-2. Add the same value to your repository's `Settings → Secrets → Actions`
-   as `NIMBUS_DEPLOY_TOKEN`.
-3. Use the action in your deploy workflow:
+
+   This is the **only** place the token plaintext exists on disk — the OS keychain
+   (DPAPI / Keychain / libsecret) encrypts it at rest. Print it once so you can
+   copy it into GitHub:
+
+   ```sh
+   nimbus vault get http_api.deployment_token
+   ```
+
+2. **Store the same value as a GitHub Repository Secret** (recommended) or
+   Organization Secret. **Do not paste the token inline in the workflow YAML** —
+   inline values are checked into git and visible to anyone with read access to
+   the repo.
+
+   Go to `Settings → Secrets and variables → Actions → New repository secret`
+   and create `NIMBUS_DEPLOYMENT_TOKEN` with the value from step 1. GitHub masks
+   the value in all log output once it's stored as a secret. The token can be
+   rotated by running `nimbus vault set …` again and updating the secret —
+   GitHub does not let you read the existing value back, so keep a one-time
+   record while you're rotating.
+
+3. **Use the action in your deploy workflow**:
+
    ```yaml
    - uses: nimbus-agent/annotate-action@v1
      with:
        service: payment-service
        environment: prod
        status: success
-       token: ${{ secrets.NIMBUS_DEPLOY_TOKEN }}
+       token: ${{ secrets.NIMBUS_DEPLOYMENT_TOKEN }}
    ```
-```
+
+   Never write `token: hunter2` (or any literal) directly — the workflow file is
+   committed to the repo and the value is unmasked in the YAML. Always reference
+   it via `${{ secrets.* }}`.
+````
 
 Followed by the input/output reference table.
 
@@ -3583,7 +3786,9 @@ Expected: the CLI prints a result JSON; the DORA call shows `sample` reflecting 
 
 - [ ] **Step 1: Locate the pretty-card renderer in `metrics.ts`** (it currently prints a row per metric). Find the spot where `gap` is rendered into the card.
 
-- [ ] **Step 2: Add the icon** Before the metric label, conditionally prepend `⚠ ` when `gap === "mixed_source"` and we're rendering to a TTY without `NO_COLOR`:
+- [ ] **Step 2: Add the icon AND a hint line under the card (S4 disposition)**
+
+Locate the metric-row renderer. Before the metric label, conditionally prepend `⚠ ` when `gap === "mixed_source"` and we're rendering to a TTY without `NO_COLOR`:
 
 ```ts
 const showIcon =
@@ -3593,13 +3798,52 @@ const prefix = showIcon ? "\x1b[33m⚠\x1b[0m " : "";
 
 Prepend `prefix` to the metric row.
 
-- [ ] **Step 3: Add a unit test**
+After the card body, emit a hint line so operators understand the warning (visible regardless of TTY / color — the icon alone tells you *something* is off; the hint tells you *what*):
 
 ```ts
-import { renderMetricRow } from "./metrics.ts";
-test("mixed_source prepends ⚠ when TTY and no NO_COLOR", () => {
-  // call renderMetricRow with gap='mixed_source', tty=true, noColor=false
-  // expect the output to include "\x1b[33m⚠"
+const anyMixed = metrics.some((m) => m.gap === "mixed_source");
+if (anyMixed) {
+  process.stdout.write(
+    "\nNote: this window contains both explicit `deployment` annotations and ci_run regex matches.\n" +
+    "Annotated rows are counted; ci_run rows are ignored. Annotate consistently for accurate DF/LT.\n",
+  );
+}
+```
+
+- [ ] **Step 3: Add unit tests**
+
+```ts
+import { describe, expect, test } from "bun:test";
+import { renderMetricRow, renderMixedSourceHint } from "./metrics.ts";
+
+describe("mixed_source rendering", () => {
+  test("icon prefix appears when TTY and no NO_COLOR", () => {
+    const row = renderMetricRow(
+      { label: "Deployment Frequency", value: 0.5, unit: "deploys_per_day", sample: 5, gap: "mixed_source" },
+      { tty: true, noColor: false },
+    );
+    expect(row).toMatch(/\[33m⚠\[0m/);
+  });
+
+  test("no icon when NO_COLOR is set", () => {
+    const row = renderMetricRow(
+      { label: "Deployment Frequency", value: 0.5, unit: "deploys_per_day", sample: 5, gap: "mixed_source" },
+      { tty: true, noColor: true },
+    );
+    expect(row).not.toMatch(/\[33m⚠/);
+  });
+
+  test("hint string explains the mixed_source warning", () => {
+    expect(renderMixedSourceHint()).toContain("Annotate consistently");
+    expect(renderMixedSourceHint()).toContain("deployment");
+    expect(renderMixedSourceHint()).toContain("ci_run");
+  });
+
+  test("hint string is omitted when no metric has mixed_source", () => {
+    // The caller (pretty-mode renderer) decides; this test asserts the
+    // helper exists and returns a non-empty string.
+    expect(renderMixedSourceHint().length).toBeGreaterThan(0);
+  });
 });
 ```
 
@@ -3607,7 +3851,7 @@ test("mixed_source prepends ⚠ when TTY and no NO_COLOR", () => {
 
 ```bash
 git add packages/cli/src/commands/metrics.ts packages/cli/src/commands/metrics.test.ts
-git commit -m "feat(cli): mixed_source gap shows yellow ⚠ in nimbus metrics dora"
+git commit -m "feat(cli): mixed_source gap shows ⚠ + explanatory hint in nimbus metrics dora"
 ```
 
 ---
@@ -3623,3 +3867,18 @@ git commit -m "feat(cli): mixed_source gap shows yellow ⚠ in nimbus metrics do
 The plan now executes in this order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → **11** → **10** → **10b** → 12 → 13 → 14 → 15 → 16 → 17 → 18 → final.
 
 When dispatching, please follow that order. (No file renames needed.)
+
+---
+
+## Plan review dispositions
+
+Tracks the Gemini-CLI plan review ([`2026-05-13-phase-5-t4-pr3b-annotation-review.md`](./2026-05-13-phase-5-t4-pr3b-annotation-review.md)).
+
+| # | Review item | Disposition | Resolution |
+|---|---|---|---|
+| S1 | Action README explicitly recommend GitHub Repository Secrets | **FIX** | Task 17 README expanded — explicit "Do not paste inline" guidance, GitHub Secret name `NIMBUS_DEPLOYMENT_TOKEN`, rotation note. |
+| S2 | Audit row for 401 / 429 rejections | **FIX** | Task 8 `dispatchWriteRoute` now writes a `deployment.annotation_rejected` audit row at every rejection point (401, 413, 429, 400 unknown_service, 400 invalid_request, 500). Uses `appendAuditEntry` to maintain the BLAKE3 chain — brute-force probes are tamper-evident, fulfilling the I13 "structural defense" intent. Task 9 integration test asserts the audit rows are present. |
+| S3 | CLI-side service-id format validation | **FIX** | Task 13 `parseDeployAnnotateArgs` mirrors the gateway regex (`/^[a-z0-9][a-z0-9._-]*$/`) plus sha hex check and env regex check, so users get a clear error before the IPC round-trip. Three new arg-parser test cases. |
+| S4 | Mixed-source CLI hint visibility | **FIX** | Task 10b expanded — alongside the ⚠ icon, the renderer now emits an explanatory hint line ("Annotate consistently for accurate DF/LT.") that's visible regardless of TTY / color. Unit tests cover both the icon and the hint helper. |
+| Q1 | `in_progress` deployment timeout / stale rows | **DEFER (document)** | DORA filters with `WHERE conclusion = 'success'`, so stale `in_progress` rows do not affect any of the four metrics — only "what's currently deploying" agent queries. A periodic sweeper (`in_progress > 24h → cancelled`) is a Phase 6 hygiene PR; the threshold needs operator input and shouldn't gate this PR. Spec Out-of-scope updated. |
+| Q2 | Per-metric environment overrides | **DEFER** | v1 ships a single `deploy_environments` list per service. Per-metric overrides (e.g. DF counts staging, CFR doesn't) are explicit scope creep — none of the four DORA metrics is currently asking for it. Spec Out-of-scope updated. |
