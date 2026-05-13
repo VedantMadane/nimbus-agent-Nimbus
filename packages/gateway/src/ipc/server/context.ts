@@ -34,3 +34,4 @@ export const automationRpcSkipped: unique symbol = Symbol("automationRpcSkipped"
 export const phase4RpcSkipped: unique symbol = Symbol("phase4RpcSkipped");
 export const diagnosticsRpcSkipped: unique symbol = Symbol("diagnosticsRpcSkipped");
 export const metricsRpcSkipped: unique symbol = Symbol("metricsRpcSkipped");
+export const preflightRpcSkipped: unique symbol = Symbol("preflightRpcSkipped");

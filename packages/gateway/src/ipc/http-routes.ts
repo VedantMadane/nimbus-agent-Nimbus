@@ -22,4 +22,5 @@ export const READ_ONLY_HTTP_ROUTES: readonly ReadOnlyHttpRoute[] = Object.freeze
   { method: "GET", path: "/v1/openapi.json" },
   { method: "GET", path: "/v1/people" },
   { method: "GET", path: "/v1/people/{id}" },
+  { method: "GET", path: "/v1/preflight/deploy" },
 ] as const);

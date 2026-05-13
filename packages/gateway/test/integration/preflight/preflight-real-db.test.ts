@@ -1,0 +1,71 @@
+import { Database } from "bun:sqlite";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { runIndexedSchemaMigrations } from "../../../src/index/migrations/runner.ts";
+import { computeDeployPreflight } from "../../../src/preflight/preflight.ts";
+import {
+  PREFLIGHT_FIXTURE_NOW_MS,
+  seedPaymentServicePreflightFixture,
+} from "../../fixtures/preflight/payment-service/seed.ts";
+
+describe("preflight integration: payment-service fixture (real SQLite)", () => {
+  let dir: string;
+  let db: Database;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "nimbus-preflight-int-"));
+    db = new Database(join(dir, "nimbus.db"));
+    runIndexedSchemaMigrations(db, 27);
+  });
+  afterEach(() => {
+    db.close();
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* non-fatal */
+    }
+  });
+
+  it("computes the envelope exactly against the hand-computed expected values", () => {
+    const { config } = seedPaymentServicePreflightFixture(db);
+    const out = computeDeployPreflight(db, config, "main", PREFLIGHT_FIXTURE_NOW_MS, 10);
+    const expected = JSON.parse(
+      readFileSync(
+        join(
+          import.meta.dir,
+          "..",
+          "..",
+          "fixtures",
+          "preflight",
+          "payment-service",
+          "expected-envelope.json",
+        ),
+        "utf8",
+      ),
+    ) as {
+      service: string;
+      target_ref: string;
+      verdict: "ok" | "warn";
+      checks: Record<
+        string,
+        { count: number; gap: string | null; first_finding_id: string | null }
+      >;
+    };
+
+    expect(out.service).toBe(expected.service);
+    expect(out.target_ref).toBe(expected.target_ref);
+    expect(out.verdict).toBe(expected.verdict);
+
+    for (const key of ["active_p1_incidents", "failing_ci_runs", "merge_conflicts"] as const) {
+      const got = out.checks[key];
+      const want = expected.checks[key];
+      if (want === undefined) throw new Error(`missing expected for ${key}`);
+      expect(got.count, `${key} count`).toBe(want.count);
+      expect(got.gap, `${key} gap`).toBe(want.gap);
+      if (want.first_finding_id !== null) {
+        expect(got.findings[0]?.id, `${key} first finding`).toBe(want.first_finding_id);
+      }
+    }
+  });
+});

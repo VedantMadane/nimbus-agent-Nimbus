@@ -10,6 +10,7 @@ export { runConfig } from "./config.ts";
 export { runConnector } from "./connector.ts";
 export { runData } from "./data.ts";
 export { runDb } from "./db.ts";
+export { runDeployCli } from "./deploy.ts";
 export { runDiag } from "./diag.ts";
 export { runDoctor } from "./doctor.ts";
 export { runExpertCli } from "./expert.ts";

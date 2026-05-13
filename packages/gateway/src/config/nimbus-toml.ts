@@ -5,8 +5,8 @@ import {
   DEFAULT_DEPLOY_WORKFLOW_PATTERN,
   DEFAULT_EXCLUDE_PR_LABELS,
   DEFAULT_INCIDENT_WINDOW_MINUTES,
-  type DoraServiceConfig,
   parseDoraRepoUrn,
+  type ServiceConfig,
 } from "../metrics/dora-config.ts";
 import { processEnvGet } from "../platform/env-access.ts";
 
@@ -751,7 +751,8 @@ export function loadNimbusUserFromConfigDir(configDir: string): NimbusUserToml {
 // ---------------------------------------------------------------------------
 
 const DORA_TABLE_PREFIX = "[metrics.dora.";
-const DORA_KNOWN_KEYS: ReadonlySet<string> = new Set([
+// Canonical set of service-config keys shared by [metrics.dora.<id>] and [ci.service.<id>] parsers.
+const SERVICE_CONFIG_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "repos",
   "pagerduty_services",
   "deploy_workflow_pattern",
@@ -775,7 +776,65 @@ function parseStringArray(raw: string): string[] {
   return out;
 }
 
-export function parseNimbusDoraToml(raw: string): Map<string, DoraServiceConfig> {
+/**
+ * Shared materialization of accumulated key-value pairs into ServiceConfig
+ * instances. Used by both `[metrics.dora.<id>]` and `[ci.service.<id>]` parsers.
+ *
+ * `blockLabel` is the table-prefix label used in error messages
+ * (e.g. "metrics.dora" or "ci.service").
+ */
+function materializeServiceConfigs(
+  accum: Map<string, Record<string, string>>,
+  blockLabel: string,
+): Map<string, ServiceConfig> {
+  const out: Map<string, ServiceConfig> = new Map();
+  for (const [serviceId, kv] of accum.entries()) {
+    const reposRaw = kv["repos"];
+    if (reposRaw === undefined) {
+      throw new Error(`[${blockLabel}.${serviceId}] missing required 'repos'`);
+    }
+    const repos = parseStringArray(reposRaw).map(parseDoraRepoUrn);
+    const pagerdutyServices =
+      kv["pagerduty_services"] === undefined ? [] : parseStringArray(kv["pagerduty_services"]);
+    const patternSrc =
+      kv["deploy_workflow_pattern"] === undefined
+        ? DEFAULT_DEPLOY_WORKFLOW_PATTERN
+        : parseString(kv["deploy_workflow_pattern"]);
+    let deployWorkflowPattern: RegExp;
+    try {
+      deployWorkflowPattern = new RegExp(patternSrc);
+    } catch (e) {
+      throw new Error(
+        `[${blockLabel}.${serviceId}].deploy_workflow_pattern is not a valid regex: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      );
+    }
+    const windowRaw = kv["incident_window_minutes"];
+    const windowMins =
+      windowRaw === undefined ? DEFAULT_INCIDENT_WINDOW_MINUTES : parseIntDec(windowRaw);
+    if (windowMins === undefined || windowMins < 1 || windowMins > 1440) {
+      throw new Error(
+        `[${blockLabel}.${serviceId}].incident_window_minutes must be 1..1440, got '${windowRaw}'`,
+      );
+    }
+    const excludePrLabels =
+      kv["exclude_pr_labels"] === undefined
+        ? Array.from(DEFAULT_EXCLUDE_PR_LABELS)
+        : parseStringArray(kv["exclude_pr_labels"]);
+    out.set(serviceId, {
+      serviceId,
+      repos,
+      pagerdutyServices,
+      deployWorkflowPattern,
+      incidentWindowMinutes: windowMins,
+      excludePrLabels,
+    });
+  }
+  return out;
+}
+
+export function parseNimbusDoraToml(raw: string): Map<string, ServiceConfig> {
   const lines = raw.split(/\r?\n/);
   const accum: Map<string, Record<string, string>> = new Map();
   let currentId: string | undefined;
@@ -797,7 +856,7 @@ export function parseNimbusDoraToml(raw: string): Map<string, DoraServiceConfig>
     const eq = trimmed.indexOf("=");
     if (eq <= 0) continue;
     const key = trimmed.slice(0, eq).trim();
-    if (!DORA_KNOWN_KEYS.has(key)) {
+    if (!SERVICE_CONFIG_KNOWN_KEYS.has(key)) {
       throw new Error(`unknown key '${key}' in [metrics.dora.${currentId}]`);
     }
     const bucket = accum.get(currentId);
@@ -805,59 +864,82 @@ export function parseNimbusDoraToml(raw: string): Map<string, DoraServiceConfig>
       bucket[key] = trimmed.slice(eq + 1).trim();
     }
   }
-  const out: Map<string, DoraServiceConfig> = new Map();
-  for (const [serviceId, kv] of accum.entries()) {
-    const reposRaw = kv["repos"];
-    if (reposRaw === undefined) {
-      throw new Error(`[metrics.dora.${serviceId}] missing required 'repos'`);
-    }
-    const repos = parseStringArray(reposRaw).map(parseDoraRepoUrn);
-    const pagerdutyServices =
-      kv["pagerduty_services"] === undefined ? [] : parseStringArray(kv["pagerduty_services"]);
-    const patternSrc =
-      kv["deploy_workflow_pattern"] === undefined
-        ? DEFAULT_DEPLOY_WORKFLOW_PATTERN
-        : parseString(kv["deploy_workflow_pattern"]);
-    let deployWorkflowPattern: RegExp;
-    try {
-      deployWorkflowPattern = new RegExp(patternSrc);
-    } catch (e) {
-      throw new Error(
-        `[metrics.dora.${serviceId}].deploy_workflow_pattern is not a valid regex: ${
-          e instanceof Error ? e.message : String(e)
-        }`,
-      );
-    }
-    const windowRaw = kv["incident_window_minutes"];
-    const windowMins =
-      windowRaw === undefined ? DEFAULT_INCIDENT_WINDOW_MINUTES : parseIntDec(windowRaw);
-    if (windowMins === undefined || windowMins < 1 || windowMins > 1440) {
-      throw new Error(
-        `[metrics.dora.${serviceId}].incident_window_minutes must be 1..1440, got '${windowRaw}'`,
-      );
-    }
-    const excludePrLabels =
-      kv["exclude_pr_labels"] === undefined
-        ? Array.from(DEFAULT_EXCLUDE_PR_LABELS)
-        : parseStringArray(kv["exclude_pr_labels"]);
-    out.set(serviceId, {
-      serviceId,
-      repos,
-      pagerdutyServices,
-      deployWorkflowPattern,
-      incidentWindowMinutes: windowMins,
-      excludePrLabels,
-    });
-  }
-  return out;
+  return materializeServiceConfigs(accum, "metrics.dora");
 }
 
-export function loadNimbusDoraFromPath(tomlPath: string): Map<string, DoraServiceConfig> {
+export function loadNimbusDoraFromPath(tomlPath: string): Map<string, ServiceConfig> {
   if (!existsSync(tomlPath)) return new Map();
   const raw = readFileSync(tomlPath, "utf8");
   return parseNimbusDoraToml(raw);
 }
 
-export function loadNimbusDoraFromConfigDir(configDir: string): Map<string, DoraServiceConfig> {
+export function loadNimbusDoraFromConfigDir(configDir: string): Map<string, ServiceConfig> {
   return loadNimbusDoraFromPath(join(configDir, "nimbus.toml"));
+}
+
+// ---------------------------------------------------------------------------
+// [ci.service.<service-id>] — Generic service map for CI/CD features
+// (Phase 5 T4 PR 3a). Same fields and semantics as [metrics.dora.<id>];
+// reading either block yields a ServiceConfig.
+// ---------------------------------------------------------------------------
+
+const CI_SERVICE_TABLE_PREFIX = "[ci.service.";
+
+export function parseNimbusCiServiceToml(raw: string): Map<string, ServiceConfig> {
+  const lines = raw.split(/\r?\n/);
+  const accum: Map<string, Record<string, string>> = new Map();
+  let currentId: string | undefined;
+  for (const line of lines) {
+    const trimmed = stripComment(line).trim();
+    if (trimmed === "") continue;
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      if (trimmed.startsWith(CI_SERVICE_TABLE_PREFIX) && trimmed.endsWith("]")) {
+        const id = trimmed.slice(CI_SERVICE_TABLE_PREFIX.length, -1);
+        if (id.length === 0) throw new Error("empty service id in [ci.service.<id>]");
+        currentId = id;
+        if (!accum.has(id)) accum.set(id, {});
+      } else {
+        currentId = undefined;
+      }
+      continue;
+    }
+    if (currentId === undefined) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    if (!SERVICE_CONFIG_KNOWN_KEYS.has(key)) {
+      throw new Error(`unknown key '${key}' in [ci.service.${currentId}]`);
+    }
+    const bucket = accum.get(currentId);
+    if (bucket === undefined) continue;
+    bucket[key] = trimmed.slice(eq + 1).trim();
+  }
+  return materializeServiceConfigs(accum, "ci.service");
+}
+
+/**
+ * Loads service configs from `<configDir>/nimbus.toml`, unioning the
+ * `[metrics.dora.<id>]` and `[ci.service.<id>]` blocks. When a service id
+ * appears under both keys, the `[ci.service.<id>]` block wins and a warning
+ * is logged once naming the conflict.
+ */
+export function loadNimbusServiceConfigsFromConfigDir(
+  configDir: string,
+): Map<string, ServiceConfig> {
+  const tomlPath = join(configDir, "nimbus.toml");
+  if (!existsSync(tomlPath)) return new Map();
+  const raw = readFileSync(tomlPath, "utf8");
+  const dora = parseNimbusDoraToml(raw);
+  const ci = parseNimbusCiServiceToml(raw);
+  const merged: Map<string, ServiceConfig> = new Map(dora);
+  for (const [id, cfg] of ci.entries()) {
+    if (merged.has(id)) {
+      process.stderr.write(
+        `[ci.service.${id}] and [metrics.dora.${id}] both define service '${id}'; ` +
+          `using [ci.service.${id}].\n`,
+      );
+    }
+    merged.set(id, cfg);
+  }
+  return merged;
 }

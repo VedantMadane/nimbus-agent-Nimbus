@@ -1,4 +1,4 @@
-import { loadNimbusDoraFromConfigDir } from "../../config/nimbus-toml.ts";
+import { loadNimbusServiceConfigsFromConfigDir } from "../../config/nimbus-toml.ts";
 import { asRecord } from "../../connectors/unknown-record.ts";
 import { bindConsentChannel, ToolExecutor } from "../../engine/executor.ts";
 import type { ConnectorDispatcher } from "../../engine/types.ts";
@@ -13,6 +13,7 @@ import { generatePairingCode } from "../lan-pairing.ts";
 import { dispatchLlmRpc, LlmRpcError } from "../llm-rpc.ts";
 import { dispatchMetricsRpc, MetricsRpcError } from "../metrics-rpc.ts";
 import { dispatchPeopleRpc, PeopleRpcError } from "../people-rpc.ts";
+import { dispatchPreflightRpc, PreflightRpcError } from "../preflight-rpc.ts";
 import { dispatchProfileRpc, ProfileRpcError } from "../profile-rpc.ts";
 import { dispatchReindexRpc, ReindexRpcError } from "../reindex-rpc.ts";
 import type { ClientSession } from "../session.ts";
@@ -26,6 +27,7 @@ import {
   metricsRpcSkipped,
   peopleRpcSkipped,
   phase4RpcSkipped,
+  preflightRpcSkipped,
   type ServerCtx,
   sessionRpcSkipped,
 } from "./context.ts";
@@ -185,7 +187,7 @@ export async function tryDispatchMetricsRpc(
   try {
     const out = await dispatchMetricsRpc(method, params, {
       db: ctx.options.localIndex.getDatabase(),
-      loadConfig: () => loadNimbusDoraFromConfigDir(configDir),
+      loadConfig: () => loadNimbusServiceConfigsFromConfigDir(configDir),
     });
     if (out.kind === "hit") return out.value;
   } catch (e) {
@@ -193,6 +195,33 @@ export async function tryDispatchMetricsRpc(
     throw e;
   }
   return metricsRpcSkipped;
+}
+
+export async function tryDispatchPreflightRpc(
+  ctx: ServerCtx,
+  method: string,
+  params: unknown,
+): Promise<typeof preflightRpcSkipped | unknown> {
+  if (!method.startsWith("deploy.") || ctx.options.localIndex === undefined) {
+    return preflightRpcSkipped;
+  }
+  if (ctx.options.configDir === undefined) {
+    throw new RpcMethodError(-32603, "configDir is required for deploy.* RPCs");
+  }
+  const configDir = ctx.options.configDir;
+  try {
+    const out = await dispatchPreflightRpc(method, params, {
+      db: ctx.options.localIndex.getDatabase(),
+      loadConfig: () => loadNimbusServiceConfigsFromConfigDir(configDir),
+    });
+    if (out.kind === "hit") return out.value;
+  } catch (e) {
+    if (e instanceof PreflightRpcError) {
+      throw new RpcMethodError(e.rpcCode, e.message);
+    }
+    throw e;
+  }
+  return preflightRpcSkipped;
 }
 
 export async function tryDispatchReindexRpc(
@@ -392,6 +421,8 @@ export async function tryDispatchPhase4Rpc(
   if (auditOutcome !== phase4RpcSkipped) return auditOutcome;
   const metricsOutcome = await tryDispatchMetricsRpc(ctx, method, params);
   if (metricsOutcome !== metricsRpcSkipped) return metricsOutcome;
+  const preflightOutcome = await tryDispatchPreflightRpc(ctx, method, params);
+  if (preflightOutcome !== preflightRpcSkipped) return preflightOutcome;
   const dataOutcome = await tryDispatchDataRpc(ctx, method, params, clientId);
   if (dataOutcome !== phase4RpcSkipped) return dataOutcome;
   const lanOutcome = await tryDispatchLanRpc(ctx, method, params);

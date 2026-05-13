@@ -17,7 +17,7 @@ export type ParsedDoraRepoUrn = {
   readonly providerId: string;
 };
 
-export type DoraServiceConfig = {
+export type ServiceConfig = {
   /** Stable service id from the table key. */
   readonly serviceId: string;
   readonly repos: readonly ParsedDoraRepoUrn[];
@@ -26,6 +26,9 @@ export type DoraServiceConfig = {
   readonly incidentWindowMinutes: number;
   readonly excludePrLabels: readonly string[];
 };
+
+/** Back-compat alias. New code should import `ServiceConfig`. */
+export type DoraServiceConfig = ServiceConfig;
 
 export const DEFAULT_DEPLOY_WORKFLOW_PATTERN = "^[Dd]eploy";
 export const DEFAULT_INCIDENT_WINDOW_MINUTES = 60;

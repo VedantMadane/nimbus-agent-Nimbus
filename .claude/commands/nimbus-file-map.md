@@ -96,14 +96,18 @@ This is the curated pointer index. Source-of-truth is the working tree — verif
 | `packages/gateway/src/agents/_lib/render.ts` | Deterministic Markdown fallback renderer |
 | `packages/gateway/src/agents/_lib/synthesize.ts` | LLM synthesis layer with deterministic fallback |
 
-## Metrics
+## Metrics + CI/CD
 
 | File | Purpose |
 |---|---|
 | `packages/gateway/src/metrics/dora.ts` | Four pure DORA calculators: `deploymentFrequency`, `leadTimeForChanges`, `changeFailureRate`, `mttr`. Returns `DoraMetricsResult` envelope. |
-| `packages/gateway/src/metrics/dora-config.ts` | `DoraServiceConfig` type + URN parser + provider→service-column map. |
+| `packages/gateway/src/metrics/dora-config.ts` | `ServiceConfig` type (with `DoraServiceConfig` back-compat alias) + URN parser + provider→service-column map. |
+| `packages/gateway/src/preflight/preflight.ts` | Pure pre-deploy check: three counts (active P1 incidents, failing CI on target_ref, open PR conflicts). Returns `DeployPreflightResult` envelope. |
 | `packages/gateway/src/ipc/metrics-rpc.ts` | `dispatchMetricsRpc` — `metrics.dora` JSON-RPC handler. |
+| `packages/gateway/src/ipc/preflight-rpc.ts` | `dispatchPreflightRpc` — `deploy.preflight` JSON-RPC handler. |
 | `packages/cli/src/commands/metrics.ts` | `nimbus metrics dora --service <id> [--since 30d] [--json]`. |
+| `packages/cli/src/commands/deploy.ts` | `nimbus deploy preflight --service <id> --target-ref <ref> [--mode warn\|block\|off] [--json]`. |
+| `packages/github-actions/preflight-query/` | First-party GitHub Action that wraps `GET /v1/preflight/deploy`. |
 
 ## IPC
 
@@ -117,7 +121,7 @@ This is the curated pointer index. Source-of-truth is the working tree — verif
 | `packages/gateway/src/ipc/http-server.ts` | Read-only local HTTP API (`localhost` only, `SQLITE_OPEN_READONLY`) |
 | `packages/gateway/src/ipc/http-routes.ts` | `READ_ONLY_HTTP_ROUTES` — canonical route list; single source of truth for the OpenAPI drift CI gate (Phase 5 T4 PR 1) |
 | `packages/gateway/src/ipc/openapi-loader.ts` | `loadOpenApiJsonBytes` — cached YAML→JSON parse for `GET /v1/openapi.json` (Phase 5 T4 PR 1) |
-| `packages/gateway/openapi/v1.yaml` | Hand-authored OpenAPI 3.1 schema for the read-only HTTP API; reserved `/v1/metrics/dora` slot for T4 PR 2 (Phase 5 T4 PR 1) |
+| `packages/gateway/openapi/v1.yaml` | Hand-authored OpenAPI 3.1 schema for the read-only HTTP API; serves `/v1/metrics/dora` (T4 PR 2) and `/v1/preflight/deploy` (T4 PR 3a). |
 | `packages/gateway/src/ipc/metrics-server.ts` | Prometheus endpoint (`localhost`, off by default) |
 | `packages/gateway/src/ipc/lan-crypto.ts` | NaCl box keypair, `sealBoxFrame` / `openBoxFrame` |
 | `packages/gateway/src/ipc/lan-pairing.ts` | `PairingWindow` — single-use base58 pairing code, 5-min expiry |

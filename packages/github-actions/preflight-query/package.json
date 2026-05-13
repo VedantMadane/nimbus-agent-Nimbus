@@ -1,0 +1,13 @@
+{
+  "name": "@nimbus-dev/action-preflight",
+  "version": "0.1.0",
+  "private": true,
+  "description": "First-party GitHub Action for the Nimbus pre-deploy index check (Phase 5 T4 PR 3a).",
+  "license": "AGPL-3.0",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "bun build src/main.ts --target=node --outfile=dist/index.js",
+    "test": "bun test"
+  },
+  "devDependencies": {}
+}

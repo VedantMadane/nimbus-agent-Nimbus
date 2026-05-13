@@ -14,6 +14,11 @@ build/
 out/
 .astro/
 
+# GitHub Actions bundles MUST be committed — the Actions runtime executes
+# dist/index.js directly with no install step (Phase 5 T4 PR 3a).
+!packages/github-actions/*/dist/
+!packages/github-actions/*/dist/**
+
 # Bundled JS must not live under package src/ (use dist/ or repo root dist/ via scripts/build-debug.ts)
 packages/cli/src/nimbus.js
 packages/cli/src/nimbus.js.map
