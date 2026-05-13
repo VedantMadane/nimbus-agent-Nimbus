@@ -64,6 +64,7 @@
     "audit:invariants": "bun scripts/structure-audit/check-nimbus-invariants.ts --binary-only",
     "audit:doc-refs": "bun scripts/structure-audit/check-doc-references.ts --check",
     "audit:openapi-drift": "bun scripts/structure-audit/check-openapi-drift.ts --check",
+    "audit:release-please": "bun scripts/structure-audit/check-release-please-manifest.ts",
     "audit:js-licenses": "bun scripts/structure-audit/check-js-licenses.ts --check",
     "audit:svg-assets": "bun scripts/audit/svg-assets.ts",
     "audit:readme-cli": "bun scripts/audit/readme-cli-commands.ts",
