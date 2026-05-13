@@ -121,7 +121,7 @@ const PACKAGE_OVERRIDES: ReadonlySet<string> = new Set([
   // only by publish-vscode.yml to publish the VS Code extension to
   // Open VSX. Not bundled into any distributed binary, so the EPL
   // copyleft terms do not propagate to our distribution.
-  "ovsx@0.10.11",
+  "ovsx@0.10.12",
 ]);
 
 type LicenseField = string | { type: string } | LicenseField[] | undefined;

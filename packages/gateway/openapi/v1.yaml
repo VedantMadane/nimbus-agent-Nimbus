@@ -196,6 +196,41 @@ paths:
         "400":
           description: Bad request (missing/invalid service, malformed since).
 
+  /v1/preflight/deploy:
+    get:
+      operationId: getDeployPreflight
+      summary: Pre-deploy index check for a configured service
+      parameters:
+        - in: query
+          name: service
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: target_ref
+          required: true
+          schema:
+            type: string
+          description: The branch/ref being deployed.
+        - in: query
+          name: max_findings
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+          description: Cap on findings per check.
+      responses:
+        "200":
+          description: Preflight envelope.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeployPreflightResult"
+        "400":
+          description: Bad request (missing/invalid service, target_ref, or max_findings).
+
 components:
   schemas:
     ItemPage:
@@ -242,3 +277,98 @@ components:
           nullable: true
           type: string
           enum: [no_pagerduty_mapping, no_repos, no_deployment_data, low_sample, approximate_lead_time]
+    DeployPreflightResult:
+      type: object
+      required: [service, target_ref, computed_at, verdict, checks]
+      properties:
+        service: { type: string }
+        target_ref: { type: string }
+        computed_at: { type: string, format: date-time }
+        verdict:
+          type: string
+          enum: [ok, warn]
+        checks:
+          type: object
+          required: [active_p1_incidents, failing_ci_runs, merge_conflicts]
+          properties:
+            active_p1_incidents:
+              $ref: "#/components/schemas/PreflightIncidentCheck"
+            failing_ci_runs:
+              $ref: "#/components/schemas/PreflightCiCheck"
+            merge_conflicts:
+              $ref: "#/components/schemas/PreflightPrCheck"
+    PreflightIncidentCheck:
+      type: object
+      required: [count, findings, gap]
+      properties:
+        count: { type: integer }
+        findings:
+          type: array
+          items: { $ref: "#/components/schemas/IncidentFinding" }
+        gap: { $ref: "#/components/schemas/PreflightGap" }
+    PreflightCiCheck:
+      type: object
+      required: [count, findings, gap]
+      properties:
+        count: { type: integer }
+        findings:
+          type: array
+          items: { $ref: "#/components/schemas/CiFinding" }
+        gap: { $ref: "#/components/schemas/PreflightGap" }
+    PreflightPrCheck:
+      type: object
+      required: [count, findings, gap]
+      properties:
+        count: { type: integer }
+        findings:
+          type: array
+          items: { $ref: "#/components/schemas/PrFinding" }
+        gap: { $ref: "#/components/schemas/PreflightGap" }
+    PreflightGap:
+      nullable: true
+      type: string
+      enum: [no_pagerduty_mapping, no_repos, unknown_mergeable_state]
+    IncidentFinding:
+      type: object
+      required: [id, title, status, severity, opened_at_ms, pagerduty_service_id, url]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        status:
+          type: string
+          enum: [triggered, acknowledged]
+        severity: { type: string }
+        opened_at_ms: { type: integer }
+        pagerduty_service_id: { type: string }
+        url:
+          type: string
+          nullable: true
+    CiFinding:
+      type: object
+      required: [id, title, conclusion, modified_at_ms, branch, head_sha, url]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        conclusion:
+          type: string
+          enum: [failure, cancelled, timed_out]
+        modified_at_ms: { type: integer }
+        branch: { type: string }
+        head_sha:
+          type: string
+          nullable: true
+        url:
+          type: string
+          nullable: true
+    PrFinding:
+      type: object
+      required: [id, title, number, mergeable_state, modified_at_ms, url]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        number: { type: integer }
+        mergeable_state: { type: string }
+        modified_at_ms: { type: integer }
+        url:
+          type: string
+          nullable: true

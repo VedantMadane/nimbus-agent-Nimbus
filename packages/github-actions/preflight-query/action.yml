@@ -1,0 +1,54 @@
+name: "Nimbus pre-deploy index check"
+description: >
+  Queries the local Nimbus Gateway for active P1 incidents on the target
+  service, failing CI runs on the target branch, and open PRs with merge
+  conflicts. Annotates the workflow and (optionally) blocks the deploy.
+author: "Nimbus"
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  service:
+    description: "Nimbus service id (matches [metrics.dora.<id>] or [ci.service.<id>] in nimbus.toml)."
+    required: true
+  target-ref:
+    description: "Branch/ref being deployed."
+    required: false
+    default: ${{ github.ref_name }}
+  gateway-url:
+    description: "Base URL of the Gateway's read-only HTTP API. Self-hosted runner default."
+    required: false
+    default: "http://localhost:7474"
+  mode:
+    description: "warn | block | off (default 'warn')."
+    required: false
+    default: "warn"
+  max-findings:
+    description: "Cap on findings per check (1..50)."
+    required: false
+    default: "10"
+  timeout-ms:
+    description: "HTTP timeout in milliseconds."
+    required: false
+    default: "10000"
+  allow-gateway-failure:
+    description: "When 'true', an unreachable Gateway never fails the workflow regardless of mode."
+    required: false
+    default: "false"
+
+outputs:
+  verdict:
+    description: "ok | warn | block"
+  incident-count:
+    description: "Number of active P1 incidents."
+  failing-ci-count:
+    description: "Number of failing CI runs on target_ref."
+  merge-conflict-count:
+    description: "Number of open PRs with merge conflicts."
+  result-json:
+    description: "Full envelope JSON serialized."
+
+runs:
+  using: "node20"
+  main: "dist/index.js"
