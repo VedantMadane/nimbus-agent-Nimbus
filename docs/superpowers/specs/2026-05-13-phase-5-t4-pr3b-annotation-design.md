@@ -173,7 +173,7 @@ Content-Type: application/json
 
 | Field | Rule |
 |---|---|
-| `service` | Non-empty string ≤64 chars; `^[a-z0-9][a-z0-9._-]*$`. Must resolve to a `[ci.service.<id>]` or `[metrics.dora.<id>]` block — unknown service → `400 unknown_service`. |
+| `service` | Non-empty string ≤64 chars; `^[a-z0-9][a-z0-9._-]*$`. Must resolve to a `[ci.service.<id>]` or `[metrics.dora.<id>]` block — unknown service → `400 unknown_service`. Service configs are loaded **per request** via `loadNimbusServiceConfigsFromConfigDir` (same pattern as the PR 3a preflight handler), so adding a new service to `nimbus.toml` is visible on the next post — **no Gateway restart required**. |
 | `provider` | One of `github-actions` \| `gitlab` \| `jenkins` \| `circleci` \| `bitbucket` \| `other`. |
 | `environment` | Non-empty ≤32 chars; `^[a-z0-9][a-z0-9._-]*$`. |
 | `sha` | Hex string, 7–64 chars. Lower-cased server-side. |
@@ -192,8 +192,10 @@ Body cap: **8 KiB**. Larger → `413 payload_too_large`.
 external_id =
   "<provider>:run-<run_id>:job-<job_id>"             // when both run_id and job_id present
 | "<provider>:run-<run_id>"                          // when only run_id present
-| "<service>:<env>:<sha>:<started_at_ms>"            // fallback (CLI shell-script path)
+| "<service>:<env>:<sha>"                            // fallback (CLI shell-script path)
 ```
+
+The fallback intentionally **omits** `started_at_ms`: a shell script that retries the same logical deployment (same service / env / sha) collapses onto one `deployment` row, so DORA `deploymentFrequency` reflects "shipped" not "attempted N times". Operators who genuinely want per-attempt granularity (retry-as-distinct-deploy) pass `--run-id <unique>` and land on the second tier.
 
 Same `external_id` re-posted → upsert no-op on the `item` row, replacement of the `deployment_items` shadow row (covers updates to `finished_at_ms` / `status` for `in_progress` → `success` transitions), **single new audit row per request** (so retries are observable but don't pollute the index).
 
@@ -217,11 +219,19 @@ Same `external_id` re-posted → upsert no-op on the `item` row, replacement of 
 | Code | Trigger | Response body |
 |---|---|---|
 | `400 invalid_request` | Missing / malformed fields | `{ "error": "invalid_request", "details": [{ "field": "...", "reason": "..." }] }` |
-| `400 unknown_service` | `service` not in any `[ci.service.<id>]` or `[metrics.dora.<id>]` block | `{ "error": "unknown_service", "service": "..." }` |
+| `400 unknown_service` | `service` not in any `[ci.service.<id>]` or `[metrics.dora.<id>]` block | `{ "error": "unknown_service", "service": "...", "known_services": ["payment-service", "billing", ...] }` (operator sees the list immediately; capped at 25 names to keep the response small) |
 | `401 unauthorized` | Bearer missing or wrong | `{ "error": "unauthorized" }` (no token leak in body) |
 | `405 method_not_allowed` | Path is a write route but method ≠ POST | `Allow: POST` header |
 | `413 payload_too_large` | Body > 8 KiB | `{ "error": "payload_too_large" }` |
-| `429 rate_limited` | >60 posts/min per `token_fingerprint` | `Retry-After: <s>` header |
+| `429 rate_limited` | >60 posts/min per `token_fingerprint` | `Retry-After: <s>` + `X-RateLimit-*` headers |
+
+**Rate-limit headers** are set on **every** response (200 / 4xx / 429), not just on rejections, so the Action can back off before hitting the wall:
+
+| Header | Value |
+|---|---|
+| `X-RateLimit-Limit` | `60` (current window cap) |
+| `X-RateLimit-Remaining` | requests still permitted in the current sliding window for this `token_fingerprint` |
+| `X-RateLimit-Reset` | unix-seconds when the oldest in-window request will fall off |
 | `503 vault_unavailable` | Vault unreachable (Keychain locked, etc.) | `{ "error": "vault_unavailable" }` |
 | `503 write_surface_disabled` | `http_api.deployment_token` absent from vault | `{ "error": "write_surface_disabled", "hint": "set http_api.deployment_token via 'nimbus vault set http_api.deployment_token <value>'" }` |
 | `503 db_busy` | SQLite `SQLITE_BUSY` after retry | `{ "error": "db_busy" }` |
@@ -272,6 +282,8 @@ function selectDeploys(db, cfg, nowMs, sinceMs): DeployRow[] {
 
 > "some deploys in this window are explicit annotations; some are regex-matched. Annotate consistently for accurate DF/LT."
 
+**CLI rendering:** when `gap === "mixed_source"`, the `nimbus metrics dora` pretty card prefixes the affected metric row with a yellow `⚠` icon (terminal-color-detected, omitted when `NO_COLOR` is set or stdout is not a TTY). The JSON shape is unchanged. The icon is local to the row; it does not change the overall verdict.
+
 ### 5.8. Three-surface equivalence
 
 | Surface | Auth | Audit `source_ip` |
@@ -289,8 +301,8 @@ All three converge on `annotateDeployment(db, input)` — one validator, one tra
 - **Production wiring site:** `packages/gateway/src/ipc/http-server.ts` — any non-GET method routes through `dispatchWriteRoute` from `http-write-routes.ts`, which enforces `WRITE_ROUTE_ALLOWLIST` membership + bearer auth before touching the write handle.
 - **Docs entry:** `docs/SECURITY-INVARIANTS.md` §I13 with file:line.
 - **Enforcement test** (`security-invariants.test.ts`):
-  1. `http-server.ts` imports `dispatchWriteRoute` from `./http-write-routes.ts`.
-  2. `http-server.ts` source never opens a writable DB handle outside the server-context wiring (regex-grep).
+  1. `packages/gateway/src/ipc/http-server.ts` imports `dispatchWriteRoute` from `./http-write-routes.ts`.
+  2. `packages/gateway/src/ipc/http-server.ts` source contains exactly **one** `SQLITE_OPEN_READWRITE` token, and it appears inside the server-context wiring (regex-grep scoped to that single file). Legitimate writable handles in `db/`, `sync/`, audit, etc. are explicitly out of scope — this test is about the HTTP server file alone.
   3. `WRITE_ROUTE_ALLOWLIST.length === 1` AND contains exactly `"POST /v1/deployments"`.
 
 The third assertion is the chore-on-purpose: every future write route bumps it explicitly, the same way Tauri `ALLOWED_METHODS` count assertion forces a security checkpoint.
@@ -322,7 +334,7 @@ Five-layer defense in depth:
 
 The `deployment` item lands in the index untrusted-bytes-and-all (workflow_url, ref, service id can all be operator-controlled but workflows often interpolate PR titles and other user-supplied content). The envelope is applied at the LLM-facing read path (`engine/agent.ts wrapToolForLlm`) — already in place — so no extra work here.
 
-**Test note:** the integration test seeds a deployment with a workflow_url containing `</tool_output>` and asserts the LLM-facing surface escapes it correctly. This is the regression check that catches an accidental envelope bypass for the new item type.
+**Test note:** the integration test seeds a deployment whose every string-valued field carries the literal substring `</tool_output>` (parameterized over `service`, `provider`, `environment`, `sha`, `ref`, `workflow_url`, `run_id`, `job_id`) and asserts the LLM-facing surface escapes each occurrence. Parameterizing the test over the input shape means that any future string field added to `DeploymentAnnotateInput` is automatically covered the moment the schema is widened — the regression check cannot silently fail to keep up.
 
 ## 8. Acceptance criteria
 
@@ -370,7 +382,7 @@ The companion follow-up — **T4 PR 4 (PagerDuty connector enrichment)** — rem
 - **Risk:** Token leaks via GH Actions logs (e.g. `echo $TOKEN` in a debug step).
   **Mitigation:** Action declares the input with `secret: true` so GH masks it in logs; README leads with the rotation procedure.
 - **Risk:** Operator forgets to set `http_api.deployment_token` and CI starts failing.
-  **Mitigation:** Acceptance criterion #11 — Gateway returns `503 write_surface_disabled` with the hint string. Action surfaces the hint verbatim in workflow logs.
+  **Mitigation:** Acceptance criterion #11 — Gateway returns `503 write_surface_disabled` with the hint string. Action surfaces the hint verbatim in workflow logs. The Action README's "Getting Started" section opens with the exact `nimbus vault set http_api.deployment_token <value>` command and the GitHub Secrets wiring, so the happy-path setup is unambiguous.
 - **Risk:** `mixed_source` gap surprises adopters of T4 PR 2 who start annotating partway through a 30d window.
   **Mitigation:** Gap note carries the explicit hint string in §5.7. Documented in the `nimbus-commands` skill addendum.
 - **Risk:** `WRITE_ROUTE_ALLOWLIST.length === 1` enforcement test becomes a chore (every future write route bumps it).
@@ -391,7 +403,24 @@ The companion follow-up — **T4 PR 4 (PagerDuty connector enrichment)** — rem
 - A `POST /v1/incidents` companion. PagerDuty enrichment (T4 PR 4) is the right next step.
 - Adding `deployment.annotate` to the Tauri renderer allowlist.
 
-## 13. Cross-references
+## 13. Review dispositions
+
+Tracks the Gemini-CLI design review ([`2026-05-13-phase-5-t4-pr3b-annotation-design-review.md`](./2026-05-13-phase-5-t4-pr3b-annotation-design-review.md)).
+
+| # | Review item | Disposition | Resolution |
+|---|---|---|---|
+| Q1 | Fallback `external_id` includes `started_at_ms` → shell retries duplicate items | **FIX** | §5.3 — fallback shape changed to `<service>:<env>:<sha>`; per-attempt granularity moves to opt-in `--run-id`. |
+| Q2 | I13 grep scope ambiguous | **FIX (clarify)** | §5.9 — sub-assertion 2 now explicitly scopes the regex-grep to `packages/gateway/src/ipc/http-server.ts` only. |
+| Q3 | `degraded` / `partially_successful` status enum | **DEFER** | Modeling canary stages requires DORA-side strategy awareness (DF / CFR accounting). Operators model today as `in_progress` → `success`/`failure` per shard. Revisit when a deploy-strategy concept lands. |
+| Q4 | Does a new `[ci.service.<id>]` need a Gateway restart? | **FIX (clarify)** | §5.2 — `loadNimbusServiceConfigsFromConfigDir` runs per request (matches PR 3a). New services are visible on the next post. |
+| S1 | Future-proof vault key as `http_api.tokens.deploy.global` | **DEFER** | Current name is clearer for the single-token case. Per-service tokens will be `http_api.deployment_token.<service>` beside the existing global key — same future cost, no churn now. |
+| S2 | Highlight `mixed_source` in CLI pretty mode | **FIX** | §5.7 — yellow ⚠ prefix when `gap === "mixed_source"`; `NO_COLOR` and non-TTY respected. |
+| S3 | `400 unknown_service` includes a hint | **FIX** | §5.5 — body carries `known_services` array (capped at 25). |
+| S4 | `X-RateLimit-*` headers | **FIX** | §5.5 — set on every response; documented header semantics added. |
+| S5 | I11 regression test structure | **FIX** | §7 test note — parameterize over every string field of `DeploymentAnnotateInput` so future field additions are auto-covered. |
+| MN | `nimbus vault set` in Action README "Getting Started" | **FIX** | §11 mitigation row — README opens with the exact vault-set command + GH Secrets wiring. |
+
+## 14. Cross-references
 
 - Predecessor: [`2026-05-12-phase-5-t4-pr3a-preflight-design.md`](./2026-05-12-phase-5-t4-pr3a-preflight-design.md) (pre-deploy read).
 - T4 sequencing: [`2026-05-10-phase-5-t4-cicd-data-layer-design.md`](./2026-05-10-phase-5-t4-cicd-data-layer-design.md).
