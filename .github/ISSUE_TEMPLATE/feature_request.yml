@@ -1,0 +1,77 @@
+name: Feature Request
+description: Propose a new capability or improvement
+title: "feat: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For large features, please open a [Discussions Ideas thread](https://github.com/nimbus-agent/Nimbus/discussions/categories/ideas)
+        first to gauge interest and align on shape. Small, well-scoped features
+        can go straight to this form.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One sentence — what do you want Nimbus to be able to do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / Motivation
+      description: What problem does this solve? Who is affected and how often?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the feature you have in mind. Be as specific as you can.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: What other approaches did you think about? Why did you prefer this one?
+
+  - type: checkboxes
+    id: non_negotiables
+    attributes:
+      label: Non-Negotiables Check
+      description: Every feature must be consistent with the project's architectural constraints.
+      options:
+        - label: "**Local-first** — no user data or credentials leave the machine without an explicit user action"
+        - label: "**HITL is structural** — if this involves a destructive or outgoing action, it must go through the consent gate in `executor.ts`"
+        - label: "**No plaintext credentials** — any credential handling goes through the Vault only"
+        - label: "**MCP as connector standard** — if this requires a cloud API, it belongs in an MCP connector, not the Engine"
+        - label: "**Platform equality** — this works on Windows, macOS, and Linux"
+
+  - type: dropdown
+    id: roadmap_phase
+    attributes:
+      label: Roadmap Phase
+      description: Which phase does this belong to? Features outside the active phase will be deferred.
+      options:
+        - "Phase 5 — The Extended Surface (Active)"
+        - "Phase 6 — Team"
+        - "Phase 7 — Engineering Excellence"
+        - "Phase 8 — Security Engineering"
+        - "Phase 9 — AI Engineering Loop"
+        - "Phase 10 — The Autonomous Agent"
+        - "Phase 11 — Sovereign Mesh"
+        - "Phase 12 — Enterprise"
+        - "Phase 13 — Desktop Distribution"
+        - "Phase 14 — Agent Evolution / AI v2"
+        - "Unsure / cross-phase"
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Mockups, related issues, prior art in other tools, anything that helps.
