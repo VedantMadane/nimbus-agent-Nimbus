@@ -78,6 +78,24 @@ docs(contributing): clarify platform equality requirement
 
 Keep commits focused. One logical change per commit.
 
+## Commit message format
+
+Nimbus uses [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) so that `release-please` can derive the next version and generate the `CHANGELOG.md` automatically when a release PR merges.
+
+The format is `<type>(<scope>): <subject>`. Types we use:
+
+| Type | Effect on release-please |
+|---|---|
+| `feat` | minor bump |
+| `fix` | patch bump |
+| `perf`, `refactor`, `docs`, `chore`, `test`, `ci`, `build`, `style` | no bump (still appears in the changelog where relevant) |
+
+Append `!` after the type (e.g. `feat!:`) or include a `BREAKING CHANGE:` footer to force a major bump. Use this sparingly — production binaries on the auto-updater channel rely on monotonic semver.
+
+Scope is the package or area touched, e.g. `feat(gateway):`, `fix(cli):`, `docs(roadmap):`. The scope is optional but recommended; release-please groups changelog entries by scope.
+
+We do **not** enforce this with commitlint today. The cost of getting it wrong is a malformed changelog entry, not a failed build — but please follow the format anyway.
+
 ### Running Tests
 
 ```bash
