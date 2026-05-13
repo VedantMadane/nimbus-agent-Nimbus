@@ -30,6 +30,7 @@ export const COMMAND_NAMES = [
   "connector",
   "data",
   "db",
+  "deploy",
   "diag",
   "doctor",
   "expert",
