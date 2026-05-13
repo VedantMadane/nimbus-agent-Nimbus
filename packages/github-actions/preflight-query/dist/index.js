@@ -155,7 +155,7 @@ async function main() {
       unreachable: true,
       allowGatewayFailure
     });
-    setOutput("verdict", code2 === 1 ? "block" : "warn");
+    setOutput("verdict", code2 === 1 ? "block" : mode === "off" ? "ok" : "warn");
     setOutput("result-json", "{}");
     process.exit(code2);
   }

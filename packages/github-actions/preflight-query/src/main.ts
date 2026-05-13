@@ -113,7 +113,7 @@ export async function main(): Promise<void> {
       unreachable: true,
       allowGatewayFailure,
     });
-    setOutput("verdict", code === 1 ? "block" : "warn");
+    setOutput("verdict", code === 1 ? "block" : mode === "off" ? "ok" : "warn");
     setOutput("result-json", "{}");
     process.exit(code);
   }
