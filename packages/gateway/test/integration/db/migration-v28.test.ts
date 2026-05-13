@@ -1,27 +1,13 @@
 import { Database } from "bun:sqlite";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runIndexedSchemaMigrations } from "../../../src/index/migrations/runner.ts";
 
 describe("V28 — deployment_items shadow table", () => {
-  let dir: string;
-  beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "nimbus-v28-"));
-  });
-  afterEach(() => {
-    // Best-effort cleanup: SQLite may briefly hold file handles on Windows
-    // after close(), which surfaces as EBUSY here. The OS reclaims the temp
-    // dir at next reboot; do not fail the test for a cleanup race.
-    try {
-      rmSync(dir, { recursive: true, force: true });
-    } catch {
-      /* non-fatal */
-    }
-  });
-
   test("fresh DB advances user_version to 28", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-v28-"));
     const db = new Database(join(dir, "nimbus.db"));
     runIndexedSchemaMigrations(db, 28);
     const row = db.query("PRAGMA user_version").get() as { user_version: number };
@@ -30,6 +16,7 @@ describe("V28 — deployment_items shadow table", () => {
   });
 
   test("deployment_items table is created with the expected columns", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-v28-"));
     const db = new Database(join(dir, "nimbus.db"));
     runIndexedSchemaMigrations(db, 28);
     const cols = db.query("PRAGMA table_info(deployment_items)").all() as Array<{
@@ -53,7 +40,8 @@ describe("V28 — deployment_items shadow table", () => {
     db.close();
   });
 
-  test("UNIQUE(service, external_id) prevents dup rows on the item table for type='deployment'", () => {
+  test("item.UNIQUE(service, external_id) blocks duplicate deployment rows", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-v28-"));
     const db = new Database(join(dir, "nimbus.db"));
     runIndexedSchemaMigrations(db, 28);
     db.run(
@@ -70,6 +58,7 @@ describe("V28 — deployment_items shadow table", () => {
   });
 
   test("idx_deployment_items_service_env_started enables ORDER BY on the hot path", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-v28-"));
     const db = new Database(join(dir, "nimbus.db"));
     runIndexedSchemaMigrations(db, 28);
     const idxs = db
@@ -82,6 +71,7 @@ describe("V28 — deployment_items shadow table", () => {
   });
 
   test("conclusion CHECK constraint rejects unknown values", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-v28-"));
     const db = new Database(join(dir, "nimbus.db"));
     runIndexedSchemaMigrations(db, 28);
     expect(() =>
