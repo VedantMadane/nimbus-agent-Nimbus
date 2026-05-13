@@ -1,0 +1,41 @@
+title: "Idea: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ideas are how the roadmap gets shaped. Large features get discussed
+        here before a PR. The local-first and structural-HITL constraints
+        are non-negotiable — be explicit about how your idea respects them.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem you're solving
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+
+  - type: textarea
+    id: local_first_fit
+    attributes:
+      label: How does this fit the local-first / HITL model?
+      description: |
+        Local-first means no user data or credentials leave the machine without an explicit user action.
+        Structural HITL means any destructive or outgoing action goes through the consent gate.
+        How does your idea respect both?
+
+  - type: dropdown
+    id: willing_to_build
+    attributes:
+      label: Are you willing to build this?
+      options:
+        - "Yes — I want to build it and would like guidance"
+        - "Maybe — depends on complexity"
+        - "No — requesting for someone else to build"
