@@ -8,6 +8,10 @@
 
 Closes #
 
+## Linked Discussion
+
+<!-- Optional but encouraged. If this PR implements an idea agreed in Discussions Ideas, answers a Q&A, or addresses something flagged in General, paste the discussion URL here so a maintainer can update or mark-answered the thread after merge. Note: GitHub does NOT auto-close Discussions from PR merges (only Issues via `Closes #N`); this is a manual maintainer follow-up. -->
+
 ## Type of Change
 
 <!-- Check all that apply -->

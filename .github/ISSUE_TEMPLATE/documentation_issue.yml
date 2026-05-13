@@ -1,0 +1,49 @@
+name: Documentation Issue
+description: Something in the docs is wrong, missing, or unclear
+title: "docs: "
+labels: ["documentation", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for issues in the project's documentation — the docs site
+        at https://nimbus-agent.dev, the per-package READMEs, `docs/*.md`
+        files, or the inline CLI `--help` text.
+
+  - type: input
+    id: page_or_path
+    attributes:
+      label: Page or file path
+      description: URL on the docs site, or repo path like `docs/architecture.md` or `packages/cli/README.md`.
+    validations:
+      required: true
+
+  - type: textarea
+    id: whats_wrong
+    attributes:
+      label: What's wrong?
+      description: Describe the problem — incorrect information, missing section, broken link, unclear wording, outdated example.
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggested_fix
+    attributes:
+      label: Suggested fix
+      description: What should the docs say instead? A specific suggestion is more actionable than "this is confusing".
+
+  - type: dropdown
+    id: package
+    attributes:
+      label: Package / area
+      options:
+        - "Docs site (packages/docs/)"
+        - "Gateway (packages/gateway/)"
+        - "CLI (packages/cli/)"
+        - "UI (packages/ui/)"
+        - "SDK (packages/sdk/)"
+        - "Client (packages/client/)"
+        - "VS Code extension (packages/vscode-extension/)"
+        - "MCP connector (packages/mcp-connectors/*)"
+        - "Repo-root docs (docs/*.md)"
+        - "Other / cross-cutting"

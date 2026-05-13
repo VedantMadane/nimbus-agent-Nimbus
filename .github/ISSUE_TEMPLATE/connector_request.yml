@@ -1,0 +1,111 @@
+name: Connector / Extension Request
+description: Request a new MCP connector for a cloud service or third-party integration
+title: "connector: "
+labels: ["connector", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Want to scope the connector together first? Open a
+        [Discussions Ideas thread](https://github.com/nimbus-agent/Nimbus/discussions/categories/ideas)
+        before filing this form for non-trivial connectors.
+
+  - type: input
+    id: service_name
+    attributes:
+      label: Service name
+      placeholder: "e.g. Notion, Dropbox, Slack, GitHub"
+    validations:
+      required: true
+
+  - type: input
+    id: service_website
+    attributes:
+      label: Service website
+
+  - type: input
+    id: api_docs
+    attributes:
+      label: API / developer docs URL
+
+  - type: textarea
+    id: use_cases
+    attributes:
+      label: Use cases
+      description: What would you want Nimbus to do with this service? Give 2–3 concrete examples.
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: auth_type
+    attributes:
+      label: Authentication type
+      options:
+        - OAuth 2.0
+        - API key / PAT
+        - Other (specify below)
+        - Unknown
+
+  - type: dropdown
+    id: api_availability
+    attributes:
+      label: API availability
+      options:
+        - Public (generally available)
+        - Beta / preview
+        - Requires approval
+        - Unknown
+
+  - type: textarea
+    id: auth_scopes_and_limits
+    attributes:
+      label: Auth scopes / rate limits
+      description: Relevant API scopes the connector would need; known rate limits.
+
+  - type: checkboxes
+    id: read_ops
+    attributes:
+      label: Read operations
+      options:
+        - label: List files / items
+        - label: Read file content
+        - label: Search
+        - label: Other (specify in additional context)
+
+  - type: checkboxes
+    id: write_ops
+    attributes:
+      label: Write operations (will require HITL consent gate)
+      options:
+        - label: Create
+        - label: Update / rename
+        - label: Delete
+        - label: Send / publish
+        - label: Other (specify in additional context)
+
+  - type: textarea
+    id: existing_sdk
+    attributes:
+      label: Existing SDK / libraries
+      description: Are there existing npm packages for this service's API that could be used?
+
+  - type: dropdown
+    id: willing_to_build
+    attributes:
+      label: Are you willing to build this?
+      options:
+        - "Yes — I want to build it and would like guidance"
+        - "Possibly — depends on complexity"
+        - "No — requesting for someone else to build"
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Related issues, prior art, anything else that helps prioritise or scope this.

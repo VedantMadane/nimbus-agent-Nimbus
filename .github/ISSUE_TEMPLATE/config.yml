@@ -1,0 +1,18 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: Usage question or "how do I…?"
+    url: https://github.com/nimbus-agent/Nimbus/discussions/categories/q-a
+    about: Ask a usage question in Discussions Q&A. The community and maintainers triage there faster than Issues for "how do I" questions.
+
+  - name: Idea / roadmap input
+    url: https://github.com/nimbus-agent/Nimbus/discussions/categories/ideas
+    about: Propose a new capability or weigh in on the Phase 6+ roadmap in Discussions Ideas.
+
+  - name: Security vulnerability (private — do NOT open a public issue)
+    url: https://github.com/nimbus-agent/Nimbus/blob/main/docs/SECURITY.md
+    about: See SECURITY.md for the private reporting channel. Public issues for vulnerabilities create disclosure risk.
+
+  - name: General chat
+    url: https://github.com/nimbus-agent/Nimbus/discussions/categories/general
+    about: Talking-shop, casual questions, "is anyone else seeing X?".
