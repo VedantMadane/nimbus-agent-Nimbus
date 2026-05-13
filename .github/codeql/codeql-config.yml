@@ -20,3 +20,21 @@ query-filters:
   # reviewer to confirm the suppression is still scoped correctly).
   - exclude:
       id: js/insufficient-password-hash
+  # `js/http-to-file-access` — flags `fetch()` data flowing into `fs.append*`
+  # sinks. The only call site in this repo is the GitHub Action wrapper
+  # `packages/github-actions/preflight-query/src/main.ts`, where the
+  # operator's own local Nimbus Gateway is fetched and the bounded JSON
+  # response is written to `$GITHUB_OUTPUT` and `$GITHUB_STEP_SUMMARY`
+  # (workflow-job-scoped, no privilege escalation). The trust boundary is
+  # the operator's machine — by design (Phase 5 T4 PR 3a), the Action
+  # runs on a self-hosted runner that hosts the Gateway. The Action
+  # additionally sanitizes the fetched envelope at a single explicit
+  # barrier (`sanitizeEnvelope` in `main.ts`): strings pass through a
+  # control-char allowlist + length cap, counts coerce through `Number()`
+  # + `Math.trunc`, verdict narrows to a literal `"ok" | "warn"`. CodeQL
+  # does not recognise user-defined sanitizers for this rule. Suppressed
+  # globally so any future call site is still flagged in PR review,
+  # prompting a reviewer to confirm the suppression is still scoped
+  # correctly. Phase 5 T4 PR 3a.
+  - exclude:
+      id: js/http-to-file-access
