@@ -7,19 +7,21 @@ import { createServer, type Server, type Socket } from "node:net";
  * Gateway behavior: no ToolExecutor, no HITL gate, no MCP, no LLM.
  *
  * Loads an event script (events.json) that names ordered notifications
- * per input step. On engine.askStream, emits the matching step's
- * notifications in order; pauses at consent.request until the CLI
- * sends consent.respond, then continues.
+ * per input step. When the step's `trigger` method is called, emits the
+ * matching step's notifications in order; pauses at consent.request until
+ * the CLI sends consent.respond, then continues.
  *
- * IMPORTANT — notification emission is currently coupled to
- * `engine.askStream`. The only IPC methods that trigger the scripted
- * notification queue are those whose handler calls
- * `emitStepNotifications()` (today, just `engine.askStream`). If you
- * add a cast script for a CLI command that uses a different IPC
- * method (e.g. a non-streaming RPC), either route it through
- * `engine.askStream`, or extend `handleMessage` to call
- * `emitStepNotifications()` for that method too. Without this,
- * the CLI will hang waiting for notifications that never arrive.
+ * IMPORTANT — each step declares the RPC method that triggers its
+ * notification queue via the `trigger` field (defaulting to
+ * `"engine.askStream"` for backward compatibility with existing scripts).
+ * When `handleMessage` receives a call matching the current step's trigger,
+ * it responds immediately and then emits the scripted notifications. Steps
+ * whose CLI command calls a different method (e.g. `agents.expert`,
+ * `agent.invoke`) must set `trigger` accordingly in events.json.
+ *
+ * For `engine.askStream` the response is `{ streamId }`. For all other
+ * trigger methods the response comes from the step's `methodResponses`
+ * map (keyed by method name) or `null` if not found.
  *
  * Spec §6.
  */
@@ -31,6 +33,24 @@ export interface ScriptedNotification {
 
 export interface ScriptedStep {
   readonly input: string;
+  /**
+   * The JSON-RPC method whose arrival triggers this step's notification
+   * queue. Defaults to `"engine.askStream"` when omitted, preserving
+   * backward compatibility with existing events.json files.
+   */
+  readonly trigger?: string;
+  /**
+   * When `true`, the trigger method's RPC response is sent AFTER all
+   * scripted notifications have been emitted (including waiting for any
+   * `consent.request` / `consent.respond` round-trip). Use this for
+   * methods like `agent.invoke` where the CLI awaits the response and
+   * then immediately disconnects — notifications must arrive before the
+   * response or they will be dropped.
+   *
+   * When `false` or absent (default), the response is sent first and
+   * notifications follow asynchronously (the `engine.askStream` pattern).
+   */
+  readonly respondAfterNotifications?: boolean;
   readonly notifications: ReadonlyArray<ScriptedNotification>;
   readonly methodResponses?: Readonly<Record<string, unknown>>;
 }
@@ -149,15 +169,39 @@ export class FakeGateway {
       return;
     }
     const id = msg.id;
-    if (msg.method === "engine.askStream") {
+
+    // Per-step trigger: each step declares the RPC method whose arrival
+    // fires the scripted notification queue. Defaults to "engine.askStream"
+    // for backward compatibility.
+    const currentStep = this.opts.events.steps[this.currentStepIdx];
+    const stepTrigger = currentStep?.trigger ?? "engine.askStream";
+    if (msg.method === stepTrigger) {
       if (id === undefined || id === null) {
         return;
       }
-      const streamId = `stream-${this.currentStepIdx + 1}`;
-      this.send(socket, { jsonrpc: "2.0", id, result: { streamId } });
-      void this.emitStepNotifications(socket);
+      // For engine.askStream return { streamId }; for other methods use the
+      // methodResponses fixture or null.
+      const result =
+        msg.method === "engine.askStream"
+          ? { streamId: `stream-${this.currentStepIdx + 1}` }
+          : (currentStep?.methodResponses?.[msg.method] ?? null);
+
+      if (currentStep?.respondAfterNotifications === true) {
+        // Emit all notifications (including consent.request pauses) BEFORE
+        // sending the RPC response. Required for methods like agent.invoke
+        // where the CLI immediately disconnects after the response resolves.
+        void this.emitStepNotifications(socket).then(() => {
+          this.send(socket, { jsonrpc: "2.0", id, result });
+        });
+      } else {
+        // Default: respond first, then emit notifications asynchronously.
+        // This is the engine.askStream pattern.
+        this.send(socket, { jsonrpc: "2.0", id, result });
+        void this.emitStepNotifications(socket);
+      }
       return;
     }
+
     if (msg.method === "consent.respond") {
       const p = msg.params as { requestId?: string; approved?: boolean };
       if (typeof p.requestId === "string" && typeof p.approved === "boolean") {

@@ -228,4 +228,153 @@ describe("FakeGateway", () => {
     await g2.start();
     await g2.stop();
   });
+
+  test("per-step trigger: emits notifications when declared trigger method fires", async () => {
+    const events: EventsScript = {
+      steps: [
+        {
+          input: 'nimbus expert "latency"',
+          trigger: "agents.expert",
+          notifications: [
+            {
+              method: "expert.briefReady",
+              params: {
+                sessionId: "s1",
+                brief: "## Report\n\nAll good.\n",
+                findings: { gaps: [], findings: [] },
+              },
+            },
+          ],
+          methodResponses: {
+            "agents.expert": { sessionId: "s1" },
+          },
+        },
+      ],
+    };
+    gateway = new FakeGateway({ socketPath, events });
+    await gateway.start();
+
+    const notifs: Array<{ method: string }> = [];
+    await new Promise<void>((resolve, reject) => {
+      const client = connect(socketPath);
+      client.on("connect", () => {
+        client.write(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "agents.expert",
+            params: { topicOrFile: "latency" },
+          }) + "\n",
+        );
+      });
+      let buf = "";
+      client.on("data", (chunk) => {
+        buf += chunk.toString("utf8");
+        let nl = buf.indexOf("\n");
+        while (nl !== -1) {
+          const line = buf.slice(0, nl);
+          buf = buf.slice(nl + 1);
+          const parsed = JSON.parse(line) as {
+            id?: number;
+            method?: string;
+            result?: unknown;
+          };
+          if (parsed.id === undefined && parsed.method !== undefined) {
+            notifs.push({ method: parsed.method });
+            if (parsed.method === "expert.briefReady") {
+              client.end();
+              resolve();
+            }
+          }
+          nl = buf.indexOf("\n");
+        }
+      });
+      client.on("error", reject);
+    });
+
+    expect(notifs.map((n) => n.method)).toEqual(["expert.briefReady"]);
+  });
+
+  test("respondAfterNotifications: notifications arrive before the RPC response", async () => {
+    const events: EventsScript = {
+      steps: [
+        {
+          input: 'nimbus ask "test"',
+          trigger: "agent.invoke",
+          respondAfterNotifications: true,
+          notifications: [
+            { method: "agent.chunk", params: { text: "chunk1\n" } },
+            { method: "agent.chunk", params: { text: "chunk2\n" } },
+          ],
+          methodResponses: { "agent.invoke": { reply: "" } },
+        },
+      ],
+    };
+    gateway = new FakeGateway({ socketPath, events });
+    await gateway.start();
+
+    const received: Array<{ kind: "notif" | "response"; method?: string }> = [];
+    await new Promise<void>((resolve, reject) => {
+      const client = connect(socketPath);
+      client.on("connect", () => {
+        client.write(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, method: "agent.invoke", params: {} }) + "\n",
+        );
+      });
+      let buf = "";
+      client.on("data", (chunk) => {
+        buf += chunk.toString("utf8");
+        let nl = buf.indexOf("\n");
+        while (nl !== -1) {
+          const line = buf.slice(0, nl);
+          buf = buf.slice(nl + 1);
+          const parsed = JSON.parse(line) as {
+            id?: number;
+            method?: string;
+            result?: unknown;
+          };
+          if (parsed.id !== undefined) {
+            received.push({ kind: "response" });
+            client.end();
+            resolve();
+          } else if (parsed.method !== undefined) {
+            received.push({ kind: "notif", method: parsed.method });
+          }
+          nl = buf.indexOf("\n");
+        }
+      });
+      client.on("error", reject);
+    });
+
+    // Notifications must appear before the response
+    expect(received[0]).toMatchObject({ kind: "notif", method: "agent.chunk" });
+    expect(received[1]).toMatchObject({ kind: "notif", method: "agent.chunk" });
+    expect(received[2]).toMatchObject({ kind: "response" });
+  });
+
+  test("per-step trigger: engine.askStream is not a trigger when step declares different method", async () => {
+    const events: EventsScript = {
+      steps: [
+        {
+          input: 'nimbus expert "latency"',
+          trigger: "agents.expert",
+          notifications: [
+            {
+              method: "expert.briefReady",
+              params: { sessionId: "s1", brief: "ok", findings: { gaps: [], findings: [] } },
+            },
+          ],
+          methodResponses: { "agents.expert": { sessionId: "s1" } },
+        },
+      ],
+    };
+    gateway = new FakeGateway({ socketPath, events });
+    await gateway.start();
+
+    // engine.askStream should fall through to METHOD_NOT_FOUND when trigger is agents.expert
+    const resp = (await rpc("engine.askStream", { prompt: "hi" })) as {
+      error?: { code: number };
+    };
+    expect(resp.error?.code).toBe(-32601);
+  });
 });
