@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { resolveSocketPath } from "./paths.ts";
+import { resolveSocketPath } from "../../src/paths.ts";
 
 describe("resolveSocketPath", () => {
   test("returns NIMBUS_GATEWAY_SOCKET when set", () => {
