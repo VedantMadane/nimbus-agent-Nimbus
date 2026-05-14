@@ -30,6 +30,7 @@ interface SurfaceMetrics {
 
 interface HistoryLineForRender {
   schema_version: 1;
+  run_id: string;
   timestamp: string;
   runner: "reference-m1air";
   os_version: string;
@@ -44,6 +45,7 @@ function isHistoryLineForRender(v: unknown): v is HistoryLineForRender {
   return (
     r["schema_version"] === 1 &&
     r["runner"] === "reference-m1air" &&
+    typeof r["run_id"] === "string" &&
     typeof r["timestamp"] === "string" &&
     typeof r["os_version"] === "string" &&
     typeof r["nimbus_git_sha"] === "string" &&
