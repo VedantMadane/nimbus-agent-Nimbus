@@ -45,7 +45,10 @@ function ins(
 
 /**
  * Seeds a deterministic preflight fixture for the "payment-service" config:
- *   - 2 PagerDuty incidents (1 triggered P1, 1 resolved P1)  → 1 active P1
+ *   - 3 PagerDuty incidents (1 triggered P1, 1 resolved P1,
+ *     1 triggered with no priority)                          → 1 active P1
+ *     (the no-priority incident is excluded by the strict
+ *     `severity = 'P1'` filter — locks spec §6 row 1)
  *   - 4 GitHub Actions CI runs (2 on main: 1 success, 1 failure; 2 on
  *     feature-x: both failures)                              → 1 failing CI on main
  *   - 3 GitHub PRs on main repo (1 dirty open, 1 clean open,
