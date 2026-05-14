@@ -33,6 +33,20 @@ export interface HistoryLineSurface {
   stub_reason?: string;
 }
 
+/**
+ * Schema-bump warning: if you add, remove, or rename a field on `HistoryLine`,
+ * you MUST also update `packages/docs/src/components/BenchmarksTable.astro` —
+ * specifically the `HistoryLineForRender` interface and the
+ * `isHistoryLineForRender` runtime guard. The docs site imports
+ * `packages/docs/public/perf/latest.json` (a verbatim projection of one
+ * `HistoryLine`) at build time and hard-fails on a shape mismatch — see
+ * Sub-project D Phase 2 spec §6. The two definitions are duplicated because
+ * Astro components in `packages/docs/` cannot import gateway-package types
+ * directly (no monorepo path mapping is configured between those packages).
+ * Bumping `schema_version` to 2 additionally requires updating
+ * `BenchmarksTable.astro`'s `schema_version === 1` assertion in the same
+ * commit.
+ */
 export interface HistoryLine {
   schema_version: 1;
   run_id: string;

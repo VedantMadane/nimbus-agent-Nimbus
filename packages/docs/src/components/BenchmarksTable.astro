@@ -1,0 +1,183 @@
+---
+/**
+ * Renders the most recent reference-m1air HistoryLine as a table.
+ *
+ * Imports packages/docs/public/perf/latest.json at build time. Hard-fails
+ * the build (per Sub-project D Phase 2 spec §6) when:
+ *   - the file is missing (Astro's import resolution throws)
+ *   - schema_version is not 1
+ *   - runner is not "reference-m1air"
+ *   - any required field is missing
+ *
+ * Per Non-Negotiable #7, the imported value is treated as `unknown` and
+ * validated by isHistoryLineForRender before rendering — no `as` casts.
+ */
+import latestRaw from "../../public/perf/latest.json";
+
+interface SurfaceMetrics {
+  samples_count?: number;
+  p50_ms?: number;
+  p95_ms?: number;
+  p99_ms?: number;
+  max_ms?: number;
+  throughput_per_sec?: number;
+  tokens_per_sec?: number;
+  first_token_ms?: number;
+  rss_bytes_p95?: number;
+  busy_retries?: number;
+  stub_reason?: string;
+}
+
+interface HistoryLineForRender {
+  schema_version: 1;
+  timestamp: string;
+  runner: "reference-m1air";
+  os_version: string;
+  nimbus_git_sha: string;
+  bun_version: string;
+  surfaces: Record<string, SurfaceMetrics>;
+}
+
+function isHistoryLineForRender(v: unknown): v is HistoryLineForRender {
+  if (typeof v !== "object" || v === null) return false;
+  const r = v as Record<string, unknown>;
+  return (
+    r["schema_version"] === 1 &&
+    r["runner"] === "reference-m1air" &&
+    typeof r["timestamp"] === "string" &&
+    typeof r["os_version"] === "string" &&
+    typeof r["nimbus_git_sha"] === "string" &&
+    typeof r["bun_version"] === "string" &&
+    typeof r["surfaces"] === "object" &&
+    r["surfaces"] !== null
+  );
+}
+
+const latest: unknown = latestRaw;
+if (!isHistoryLineForRender(latest)) {
+  const inspected = latestRaw as Record<string, unknown>;
+  throw new Error(
+    `BenchmarksTable: packages/docs/public/perf/latest.json is invalid ` +
+      `(got schema_version=${inspected["schema_version"]}, runner=${inspected["runner"]}; ` +
+      `expected schema_version=1, runner="reference-m1air", all required string fields present). ` +
+      `Trigger a reference benchmark run per docs/perf/reference-runner-setup.md ` +
+      `and merge the resulting PR before rebuilding the docs.`,
+  );
+}
+
+const SURFACE_LABELS: Record<string, string> = {
+  S1: "Cold start",
+  "S2-a": "Query latency (100k items)",
+  "S2-b": "Query latency (1M items)",
+  "S2-c": "Query latency (reference)",
+  S3: "Dashboard first-paint",
+  S4: "TUI first-paint",
+  S5: "HITL popup",
+  "S6-drive": "Sync throughput — Drive",
+  "S6-gmail": "Sync throughput — Gmail",
+  "S6-github": "Sync throughput — GitHub",
+  "S7-a": "RSS — idle",
+  "S7-b": "RSS — heavy sync",
+  "S7-c": "RSS — multi-agent",
+  S9: "LLM round-trip",
+  S10: "SQLite contention writes",
+  "S11-a": "CLI overhead — cold",
+  "S11-b": "CLI overhead — warm",
+};
+
+function labelFor(id: string): string {
+  const label = SURFACE_LABELS[id];
+  if (label !== undefined) return label;
+  if (id.startsWith("S8-")) return `Embedding throughput (${id.slice(3)})`;
+  return id;
+}
+
+function formatBytes(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function formatMetric(m: SurfaceMetrics): string {
+  if (m.stub_reason) return `stub: ${m.stub_reason}`;
+  if (m.tokens_per_sec !== undefined) {
+    const ft =
+      m.first_token_ms !== undefined
+        ? `, first-token ${m.first_token_ms.toFixed(0)} ms`
+        : "";
+    return `${m.tokens_per_sec.toFixed(1)} tok/sec${ft}`;
+  }
+  if (m.rss_bytes_p95 !== undefined) {
+    return `${formatBytes(m.rss_bytes_p95)} (p95)`;
+  }
+  if (m.throughput_per_sec !== undefined) {
+    const retries =
+      m.busy_retries !== undefined ? ` (busy retries: ${m.busy_retries})` : "";
+    return `${m.throughput_per_sec.toFixed(1)} items/sec${retries}`;
+  }
+  if (
+    m.p50_ms !== undefined ||
+    m.p95_ms !== undefined ||
+    m.p99_ms !== undefined
+  ) {
+    const fmt = (n?: number) => (n === undefined ? "—" : n.toFixed(1));
+    return `p50 ${fmt(m.p50_ms)} / p95 ${fmt(m.p95_ms)} / p99 ${fmt(m.p99_ms)} ms`;
+  }
+  return "—";
+}
+
+const surfaceEntries = Object.entries(latest.surfaces);
+const knownSurfaces = surfaceEntries.filter(
+  ([id]) => id in SURFACE_LABELS || id.startsWith("S8-"),
+);
+const unknownSurfaces = surfaceEntries.filter(
+  ([id]) => !(id in SURFACE_LABELS) && !id.startsWith("S8-"),
+);
+
+const sha = latest.nimbus_git_sha.slice(0, 7);
+const date = latest.timestamp.slice(0, 10);
+---
+
+<p>
+  <strong>Run:</strong> <code>{sha}</code> · <strong>{latest.os_version}</strong> ·
+  <strong>Bun {latest.bun_version}</strong> · <strong>{date}</strong>
+</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Surface</th>
+      <th>Metric</th>
+      <th>Samples</th>
+    </tr>
+  </thead>
+  <tbody>
+    {
+      knownSurfaces.map(([id, metrics]) => (
+        <tr>
+          <td>
+            <code>{id}</code> {labelFor(id)}
+          </td>
+          <td>{formatMetric(metrics)}</td>
+          <td>{metrics.samples_count ?? "—"}</td>
+        </tr>
+      ))
+    }
+  </tbody>
+</table>
+
+{
+  unknownSurfaces.length > 0 && (
+    <>
+      <h3>Other surfaces</h3>
+      <p>
+        <em>
+          Surface IDs the renderer does not have a row template for. Raw JSON is shown for
+          inspection — add a label entry to <code>BenchmarksTable.astro</code> when a new
+          surface family is introduced.
+        </em>
+      </p>
+      <pre>
+        <code>{JSON.stringify(Object.fromEntries(unknownSurfaces), null, 2)}</code>
+      </pre>
+    </>
+  )
+}
