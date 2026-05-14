@@ -25,3 +25,25 @@ export function sha256HexEqualConstantTime(a: string, b: string): boolean {
   // shorter buffer — so the length check above also catches malformed hex.
   return timingSafeEqual(bufA, bufB);
 }
+
+/**
+ * Constant-time UTF-8 string equality.
+ *
+ * Canonical helper for invariant I10. Use for pairing codes, bearer tokens,
+ * and any other opaque-string compare where a `===` would leak prefix-match
+ * timing information.
+ *
+ * On length mismatch the function burns the same number of CPU cycles a real
+ * compare would (by running `timingSafeEqual(aBuf, aBuf)` and discarding the
+ * result) so observers see only "not equal" — never the byte position where
+ * the inputs diverged or which input was the longer one.
+ */
+export function constantTimeStringEqual(a: string, b: string): boolean {
+  const aBuf = Buffer.from(a, "utf8");
+  const bBuf = Buffer.from(b, "utf8");
+  if (aBuf.length !== bBuf.length) {
+    timingSafeEqual(aBuf, aBuf);
+    return false;
+  }
+  return timingSafeEqual(aBuf, bBuf);
+}

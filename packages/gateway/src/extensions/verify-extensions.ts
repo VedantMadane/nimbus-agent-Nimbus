@@ -11,7 +11,7 @@ import {
   touchExtensionVerifiedAt,
 } from "../automation/extension-store.ts";
 import { readIndexedUserVersion } from "../index/migrations/runner.ts";
-import { sha256HexEqualConstantTime } from "../util/hex-compare.ts";
+import { sha256HexEqualConstantTime } from "../util/timing-safe-compare.ts";
 import { parseExtensionManifestJson, resolveExtensionManifestPath } from "./manifest.ts";
 
 function sha256HexOfBytes(buf: Buffer): string {
