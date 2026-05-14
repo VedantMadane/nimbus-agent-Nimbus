@@ -77,44 +77,125 @@ jobs:
             --protocol-confirmed \
             --history "${{ github.workspace }}/docs/perf/history.jsonl"
 
-      - name: Sanity-check history.jsonl diff
+      - name: Derive latest.json projection
+        # Reads the new tail of history.jsonl, finds the most recent
+        # complete reference-m1air line, writes it verbatim to
+        # packages/docs/public/perf/latest.json. If the new tail is itself
+        # incomplete, the script walks past it; latest.json is then
+        # rewritten with the same content already on disk and git sees no
+        # change. Sub-project D Phase 2, spec §5.
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun packages/gateway/src/perf/derive-latest-json.ts \
+            --history "${{ github.workspace }}/docs/perf/history.jsonl" \
+            --output  "${{ github.workspace }}/packages/docs/public/perf/latest.json"
+
+      - name: Sanity-check history.jsonl + latest.json diff
         id: sanity
         shell: bash
         run: |
           set -euo pipefail
-          # 1. Exactly one file modified (no incidental edits).
-          changed=$(git status --porcelain | awk '{print $NF}')
-          if [[ "$changed" != "docs/perf/history.jsonl" ]]; then
-            echo "::error::Expected only docs/perf/history.jsonl to change; got:"
-            git status --porcelain
+
+          # Sub-project D Phase 2 spec §5.2 — the diff must contain
+          # docs/perf/history.jsonl plus EITHER packages/docs/public/perf/latest.json
+          # (new-tail-complete case) OR nothing else (new-tail-incomplete case).
+          # Determine which case we're in by inspecting the new tail.
+          # Capture the raw line first so a jq parse failure can produce a
+          # proper GHA error annotation rather than letting `set -e` kill
+          # the step with only jq's raw stderr.
+          raw_tail=$(tail -n 1 docs/perf/history.jsonl)
+          new_tail_incomplete=$(echo "$raw_tail" | jq -r '(.incomplete == true)' 2>/dev/null) || {
+            echo "::error::history.jsonl last line is not valid JSON:"
+            echo "$raw_tail"
+            exit 1
+          }
+          if [[ "$new_tail_incomplete" != "true" && "$new_tail_incomplete" != "false" ]]; then
+            # jq parsed valid JSON, but the comparison produced something other than
+            # a boolean — e.g., the JSON was a non-object (array, number, string).
+            echo "::error::history.jsonl last line is valid JSON but not an object:"
+            echo "$raw_tail"
             exit 1
           fi
-          # 2. Exactly one line added (count delta — robust against whitespace
-          #    diffs and file-creation header noise).
+
+          # 1. Exactly the right files modified, given the case.
+          # `git diff --name-only HEAD` reports only TRACKED file changes
+          # relative to the last commit. We use this rather than
+          # `git status --porcelain` because the self-hosted M1 Air
+          # runner is persistent — untracked files from previous runs
+          # (temp dirs, build artifacts) would otherwise leak into
+          # `changed` and fail the set comparison spuriously.
+          changed=$(git diff --name-only HEAD | sort)
+          if [[ "$new_tail_incomplete" == "true" ]]; then
+            expected=$(printf 'docs/perf/history.jsonl\n' | sort)
+          else
+            expected=$(printf 'docs/perf/history.jsonl\npackages/docs/public/perf/latest.json\n' | sort)
+          fi
+          if [[ "$changed" != "$expected" ]]; then
+            echo "::error::Unexpected changed files (new_tail_incomplete=$new_tail_incomplete)."
+            echo "expected:"
+            echo "$expected"
+            echo "got:"
+            echo "$changed"
+            exit 1
+          fi
+
+          # 2. history.jsonl: exactly one line added.
           before=$(git show HEAD:docs/perf/history.jsonl 2>/dev/null | wc -l || echo 0)
           after=$(wc -l < docs/perf/history.jsonl)
           if [[ "$((after - before))" != "1" ]]; then
             echo "::error::Expected +1 line in history.jsonl; got delta $((after - before))"
             exit 1
           fi
-          # 3. Last line is a valid JSON record with the expected runner, SHA,
-          #    and a populated os_version (proves auto-capture worked).
-          last=$(tail -n 1 docs/perf/history.jsonl)
-          echo "$last" | jq -e \
-            --arg sha "$GITHUB_SHA" \
-            '.runner == "reference-m1air"
-             and .nimbus_git_sha == $sha
-             and (.os_version | type == "string" and length > 0)' \
-            >/dev/null || {
-              echo "::error::history.jsonl last line failed validation:"
-              echo "$last"
+
+          # 3. When the new tail is complete: latest.json semantically equals the
+          #    output of a fresh re-derive, AND has the expected runner/SHA/os.
+          if [[ "$new_tail_incomplete" == "false" ]]; then
+            expected_json="${RUNNER_TEMP}/latest.json.expected"
+            bun packages/gateway/src/perf/derive-latest-json.ts \
+              --history docs/perf/history.jsonl \
+              --output  "$expected_json"
+            actual_canon=$(jq -S . packages/docs/public/perf/latest.json)
+            expected_canon=$(jq -S . "$expected_json")
+            if [[ "$actual_canon" != "$expected_canon" ]]; then
+              echo "::error::latest.json does not match the projection of the current history.jsonl."
+              diff <(echo "$expected_canon") <(echo "$actual_canon") || true
               exit 1
-            }
+            fi
+            jq -e \
+              --arg sha "$GITHUB_SHA" \
+              '.schema_version == 1
+               and .runner == "reference-m1air"
+               and .nimbus_git_sha == $sha
+               and (.os_version | type == "string" and length > 0)' \
+              packages/docs/public/perf/latest.json >/dev/null || {
+                echo "::error::latest.json failed sanity assertions:"
+                cat packages/docs/public/perf/latest.json
+                exit 1
+              }
+          else
+            # Incomplete-tail case: confirm history.jsonl tail still has the
+            # expected runner + SHA. (latest.json is unchanged — its content is
+            # whatever the previous reference run committed.)
+            tail -n 1 docs/perf/history.jsonl | jq -e \
+              --arg sha "$GITHUB_SHA" \
+              '.runner == "reference-m1air"
+               and .nimbus_git_sha == $sha
+               and (.os_version | type == "string" and length > 0)' \
+              >/dev/null || {
+                echo "::error::history.jsonl last line failed validation:"
+                tail -n 1 docs/perf/history.jsonl
+                exit 1
+              }
+          fi
+
           echo "branch=perf/reference-run-$(date -u +%Y-%m-%d)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "new_tail_incomplete=$new_tail_incomplete" >> "$GITHUB_OUTPUT"
 
       - name: Commit and push branch
         env:
           BRANCH: ${{ steps.sanity.outputs.branch }}
+          NEW_TAIL_INCOMPLETE: ${{ steps.sanity.outputs.new_tail_incomplete }}
         shell: bash
         run: |
           set -euo pipefail
@@ -131,8 +212,19 @@ jobs:
             exit 1
           fi
           git checkout -b "$BRANCH"
+          # Stage history.jsonl always; stage latest.json only when the new
+          # tail was complete (otherwise the file is unchanged on disk and
+          # git add is a no-op anyway, but keeping the conditional makes
+          # intent explicit).
           git add docs/perf/history.jsonl
-          git commit -m "perf: reference benchmark run $(date -u +%Y-%m-%d) (${GITHUB_SHA::7})"
+          if [[ "$NEW_TAIL_INCOMPLETE" == "false" ]]; then
+            git add packages/docs/public/perf/latest.json
+          fi
+          msg_suffix=""
+          if [[ "$NEW_TAIL_INCOMPLETE" == "true" ]]; then
+            msg_suffix=" (incomplete — latest.json unchanged)"
+          fi
+          git commit -m "perf: reference benchmark run $(date -u +%Y-%m-%d) (${GITHUB_SHA::7})${msg_suffix}"
           git push origin "$BRANCH"
 
       - name: Open perf-labelled PR
@@ -160,9 +252,9 @@ jobs:
           - [x] Display on, screensaver disabled
           - [x] macOS version recorded (auto-captured in \`os_version\`)
 
-          ### History line
+          ### History line + published snapshot
 
-          One aggregated line (median across 3 runs per surface, spec §4.5) appended to \`docs/perf/history.jsonl\`.
+          One aggregated line (median across 3 runs per surface, spec §4.5) appended to \`docs/perf/history.jsonl\`. When the run is complete, \`packages/docs/public/perf/latest.json\` is also updated to mirror that line; on merge it ships to <https://nimbus-agent.dev/perf/> within ~5 minutes via the existing docs deploy. (If the run was incomplete, \`latest.json\` is left untouched per spec §5.2.)
 
           ### Reviewer action
 

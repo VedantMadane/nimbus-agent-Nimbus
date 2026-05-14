@@ -71,6 +71,8 @@ Before triggering a reference run, complete every step in order. Failure to reco
 
 4. Review and merge the PR. PR-C-2b reads the new `history.jsonl` line to populate `SLO_THRESHOLDS` workload values + `baseline.md`.
 
+5. Within ~5 minutes of merging the PR, the docs site at <https://nimbus-agent.dev/perf/> rebuilds automatically and shows the new numbers. The PR contains both `docs/perf/history.jsonl` (the data line) and `packages/docs/public/perf/latest.json` (the rendered projection); merging fires the existing `docs-publish.yml` workflow which redeploys the Starlight site. If the run was incomplete (`incomplete: true` in the new history line), `latest.json` is intentionally left unchanged so the site keeps showing the most recent complete run — see Sub-project D Phase 2 spec §5.2.
+
 ## Teardown (one-shot use)
 
 ```sh
