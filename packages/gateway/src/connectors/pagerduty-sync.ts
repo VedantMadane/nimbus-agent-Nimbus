@@ -47,7 +47,17 @@ function parsePagerdutyIncidents(text: string): unknown[] | null {
   return Array.isArray(raw) ? raw : null;
 }
 
-function syncPagerdutyIncidentItems(
+function pdServiceId(row: Record<string, unknown>): string | undefined {
+  const svc = asRecord(row["service"]);
+  return svc !== undefined ? stringField(svc, "id") : undefined;
+}
+
+function pdPriorityName(row: Record<string, unknown>): string | undefined {
+  const pri = asRecord(row["priority"]);
+  return pri !== undefined ? stringField(pri, "name") : undefined;
+}
+
+export function syncPagerdutyIncidentItems(
   ctx: SyncContext,
   incidents: unknown[],
   since: string,
@@ -72,6 +82,17 @@ function syncPagerdutyIncidentItems(
       maxUpdated = updated;
     }
     const modifiedAt = updated === undefined ? now : Date.parse(updated);
+
+    const createdAt = stringField(row, "created_at");
+    const openedAtMs = createdAt !== undefined ? Date.parse(createdAt) : Number.NaN;
+    const serviceId = pdServiceId(row);
+    const severity = pdPriorityName(row);
+
+    const metadata: Record<string, unknown> = { status: status ?? null, incidentId: id };
+    if (Number.isFinite(openedAtMs)) metadata["opened_at_ms"] = openedAtMs;
+    if (serviceId !== undefined && serviceId !== "") metadata["pagerduty_service_id"] = serviceId;
+    if (severity !== undefined && severity !== "") metadata["severity"] = severity;
+
     upsertIndexedItemForSync(ctx, {
       service: SERVICE_ID,
       type: "incident",
@@ -82,7 +103,7 @@ function syncPagerdutyIncidentItems(
       canonicalUrl: htmlUrl ?? null,
       modifiedAt: Number.isFinite(modifiedAt) ? modifiedAt : now,
       authorId: null,
-      metadata: { status: status ?? null, incidentId: id },
+      metadata,
       pinned: false,
       syncedAt: now,
     });
@@ -112,7 +133,7 @@ export type PagerdutySyncableOptions = {
 };
 
 export function createPagerdutySyncable(options: PagerdutySyncableOptions): Syncable {
-  const initialSyncDepthDays = 14;
+  const initialSyncDepthDays = 30;
   return {
     serviceId: SERVICE_ID,
     defaultIntervalMs: 120 * 1000,

@@ -27,8 +27,8 @@ describe("preflight integration: payment-service fixture (real SQLite)", () => {
     }
   });
 
-  it("computes the envelope exactly against the hand-computed expected values", () => {
-    const { config } = seedPaymentServicePreflightFixture(db);
+  it("computes the envelope exactly against the hand-computed expected values", async () => {
+    const { config } = await seedPaymentServicePreflightFixture(db);
     const out = computeDeployPreflight(db, config, "main", PREFLIGHT_FIXTURE_NOW_MS, 10);
     const expected = JSON.parse(
       readFileSync(

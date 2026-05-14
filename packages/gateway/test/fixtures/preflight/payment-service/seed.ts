@@ -1,5 +1,11 @@
 import type { Database } from "bun:sqlite";
+import {
+  EMPTY_NIMBUS_VAULT,
+  silentSyncContextExtras,
+} from "../../../../src/connectors/connector-sync-test-helpers.ts";
+import { syncPagerdutyIncidentItems } from "../../../../src/connectors/pagerduty-sync.ts";
 import type { ServiceConfig } from "../../../../src/metrics/dora-config.ts";
+import { buildPagerdutyIncident } from "../../pagerduty/build-incident.ts";
 
 export const PREFLIGHT_FIXTURE_NOW_MS = 1_715_000_000_000;
 const MIN = 60_000;
@@ -39,7 +45,10 @@ function ins(
 
 /**
  * Seeds a deterministic preflight fixture for the "payment-service" config:
- *   - 2 PagerDuty incidents (1 triggered P1, 1 resolved P1)  → 1 active P1
+ *   - 3 PagerDuty incidents (1 triggered P1, 1 resolved P1,
+ *     1 triggered with no priority)                          → 1 active P1
+ *     (the no-priority incident is excluded by the strict
+ *     `severity = 'P1'` filter — locks spec §6 row 1)
  *   - 4 GitHub Actions CI runs (2 on main: 1 success, 1 failure; 2 on
  *     feature-x: both failures)                              → 1 failing CI on main
  *   - 3 GitHub PRs on main repo (1 dirty open, 1 clean open,
@@ -47,40 +56,53 @@ function ins(
  *
  * Returns the matching `ServiceConfig` for the fixture window.
  */
-export function seedPaymentServicePreflightFixture(db: Database): { config: ServiceConfig } {
+export async function seedPaymentServicePreflightFixture(
+  db: Database,
+): Promise<{ config: ServiceConfig }> {
   const now = PREFLIGHT_FIXTURE_NOW_MS;
 
   // ---- Incidents ----
-  ins(db, {
-    id: "pagerduty:inc_active",
-    service: "pagerduty",
-    type: "incident",
-    external_id: "inc_active",
-    title: "DB connection pool exhausted",
-    url: "https://nimbus-agent.pagerduty.com/incidents/inc_active",
-    modified_at: now - 10 * MIN,
-    metadata: {
+  // Flow built incidents through the production parser so the preflight
+  // active-P1 check exercises the same pipeline production uses.
+  const pdIncidents: unknown[] = [
+    buildPagerdutyIncident({
+      id: "inc_active",
+      title: "DB connection pool exhausted",
+      createdAt: new Date(now - 10 * MIN).toISOString(),
+      updatedAt: new Date(now - 10 * MIN).toISOString(),
       status: "triggered",
-      severity: "P1",
-      pagerduty_service_id: "P12ABCD",
-      opened_at_ms: now - 10 * MIN,
-    },
-  });
-  ins(db, {
-    id: "pagerduty:inc_resolved",
-    service: "pagerduty",
-    type: "incident",
-    external_id: "inc_resolved",
-    title: "Old P1 (resolved)",
-    url: null,
-    modified_at: now - 2 * DAY,
-    metadata: {
+      htmlUrl: "https://nimbus-agent.pagerduty.com/incidents/inc_active",
+      serviceId: "P12ABCD",
+      priorityName: "P1",
+    }),
+    buildPagerdutyIncident({
+      id: "inc_resolved",
+      title: "Old P1 (resolved)",
+      createdAt: new Date(now - 2 * DAY - 30 * MIN).toISOString(),
+      updatedAt: new Date(now - 2 * DAY).toISOString(),
       status: "resolved",
-      severity: "P1",
-      pagerduty_service_id: "P12ABCD",
-      opened_at_ms: now - 2 * DAY - 30 * MIN,
-    },
-  });
+      serviceId: "P12ABCD",
+      priorityName: "P1",
+    }),
+    // Strict-P1 exclusion case: triggered, urgent, on the right service, but
+    // priority is null. Preflight must NOT count it as an active P1.
+    buildPagerdutyIncident({
+      id: "inc_no_priority",
+      title: "Triggered without priority",
+      createdAt: new Date(now - 5 * MIN).toISOString(),
+      updatedAt: new Date(now - 5 * MIN).toISOString(),
+      status: "triggered",
+      serviceId: "P12ABCD",
+      priorityName: null,
+    }),
+  ];
+
+  syncPagerdutyIncidentItems(
+    { db, vault: EMPTY_NIMBUS_VAULT, ...silentSyncContextExtras() },
+    pdIncidents,
+    new Date(now - 30 * DAY).toISOString(),
+    now,
+  );
 
   // ---- CI runs ----
   ins(db, {

@@ -28,7 +28,7 @@ describe("metrics-rpc", () => {
   });
 
   it("dispatches metrics.dora with a fixture-seeded service", async () => {
-    const { config } = seedPaymentServiceFixture(db);
+    const { config } = await seedPaymentServiceFixture(db);
     const out = await dispatchMetricsRpc(
       "metrics.dora",
       { service: "payment-service", since: "30d" },
@@ -103,7 +103,7 @@ describe("metrics-rpc", () => {
   });
 
   it("parses since='7d' correctly", async () => {
-    const { config } = seedPaymentServiceFixture(db);
+    const { config } = await seedPaymentServiceFixture(db);
     const sevenDay = await dispatchMetricsRpc(
       "metrics.dora",
       { service: "payment-service", since: "7d" },

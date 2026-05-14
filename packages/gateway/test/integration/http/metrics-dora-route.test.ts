@@ -23,12 +23,12 @@ describe("GET /v1/metrics/dora", () => {
   let handle: ReturnType<typeof startReadOnlyHttpServer> | undefined;
   let port: number;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "nimbus-dora-http-"));
     const dbPath = join(dir, "nimbus.db");
     const db = new Database(dbPath);
     runIndexedSchemaMigrations(db, 28);
-    seedPaymentServiceFixture(db);
+    await seedPaymentServiceFixture(db);
     db.close();
     writeFileSync(
       join(dir, "nimbus.toml"),
