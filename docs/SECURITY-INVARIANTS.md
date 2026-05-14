@@ -156,6 +156,30 @@ Companion files:
 
 ---
 
+## I13 — HTTP write routes go through `WRITE_ROUTE_ALLOWLIST` + bearer auth
+
+**Statement:** HTTP write routes go through a compile-time allowlist + bearer auth; the readonly DB handle never executes writes.
+
+**Wired at:**
+- `packages/gateway/src/ipc/http-server.ts` — POST routes dispatch through `dispatchWriteRoute` (and not the readonly handler).
+- `packages/gateway/src/ipc/http-write-routes.ts` — owns `WRITE_ROUTE_ALLOWLIST` (compile-time, currently a single entry: `"POST /v1/deployments"`).
+
+**Test:** `packages/gateway/src/security-invariants.test.ts` — three sub-asserts:
+1. `http-server.ts` imports `dispatchWriteRoute` from `./http-write-routes.ts`.
+2. `http-server.ts` opens at most one writable `Database` handle (the write-surface handle).
+3. `WRITE_ROUTE_ALLOWLIST.length === 1` and contains exactly `"POST /v1/deployments"`.
+
+**Anti-patterns:**
+- Opening a second writable `Database` handle in `http-server.ts` outside the server-context wiring.
+- Adding a new POST/PUT/DELETE handler that bypasses `dispatchWriteRoute`.
+- Adding entries to `WRITE_ROUTE_ALLOWLIST` without bumping the count assertion in `security-invariants.test.ts`.
+
+**Why:** before Task 3b the HTTP server's read-only invariant was per-server (`SQLITE_OPEN_READONLY` on the single handle). This PR introduced a narrow write surface (post-deploy annotation) — per-route allowlisting + bearer auth + per-token rate limiting is the structural defense against a same-host process spoofing deploys. Same rigor as Tauri `ALLOWED_METHODS` (I7).
+
+**Audit cross-reference:** S2 disposition from the plan review — every rejection at the HTTP write boundary writes a `deployment.annotation_rejected` audit row via `appendAuditEntry`, making brute-force probes tamper-evident on the BLAKE3 chain.
+
+---
+
 ## How a new invariant is added
 
 1. The defense ships with at least one production caller — never an orphan helper function.
