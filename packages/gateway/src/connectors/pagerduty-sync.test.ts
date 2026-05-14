@@ -29,7 +29,7 @@ function readIncidentMetadata(db: Database, externalId: string): IncidentMetadat
 }
 
 function stubPagerdutyIncidents(incidents: unknown[]): void {
-  globalThis.fetch = async (input: Parameters<typeof fetch>[0]) => {
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
     const url = urlFromFetchInput(input);
     if (!url.startsWith("https://api.pagerduty.com/incidents")) {
       throw new Error(`unexpected fetch: ${url}`);
@@ -38,7 +38,7 @@ function stubPagerdutyIncidents(incidents: unknown[]): void {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
-  };
+  }) as typeof fetch;
 }
 
 async function runOneSync(incidents: unknown[]): Promise<Database> {
@@ -260,13 +260,13 @@ describeWithFetchRestore("pagerduty-sync", () => {
     // Must match `initialSyncDepthDays` in pagerduty-sync.ts. Update both together.
     const EXPECTED_BACKFILL_DAYS = 30;
     let capturedUrl: string | undefined;
-    globalThis.fetch = async (input: Parameters<typeof fetch>[0]) => {
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
       capturedUrl = urlFromFetchInput(input);
       return new Response(JSON.stringify({ incidents: [] }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
-    };
+    }) as typeof fetch;
     const db = createMemoryIndexDb();
     const sync = createPagerdutySyncable({ ensurePagerdutyMcpRunning: async () => {} });
     const vault = createStubVault({ "pagerduty.api_token": "test-token" });
