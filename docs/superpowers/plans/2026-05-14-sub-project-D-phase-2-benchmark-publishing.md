@@ -18,6 +18,7 @@
 |---|---|---|
 | `packages/gateway/src/perf/derive-latest-json.ts` | Create | Pure projection function `selectLatestReferenceLine` + atomic writer `writeLatestJson` + CLI wrapper. Treats parsed JSON as `unknown` and validates with a runtime guard before returning a `HistoryLine`. |
 | `packages/gateway/src/perf/derive-latest-json.test.ts` | Create | Bun unit tests: identity projection; skips placeholder / GHA / incomplete lines; errors on no qualifying line; atomic write (no `.tmp` left behind). |
+| `packages/gateway/src/perf/history-line.ts` | Modify (comment-only) | Add a JSDoc warning above `HistoryLine` pointing at `BenchmarksTable.astro`'s parallel `HistoryLineForRender` interface. No type or runtime change — the warning prompts the next schema-modifier to update both sides since the monorepo has no path mapping between `packages/docs` and `packages/gateway`. |
 | `packages/docs/public/perf/latest.json` | Create | Generated locally during Task 2 from the post-Task-0 `history.jsonl`. Real reference data, committed to the repo. |
 | `packages/docs/src/components/BenchmarksTable.astro` | Create | Imports `latest.json` at build time, validates it as `unknown`, renders one table row per surface with metric formatting that depends on the surface family (latency / throughput / RSS / LLM / S10 retries). Unknown surface IDs go in an "Other surfaces" raw-JSON block. |
 | `packages/docs/src/content/docs/perf.mdx` | Create | New `/perf/` page. Frontmatter + intro paragraph + `<BenchmarksTable />` + a "How these are measured" link to `reference-runner-setup.md`. |
@@ -25,7 +26,7 @@
 | `.github/workflows/_perf-reference.yml` | Modify | Insert a "Derive latest.json projection" step after the bench step. Rewrite the sanity-check step to handle 1-file (incomplete-tail) and 2-file (complete-tail) diffs, and to assert `latest.json` semantically equals what a fresh re-derive would produce. Update the `git add` line to stage both files. |
 | `docs/perf/reference-runner-setup.md` | Modify | Append one paragraph noting the docs site rebuilds within ~5 minutes of merging a reference-run PR. |
 
-**No changes** to `packages/gateway/src/perf/types.ts`, `history-line.ts`, `_perf.yml`, `docs-publish.yml`, `deploy-docs.yml`, or `docs-quality.yml` (the `Starlight build test` job in `docs-quality.yml` already covers `packages/docs/**` PRs and gives us the PR-time renderer-build verification the spec calls for).
+**No changes** to `packages/gateway/src/perf/types.ts`, `_perf.yml`, `docs-publish.yml`, `deploy-docs.yml`, or `docs-quality.yml` (the `Starlight build test` job in `docs-quality.yml` already covers `packages/docs/**` PRs and gives us the PR-time renderer-build verification the spec calls for). `history-line.ts` is touched only by the comment-only modification noted above; its types and runtime are unchanged.
 
 ---
 
@@ -691,7 +692,51 @@ const date = latest.timestamp.slice(0, 10);
 }
 ```
 
-- [ ] **Step 3.3: DO NOT BUILD YET — `perf.mdx` (Task 4) provides the page that uses this component**
+- [ ] **Step 3.3: Add sync-warning JSDoc to `history-line.ts`**
+
+`BenchmarksTable.astro` (Step 3.2) defines a `HistoryLineForRender` interface that mirrors the relevant slice of `HistoryLine` because Astro components in `packages/docs/` cannot import gateway-package types directly. Without a pointer back from `history-line.ts`, a future schema modifier has no reason to know the duplicate exists. The warning closes that loop.
+
+Edit `packages/gateway/src/perf/history-line.ts`. Find the existing `export interface HistoryLine` declaration:
+
+```typescript
+export interface HistoryLine {
+  schema_version: 1;
+  run_id: string;
+  timestamp: string;
+  runner: RunnerKind;
+  os_version: string;
+  nimbus_git_sha: string;
+  bun_version: string;
+  surfaces: Partial<Record<BenchSurfaceId, HistoryLineSurface>>;
+  reference_protocol_compliant?: boolean;
+  incomplete?: true;
+  incomplete_reason?: string;
+}
+```
+
+Insert this JSDoc block **immediately above** it (no other line moves):
+
+```typescript
+/**
+ * Schema-bump warning: if you add, remove, or rename a field on `HistoryLine`,
+ * you MUST also update `packages/docs/src/components/BenchmarksTable.astro` —
+ * specifically the `HistoryLineForRender` interface and the
+ * `isHistoryLineForRender` runtime guard. The docs site imports
+ * `packages/docs/public/perf/latest.json` (a verbatim projection of one
+ * `HistoryLine`) at build time and hard-fails on a shape mismatch — see
+ * Sub-project D Phase 2 spec §6. The two definitions are duplicated because
+ * Astro components in `packages/docs/` cannot import gateway-package types
+ * directly (no monorepo path mapping is configured between those packages).
+ * Bumping `schema_version` to 2 additionally requires updating
+ * `BenchmarksTable.astro`'s `schema_version === 1` assertion in the same
+ * commit.
+ */
+export interface HistoryLine {
+```
+
+(Only the comment block is new — the `export interface HistoryLine {` line is the existing one, shown for anchoring.)
+
+- [ ] **Step 3.4: DO NOT BUILD YET — `perf.mdx` (Task 4) provides the page that uses this component**
 
 The component compiles in isolation only when imported by a page. Build verification happens at the end of Task 5.
 
@@ -796,7 +841,8 @@ Expected: passes. Catches any type errors in the .astro file that astro check mi
 ```bash
 git add packages/docs/src/components/BenchmarksTable.astro \
         packages/docs/src/content/docs/perf.mdx \
-        packages/docs/astro.config.mjs
+        packages/docs/astro.config.mjs \
+        packages/gateway/src/perf/history-line.ts
 git commit -m "$(cat <<'EOF'
 feat(docs): render reference benchmarks at /perf/ via BenchmarksTable
 
@@ -805,6 +851,12 @@ table is rendered from packages/docs/public/perf/latest.json, which is
 imported at build time and validated as `unknown` per Non-Negotiable #7.
 Build hard-fails if the file is missing or has the wrong schema, so the
 prerequisite reference-run PR (Commit A) must already have landed.
+
+Also adds a JSDoc warning above HistoryLine in packages/gateway/src/perf/
+history-line.ts pointing at BenchmarksTable.astro's HistoryLineForRender
+parallel definition. The two are duplicated because Astro components in
+packages/docs/ cannot import gateway-package types directly. The warning
+prompts the next schema-modifier to update both sides.
 
 Sub-project D Phase 2, Commit B.
 EOF
@@ -1241,5 +1293,5 @@ These came up during design but are intentionally not implemented in this plan:
   - §7 (out of scope) — restated above.
   - §8.1 (placeholder line) — explicit test in Task 1.1 (`skips placeholder lines without a runner field`).
 - **Placeholder scan:** no "TBD", "TODO", "fill in details", "add appropriate handling", or "similar to Task N" in the plan body. Every code block is complete.
-- **Type consistency:** `selectLatestReferenceLine`, `writeLatestJson`, `deriveLatestJson`, `NoQualifyingLineError`, `DeriveOptions` are spelled the same in the test file (Task 1.1), the implementation (Task 1.3), and the workflow invocation (Task 6.1). The `HistoryLineForRender` interface in `BenchmarksTable.astro` (Task 3.2) is intentionally a separate, narrowed copy of `HistoryLine` because Astro components cannot import gateway-package types directly (no monorepo path mapping is set up between `packages/docs` and `packages/gateway`).
+- **Type consistency:** `selectLatestReferenceLine`, `writeLatestJson`, `deriveLatestJson`, `NoQualifyingLineError`, `DeriveOptions` are spelled the same in the test file (Task 1.1), the implementation (Task 1.3), and the workflow invocation (Task 6.1). The `HistoryLineForRender` interface in `BenchmarksTable.astro` (Task 3.2) is intentionally a separate, narrowed copy of `HistoryLine` because Astro components cannot import gateway-package types directly (no monorepo path mapping is set up between `packages/docs` and `packages/gateway`); Task 3.3 adds a JSDoc warning above the `HistoryLine` source so a future schema change prompts the developer to update both sides.
 - **Workflow line-number references:** `_perf-reference.yml` line numbers in Task 6 (67–78, 80–113, 115–136, 138–171) are accurate as of `main@d413e291`. If `main` advances before execution, the executor should grep for the `name:` headers (`Run reference benchmark`, `Sanity-check history.jsonl diff`, `Commit and push branch`, `Open perf-labelled PR`) rather than relying on the line numbers.
