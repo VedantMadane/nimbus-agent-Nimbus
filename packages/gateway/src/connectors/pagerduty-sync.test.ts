@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
+import type { SyncResult } from "../sync/types.ts";
 import {
   createMemoryIndexDb,
   createStubVault,
@@ -47,6 +48,17 @@ async function runOneSync(incidents: unknown[]): Promise<Database> {
   const vault = createStubVault({ "pagerduty.api_token": "test-token" });
   await sync.sync(syncTestContext(db, vault), null);
   return db;
+}
+
+async function runOneSyncWithResult(
+  incidents: unknown[],
+): Promise<{ db: Database; result: SyncResult }> {
+  stubPagerdutyIncidents(incidents);
+  const db = createMemoryIndexDb();
+  const sync = createPagerdutySyncable({ ensurePagerdutyMcpRunning: async () => {} });
+  const vault = createStubVault({ "pagerduty.api_token": "test-token" });
+  const result = await sync.sync(syncTestContext(db, vault), null);
+  return { db, result };
 }
 
 describeWithFetchRestore("pagerduty-sync", () => {
@@ -205,7 +217,7 @@ describeWithFetchRestore("pagerduty-sync", () => {
   });
 
   test("cursor advancement still works with new metadata", async () => {
-    stubPagerdutyIncidents([
+    const { result } = await runOneSyncWithResult([
       {
         id: "PT_A",
         title: "First",
@@ -225,12 +237,8 @@ describeWithFetchRestore("pagerduty-sync", () => {
         service: { id: "PJK1HJ8" },
       },
     ]);
-    const db = createMemoryIndexDb();
-    const sync = createPagerdutySyncable({ ensurePagerdutyMcpRunning: async () => {} });
-    const vault = createStubVault({ "pagerduty.api_token": "test-token" });
-    const r = await sync.sync(syncTestContext(db, vault), null);
-    expect(r.itemsUpserted).toBe(2);
-    expect(r.cursor).toContain("2026-05-10T11:05:00Z");
+    expect(result.itemsUpserted).toBe(2);
+    expect(result.cursor).toContain("2026-05-10T11:05:00Z");
   });
 
   test("does not throw on entirely malformed row", async () => {
@@ -243,6 +251,8 @@ describeWithFetchRestore("pagerduty-sync", () => {
   });
 
   test("fresh install uses 30-day backfill window", async () => {
+    // Must match `initialSyncDepthDays` in pagerduty-sync.ts. Update both together.
+    const EXPECTED_BACKFILL_DAYS = 30;
     let capturedUrl: string | undefined;
     globalThis.fetch = async (input: Parameters<typeof fetch>[0]) => {
       capturedUrl = urlFromFetchInput(input);
@@ -262,8 +272,8 @@ describeWithFetchRestore("pagerduty-sync", () => {
     expect(since).toBeDefined();
     const sinceMs = Date.parse(since as string);
     // Allow ±2s slack for the assertion window since `now` is computed inside sync().
-    const expectedMin = before - 30 * 86_400_000 - 2000;
-    const expectedMax = after - 30 * 86_400_000 + 2000;
+    const expectedMin = before - EXPECTED_BACKFILL_DAYS * 86_400_000 - 2000;
+    const expectedMax = after - EXPECTED_BACKFILL_DAYS * 86_400_000 + 2000;
     expect(sinceMs).toBeGreaterThanOrEqual(expectedMin);
     expect(sinceMs).toBeLessThanOrEqual(expectedMax);
   });
