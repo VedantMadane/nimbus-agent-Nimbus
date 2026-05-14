@@ -150,9 +150,9 @@ export async function dispatchWriteRoute(req: Request, ctx: WriteRouteContext): 
       return jsonResponse({ error: "payload_too_large" }, 413, rateLimitHeaders(limit));
     }
   }
-  let text: string;
+  let bodyBytes: ArrayBuffer;
   try {
-    text = await req.text();
+    bodyBytes = await req.arrayBuffer();
   } catch {
     recordRejection(ctx, {
       tokenFingerprint: auth.fingerprint,
@@ -161,7 +161,7 @@ export async function dispatchWriteRoute(req: Request, ctx: WriteRouteContext): 
     });
     return jsonResponse({ error: "invalid_body" }, 400, rateLimitHeaders(limit));
   }
-  if (text.length > MAX_BODY_BYTES) {
+  if (bodyBytes.byteLength > MAX_BODY_BYTES) {
     recordRejection(ctx, {
       tokenFingerprint: auth.fingerprint,
       resultCode: 413,
@@ -171,6 +171,7 @@ export async function dispatchWriteRoute(req: Request, ctx: WriteRouteContext): 
   }
   let parsed: unknown;
   try {
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bodyBytes);
     parsed = JSON.parse(text);
   } catch {
     recordRejection(ctx, {
