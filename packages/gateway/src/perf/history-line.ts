@@ -33,6 +33,22 @@ export interface HistoryLineSurface {
   stub_reason?: string;
 }
 
+/**
+ * Schema-bump warning: if you add, remove, or rename a field on `HistoryLine`,
+ * you MUST update both:
+ *   1. `packages/gateway/src/perf/derive-latest-json.ts` — specifically the
+ *      `isCompleteReferenceLine` runtime guard, which gates what gets written
+ *      to `packages/docs/public/perf/latest.json`.
+ *   2. `packages/docs/src/components/BenchmarksTable.astro` — specifically the
+ *      `HistoryLineForRender` interface and the `isHistoryLineForRender`
+ *      runtime guard, which gate what the docs site renders.
+ * Both guards hardcode `schema_version === 1`. Bumping the schema requires
+ * updating that literal in the same commit at all three sites. The two TS
+ * type duplicates exist because Astro components in `packages/docs/` cannot
+ * import gateway-package types directly (no monorepo path mapping is configured
+ * between those packages). See Sub-project D Phase 2 spec §6 for the hard-fail
+ * rationale.
+ */
 export interface HistoryLine {
   schema_version: 1;
   run_id: string;
