@@ -108,6 +108,15 @@ This is the curated pointer index. Source-of-truth is the working tree — verif
 | `packages/cli/src/commands/metrics.ts` | `nimbus metrics dora --service <id> [--since 30d] [--json]`. |
 | `packages/cli/src/commands/deploy.ts` | `nimbus deploy preflight --service <id> --target-ref <ref> [--mode warn\|block\|off] [--json]`. |
 | `packages/github-actions/preflight-query/` | First-party GitHub Action that wraps `GET /v1/preflight/deploy`. |
+| `packages/gateway/src/deployment/annotate.ts` | Pure post-deploy annotation calculator: validates payload, upserts `item` (`type='deployment'`) + the V28 `deployment_items` shadow row, writes one audit entry (Phase 5 T4 PR 3b). |
+| `packages/gateway/src/deployment/external-id.ts` | Stable `external_id` derivation for annotated deploys (provider + sha + env). |
+| `packages/gateway/src/deployment/types.ts` | `DeploymentAnnotateInput` / `DeploymentAnnotateResult` types shared by RPC + HTTP write route. |
+| `packages/gateway/src/ipc/deployment-rpc.ts` | `dispatchDeploymentRpc` — internal `deployment.annotate` JSON-RPC handler (NOT in renderer allowlist). |
+| `packages/gateway/src/ipc/http-write-routes.ts` | `WRITE_ROUTE_ALLOWLIST` + `dispatchWriteRoute` — invariant `I13` compile-time allowlist for HTTP write surface (Phase 5 T4 PR 3b). |
+| `packages/gateway/src/ipc/http-auth.ts` | `requireBearer` + `tokenFingerprint` — bearer-token auth for HTTP write routes; reads `http_api.deployment_token` from vault. |
+| `packages/gateway/src/ipc/http-rate-limit.ts` | `HttpWriteRateLimiter` — per-token sliding-window rate limit (60 req/min) for the HTTP write surface. |
+| `packages/cli/src/commands/deploy-annotate.ts` | `nimbus deploy annotate --service <id> --sha <sha> --target-ref <ref> --env <env> --status <s> --started-at <ms>`. |
+| `packages/github-actions/annotate-action/` | First-party GitHub Action that wraps `POST /v1/deployments`. |
 
 ## IPC
 
@@ -121,7 +130,7 @@ This is the curated pointer index. Source-of-truth is the working tree — verif
 | `packages/gateway/src/ipc/http-server.ts` | Read-only local HTTP API (`localhost` only, `SQLITE_OPEN_READONLY`) |
 | `packages/gateway/src/ipc/http-routes.ts` | `READ_ONLY_HTTP_ROUTES` — canonical route list; single source of truth for the OpenAPI drift CI gate (Phase 5 T4 PR 1) |
 | `packages/gateway/src/ipc/openapi-loader.ts` | `loadOpenApiJsonBytes` — cached YAML→JSON parse for `GET /v1/openapi.json` (Phase 5 T4 PR 1) |
-| `packages/gateway/openapi/v1.yaml` | Hand-authored OpenAPI 3.1 schema for the read-only HTTP API; serves `/v1/metrics/dora` (T4 PR 2) and `/v1/preflight/deploy` (T4 PR 3a). |
+| `packages/gateway/openapi/v1.yaml` | Hand-authored OpenAPI 3.1 schema for the read-only HTTP API; serves `/v1/metrics/dora` (T4 PR 2), `/v1/preflight/deploy` (T4 PR 3a), and `POST /v1/deployments` (T4 PR 3b). |
 | `packages/gateway/src/ipc/metrics-server.ts` | Prometheus endpoint (`localhost`, off by default) |
 | `packages/gateway/src/ipc/lan-crypto.ts` | NaCl box keypair, `sealBoxFrame` / `openBoxFrame` |
 | `packages/gateway/src/ipc/lan-pairing.ts` | `PairingWindow` — single-use base58 pairing code, 5-min expiry |

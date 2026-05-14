@@ -3,8 +3,9 @@
 //
 // Asserts that every `path × method` documented in
 // packages/gateway/openapi/v1.yaml has a corresponding entry in
-// packages/gateway/src/ipc/http-routes.ts (READ_ONLY_HTTP_ROUTES) and
-// vice versa.
+// packages/gateway/src/ipc/http-routes.ts (HTTP_ROUTES) and
+// vice versa. Comparison is keyed by `${METHOD} ${PATH}` so a method
+// change (GET → POST) on the same path surfaces as drift.
 //
 // Paths flagged with `x-nimbus-status: reserved` in the YAML are exempt
 // from the "must have a handler" half — they're placeholders for upcoming
@@ -22,10 +23,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import yaml from "js-yaml";
-import {
-  READ_ONLY_HTTP_ROUTES,
-  type ReadOnlyHttpRoute,
-} from "../../packages/gateway/src/ipc/http-routes.ts";
+import { HTTP_ROUTES, type HttpRoute } from "../../packages/gateway/src/ipc/http-routes.ts";
 import { REPO_ROOT } from "./lib.ts";
 
 type DriftIssueKind = "schema_without_handler" | "handler_without_schema" | "yaml_unparseable";
@@ -46,10 +44,7 @@ const DEFAULT_SCHEMA_PATH = resolve(REPO_ROOT, "packages", "gateway", "openapi",
  * Pure function — exported for testing. Reads the YAML, walks `paths`, and
  * compares against the supplied route table.
  */
-export function findOpenApiDrift(
-  schemaFile: string,
-  routes: readonly ReadOnlyHttpRoute[],
-): DriftIssue[] {
+export function findOpenApiDrift(schemaFile: string, routes: readonly HttpRoute[]): DriftIssue[] {
   const issues: DriftIssue[] = [];
   let parsed: unknown;
   try {
@@ -120,7 +115,7 @@ export function findOpenApiDrift(
         kind: "schema_without_handler",
         method,
         path: rest.join(" "),
-        reason: "documented in v1.yaml but no entry in READ_ONLY_HTTP_ROUTES",
+        reason: "documented in v1.yaml but no entry in HTTP_ROUTES",
       });
     }
   }
@@ -132,7 +127,7 @@ export function findOpenApiDrift(
         kind: "handler_without_schema",
         method,
         path: rest.join(" "),
-        reason: "in READ_ONLY_HTTP_ROUTES but not documented in v1.yaml",
+        reason: "in HTTP_ROUTES but not documented in v1.yaml",
       });
     }
   }
@@ -156,7 +151,7 @@ function parseArgs(argv: readonly string[]): { mode: Mode } {
 
 async function run(): Promise<void> {
   const { mode } = parseArgs(Bun.argv);
-  const issues = findOpenApiDrift(DEFAULT_SCHEMA_PATH, READ_ONLY_HTTP_ROUTES);
+  const issues = findOpenApiDrift(DEFAULT_SCHEMA_PATH, HTTP_ROUTES);
 
   if (mode === "report") {
     for (const i of issues) {
@@ -168,7 +163,7 @@ async function run(): Promise<void> {
   // mode === "check"
   if (issues.length === 0) {
     console.log(
-      `OpenAPI drift check: schema and READ_ONLY_HTTP_ROUTES agree (${READ_ONLY_HTTP_ROUTES.length} routes).`,
+      `OpenAPI drift check: schema and HTTP_ROUTES agree (${HTTP_ROUTES.length} routes).`,
     );
     return;
   }

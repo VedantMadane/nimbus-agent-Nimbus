@@ -1,0 +1,77 @@
+name: "Nimbus post-deploy annotation"
+description: >
+  Records a deployment in the local Nimbus index by POSTing to the Gateway's
+  write surface at /v1/deployments. The annotation becomes the authoritative
+  source for the deploy-frequency DORA metric and links the run to the
+  service/environment/SHA tuple. Self-hosted runner only — the Gateway is
+  bound to localhost.
+author: "Nimbus"
+branding:
+  icon: upload-cloud
+  color: blue
+
+inputs:
+  service:
+    description: "Nimbus service id (matches [metrics.dora.<id>] or [ci.service.<id>] in nimbus.toml)."
+    required: true
+  environment:
+    description: "Deployment environment name (e.g. 'prod', 'staging'). Must match one configured under [deploy.environments]."
+    required: true
+  status:
+    description: "Deployment conclusion — one of: success | failure | cancelled | in_progress."
+    required: true
+  token:
+    description: "Bearer token matching the Gateway's vault key http_api.deployment_token. Pass via secrets — never inline."
+    required: true
+  sha:
+    description: "Git SHA being deployed."
+    required: false
+    default: ${{ github.sha }}
+  target-ref:
+    description: "Git ref being deployed."
+    required: false
+    default: ${{ github.ref }}
+  workflow-url:
+    description: "Direct link to the workflow run (e.g. the run's HTML URL)."
+    required: false
+    default: ""
+  run-id:
+    description: "CI provider's run id (string)."
+    required: false
+    default: ""
+  job-id:
+    description: "CI provider's job id within the run."
+    required: false
+    default: ""
+  started-at:
+    description: "Deploy start time as unix ms. Defaults to the moment this Action executes."
+    required: false
+    default: ""
+  finished-at:
+    description: "Deploy finish time as unix ms. Optional — omit while a deploy is still in progress."
+    required: false
+    default: ""
+  gateway-url:
+    description: "Base URL of the Gateway's HTTP API. Self-hosted runner default."
+    required: false
+    default: "http://localhost:7474"
+  timeout-ms:
+    description: "HTTP timeout in milliseconds."
+    required: false
+    default: "10000"
+  allow-gateway-failure:
+    description: "When 'true', any Gateway-side failure (unreachable, 401, 429, 503) is logged as a warning but never fails the workflow."
+    required: false
+    default: "false"
+
+outputs:
+  external-id:
+    description: "Canonical external id minted by the Gateway (e.g. 'github-actions:run-12345:job-67890')."
+  is-new:
+    description: "'true' if this annotation created a new row, 'false' if it updated an existing one."
+  dora-eligible:
+    description: "'true' if the deploy is counted in the DORA deploy-frequency calculation."
+
+runs:
+  using: "node20"
+  main: "dist/index.js"

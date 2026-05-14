@@ -84,6 +84,7 @@ bun run test:coverage:perf            # ≥80% (perf bench harness)
 # Phase 5 T4 — CI/CD data layer
 bun run test:coverage:metrics         # ≥80% (DORA calculators + IPC)
 bun run test:coverage:preflight       # ≥80% (preflight calculator + IPC + HTTP + github-sync mergeable enrichment)
+bun run test:coverage:deployment      # ≥80% (post-deploy annotation calculator + HTTP write surface)
 
 # UI Vitest gate
 cd packages/ui && bunx vitest run --coverage   # ≥80% lines / ≥75% branches
@@ -212,6 +213,13 @@ nimbus impact <file-or-PR-url>    # IPC: agents.impact; emits agents.impact.brie
 ```bash
 nimbus metrics dora --service <id> [--since 30d] [--json]   # four DORA metrics from the local index
 nimbus deploy preflight --service <id> --target-ref <ref> [--mode warn|block|off] [--json]   # pre-deploy index check
+nimbus deploy annotate --service <id> --sha <sha> --target-ref <ref> --env <env> --status <success|failure|rolled_back> --started-at <ms> [--finished-at <ms>] [--provider <github|gitlab|...>] [--run-id <id>] [--json]   # POST a deployment event to the local HTTP write surface
+```
+
+**Vault keys for the HTTP write surface:**
+
+```
+http_api.deployment_token   # Bearer token required for POST /v1/deployments; set via `nimbus vault set http_api.deployment_token <token>` (CLI-only). Without it, the HTTP write surface refuses all POSTs with 401.
 ```
 
 ## Environment-variable overrides

@@ -33,7 +33,7 @@ describe("DORA real-db integration", () => {
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "nimbus-dora-real-"));
     db = new Database(join(dir, "nimbus.db"));
-    runIndexedSchemaMigrations(db, 27);
+    runIndexedSchemaMigrations(db, 28);
   });
 
   afterEach(() => {

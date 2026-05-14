@@ -142,3 +142,32 @@ describe("I11 — Tool-result envelope on the LLM-facing path", () => {
     expect(src).toMatch(/wrapToolOutput\(/);
   });
 });
+
+describe("I13 — HTTP write routes go through allowlist + bearer auth", () => {
+  test("http-server.ts imports dispatchWriteRoute from ./http-write-routes.ts", async () => {
+    const src = await read("packages/gateway/src/ipc/http-server.ts");
+    expect(src).toMatch(
+      /import\s*\{\s*dispatchWriteRoute\s*(?:,\s*\w+\s*)?\}\s*from\s*['"]\.\/http-write-routes\.ts['"]/,
+    );
+  });
+
+  test("http-server.ts opens at most one writable Database handle (and only inside the server-context wiring)", async () => {
+    // The readonly handle uses `{ readonly: true, create: false }`. Any other
+    // `new Database(...)` call in http-server.ts is a candidate writable handle —
+    // there must be at most one, and it must be the write-surface handle gated
+    // by the resolveDeploymentToken option. Regex-scoped to this single file
+    // only; legitimate writes in db/, sync/, audit, etc. are explicitly out of
+    // scope for this invariant.
+    const src = await read("packages/gateway/src/ipc/http-server.ts");
+    const readonlyOpens = (src.match(/new Database\([^)]*readonly:\s*true/g) ?? []).length;
+    const allOpens = (src.match(/new Database\(/g) ?? []).length;
+    const writableOpens = allOpens - readonlyOpens;
+    expect(writableOpens).toBeLessThanOrEqual(1);
+  });
+
+  test("WRITE_ROUTE_ALLOWLIST has exactly one entry: POST /v1/deployments", async () => {
+    const { WRITE_ROUTE_ALLOWLIST } = await import("./ipc/http-write-routes.ts");
+    expect(WRITE_ROUTE_ALLOWLIST.length).toBe(1);
+    expect(WRITE_ROUTE_ALLOWLIST[0]).toBe("POST /v1/deployments");
+  });
+});

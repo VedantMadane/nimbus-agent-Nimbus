@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { READ_ONLY_HTTP_ROUTES } from "../../packages/gateway/src/ipc/http-routes.ts";
+import { HTTP_ROUTES } from "../../packages/gateway/src/ipc/http-routes.ts";
 import { findOpenApiDrift } from "./check-openapi-drift.ts";
 
 function tmpYaml(content: string): string {
@@ -14,12 +14,13 @@ function tmpYaml(content: string): string {
 
 describe("findOpenApiDrift", () => {
   it("returns no issues when YAML and ROUTE_TABLE agree", () => {
-    const pathsBlock = READ_ONLY_HTTP_ROUTES.map(
-      (r) => `  ${r.path}:\n    get:\n      responses:\n        "200":\n          description: ok`,
+    const pathsBlock = HTTP_ROUTES.map(
+      (r) =>
+        `  ${r.path}:\n    ${r.method.toLowerCase()}:\n      responses:\n        "200":\n          description: ok`,
     ).join("\n");
     const yaml = `openapi: 3.1.0\ninfo:\n  title: t\n  version: 1.0.0\npaths:\n${pathsBlock}\n`;
     const file = tmpYaml(yaml);
-    const issues = findOpenApiDrift(file, READ_ONLY_HTTP_ROUTES);
+    const issues = findOpenApiDrift(file, HTTP_ROUTES);
     expect(issues).toEqual([]);
   });
 

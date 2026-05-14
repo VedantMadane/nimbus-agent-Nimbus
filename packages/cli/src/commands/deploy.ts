@@ -18,6 +18,7 @@
 import { IPCClient } from "../ipc-client/index.ts";
 import { readGatewayState } from "../lib/gateway-process.ts";
 import { getCliPlatformPaths } from "../paths.ts";
+import { runDeployAnnotate } from "./deploy-annotate.ts";
 
 export type DeployPreflightMode = "warn" | "block" | "off";
 
@@ -145,8 +146,15 @@ function formatPretty(env: Envelope, useColor: boolean): string {
 }
 
 export async function runDeployCli(args: readonly string[]): Promise<void> {
+  if (args[0] === "annotate") {
+    const exitCode = await runDeployAnnotate(args.slice(1));
+    process.exit(exitCode);
+  }
   if (args[0] !== "preflight") {
-    process.stderr.write("Usage: nimbus deploy preflight --service <id> --target-ref <ref>\n");
+    process.stderr.write(
+      "Usage: nimbus deploy preflight --service <id> --target-ref <ref>\n" +
+        "       nimbus deploy annotate  --service <id> --sha <sha> --target-ref <ref> --env <env> --status <s> --started-at <ms>\n",
+    );
     process.exit(1);
   }
   let parsed: DeployPreflightArgs;

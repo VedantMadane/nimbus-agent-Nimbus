@@ -262,6 +262,8 @@ jobs:
             script: "test:coverage:tui"
           - name: DB layer
             script: "test:coverage:db"
+          - name: Deployment
+            script: "test:coverage:deployment"
           - name: Health
             script: "test:coverage:health"
           - name: Metrics

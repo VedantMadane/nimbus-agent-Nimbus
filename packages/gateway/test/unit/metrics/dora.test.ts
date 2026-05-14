@@ -103,6 +103,7 @@ function cfg(overrides: Partial<DoraServiceConfig> = {}): DoraServiceConfig {
     deployWorkflowPattern: /^[Dd]eploy/,
     incidentWindowMinutes: 60,
     excludePrLabels: ["revert"],
+    deployEnvironments: ["prod"],
     ...overrides,
   };
 }
@@ -117,7 +118,7 @@ describe("DORA metrics calculators", () => {
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "nimbus-dora-"));
     db = new Database(join(dir, "nimbus.db"));
-    runIndexedSchemaMigrations(db, 27);
+    runIndexedSchemaMigrations(db, 28);
   });
 
   afterEach(() => {

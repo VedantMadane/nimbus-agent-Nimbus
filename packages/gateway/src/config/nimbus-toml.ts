@@ -2,9 +2,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
+  DEFAULT_DEPLOY_ENVIRONMENTS,
   DEFAULT_DEPLOY_WORKFLOW_PATTERN,
   DEFAULT_EXCLUDE_PR_LABELS,
   DEFAULT_INCIDENT_WINDOW_MINUTES,
+  isValidDeployEnvironmentName,
   parseDoraRepoUrn,
   type ServiceConfig,
 } from "../metrics/dora-config.ts";
@@ -758,6 +760,7 @@ const SERVICE_CONFIG_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "deploy_workflow_pattern",
   "incident_window_minutes",
   "exclude_pr_labels",
+  "deploy_environments",
 ]);
 
 function parseStringArray(raw: string): string[] {
@@ -822,6 +825,24 @@ function materializeServiceConfigs(
       kv["exclude_pr_labels"] === undefined
         ? Array.from(DEFAULT_EXCLUDE_PR_LABELS)
         : parseStringArray(kv["exclude_pr_labels"]);
+    const deployEnvironmentsRaw = kv["deploy_environments"];
+    const deployEnvironments =
+      deployEnvironmentsRaw === undefined
+        ? Array.from(DEFAULT_DEPLOY_ENVIRONMENTS)
+        : parseStringArray(deployEnvironmentsRaw);
+    if (deployEnvironments.length === 0) {
+      throw new Error(
+        `[${blockLabel}.${serviceId}].deploy_environments must be a non-empty array of names`,
+      );
+    }
+    for (const env of deployEnvironments) {
+      if (!isValidDeployEnvironmentName(env)) {
+        throw new Error(
+          `[${blockLabel}.${serviceId}].deploy_environments entry '${env}' is invalid: ` +
+            `must match /^[a-z0-9][a-z0-9._-]*$/`,
+        );
+      }
+    }
     out.set(serviceId, {
       serviceId,
       repos,
@@ -829,6 +850,7 @@ function materializeServiceConfigs(
       deployWorkflowPattern,
       incidentWindowMinutes: windowMins,
       excludePrLabels,
+      deployEnvironments,
     });
   }
   return out;
