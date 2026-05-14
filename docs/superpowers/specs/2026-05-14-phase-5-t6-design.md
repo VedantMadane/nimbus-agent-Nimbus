@@ -62,7 +62,7 @@ Per-PR specs are written when each PR reaches the head of the queue. The scope s
 
 **Touchpoints.**
 
-- Extend `util/hex-compare.ts` (or rename to `util/timing-safe-compare.ts` — locked in PR 1's per-PR spec) with a canonical `constantTimeStringEqual(a: string, b: string): boolean` export. Buffer-based, with length-mismatch burn cycle to match the defensive shape of `http-auth.ts`'s helper.
+- Rename `util/hex-compare.ts` → `util/timing-safe-compare.ts` (the broader name reflects the module's expanded purpose — was true even at single-helper scope, accurate now with the string variant landing). Existing `sha256HexEqualConstantTime` export keeps its name; new canonical `constantTimeStringEqual(a: string, b: string): boolean` export added alongside. Buffer-based, with length-mismatch burn cycle to match the defensive shape of `http-auth.ts`'s helper.
 - Migrate `ipc/lan-pairing.ts`: delete the local helper, import the canonical one. Pairing-code comparison semantics preserved (UTF-8 byte compare).
 - Migrate `ipc/http-auth.ts`: delete the local helper, import the canonical one. Bearer-token compare semantics preserved.
 - Update `docs/SECURITY-INVARIANTS.md` I10 row: "Wired at" column becomes the single util module; "anti-pattern" column extended to ban local re-definitions outside the util module.
@@ -71,8 +71,8 @@ Per-PR specs are written when each PR reaches the head of the queue. The scope s
 **Out of scope.**
 
 - New I-numbered invariants.
-- Renaming the existing `sha256HexEqualConstantTime` helper (only adding the string variant alongside).
-- Migrating the I10 wiring at `verify-extensions.ts` / `updater.ts` (already correct).
+- Renaming the existing `sha256HexEqualConstantTime` helper (only the file moves; the export name stays so existing callers don't churn).
+- Migrating the I10 wiring at `verify-extensions.ts` / `updater.ts` (already correct — import path updates only).
 
 **Exit criteria.**
 
@@ -119,6 +119,7 @@ Per-PR specs are written when each PR reaches the head of the queue. The scope s
 - CLI command — deferred until a real consumer exists. The `audit.toolCalls` IPC method is sufficient.
 - Tauri allowlist edits.
 - New I-numbered invariant — the audit table strengthens I11's existing assertion rather than introducing a new defense.
+- **Retention policy** — deferred to a follow-up "System Maintenance" PR. The table grows unbounded by design in this PR; PR 2's per-PR spec opens a tracked roadmap follow-up for a configurable retention window (e.g. `[audit].tool_call_log_retention_days`, default 90) plus the scheduled prune. Audit-table growth is real for high-traffic agents but the audit semantics need to land before the maintenance policy is designed against them.
 
 **Exit criteria.**
 
@@ -163,6 +164,7 @@ Per-PR specs are written when each PR reaches the head of the queue. The scope s
 - Auto-reembed on item changes — manual via CLI only.
 - New model providers beyond OpenAI — `text-embedding-3-small` is sufficient.
 - Per-extension model registration — extensions still go through the connector's default routing; Marketplace v2 in T2 can revisit.
+- **Partial-failure recovery strategy** — locked in PR 3's per-PR spec. The expected shape: on a batch, transient errors (rate limit, network) skip the affected item and record the failure; the CLI exits 0 with a summary `(N succeeded, M skipped)` and the operator re-runs the command — idempotent because the next run only sees rows still on the old model. Fatal errors (auth, billing) abort the run with a non-zero exit. PR 3's plan locks the exact batch size, retry policy, and exit-code semantics.
 
 **Exit criteria.**
 
@@ -282,6 +284,22 @@ When PR 4 merges (T6 complete):
 - T2 design (next sub-project after T6 completes).
 - Decisions about new I-numbered invariants beyond the tentative I14 — locked in PR 4's per-PR spec.
 - Calendar dates for individual PRs — the parent sequencing spec already excludes calendar from the plan-of-plans.
+
+## Section 7 — Review disposition (Gemini CLI, 2026-05-14)
+
+Source: [`2026-05-14-phase-5-t6-review-feedback.md`](./2026-05-14-phase-5-t6-review-feedback.md).
+
+| Review § | Item | Disposition | Rationale & where in this spec |
+| -------- | ---- | ----------- | ------------------------------ |
+| 2.1 | `tool_call_log` retention policy | **DEFER** | Real concern (unbounded growth in high-traffic agents). Belongs in a "System Maintenance" follow-up PR, not the sequencing spec — audit semantics need to land before a maintenance policy is designed against them. Tracked as a new bullet under §2 PR 2 "Out of scope" — PR 2's per-PR spec opens the roadmap follow-up for a `[audit].tool_call_log_retention_days` config knob + scheduled prune. |
+| 2.2 | Reembed CLI partial-failure handling | **DEFER** | PR-level design choice, not sequencing. Tracked as a new bullet under §2 PR 3 "Out of scope" with the recommended shape (skip + summary exit-0 on transient errors, abort on fatal errors, idempotent re-run). PR 3's per-PR spec locks the exact batch size, retry policy, and exit codes. |
+| 2.3 | PR 4 mechanical migration via script | **DEFER** | Execution tactic, not sequencing — belongs in PR 4's implementation plan (written via `writing-plans`). The sequencing spec stays "what to build", not "how to type the edits". |
+| 2.4 | I14 + static audit confirmation | **NO ACTION** | Confirmation only — the static-audit rule in `check-nimbus-invariants.ts` (already proposed in §2 PR 4) is sufficient without a runtime trap. |
+| 3.1a | Rename `util/hex-compare.ts` → `util/timing-safe-compare.ts` | **FIX** | Reviewer agrees with the parenthetical option in the original draft; locked now (§2 PR 1 touchpoints). Export name `sha256HexEqualConstantTime` stays so existing callers update import paths only. |
+| 3.1b | Length-mask behavior of `constantTimeStringEqual` | **NO ACTION** | Already covered — §2 PR 1 names "Buffer-based, with length-mismatch burn cycle to match the defensive shape of `http-auth.ts`'s helper." The current `http-auth.ts:41-53` implementation does exactly this; PR 1 migrates that behavior into the canonical helper rather than re-deriving it. |
+| 3.2 | `audit.toolCalls` LAN posture | **NO ACTION** | Confirmation only — `nimbus-tauri-allowlist` posture is intentional. |
+
+**Net effect on this spec:** one wording change in §2 PR 1 (rename → locked), two new "Out of scope" bullets in §2 PR 2 and §2 PR 3, and this §7 disposition table. Nothing about ordering, V<N> numbering, or PR scope changes.
 
 ## See also
 
