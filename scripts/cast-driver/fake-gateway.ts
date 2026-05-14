@@ -81,13 +81,25 @@ export class FakeGateway {
     if (this.server === null) return;
     const s = this.server;
     this.server = null;
-    // Destroy all lingering connections so server.close() callback fires
+    // Stop accepting new connections FIRST so anything still in the OS accept
+    // queue can't land in activeSockets after we've cleared it. s.close() is
+    // non-blocking; the close event resolves after all connections close.
+    s.close();
+    // Unblock any emitStepNotifications loop awaiting consent.respond so its
+    // promise can resolve before we destroy its socket. Without this, the loop
+    // would leak with a captured reference to a destroyed socket.
+    if (this.pendingConsent !== null) {
+      const resume = this.pendingConsent.resume;
+      this.pendingConsent = null;
+      resume();
+    }
+    // Destroy all lingering connections so server.close() can fully resolve
     // immediately rather than waiting for clients to half-close on their own.
     for (const sock of this.activeSockets) {
       sock.destroy();
     }
     this.activeSockets.clear();
-    await new Promise<void>((resolve) => s.close(() => resolve()));
+    await new Promise<void>((resolve) => s.once("close", resolve));
   }
 
   /** Advance to the next input step's notification queue. */
