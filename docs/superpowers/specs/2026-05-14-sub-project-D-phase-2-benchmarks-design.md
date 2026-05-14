@@ -66,18 +66,23 @@ Hard-fail (decision §6) plus identity projection (decision §3) means the rende
 1. **Step 0 (operator, prerequisite).** Trigger `_perf-reference.yml` per [`docs/perf/reference-runner-setup.md`](../../../docs/perf/reference-runner-setup.md). Merge the resulting bot PR. After this step, `docs/perf/history.jsonl` contains at least one valid reference-m1air line. **No code from Phase 2 is written or merged before this step.**
 2. **Step 1 (Phase 2 PR, Commit A).** `derive-latest-json.ts` + tests + the first `latest.json` produced locally by running the script against the post-Step-0 `history.jsonl`. `latest.json` is committed to the repo as real data.
 3. **Step 2 (Phase 2 PR, Commit B).** Astro renderer (`BenchmarksTable.astro`, `perf.mdx`, sidebar entry). Local `bun --cwd packages/docs run build` succeeds because Commit A put real data at the expected path.
-4. **Step 3 (Phase 2 PR, Commit C).** Workflow change to `_perf-reference.yml` + the operator-facing note in `reference-runner-setup.md`. **No way to verify end-to-end before merge** (workflow only runs on dispatch from `main`); verification path is post-merge dispatch + observation.
+4. **Step 3 (Phase 2 PR, Commit C).** Workflow change to `_perf-reference.yml` + the operator-facing note in `reference-runner-setup.md`.
+
+Pre-merge verification splits into two parts:
+
+- **Renderer build (Commit A + Commit B):** verifiable at PR time. `bun --cwd packages/docs run build` runs the same Astro build that ships to production, including the schema assertions and the `latest.json` import. This catches schema-version mismatches, missing-file failures, and shape errors in `BenchmarksTable.astro` before merge. The plan adds this build to the PR CI lane (or extends an existing docs-quality lane to cover it) so reviewers see the result on every push.
+- **Workflow change (Commit C):** cannot be verified pre-merge. GitHub Actions `workflow_dispatch` reads workflow files from the default branch, so the modified `_perf-reference.yml` can only be exercised after the PR merges. Verification path: merge → dispatch a fresh reference run → observe both files committed in the resulting bot PR → observe the site rebuild after merging that bot PR.
 
 ## 4. File inventory
 
 | File | Status | Responsibility |
 |---|---|---|
-| `packages/gateway/src/perf/derive-latest-json.ts` | Create | Pure projection function + CLI. Reads `docs/perf/history.jsonl`, walks backwards to the most recent complete reference-m1air line (`runner === "reference-m1air"`, `schema_version === 1`, `incomplete !== true`), writes it verbatim to `--output`. Exits non-zero with a clear message if no qualifying line exists. |
+| `packages/gateway/src/perf/derive-latest-json.ts` | Create | Pure projection function + CLI. Reads `docs/perf/history.jsonl`, walks backwards to the most recent complete reference-m1air line (`runner === "reference-m1air"`, `schema_version === 1`, `incomplete !== true`), writes it verbatim to `--output`. Exits non-zero with a clear message if no qualifying line exists. Each parsed line is treated as `unknown` and validated against the `HistoryLine` schema before use, per Nimbus Non-Negotiable #7 — no `as HistoryLine` casts. |
 | `packages/gateway/src/perf/derive-latest-json.test.ts` | Create | Unit tests, test-first. Covers: identity projection on a single line; skips placeholder lines without `runner` field; skips GHA lines; walks past `incomplete: true` to the next complete line; errors on empty file; errors when no reference-m1air line exists; overwrites target file atomically (write to `<target>.tmp`, then rename). |
 | `.github/workflows/_perf-reference.yml` | Modify | Two changes: (a) new step between "Run reference benchmark" and "Sanity-check history.jsonl diff" that runs the projection script. (b) Sanity check relaxed per §5 below. |
 | `packages/docs/public/perf/latest.json` | Create (Commit A) | Real reference-machine data, derived locally during Commit A from the post-Step-0 `history.jsonl`. Subsequent reference runs overwrite this file via the workflow. |
 | `packages/docs/src/content/docs/perf.mdx` | Create | New `/perf/` page. Frontmatter `title: "Performance benchmarks"`. Body: short intro paragraph, the `<BenchmarksTable />` component, a "How these are measured" link to the reference-runner setup doc. |
-| `packages/docs/src/components/BenchmarksTable.astro` | Create | Astro component. Imports `latest.json` at build time, asserts schema invariants (hard-fail), renders one `<table>` with one row per surface. Per-row metric formatting: latency surfaces show `p50/p95/p99` ms; throughput surfaces show `items/sec`; rss surfaces show `MB p95`; LLM surface shows `tokens/sec` and `first-token ms`; S10 also shows `busy_retries`. Unknown surface IDs render in an "Other surfaces" group with raw JSON for inspection. |
+| `packages/docs/src/components/BenchmarksTable.astro` | Create | Astro component. Imports `latest.json` at build time, treats the imported value as `unknown` and validates against the `HistoryLine` schema (per Non-Negotiable #7) before asserting schema invariants (hard-fail). Renders one `<table>` with one row per surface. Per-row metric formatting: latency surfaces show `p50/p95/p99` ms; throughput surfaces show `items/sec`; rss surfaces show `MB p95`; LLM surface shows `tokens/sec` and `first-token ms`; S10 also shows `busy_retries`. Unknown surface IDs render in an "Other surfaces" group with raw JSON for inspection. |
 | `packages/docs/astro.config.mjs` | Modify | Add `{ label: "Performance benchmarks", link: "/perf/" }` to the `Reference` sidebar group, after `{ label: "Telemetry", link: "/telemetry/" }`. |
 | `docs/perf/reference-runner-setup.md` | Modify | Append one paragraph noting that after merging a reference-run PR, `https://nimbus-agent.dev/perf/` rebuilds within ~5 minutes and shows the new numbers. |
 
@@ -117,7 +122,14 @@ Phase 2 changes the assertions to:
 
 1. Exactly **two** files modified, and they are **exactly** `docs/perf/history.jsonl` and `packages/docs/public/perf/latest.json`. Any other diff fails.
 2. `history.jsonl`: still exactly one line added (unchanged).
-3. `latest.json`: parses as a single JSON object with `schema_version === 1`, `runner === "reference-m1air"`, `nimbus_git_sha === $GITHUB_SHA`, and is **semantically equal** to the new tail of `history.jsonl` — verified by normalizing both through `jq -S .` (sorted keys, canonical whitespace) and comparing the resulting strings. Semantic (not byte-literal) equality avoids spurious failures when the projection script's `JSON.stringify` output differs only in key ordering from the appender's. This makes it impossible for the projection step to silently desync from the data line, while tolerating any equivalent serialization.
+3. `latest.json` is **semantically equal to the line `derive-latest-json.ts` would select on a fresh run** — i.e., the most recent complete reference-m1air line in `history.jsonl`. Verified by re-running the projection script into a temp file (`latest.json.expected`), normalizing both through `jq -S .`, and comparing the resulting strings. Semantic (not byte-literal) equality avoids spurious failures from `JSON.stringify` key-ordering differences.
+
+This phrasing handles both flavors of new tail uniformly:
+
+- **Complete tail** (the common case): the projection picks the new tail, `latest.json` is updated, and the equality check passes against the new tail.
+- **Incomplete tail** (`incomplete: true`): the projection walks past the new line to the previous complete reference line. `derive-latest-json.ts` writes the same content already in `latest.json`, so the file shows no diff (the file is rewritten but git sees no change). The equality check still passes — `latest.json` matches the line the projection would select.
+
+Sanity check #1 is therefore rephrased in step terms: the diff must contain `docs/perf/history.jsonl` plus **either** `packages/docs/public/perf/latest.json` (new-tail-complete case, exactly two files) **or** nothing else (new-tail-incomplete case, exactly one file). Any other diff fails. This preserves the existing behavior of letting incomplete runs land in `history.jsonl` for audit purposes while keeping `latest.json` pinned to the most recent complete data.
 
 ## 6. Edge cases
 
@@ -128,7 +140,7 @@ Phase 2 changes the assertions to:
 | Most recent reference line has `incomplete: true` | Skipped. A line is considered **complete** when `incomplete` is absent or explicitly `false`; only `incomplete === true` triggers the skip. The script walks backwards until it finds the most recent complete reference line. If none exists, error as above. Matches the spec § 4.2 protocol — incomplete runs are not authoritative. |
 | `latest.json.schema_version` becomes `2` in the future (HistoryLine bumps) | `BenchmarksTable.astro`'s assertion `schema_version === 1` throws; `astro build` fails; `docs-publish.yml` fails. The renderer must be updated in the same commit that bumps `HistoryLine.schema_version`. |
 | Operator commits unrelated changes alongside the bot-generated diff | Workflow's relaxed sanity check fails (asserts exactly the two expected files). Operator must rebase out the unrelated edits. |
-| `latest.json` byte-for-byte differs from the new `history.jsonl` tail | Workflow sanity check fails. Forces the projection step to run against the same line that was just appended, not a stale one. |
+| Operator manually pre-generates a stale `latest.json` (e.g., committed locally before triggering the bench) | Workflow sanity check fails: the post-bench re-projection (§5.2 #3) selects a different line than the stale committed `latest.json`, the `jq -S .` comparison mismatches, and the workflow refuses to push. Forces `latest.json` to always reflect the current `history.jsonl` state. |
 | Renderer encounters a surface family the table doesn't know about (future S12) | Component handles known surface IDs (S1, S2-*, …, S11-b); unknown IDs render in an "Other surfaces" group with raw JSON for inspection. Soft-degrade because adding surfaces is a routine harness change. |
 
 ## 7. Out of scope
