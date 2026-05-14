@@ -118,7 +118,7 @@ describe("DORA metrics calculators", () => {
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "nimbus-dora-"));
     db = new Database(join(dir, "nimbus.db"));
-    runIndexedSchemaMigrations(db, 27);
+    runIndexedSchemaMigrations(db, 28);
   });
 
   afterEach(() => {
