@@ -13,6 +13,38 @@ export type CliPlatformPaths = {
   tempDir: string;
 };
 
+/**
+ * Resolves the IPC socket path the CLI uses to connect to the Gateway.
+ *
+ * Prefers the `NIMBUS_GATEWAY_SOCKET` environment variable when set and
+ * non-empty — this lets the cast-driver tripwire harness (Phase 3) point the
+ * CLI at a fake-Gateway socket without touching production config.
+ * Falls back to the platform-default path when the env var is absent.
+ */
+export function resolveSocketPath(): string {
+  const envOverride = envGet("NIMBUS_GATEWAY_SOCKET");
+  if (envOverride !== undefined && envOverride.length > 0) {
+    return envOverride;
+  }
+  return defaultSocketPath();
+}
+
+/** Returns the platform-default Gateway socket path (no env-var override). */
+function defaultSocketPath(): string {
+  switch (process.platform) {
+    case "win32":
+      return String.raw`\\.\pipe\nimbus-gateway`;
+    case "darwin": {
+      const tmp = envGet("TMPDIR") ?? "/tmp";
+      return join(tmp, "nimbus-gateway.sock");
+    }
+    default: {
+      const runtimeDir = envGet("XDG_RUNTIME_DIR") ?? tmpdir();
+      return join(runtimeDir, "nimbus-gateway.sock");
+    }
+  }
+}
+
 export function getCliPlatformPaths(): CliPlatformPaths {
   switch (process.platform) {
     case "win32": {
@@ -32,19 +64,18 @@ export function getCliPlatformPaths(): CliPlatformPaths {
         configDir,
         dataDir,
         logDir: join(dataDir, "logs"),
-        socketPath: String.raw`\\.\pipe\nimbus-gateway`,
+        socketPath: resolveSocketPath(),
         extensionsDir: join(localAppData, "Nimbus", "extensions"),
         tempDir: join(tmpdir(), "nimbus"),
       };
     }
     case "darwin": {
       const root = join(homedir(), "Library", "Application Support", "Nimbus");
-      const tmp = envGet("TMPDIR") ?? "/tmp";
       return {
         configDir: root,
         dataDir: root,
         logDir: join(root, "logs"),
-        socketPath: join(tmp, "nimbus-gateway.sock"),
+        socketPath: resolveSocketPath(),
         extensionsDir: join(root, "extensions"),
         tempDir: join(tmpdir(), "nimbus"),
       };
@@ -53,14 +84,13 @@ export function getCliPlatformPaths(): CliPlatformPaths {
       const home = homedir();
       const configRoot = envGet("XDG_CONFIG_HOME") ?? join(home, ".config");
       const dataRoot = envGet("XDG_DATA_HOME") ?? join(home, ".local", "share");
-      const runtimeDir = envGet("XDG_RUNTIME_DIR") ?? tmpdir();
       const configDir = join(configRoot, "nimbus");
       const dataDir = join(dataRoot, "nimbus");
       return {
         configDir,
         dataDir,
         logDir: join(dataDir, "logs"),
-        socketPath: join(runtimeDir, "nimbus-gateway.sock"),
+        socketPath: resolveSocketPath(),
         extensionsDir: join(dataDir, "extensions"),
         tempDir: join(tmpdir(), "nimbus"),
       };
