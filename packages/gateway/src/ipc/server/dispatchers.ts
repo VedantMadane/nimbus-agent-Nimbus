@@ -8,6 +8,7 @@ import { AuditRpcError, dispatchAuditRpc } from "../audit-rpc.ts";
 import { AutomationRpcError, dispatchAutomationRpc } from "../automation-rpc.ts";
 import { ConnectorRpcError, dispatchConnectorRpc } from "../connector-rpc.ts";
 import { DataRpcError, dispatchDataRpc } from "../data-rpc.ts";
+import { DeploymentRpcError, dispatchDeploymentRpc } from "../deployment-rpc.ts";
 import { DiagnosticsRpcError, dispatchDiagnosticsRpc } from "../diagnostics-rpc.ts";
 import { generatePairingCode } from "../lan-pairing.ts";
 import { dispatchLlmRpc, LlmRpcError } from "../llm-rpc.ts";
@@ -23,6 +24,7 @@ import { dispatchVoiceRpc, VoiceRpcError } from "../voice-rpc.ts";
 import {
   automationRpcSkipped,
   connectorRpcSkipped,
+  deploymentRpcSkipped,
   diagnosticsRpcSkipped,
   metricsRpcSkipped,
   peopleRpcSkipped,
@@ -224,6 +226,28 @@ export async function tryDispatchPreflightRpc(
   return preflightRpcSkipped;
 }
 
+export async function tryDispatchDeploymentRpc(
+  ctx: ServerCtx,
+  method: string,
+  params: unknown,
+): Promise<typeof deploymentRpcSkipped | unknown> {
+  if (method !== "deployment.annotate" || ctx.options.localIndex === undefined) {
+    return deploymentRpcSkipped;
+  }
+  try {
+    const out = await dispatchDeploymentRpc(method, params, {
+      db: ctx.options.localIndex.getDatabase(),
+    });
+    if (out.kind === "hit") return out.value;
+  } catch (e) {
+    if (e instanceof DeploymentRpcError) {
+      throw new RpcMethodError(e.rpcCode, e.message);
+    }
+    throw e;
+  }
+  return deploymentRpcSkipped;
+}
+
 export async function tryDispatchReindexRpc(
   ctx: ServerCtx,
   method: string,
@@ -423,6 +447,8 @@ export async function tryDispatchPhase4Rpc(
   if (metricsOutcome !== metricsRpcSkipped) return metricsOutcome;
   const preflightOutcome = await tryDispatchPreflightRpc(ctx, method, params);
   if (preflightOutcome !== preflightRpcSkipped) return preflightOutcome;
+  const deploymentOutcome = await tryDispatchDeploymentRpc(ctx, method, params);
+  if (deploymentOutcome !== deploymentRpcSkipped) return deploymentOutcome;
   const dataOutcome = await tryDispatchDataRpc(ctx, method, params, clientId);
   if (dataOutcome !== phase4RpcSkipped) return dataOutcome;
   const lanOutcome = await tryDispatchLanRpc(ctx, method, params);

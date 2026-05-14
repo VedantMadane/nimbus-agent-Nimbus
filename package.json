@@ -96,6 +96,7 @@
     "test:coverage:client": "bun test packages/client --coverage --coverage-threshold-lines=80",
     "test:coverage:telemetry": "bun test packages/gateway/src/config/telemetry-toml.test.ts packages/gateway/test/unit/telemetry --coverage --coverage-threshold-lines=85",
     "test:coverage:db": "bun test packages/gateway/test/unit/db --coverage --coverage-threshold-lines=85",
+    "test:coverage:deployment": "bun test packages/gateway/test/unit/deployment/ packages/gateway/test/integration/deployment/ packages/gateway/test/unit/ipc/deployment-rpc.test.ts packages/gateway/test/unit/ipc/http-auth.test.ts packages/gateway/test/unit/ipc/http-rate-limit.test.ts packages/gateway/test/integration/http/deployments-post-route.test.ts --coverage --coverage-threshold-lines=80",
     "test:coverage:health": "bun test packages/gateway/test/unit/connectors/health.test.ts --coverage --coverage-threshold-lines=85",
     "test:coverage:metrics": "bun test packages/gateway/test/unit/metrics/ packages/gateway/test/integration/metrics/ packages/gateway/test/unit/ipc/metrics-rpc.test.ts packages/gateway/test/integration/http/metrics-dora-route.test.ts --coverage --coverage-threshold-lines=80",
     "test:coverage:preflight": "bun test packages/gateway/test/unit/preflight/ packages/gateway/test/integration/preflight/ packages/gateway/test/unit/ipc/preflight-rpc.test.ts packages/gateway/test/integration/http/preflight-deploy-route.test.ts packages/gateway/test/unit/connectors/github-sync-mergeable.test.ts --coverage --coverage-threshold-lines=80",

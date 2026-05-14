@@ -17,7 +17,8 @@ export type DoraGap =
   | "no_repos"
   | "no_deployment_data"
   | "low_sample"
-  | "approximate_lead_time";
+  | "approximate_lead_time"
+  | "mixed_source";
 
 export type DoraMetricValue = {
   readonly value: number | null;
@@ -143,6 +144,56 @@ function selectDeploys(
   return out;
 }
 
+type AnnotatedDeployRow = {
+  id: string;
+  modified_at: number;
+  metadata: string | null;
+};
+
+/**
+ * Selects post-deploy-annotated deploys from `deployment_items` for the given
+ * service+environments window. Counts only `conclusion = 'success'`; non-success
+ * conclusions never count as a deploy under DORA. This is the preferred
+ * source — see {@link deploymentFrequency} for the regex-fallback behaviour.
+ */
+function selectAnnotatedDeploys(
+  db: Database,
+  cfg: DoraServiceConfig,
+  nowMs: number,
+  sinceMs: number,
+): AnnotatedDeployRow[] {
+  if (cfg.deployEnvironments.length === 0) return [];
+  const placeholders = cfg.deployEnvironments.map(() => "?").join(",");
+  const rows = db
+    .query(
+      `SELECT i.id AS id, i.modified_at AS modified_at, i.metadata AS metadata
+       FROM item i
+       JOIN deployment_items d ON d.id = i.id
+       WHERE i.type = 'deployment'
+         AND d.nimbus_service_id = ?
+         AND d.environment IN (${placeholders})
+         AND d.conclusion = 'success'
+         AND i.modified_at >= ?
+         AND i.modified_at <= ?
+       ORDER BY i.modified_at ASC`,
+    )
+    .all(cfg.serviceId, ...cfg.deployEnvironments, nowMs - sinceMs, nowMs) as AnnotatedDeployRow[];
+  return rows;
+}
+
+/**
+ * Deployment frequency.
+ *
+ * Source preference: when annotated deploys exist in the window
+ * (`deployment_items` rows joined to `item.type = 'deployment'`), they win.
+ * Regex-matched `ci_run` rows are only used as a fallback when no annotated
+ * deploys are present. If both sources exist in the same window the annotated
+ * count is reported and a `mixed_source` gap is emitted so callers can prompt
+ * operators to retire the legacy regex path.
+ *
+ * `leadTimeForChanges` and `changeFailureRate` continue to use the legacy
+ * regex path for now — a follow-up PR will teach them about annotated rows.
+ */
 export function deploymentFrequency(
   db: Database,
   cfg: DoraServiceConfig,
@@ -152,13 +203,25 @@ export function deploymentFrequency(
   if (cfg.repos.length === 0) {
     return { value: null, unit: "deploys_per_day", sample: 0, gap: "no_repos" };
   }
-  const deploys = selectDeploys(db, cfg, nowMs, sinceMs);
-  if (deploys.length === 0) {
+  const annotated = selectAnnotatedDeploys(db, cfg, nowMs, sinceMs);
+  const regex = selectDeploys(db, cfg, nowMs, sinceMs);
+  if (annotated.length > 0) {
+    const mixedSource = regex.length > 0;
+    const days = sinceMs / 86_400_000;
+    const value = annotated.length / days;
+    return gapOrNull({
+      value,
+      unit: "deploys_per_day",
+      sample: annotated.length,
+      gap: mixedSource ? "mixed_source" : null,
+    });
+  }
+  if (regex.length === 0) {
     return { value: null, unit: "deploys_per_day", sample: 0, gap: "no_deployment_data" };
   }
   const days = sinceMs / 86_400_000;
-  const value = deploys.length / days;
-  return gapOrNull({ value, unit: "deploys_per_day", sample: deploys.length, gap: null });
+  const value = regex.length / days;
+  return gapOrNull({ value, unit: "deploys_per_day", sample: regex.length, gap: null });
 }
 
 type PrRow = {

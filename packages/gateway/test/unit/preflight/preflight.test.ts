@@ -125,6 +125,7 @@ function cfg(overrides: Partial<ServiceConfig> = {}): ServiceConfig {
     deployWorkflowPattern: /^[Dd]eploy/,
     incidentWindowMinutes: 60,
     excludePrLabels: ["revert"],
+    deployEnvironments: ["prod"],
     ...overrides,
   };
 }

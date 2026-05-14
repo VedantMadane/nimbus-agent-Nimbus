@@ -16,7 +16,7 @@ describe("metrics-rpc", () => {
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "nimbus-metrics-rpc-"));
     db = new Database(join(dir, "nimbus.db"));
-    runIndexedSchemaMigrations(db, 27);
+    runIndexedSchemaMigrations(db, 28);
   });
   afterEach(() => {
     db.close();

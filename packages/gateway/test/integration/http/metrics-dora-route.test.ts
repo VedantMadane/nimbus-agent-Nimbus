@@ -27,7 +27,7 @@ describe("GET /v1/metrics/dora", () => {
     dir = mkdtempSync(join(tmpdir(), "nimbus-dora-http-"));
     const dbPath = join(dir, "nimbus.db");
     const db = new Database(dbPath);
-    runIndexedSchemaMigrations(db, 27);
+    runIndexedSchemaMigrations(db, 28);
     seedPaymentServiceFixture(db);
     db.close();
     writeFileSync(

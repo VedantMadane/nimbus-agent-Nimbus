@@ -8,6 +8,8 @@ import { resolve } from "node:path";
 import { loadNimbusServiceConfigsFromConfigDir } from "../config/nimbus-toml.ts";
 import { getAllConnectorHealth } from "../connectors/health.ts";
 import { buildItemListSql, parseRelativeSinceToWindowMs } from "../index/item-list-query.ts";
+import { HttpWriteRateLimiter } from "./http-rate-limit.ts";
+import { dispatchWriteRoute, WRITE_ROUTE_ALLOWLIST } from "./http-write-routes.ts";
 import { dispatchMetricsRpc, MetricsRpcError } from "./metrics-rpc.ts";
 import { loadOpenApiJsonBytes } from "./openapi-loader.ts";
 import { dispatchPreflightRpc, PreflightRpcError } from "./preflight-rpc.ts";
@@ -20,6 +22,14 @@ import { dispatchPreflightRpc, PreflightRpcError } from "./preflight-rpc.ts";
 export type ReadOnlyHttpServerOptions = {
   readonly configDir?: string;
   readonly nowMs?: () => number;
+  /**
+   * Resolves the bearer token from the vault when the write surface is
+   * configured. Returns `""` when the vault key is absent — the write
+   * surface stays mounted but returns `503 write_surface_disabled`.
+   * Omitted entirely when this Gateway has no write surface at all
+   * (`POST /v1/deployments` will then return 405 Method Not Allowed).
+   */
+  readonly resolveDeploymentToken?: () => Promise<string>;
 };
 
 export type ReadOnlyHttpServerHandle = {
@@ -305,15 +315,66 @@ export function startReadOnlyHttpServer(
   const db = new Database(dbPath, { readonly: true, create: false });
   db.run("PRAGMA query_only = ON");
 
+  // Second handle is opened ONLY when the caller wires the write surface.
+  // The read-only handle above remains the default — every GET still runs
+  // against `SQLITE_OPEN_READONLY`. The write handle is reachable only
+  // through `dispatchWriteRoute` which enforces the allowlist (invariant
+  // I13), bearer auth, rate limit, and body cap before any SQL runs.
+  const writeDb =
+    opts.resolveDeploymentToken === undefined
+      ? null
+      : new Database(dbPath, { create: false, readwrite: true });
+  const rateLimiter = new HttpWriteRateLimiter({ maxRequests: 60, windowMs: 60_000 });
+
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port,
     async fetch(req: Request): Promise<Response> {
-      if (req.method !== "GET") {
-        return new Response("Method Not Allowed", { status: 405 });
-      }
       const url = new URL(req.url);
+      if (req.method === "POST") {
+        if (writeDb === null || opts.resolveDeploymentToken === undefined) {
+          return new Response("Method Not Allowed", {
+            status: 405,
+            headers: { Allow: "GET" },
+          });
+        }
+        try {
+          const expectedToken = await opts.resolveDeploymentToken();
+          // Capture configDir into a stable local so the closure doesn't
+          // re-narrow `opts.configDir` on every request.
+          const cfgDir = opts.configDir;
+          const knownServices =
+            cfgDir === undefined
+              ? (): readonly string[] => []
+              : (): readonly string[] =>
+                  Array.from(loadNimbusServiceConfigsFromConfigDir(cfgDir).keys());
+          return await dispatchWriteRoute(req, {
+            writeDb,
+            expectedToken,
+            rateLimiter,
+            nowMs: opts.nowMs ?? ((): number => Date.now()),
+            knownServices,
+          });
+        } catch {
+          return json({ error: "internal_error" }, 500);
+        }
+      }
+      if (req.method !== "GET") {
+        // Hint both supported verbs when a write surface is mounted, GET
+        // only otherwise. Avoids advertising POST when it would 405 anyway.
+        const allow = writeDb !== null ? "GET, POST" : "GET";
+        return new Response("Method Not Allowed", { status: 405, headers: { Allow: allow } });
+      }
       const path = url.pathname;
+      // If a GET targets a path that is only served under a non-GET verb
+      // (e.g. `GET /v1/deployments`), respond 405 with the correct `Allow`
+      // hint rather than letting it fall through to 404.
+      if (WRITE_ROUTE_ALLOWLIST.some((r) => r.endsWith(` ${path}`))) {
+        return new Response("Method Not Allowed", {
+          status: 405,
+          headers: { Allow: "POST" },
+        });
+      }
       try {
         return await dispatchReadOnlyGet(path, url, db, opts);
       } catch {
@@ -342,6 +403,13 @@ export function startReadOnlyHttpServer(
         db.close();
       } catch {
         /* ignore */
+      }
+      if (writeDb !== null) {
+        try {
+          writeDb.close();
+        } catch {
+          /* ignore */
+        }
       }
     },
   };

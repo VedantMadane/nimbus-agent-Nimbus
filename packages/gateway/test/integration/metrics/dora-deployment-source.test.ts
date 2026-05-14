@@ -1,0 +1,102 @@
+/**
+ * Integration test: `deploymentFrequency` source preference.
+ *
+ * Verifies that:
+ *   1. Annotated deploys (`deployment_items` joined to `item`) are preferred
+ *      over regex-matched `ci_run` rows when both exist in the window.
+ *   2. The `mixed_source` gap is emitted when both sources are present.
+ *   3. The legacy regex-only window still returns gap = null.
+ *   4. An empty window returns gap = `"no_deployment_data"`.
+ *
+ * `leadTimeForChanges` and `changeFailureRate` remain on the regex path in
+ * this PR; they're out of scope.
+ */
+
+import { Database } from "bun:sqlite";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { runIndexedSchemaMigrations } from "../../../src/index/migrations/runner.ts";
+import { deploymentFrequency } from "../../../src/metrics/dora.ts";
+import type { DoraServiceConfig } from "../../../src/metrics/dora-config.ts";
+import { seedPaymentServiceFixture } from "../../fixtures/deployments/payment-service/seed.ts";
+
+function cfg(): DoraServiceConfig {
+  return {
+    serviceId: "payment-service",
+    repos: [{ provider: "github", providerId: "acme/payments" }],
+    pagerdutyServices: [],
+    deployWorkflowPattern: /^Deploy/,
+    incidentWindowMinutes: 60,
+    excludePrLabels: [],
+    deployEnvironments: ["prod"],
+  };
+}
+
+describe("dora.deploymentFrequency — source preference", () => {
+  let dir: string;
+  let db: Database;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "dora-source-"));
+    db = new Database(join(dir, "nimbus.db"));
+    runIndexedSchemaMigrations(db, 28);
+  });
+
+  afterEach(() => {
+    db.close();
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* Windows EBUSY — OS cleans temp dir on reboot */
+    }
+  });
+
+  test("annotated deploys win; regex ci_run rows are ignored even when present (mixed_source gap)", () => {
+    const { nowMs } = seedPaymentServiceFixture(db);
+    const window = 30 * 86_400_000;
+    const df = deploymentFrequency(db, cfg(), nowMs, window);
+    expect(df.sample).toBe(3);
+    expect(df.gap).toBe("mixed_source");
+    expect(df.value).not.toBeNull();
+    // 3 deploys over 30 days
+    expect(df.value).toBeCloseTo(3 / 30, 5);
+  });
+
+  test("regex-only window: gap is null (legacy path)", () => {
+    const t = 1_746_000_000_000;
+    for (let i = 0; i < 5; i++) {
+      const modifiedAt = t + i * 3_600_000;
+      db.run(
+        `INSERT INTO item (id, service, type, external_id, title, body_preview, url, canonical_url,
+                           modified_at, author_id, metadata, synced_at, pinned)
+         VALUES (?, ?, 'ci_run', ?, 'Deploy regex', '', NULL, NULL, ?, NULL, ?, ?, 0)`,
+        [
+          `github-actions:ci_run:legacy-${i}`,
+          "github_actions",
+          `acme/payments#run-legacy-${i}`,
+          modifiedAt,
+          JSON.stringify({
+            repo: "acme/payments",
+            workflowName: "Deploy",
+            conclusion: "success",
+            headBranch: "main",
+          }),
+          modifiedAt,
+        ],
+      );
+    }
+    const df = deploymentFrequency(db, cfg(), t + 6 * 3_600_000, 30 * 86_400_000);
+    expect(df.sample).toBe(5);
+    expect(df.gap).toBeNull();
+    expect(df.value).not.toBeNull();
+  });
+
+  test("no deploys at all: no_deployment_data", () => {
+    const df = deploymentFrequency(db, cfg(), 1_746_000_000_000, 30 * 86_400_000);
+    expect(df.sample).toBe(0);
+    expect(df.gap).toBe("no_deployment_data");
+    expect(df.value).toBeNull();
+  });
+});

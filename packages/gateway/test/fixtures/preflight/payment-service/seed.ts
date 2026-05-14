@@ -203,6 +203,7 @@ export function seedPaymentServicePreflightFixture(db: Database): { config: Serv
     deployWorkflowPattern: /^[Dd]eploy/,
     incidentWindowMinutes: 60,
     excludePrLabels: ["revert"],
+    deployEnvironments: ["prod"],
   };
   return { config };
 }

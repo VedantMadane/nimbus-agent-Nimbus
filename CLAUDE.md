@@ -7,7 +7,7 @@ Nimbus is a **local-first AI agent framework** — a headless Bun Gateway proces
 **Runtime:** Bun v1.2+ / TypeScript 6.x strict
 **Linter:** Biome
 **License:** AGPL-3.0 (gateway/cli/mcp-connectors) + MIT (sdk)
-**Status:** Phase 4 ✅ Complete · Phase 5 (Extended Surface) 🔵 Active · T4 PR 2 DORA metrics ✅ · T4 PR 3a pre-deploy check ✅ · `v0.1.0` released 2026-05-09 (headless Gateway + CLI + VS Code extension; `desktop-v0.1.0` Tauri release deferred to Phase 13). Workstream-level status is in [`docs/roadmap.md`](./docs/roadmap.md).
+**Status:** Phase 4 ✅ Complete · Phase 5 (Extended Surface) 🔵 Active · T4 PR 2 DORA metrics ✅ · T4 PR 3a pre-deploy check ✅ · T4 PR 3b annotation ✅ · `v0.1.0` released 2026-05-09 (headless Gateway + CLI + VS Code extension; `desktop-v0.1.0` Tauri release deferred to Phase 13). Workstream-level status is in [`docs/roadmap.md`](./docs/roadmap.md).
 
 **Gemini CLI:** [`GEMINI.md`](./GEMINI.md) mirrors this file for the same repository — update both when changing commands, roadmap rows, or non-negotiables.
 
@@ -47,6 +47,7 @@ Each invariant has a production wiring site and an enforcement test in `packages
 | I10 | Constant-time compare for hashes / MACs / pairing codes                                    | `extensions/verify-extensions.ts`, `updater/updater.ts`, `ipc/lan-pairing.ts`                                    | `===` / `!==` on hash bytes                                                          |
 | I11 | LLM-facing tool results wrapped via `wrapToolOutput`                                       | `engine/agent.ts`, `engine/tool-output-envelope.ts`                                                              | New agent surface that feeds raw tool results to the LLM                             |
 | I12 | DPAPI calls pass `pOptionalEntropy` from `<configDir>/vault/.entropy`                      | `vault/win32.ts`                                                                                                 | Dropping the entropy parameter "for compatibility"                                   |
+| I13 | HTTP write routes go through `WRITE_ROUTE_ALLOWLIST` + bearer auth                         | `ipc/http-server.ts`, `ipc/http-write-routes.ts`                                                                 | New POST/PUT/DELETE handler that bypasses `dispatchWriteRoute` or opens a second writable DB outside the server context |
 
 When changing a wiring site, update both the test and `SECURITY-INVARIANTS.md` in the same commit. When retiring an invariant, delete the row — never leave it as documentation drift.
 
