@@ -157,6 +157,42 @@ paths:
                       limit: { type: integer }
                       offset: { type: integer }
 
+  /v1/deployments:
+    post:
+      summary: Annotate a completed deployment.
+      description: |
+        Records a deployment event into the local index. Used by
+        `nimbus-agent/annotate-action` (GitHub Actions) and the CLI
+        counterpart `nimbus deploy annotate` to make DORA Deployment
+        Frequency and Lead Time accurate without relying on the
+        `ci_run.title` regex match. Loopback-only; bearer-auth via the
+        `http_api.deployment_token` vault key.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeploymentAnnotateInput"
+      responses:
+        "200":
+          description: Annotation accepted (and either new or upserted).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeploymentAnnotateResult"
+        "400":
+          description: Invalid request or unknown service.
+        "401":
+          description: Missing or invalid bearer token.
+        "413":
+          description: Request body exceeded 8 KiB.
+        "429":
+          description: Rate limited (60 req/min per token).
+        "503":
+          description: Write surface disabled or vault unavailable.
+
   /v1/openapi.json:
     get:
       operationId: getOpenApiSchema
@@ -372,3 +408,75 @@ components:
         url:
           type: string
           nullable: true
+    DeploymentAnnotateInput:
+      type: object
+      required: [service, provider, environment, sha, ref, status, started_at_ms]
+      properties:
+        service:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: "^[a-z0-9][a-z0-9._-]*$"
+          description: Nimbus service id (matches `[ci.service.<id>]` or `[metrics.dora.<id>]`).
+        provider:
+          type: string
+          enum: [github-actions, gitlab, jenkins, circleci, bitbucket, other]
+        environment:
+          type: string
+          minLength: 1
+          maxLength: 32
+          pattern: "^[a-z0-9][a-z0-9._-]*$"
+        sha:
+          type: string
+          minLength: 7
+          maxLength: 64
+          pattern: "^[0-9a-fA-F]{7,64}$"
+        ref:
+          type: string
+          minLength: 1
+          maxLength: 256
+        status:
+          type: string
+          enum: [success, failure, cancelled, in_progress]
+        started_at_ms:
+          type: integer
+          minimum: 0
+        finished_at_ms:
+          type: integer
+          minimum: 0
+        workflow_url:
+          type: string
+          format: uri
+          maxLength: 2048
+        run_id:
+          type: string
+          minLength: 1
+          maxLength: 64
+        job_id:
+          type: string
+          minLength: 1
+          maxLength: 64
+    DeploymentAnnotateResult:
+      type: object
+      required: [external_id, service, stored_at_ms, is_new, dora_eligible]
+      properties:
+        external_id:
+          type: string
+          description: Stable per-deployment identifier (three-tier rule — see §5.3 of the design).
+        service:
+          type: string
+        stored_at_ms:
+          type: integer
+        is_new:
+          type: boolean
+        dora_eligible:
+          type: boolean
+          description: True iff status=success AND environment ∈ deploy-counted set.
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: vault://http_api.deployment_token
+      description: |
+        Token stored under the vault key `http_api.deployment_token`.
+        Set with `nimbus vault set http_api.deployment_token <value>`.
