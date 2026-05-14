@@ -89,20 +89,18 @@ steps:
     expect(() => parseCastScript(yaml)).toThrow(/cannot have both input and consent/i);
   });
 
-  test("accepts optional waitFor and timeoutMs on input steps", () => {
+  test("accepts optional timeoutMs on input steps", () => {
     const yaml = `
 name: x
 description: y
 events: z
 steps:
   - input: nimbus serve
-    waitFor: "listening on"
     timeoutMs: 5000
 `;
     const compiled = parseCastScript(yaml);
     expect(compiled.inputGroups[0]?.input).toMatchObject({
       input: "nimbus serve",
-      waitFor: "listening on",
       timeoutMs: 5000,
     });
   });

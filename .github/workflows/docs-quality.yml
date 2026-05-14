@@ -9,6 +9,12 @@ on:
       - ".github/workflows/docs-quality.yml"
       - ".markdownlint-cli2.jsonc"
       - "lychee.toml"
+      # cast-tripwire scope: the gate must fire on CLI rendering changes and
+      # on changes to the tripwire itself or its scripts/snapshots.
+      - "scripts/cast-driver/**"
+      - "packages/cli/src/**"
+      - "packages/cli/package.json"
+      - "docs/demos/**"
   push:
     branches: [main]
     paths:
@@ -16,6 +22,11 @@ on:
       - "packages/docs/**"
       - "**/*.md"
       - ".markdownlint-cli2.jsonc"
+      # cast-tripwire scope (matches pull_request.paths above)
+      - "scripts/cast-driver/**"
+      - "packages/cli/src/**"
+      - "packages/cli/package.json"
+      - "docs/demos/**"
 
 permissions:
   contents: read

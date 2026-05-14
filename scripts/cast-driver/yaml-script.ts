@@ -4,7 +4,6 @@ export interface InputStep {
   readonly type: "input";
   readonly input: string;
   readonly expect?: string;
-  readonly waitFor?: string;
   readonly timeoutMs?: number;
 }
 
@@ -60,7 +59,6 @@ function parseStep(raw: unknown, idx: number): Step {
       type: "input",
       input: asString(o["input"], `step ${idx}.input`),
       ...(typeof o["expect"] === "string" ? { expect: o["expect"] as string } : {}),
-      ...(typeof o["waitFor"] === "string" ? { waitFor: o["waitFor"] as string } : {}),
       ...(typeof o["timeoutMs"] === "number" ? { timeoutMs: o["timeoutMs"] as number } : {}),
     };
     return step;
