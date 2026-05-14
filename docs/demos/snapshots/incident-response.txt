@@ -1,0 +1,13 @@
+## Investigation
+
+The p95 latency on the checkout endpoint rose from 120ms to 380ms over the past 2 hours. Top contributors:
+
+- 3 slow database queries on `orders` table (no recent index changes)
+- 1 retry storm against the payment-gateway connector
+
+Investigation complete.
+
+Drafting incident summary for #ops...
+[consent.request] Post to Slack #ops requires consent
+[scripted: approve]
+Posted to #ops.
