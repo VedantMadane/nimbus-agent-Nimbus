@@ -25,6 +25,13 @@ export type ServiceConfig = {
   readonly deployWorkflowPattern: RegExp;
   readonly incidentWindowMinutes: number;
   readonly excludePrLabels: readonly string[];
+  /**
+   * Logical deploy environments this service ships to (e.g. `["prod"]`,
+   * `["staging", "prod"]`). Sourced from the optional `deploy_environments`
+   * key in `[ci.service.<id>]` / `[metrics.dora.<id>]`. Defaults to
+   * `["prod"]` when omitted.
+   */
+  readonly deployEnvironments: readonly string[];
 };
 
 /** Back-compat alias. New code should import `ServiceConfig`. */
@@ -33,6 +40,17 @@ export type DoraServiceConfig = ServiceConfig;
 export const DEFAULT_DEPLOY_WORKFLOW_PATTERN = "^[Dd]eploy";
 export const DEFAULT_INCIDENT_WINDOW_MINUTES = 60;
 export const DEFAULT_EXCLUDE_PR_LABELS: readonly string[] = ["revert"];
+export const DEFAULT_DEPLOY_ENVIRONMENTS: readonly string[] = ["prod"];
+
+/**
+ * Validates a logical deploy-environment name. Allowed character set matches
+ * the `service` field accepted by `annotateDeployment` (lowercase ASCII, digits,
+ * `.`, `_`, `-`, starting with a letter or digit).
+ */
+const DEPLOY_ENV_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
+export function isValidDeployEnvironmentName(name: string): boolean {
+  return DEPLOY_ENV_NAME_PATTERN.test(name);
+}
 
 const KNOWN_PROVIDERS: readonly DoraProvider[] = [
   "github",

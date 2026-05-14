@@ -103,6 +103,7 @@ function cfg(overrides: Partial<DoraServiceConfig> = {}): DoraServiceConfig {
     deployWorkflowPattern: /^[Dd]eploy/,
     incidentWindowMinutes: 60,
     excludePrLabels: ["revert"],
+    deployEnvironments: ["prod"],
     ...overrides,
   };
 }

@@ -244,6 +244,7 @@ export function seedPaymentServiceFixture(db: Database): { config: DoraServiceCo
     deployWorkflowPattern: /^[Dd]eploy/,
     incidentWindowMinutes: 60,
     excludePrLabels: ["revert"],
+    deployEnvironments: ["prod"],
   };
   return { config };
 }
