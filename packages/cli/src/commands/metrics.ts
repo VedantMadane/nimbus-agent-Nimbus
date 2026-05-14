@@ -102,11 +102,6 @@ function isDoraEnvelope(value: unknown): value is DoraEnvelope {
   );
 }
 
-function shouldUseColor(): boolean {
-  if (process.env["NO_COLOR"] !== undefined && process.env["NO_COLOR"] !== "") return false;
-  return process.stdout.isTTY === true;
-}
-
 const LABELS: Record<keyof DoraEnvelope["metrics"], string> = {
   deployment_frequency: "Deployment Frequency",
   lead_time_for_changes: "Lead Time",
@@ -121,18 +116,74 @@ const METRIC_ORDER: ReadonlyArray<keyof DoraEnvelope["metrics"]> = [
   "mttr",
 ];
 
-export function formatDoraPretty(env: DoraEnvelope, useColor: boolean): string {
+export interface RenderOptions {
+  readonly tty: boolean;
+  readonly noColor: boolean;
+}
+
+export interface MetricRowInput {
+  readonly label: string;
+  readonly value: number | null;
+  readonly unit: string;
+  readonly sample: number;
+  readonly gap: string | null;
+}
+
+/**
+ * Pure renderer for a single DORA metric row.
+ *
+ * When `gap === "mixed_source"` AND output is a TTY with colour enabled,
+ * the row is prefixed with a yellow ⚠ icon to flag annotation drift between
+ * explicit `deployment` items and ci_run regex matches. The icon is omitted
+ * for piped output (`tty: false`) and when `NO_COLOR` is set (`noColor: true`).
+ */
+export function renderMetricRow(metric: MetricRowInput, options: RenderOptions): string {
+  const useColor = options.tty && !options.noColor;
+  const valueStr = metric.value === null ? "—" : metric.value.toFixed(3);
+  const gapStr =
+    metric.gap === null ? "" : useColor ? `\x1b[33m[${metric.gap}]\x1b[0m` : `[${metric.gap}]`;
+  const prefix = metric.gap === "mixed_source" && useColor ? "\x1b[33m⚠\x1b[0m " : "";
+  return `  ${prefix}${metric.label.padEnd(20)} ${valueStr.padStart(10)} ${metric.unit.padEnd(20)} n=${String(metric.sample)}  ${gapStr}`;
+}
+
+/**
+ * Two-line hint explaining the `mixed_source` gap. The hint is always shown
+ * verbatim regardless of TTY / NO_COLOR — it is information, not styling.
+ * The strings "deployment" and "ci_run" are intentionally present so future
+ * readers can map the warning back to the underlying data sources.
+ */
+export function renderMixedSourceHint(): string {
+  return [
+    "Note: this window contains both explicit `deployment` annotations and ci_run regex matches.",
+    "Annotated rows are counted; ci_run rows are ignored. Annotate consistently for accurate DF/LT.",
+  ].join("\n");
+}
+
+export function formatDoraPretty(env: DoraEnvelope, options: RenderOptions): string {
   const sinceDays = Math.floor(env.since_ms / 86_400_000);
   const lines: string[] = [];
   lines.push(`DORA metrics — ${env.service} (since ${sinceDays}d)`);
   lines.push("");
+  let hasMixedSource = false;
   for (const key of METRIC_ORDER) {
     const m = env.metrics[key];
-    const valueStr = m.value === null ? "—" : m.value.toFixed(3);
-    const gapStr = m.gap === null ? "" : useColor ? `\x1b[33m[${m.gap}]\x1b[0m` : `[${m.gap}]`;
+    if (m.gap === "mixed_source") hasMixedSource = true;
     lines.push(
-      `  ${LABELS[key].padEnd(20)} ${valueStr.padStart(10)} ${m.unit.padEnd(20)} n=${String(m.sample)}  ${gapStr}`,
+      renderMetricRow(
+        {
+          label: LABELS[key],
+          value: m.value,
+          unit: m.unit,
+          sample: m.sample,
+          gap: m.gap,
+        },
+        options,
+      ),
     );
+  }
+  if (hasMixedSource) {
+    lines.push("");
+    lines.push(renderMixedSourceHint());
   }
   return lines.join("\n");
 }
@@ -175,7 +226,9 @@ export async function runMetricsCli(args: string[]): Promise<void> {
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
       return;
     }
-    process.stdout.write(`${formatDoraPretty(result, shouldUseColor())}\n`);
+    const noColor = process.env["NO_COLOR"] !== undefined && process.env["NO_COLOR"] !== "";
+    const tty = process.stdout.isTTY === true;
+    process.stdout.write(`${formatDoraPretty(result, { tty, noColor })}\n`);
   } catch (err) {
     process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(2);
