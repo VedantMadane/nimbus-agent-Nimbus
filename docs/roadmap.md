@@ -4,7 +4,7 @@ This document is the authoritative roadmap for Nimbus. [`README.md`](./README.md
 
 Phases are thematic, not calendar-bound. A phase begins when its dependencies are met and ends when its acceptance criteria pass — not at a quarter boundary. Phases may overlap when deliverables are independent.
 
-> **Last updated:** 2026-05-10 — Phase 4 complete on `main`; **Phase 5 (The Extended Surface)** in flight. **T3 (Team Intelligence) epic complete:** `AgentCoordinator.executeAll` parallel sub-agent dispatch + `nimbus expert` (PR 1, 2026-05-09), `nimbus impact` (PR 2, 2026-05-09), and `nimbus catchup` (PR 3, 2026-05-10). `v0.1.0` ships only the headless Gateway + CLI + VS Code extension; the Tauri desktop UI is code-complete in Phase 4 but its release vehicle (signed installers) is deferred to Phase 13 as the separate `desktop-v0.1.0` tag — see [§ Phase 13 → Desktop Release Vehicle](#desktop-release-vehicle). The Phase 5 order, scope cuts, and re-planning checkpoints are locked in [`docs/superpowers/specs/2026-05-06-phase-5-sequencing-design.md`](./superpowers/specs/2026-05-06-phase-5-sequencing-design.md) (Core: T1 → T3 → Wave A → T4 → T6 → T2 → Wave B). Phase 4 delivered the Tauri UI, VS Code extension (`packages/vscode-extension`), voice interface, and local LLM backbone. Pass 2 adds MLflow / SageMaker / Vertex AI / Great Expectations / local data profiling to Phase 5, Monte Carlo / Bigeye to Phase 6, Data FinOps attribution and Data Incident Brief to Phase 10 (post-shift). The 2026-05-10 phase reorganisation inserted three new phases (7 Engineering Excellence, 8 Security Engineering, 9 AI Engineering Loop) before the Autonomous Agent, and added a final Phase 14 (Agent Evolution / AI v2) — see [§ How to Update This Document](#how-to-update-this-document).
+> **Last updated:** 2026-05-13 — folded 16 expansion ideas (Phases 6 / 7 / 8 / 9 / 10 / 11 / 12 / 15) plus 6 subsumed clarifications (Phase 6 Decentralized Key Custody → Phase 11 Threshold Secret Sharing; Phase 10 Proactive PR Generation → Phase 10 Standing Approval Rules; Phase 10 "Time Travel" / "Follow the Sun" → existing Phase 10 entries; Phase 9 Zero-Shot BYOM + Prompt A/B → Phase 9 Stretch Eval-as-a-watcher) from the prior `future-roadmap-ideas.md` brainstorm; added a new **Phase 15 (Cross-Organizational Federation)**. 2026-05-10 — Phase 4 complete on `main`; **Phase 5 (The Extended Surface)** in flight. **T3 (Team Intelligence) epic complete:** `AgentCoordinator.executeAll` parallel sub-agent dispatch + `nimbus expert` (PR 1, 2026-05-09), `nimbus impact` (PR 2, 2026-05-09), and `nimbus catchup` (PR 3, 2026-05-10). `v0.1.0` ships only the headless Gateway + CLI + VS Code extension; the Tauri desktop UI is code-complete in Phase 4 but its release vehicle (signed installers) is deferred to Phase 13 as the separate `desktop-v0.1.0` tag — see [§ Phase 13 → Desktop Release Vehicle](#desktop-release-vehicle). The Phase 5 order, scope cuts, and re-planning checkpoints are locked in [`docs/superpowers/specs/2026-05-06-phase-5-sequencing-design.md`](./superpowers/specs/2026-05-06-phase-5-sequencing-design.md) (Core: T1 → T3 → Wave A → T4 → T6 → T2 → Wave B). Phase 4 delivered the Tauri UI, VS Code extension (`packages/vscode-extension`), voice interface, and local LLM backbone. Pass 2 adds MLflow / SageMaker / Vertex AI / Great Expectations / local data profiling to Phase 5, Monte Carlo / Bigeye to Phase 6, Data FinOps attribution and Data Incident Brief to Phase 10 (post-shift). The 2026-05-10 phase reorganisation inserted three new phases (7 Engineering Excellence, 8 Security Engineering, 9 AI Engineering Loop) before the Autonomous Agent, and added a final Phase 14 (Agent Evolution / AI v2) — see [§ How to Update This Document](#how-to-update-this-document).
  Per-connector OAuth vault keys landed. **WS1 (Local LLM + Multi-Agent) complete:** LLM provider layer, multi-agent infrastructure. **WS2 (Voice Interface) complete:** Gateway-based voice service. **WS3 (Data Sovereignty) complete:** BLAKE3-chained audit log, portable encrypted backups. **WS4 (Release Infrastructure) complete:** Ed25519 signing plumbing, `Updater` state machine. **WS5 (App Shell & UI) complete:** React 19 Tauri UI, Dashboard, Settings, Marketplace. **WS6 (Presence & Rehydration) complete:** VS Code extension, session transcript rehydration (V24 migration). **B2 (Perf bench) Phase 1 complete.** **WS5-C (Settings Shell — Plans 1–3) merged to `main`:** Settings shell (`/settings/*` nested routes, `SettingsSidebar`), Profiles panel (list/create/switch/delete with typed-name confirm), Telemetry panel (toggle + counter cards + payload expander), Connectors panel (per-service interval editor with 60 s minimum inline-validated, depth selector, enable toggle, cross-window `connector.configChanged` reconcile, Dashboard deep-link highlight via `useSearchParams`), Model panel (`RouterStatus` per-task default pickers, load/unload row actions, streaming `PullDialog` with provider-availability filter, 15 s stall detection, cancel via `llm.cancelPull`, re-attach to in-flight pull on UI reload via persisted `activePullId`). `ALLOWED_METHODS` grown to 38 (Plans 2–3 added `llm.getStatus` + 7 other read/write methods), `NO_TIMEOUT_METHODS` (4 long-running ops), `profile.switched` global Tauri rebroadcast → `app.restart()`, Zustand `persist` middleware with 5-key whitelist + forbidden-key deep-scrub, expanded `connectors` and `model` slices (transient `pullProgress` / `pullStalled` / `loadedKeys` / `routerStatus` / `perServiceInFlight` / `highlightService`). Plans 4–5 add Audit / Updates / Data panels. **WS5-C (Settings Shell — Plans 4–5) merged to `main`:** Audit panel (summary cards, verify-chain, CSV/JSON export), Updates panel (state machine display, check-now, apply/rollback, download progress, `UpdaterRestartChrome` overlay), Data panel (Export wizard with passphrase gate + zxcvbn + overwrite confirm + BIP39 seed display + clipboard countdown, Import wizard with passphrase + 12-word recovery-seed auth + version-compat error handling + typed-confirm gate, Delete service dialog with preflight preview + typed-name confirm), `data.*` IPC wrappers, `DataSlice` Zustand store slice. **WS5-D (Polish) merged to `main`:** Watcher history-of-fires drawer, workflow run history drawer with audit deep-link, "Run with params…" one-shot parameter override, connector-remove integration test fixes. **WS6 (Rich TUI) merged to `main`:** Ink-based TUI (`nimbus tui`) with pane layout (query input, result stream, connector health sidebar, active watcher list), keyboard navigation, SSH-safe, real-time inline HITL consent. **S2 (Graph-Aware Watchers) merged to `main`:** `graph_predicate_json` watcher conditions, `parseGraphPredicate` / `itemMatchesGraphPredicate` / `countItemsMatchingGraphPredicate` / `listCandidateGraphRelations`, `[automation].graph_conditions` feature flag, V22 migration.
 
 ---
@@ -54,6 +54,7 @@ Commercial license also available now for organizations that need to embed Nimbu
 | Phase 12 | Enterprise | Planned |
 | Phase 13 | Desktop Distribution | Planned |
 | Phase 14 | Agent Evolution / AI v2 | Planned |
+| Phase 15 | Cross-Organizational Federation | Planned |
 
 ---
 
@@ -668,6 +669,8 @@ Depends on Team Vault (above) so service-account / SSO credentials can be shared
 
 - [ ] **Team-owned workflow pipelines** — pipelines in a shared namespace; any team member can trigger; write steps require HITL from the triggering user; no credentials embedded in pipeline YAML
 - [ ] **Team "Huddle" Briefing** — aggregate morning briefing summarizing team achievements across PRs, tickets, and incidents without manual status reporting
+- [ ] **Tribal-knowledge extraction** — agent watches Slack / Teams for repeated questions ("how do I deploy X?") and proactively suggests saving the answer to a shared Notion / Confluence page or as a Phase 7 Wave 4 automation template; upstream pattern detector that feeds the automation library
+- [ ] **Cross-team blast-radius pre-flight** — before merging a PR, the upstream service owner's agent sends a "preflight request" to the agents of downstream service owners; downstream agents simulate the change against their local integration tests / environments only after the downstream owner approves via their HITL queue (no auto-execution on the upstream owner's say-so); aggregated results return to the upstream PR; stops cascading failures across team boundaries without a centralised staging environment
 - [ ] **Org-level policy engine** — `nimbus.policy.toml` enforces: connector allowlists, `retentionDays` floor, HITL threshold overrides, audit log shipping destination; interacts with per-user profile config from Phase 3.5
 - [ ] **Policy enforcement at the Gateway** — policy loaded on startup; connectors not in the allowlist disabled before the mesh starts; violations logged to audit trail
 
@@ -767,6 +770,9 @@ Builds on Wave 1's `service` / `team` item types. Inherently aggregate-level so 
 - [ ] **Swarmia** — DORA dashboards, work-item flow, investment dimensions; read-only
 - [ ] **Sleuth** — deploy tracking, change failure rate, recovery time, lead time; `dora_metric` item type; read-only; `sleuth.incident.acknowledge` HITL
 - [ ] **Engineering metrics dashboard** — Tauri UI panel + TUI pane: 4-metric DORA grid (deploy frequency, lead time, MTTR, change failure rate) × 7-day / 30-day / 90-day windows; renders from local index without a live API call
+- [ ] **Continuous profiling & cost correlation** — connectors for Pyroscope and Datadog Profiler; profile flamegraphs index alongside the Wave 1 ownership graph so `nimbus ask "which recent PR caused the CPU spike in payment-service?"` resolves `service → repo → commit → flamegraph` from the local index without a live API call; `dora_metric` extended with profile-correlation rows
+- [ ] **Developer-experience (DevEx) metrics** — connectors for DX, Atlassian Team Health, Jellyfish DevEx surveys; new `/excellence/devex` Tauri route renders survey scores side-by-side with the DORA grid; data flows through the same telemetry pipeline; drilldowns into specific surveys / sentiment categories; balances delivery speed with developer-burnout signal
+- [ ] **SLO burn-rate forecaster** — connects to Datadog / Prometheus SLIs; runs a local regression on deploy frequency × change-failure rate × recent incident pattern × day-of-week seasonality to forecast whether the team will blow their error budget before month end; dashboard surfaces top-N feature contributions so the forecast is not a black box; no external ML infrastructure required
 - [ ] **Privacy contract test** — asserts no individual-engineer-keyed metric is indexed unless the user is explicitly admin/owner in the source system
 
 ### Wave 3 — Feature Flags & Experimentation
@@ -789,6 +795,7 @@ Capstone. Ties Waves 1–3 together; works on a solo machine, federation amplifi
 - [ ] **Automation template library** — local store of reusable watcher + workflow templates ("CI failure → Slack thread → rerun once → if still failing, escalate"); user can publish a template to a named local library; templates are pure declarative TOML, no embedded credentials
 - [ ] **Pattern recognition** — agent identifies repeated incident-response patterns from indexed history; surfaces them as automation template candidates ("you've followed this same 3-step recovery 4 times — save as template?"); explicit user confirm required (no silent learning)
 - [ ] **Team policy library** — shared policy fragments (HITL thresholds, connector allowlists, retention floors) consumable by the Phase 6 policy engine when available; on a solo machine, used as user-level config presets
+- [ ] **ADR auto-drafter** — watcher fires on architectural shifts (lockfile diffs, migration file appearance, IaC resource-type changes); agent drafts an Architecture Decision Record from the diff + recent commit context; HITL-gated push to Notion / Confluence / `docs/adrs/`; keeps documentation alive without manual nagging
 - [ ] **`nimbus excellence` built-in agent** — read-only, parallel sub-agents over: service catalog, DORA metrics, feature flags, recent deploy/incident activity; emits `agents.excellence.briefReady` notification; CLI surface `nimbus excellence [--service <name> | --team <name>]` (mirrors `nimbus expert / impact / catchup` per `nimbus-agent-patterns`)
 - [ ] **Excellence dashboard** — Tauri page combining DORA grid + service-catalog browser + stale-flag list + automation template list
 
@@ -864,6 +871,8 @@ Capstone. Ties Waves 1–3 together; works on a solo machine, federation amplifi
 - [ ] **Azure AD audit** — sign-in events, conditional-access decisions, role assignments; read-only
 - [ ] **HashiCorp Vault audit log** — secret reads, role bindings, policy changes; read-only
 - [ ] **Doppler** — secret access events, environment configs; `doppler.secret.rotate` HITL
+- [ ] **Synthetic credential honeytokens** — Nimbus generates fake credentials in the local workspace (e.g., `.env.local`) and registers them with the watcher; outbound process env / log emissions are scanned for the tokens, and any hit triggers an immediate audit-log entry + HITL prompt; active intrusion detection at the workstation level
+- [ ] **Least-privilege auto-remediation** — agent watches AWS IAM and Okta usage (Wave 4 Okta logs ingestion provides the visibility) and drafts terraform / config PRs to revoke unused permissions after 30 days; HITL-gated merge; enforces least privilege without manual hunting
 - [ ] **`nimbus supply-chain <repo|artifact>`** — SBOM diff against last release, signed-vs-unsigned dependencies, attestation gaps, license-policy violations, transparency-log presence; emits `agents.supply_chain.briefReady`
 
 ### Stretch (does not gate phase completion)
@@ -908,6 +917,7 @@ Capstone. Ties Waves 1–3 together; works on a solo machine, federation amplifi
 - [ ] **Braintrust** — eval runs, scorers, prompt versions, regressions; `braintrust.prompt.deploy` HITL
 - [ ] **Promptfoo** (open source CLI) — eval-run state from `promptfoo.yaml` runs in CI; read-only
 - [ ] **Prompt-regression watcher** — fires when an eval-suite pass-rate drops below threshold (configurable; default 95% of trailing 7-day mean)
+- [ ] **AI context minimizer** — periodic agent over Helicone / Langfuse / LangSmith trace ingestion; analyses prompt traces, identifies context segments the LLM didn't materially use, and surfaces removal suggestions; directly reduces token cost and latency on the user's own prompts
 
 ### Wave 2 — ML Model Lifecycle
 
@@ -946,7 +956,8 @@ Phase 5/6 already index model registry entries from MLflow / SageMaker / Vertex 
 ### Stretch (does not gate phase completion)
 
 - [ ] **Long-tail vendors as community extensions** — Aporia, Phoenix Arize, OpenLLMetry, Pezzo, Hopsworks, Featureform, Dynamic.ai, Confident AI, DeepEval
-- [ ] **Eval-as-a-watcher** — `nimbus` runs Promptfoo evals locally on a configurable schedule against locally-indexed prompt versions; results feed `nimbus model-health`
+- [ ] **Eval-as-a-watcher** — `nimbus` runs Promptfoo evals locally on a configurable schedule against locally-indexed prompt versions; results feed `nimbus model-health`. Two use cases share the same primitive: (a) **zero-shot bring-your-own-model evaluator** — download a newly released open-source model and run the existing eval suite locally to see if it is better for the team's use case; (b) **prompt A/B testing** — route a prompt-diff through the same eval suite and compare pass rates before recommending the new version
+- [ ] **Local fine-tuning data curation** — agent identifies high-quality human artefacts (well-written incident post-mortems, effective PR reviews, polished design docs) from the local index and packages them into a JSONL dataset for Phase 14 style / voice fine-tuning; distinct from Phase 14's tool-use trace dataset builder (which targets agent traces); user approves the dataset before fine-tune kickoff
 - [ ] **Bring-your-own-model fine-tune trace** — when Phase 14 (AI v2) ships fine-tuning, Phase 9 indexes the resulting fine-tuned model's training-run telemetry as `ml_model` rows
 
 ### Acceptance Criteria
@@ -976,7 +987,7 @@ Phase 5/6 already index model registry entries from MLflow / SageMaker / Vertex 
 
 ### Core — Standing Approvals & Scheduling
 
-- [ ] **Standing approval rules** — users pre-authorise specific recurring write patterns; stored in SQLite with explicit scope, expiry, and item count ceiling; agent checks standing rules before prompting for HITL
+- [ ] **Standing approval rules** — users pre-authorise specific recurring write patterns; stored in SQLite with explicit scope, expiry, and item count ceiling; agent checks standing rules before prompting for HITL. Canonical use cases include autonomous drafting of dependency-update PRs (Dependabot / Renovate equivalents) and lint-fix PRs once the user has approved the same pattern N times in a row
 - [ ] **Approval learning** — after N consecutive identical approvals (configurable; default: 5), Nimbus suggests a standing rule; user must explicitly confirm; suggestion is logged
 - [ ] **Confidence Score for standing approvals** — standing rules require a confidence score based on contextual similarity (same service, time of day, user location) to prevent over-permissioning
 - [ ] **Standing rule management** — `nimbus approve list`, `pause`, `revoke`; each rule shows match scope, expiry, action count, last-fired timestamp
@@ -1023,6 +1034,7 @@ Phase 5/6 already index model registry entries from MLflow / SageMaker / Vertex 
 - [ ] **Autonomous drift detection** — agent continuously compares IaC declared state against indexed live cloud state; flags drift in the dashboard without waiting for a user query
 - [ ] **Remediation proposals** — agent drafts `terraform plan` or equivalent for detected drift; user reviews diff in HITL dialog; no cloud mutation without approval
 - [ ] **Cost anomaly detection** — monitors Cost Explorer / Azure Cost Management / GCP Billing daily spend; alerts when 24h spend exceeds 7-day rolling average by a configurable threshold; once Phase 6 BI connectors land, the same detection window covers Snowflake credit consumption and Databricks DBU usage
+- [ ] **Cloud cost "garbage collection"** — agent identifies orphaned cloud resources (unattached EBS volumes, empty staging environments, stale ALB target groups, orphaned snapshots) and queues them for deletion behind a single HITL click; distinct from cost anomaly detection (which surfaces *spend* spikes) — this finds *waste* that doesn't move the cost needle but is pure garbage; direct measurable savings with zero manual hunting
 - [ ] **Data FinOps attribution** (depends on Phase 6 warehouse connectors) — correlates Snowflake / BigQuery / Databricks query cost rows with the specific notebook, Airflow task, dbt run, or user that triggered them; joins warehouse `QUERY_HISTORY` (or equivalent) with orchestration run metadata in the local index; answers "show me the top 5 most expensive notebooks run yesterday and who ran them" without a single live warehouse API call; stretch — does not gate Phase 10 completion
 - [ ] **FinOps connectors** — third-party FinOps platforms feed the cost anomaly detector with cleaner per-team / per-tag attribution than raw cloud billing exports: **Vantage**, **CloudHealth (VMware Tanzu)**, **Spot.io / Flexera**, **Kubecost** (Kubernetes per-pod cost), **OpenCost** (open source CNCF project)
 - [ ] **Sustainability connectors** — carbon-footprint reporting feeds the SRE loop's "right-size to lower-carbon region" recommendations: **Cloud Carbon Footprint** (open source), **Climatiq**, **Watershed**, AWS / Azure / GCP carbon footprint exports
@@ -1056,6 +1068,8 @@ Phase 5/6 already index model registry entries from MLflow / SageMaker / Vertex 
 - [ ] **P2P index sync** — encrypted index sync between a user's own machines; BLAKE3-keyed protocol; vector-clock conflict resolution; no third party
 - [ ] **Selective sync** — user controls which `item` types and services sync to which device; configuration stored in the Vault per profile
 - [ ] **Sync conflict resolution UI** — diverged devices surface conflict in the dashboard with diff view; user resolves manually or accepts one side
+- [ ] **Geofenced context switching** — Phase 3.5 configuration profiles extended with a "trusted-network" gate; sensitive index namespaces auto-disable sync (and optionally lock the Vault) when the device connects to an untrusted / public Wi-Fi BSSID; configuration is local-only, no cloud involved
+- [ ] **Mesh backup sharding** — encrypted shards of the index + Vault are distributed across the user's trusted devices using erasure coding over the Phase 6 federation channel; recovery from any M-of-N shards; reuses the Digital Executor's Shamir cryptographic shape applied to live backup instead of inheritance; eliminates the need for cloud backup while preserving durability
 
 ### Mobile Companion
 
@@ -1075,7 +1089,7 @@ Phase 5/6 already index model registry entries from MLflow / SageMaker / Vertex 
 ### Digital Executor
 
 - [ ] **Dead man's switch** — configures cryptographic keys and documents to be handed over to named recipients if Gateway is inactive for a configurable period
-- [ ] **Threshold secret sharing** — executor payload split using Shamir's Secret Sharing across N trusted recipients; any M-of-N can reconstruct; no single recipient can access it alone
+- [ ] **Threshold secret sharing** — executor payload split using Shamir's Secret Sharing across N trusted recipients; any M-of-N can reconstruct; no single recipient can access it alone. Extends to runtime privileged credentials (production secrets, root tokens) so no single engineer or compromised machine can unilaterally access critical credentials — same Shamir primitive applied to live credentials instead of inheritance payload
 - [ ] **Executor audit trail** — every check-in, near-trigger, and handover event logged in the tamper-evident audit chain; recipients receive a verifiable log alongside the payload
 
 ### Stretch — Internationalisation (i18n / l10n)
@@ -1115,6 +1129,7 @@ The mobile companion is the natural moment to introduce locale awareness; the sa
 - [ ] **Docker image** — official `ghcr.io/nimbus/gateway` image; multi-arch (amd64/arm64); configurable via env vars and mounted `nimbus.toml`
 - [ ] **Helm chart** — `nimbus/gateway` Helm chart for Kubernetes; namespace isolation, persistent volume for SQLite, external Vault backend (HashiCorp Vault), RBAC, NetworkPolicy
 - [ ] **Air-gapped bundle** — single tarball with all binaries, local LLM model weights, and dependency assets; no outbound internet access required
+- [ ] **"Clean room" AI deployment mode** — named deployment topology where sensitive compliance / HR data is processed exclusively on an air-gapped node within the enterprise, never hitting the broader LAN or any cloud endpoint; builds on the air-gapped bundle + data residency controls but elevates the configuration to a first-class topology that auditors can certify; unblocks AI adoption for the highest-regulation data classifications
 - [ ] **High availability** — active/passive Gateway clustering; leader election via SQLite WAL + advisory lock; failover in under 30 seconds
 - [ ] **Managed update channel** — enterprise updates on a dedicated channel with 2-week delay vs. main; allows internal QA before rollout
 - [ ] **Remote vector store adapters** — pluggable `VectorStore` interface with Qdrant, Weaviate, and Pinecone backends; `sqlite-vec` remains the default (local-first principle); remote backend enabled only via explicit `[index.vector_store]` config block — never on by default; suitable for enterprise deployments with centralised vector infrastructure or index sizes exceeding local storage thresholds; resolves the Phase 3 deferral (remote stores were incompatible with local-first for individual users; self-hosted enterprise deployments clear the privacy boundary)
@@ -1137,6 +1152,7 @@ Connectors for the GRC tools enterprises already use to evidence SOC 2 / ISO 270
 - [ ] **Vanta** — controls, monitors, employee onboarding/offboarding state, vendor reviews; `compliance_control` item type; read-only; `vanta.task.complete` HITL
 - [ ] **Secureframe** — control library, framework progress, evidence collection, vendor risk; read-only; `secureframe.evidence.upload` HITL
 - [ ] **Tugboat Logic / OneTrust GRC (read-only)** — controls, risks, audit logs; read-only
+- [ ] **Automated compliance-evidence attachments** — agent maps locally-indexed Jira tickets, PRs, deploy logs, and audit-log entries to specific auditor evidence requests in the connected GRC platform (Drata / Vanta / Secureframe); produces a one-click evidence package per request; turns audit preparation from a weeks-long manual task into an export
 
 ### Identity & Governance
 
@@ -1279,6 +1295,35 @@ Native package-manager distribution; gated independently of the desktop tag, may
 - An agent-generated MCP tool passes the contract test and registers ephemerally for the session; the tool is unavailable in a fresh session unless promoted via `nimbus tool save`
 - A local instruction fine-tune of a 3B model on a 1k-row tool-use dataset completes in under 30 minutes on a mid-range GPU; resulting GGUF appears in `llm.listModels`; rollback works without restart
 - Computer use, code execution, and tool generation share a single audit-log fingerprint format that lets `nimbus audit replay <session-id>` deterministically reconstruct what the agent did
+
+---
+
+## Phase 15 — Cross-Organizational Federation (The Global Mesh)
+
+**Goal:** Extend Nimbus's federation primitive across organisational boundaries — vendors, partner companies, contractors — without surrendering local sovereignty and without a central broker.
+
+> **Composes with Phase 6 (Team):** Phase 15 reuses Phase 6's NaCl-box federation channel and namespace primitive; the new contribution is a **lease envelope** that wraps a Phase 6 namespace with cryptographic time-bound + scope + revocation semantics. Phase 6 is intra-org; Phase 15 is the inter-org case.
+
+### Dependencies
+
+- Phase 6 Nimbus-to-Nimbus federation (NaCl-box channel, scoped namespaces, RBAC enforcement at the federation protocol layer)
+- Phase 12 audit log shipping (enterprise leases must produce shippable audit trails per lease)
+- Phase 11 Decentralized Identifiers (DIDs are the natural identity primitive for cross-org peer authentication; not strictly required but recommended)
+
+### Core — B2B Index Leasing
+
+- [ ] **Lease envelope protocol** — cryptographically signed wrapper around a Phase 6 namespace export that adds: scope (item types, services), expiry (wall-clock + max-age), revocation key, lessee identity (DID or X.509). Wire format extends the existing NaCl-box framing; reuses the federation channel.
+- [ ] **Lease issuance + signing** — `nimbus lease issue --namespace <name> --to <peer> --scope <filter> --expires <duration>`; issuer signs with their X25519 (or DID-backed) key; recipient verifies signature before the leased namespace becomes queryable on their machine.
+- [ ] **Lease revocation** — `nimbus lease revoke <lease-id>` flips a revocation bit broadcast over the same federation channel; lessee's Gateway purges leased rows from its local index on receipt; revocation is signed and audit-logged.
+- [ ] **Lease audit trail** — every issue, query, and revocation appended to the BLAKE3-chained audit log on both sides; in enterprise deployments, the audit ships via the Phase 12 audit-log shipping pipeline so legal can verify lease compliance independently.
+- [ ] **`nimbus lease list / show`** — local CLI surface; shows leases issued, leases received, expiry / revocation state.
+
+### Acceptance Criteria
+
+- A lease issued from org A to a contractor at org B is queryable on the contractor's machine within one federation sync cycle; the lease envelope verifies against org A's published key before any leased row is written locally.
+- A revocation issued from org A purges all leased rows on org B's machine within one sync cycle; a subsequent query for any leased item returns empty; revocation appears in both audit logs with matching signatures.
+- A lease that expires (wall-clock past `expires_at`) is treated as revoked on both sides without an explicit revocation event; expiry is enforced locally without a central broker.
+- Privacy contract: a leased namespace is strictly a Phase 6 namespace-export; no data outside the lease scope is ever queryable by the lessee; verified by an integration test that issues a narrow lease and asserts the lessee's `index.query` calls outside scope return empty.
 
 ---
 
