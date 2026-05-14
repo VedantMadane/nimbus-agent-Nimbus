@@ -1667,6 +1667,16 @@ import { type Server, type Socket, createServer } from "node:net";
  * notifications in order; pauses at consent.request until the CLI
  * sends consent.respond, then continues.
  *
+ * IMPORTANT — notification emission is currently coupled to
+ * `engine.askStream`. The only IPC methods that trigger the scripted
+ * notification queue are those whose handler calls
+ * `emitStepNotifications()` (today, just `engine.askStream`). If you
+ * add a cast script for a CLI command that uses a different IPC
+ * method (e.g. a non-streaming RPC), either route it through
+ * `engine.askStream`, or extend `handleMessage` to call
+ * `emitStepNotifications()` for that method too. Without this,
+ * the CLI will hang waiting for notifications that never arrive.
+ *
  * Spec §6.
  */
 
