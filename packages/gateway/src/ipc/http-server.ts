@@ -320,7 +320,10 @@ export function startReadOnlyHttpServer(
   // against `SQLITE_OPEN_READONLY`. The write handle is reachable only
   // through `dispatchWriteRoute` which enforces the allowlist (invariant
   // I13), bearer auth, rate limit, and body cap before any SQL runs.
-  const writeDb = opts.resolveDeploymentToken === undefined ? null : new Database(dbPath);
+  const writeDb =
+    opts.resolveDeploymentToken === undefined
+      ? null
+      : new Database(dbPath, { create: false, readwrite: true });
   const rateLimiter = new HttpWriteRateLimiter({ maxRequests: 60, windowMs: 60_000 });
 
   const server = Bun.serve({
