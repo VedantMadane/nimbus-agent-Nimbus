@@ -1,0 +1,30 @@
+title: "Q&A: "
+labels: ["question", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for asking — the more context you give, the faster a maintainer
+        or community member can help. The FAQ pinned at the top of this
+        category answers many common questions; check it first.
+
+  - type: textarea
+    id: trying_to_do
+    attributes:
+      label: What are you trying to do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you tried?
+      description: Commands run, configuration tried, output observed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: "OS, Bun version, Nimbus version/commit"
