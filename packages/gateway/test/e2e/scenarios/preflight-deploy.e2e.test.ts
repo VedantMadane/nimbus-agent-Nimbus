@@ -30,7 +30,7 @@ describe("E2E (in-process): deploy.preflight", () => {
   });
 
   it("returns a warn-verdict envelope on the fixture", async () => {
-    const { config } = seedPaymentServicePreflightFixture(db);
+    const { config } = await seedPaymentServicePreflightFixture(db);
     const out = await dispatchPreflightRpc(
       "deploy.preflight",
       { service: "payment-service", target_ref: "main" },

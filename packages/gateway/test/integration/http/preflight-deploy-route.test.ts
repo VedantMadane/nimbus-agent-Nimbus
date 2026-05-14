@@ -15,12 +15,12 @@ describe("GET /v1/preflight/deploy", () => {
   let handle: ReturnType<typeof startReadOnlyHttpServer> | undefined;
   let port: number;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "nimbus-preflight-http-"));
     const dbPath = join(dir, "nimbus.db");
     const db = new Database(dbPath);
     runIndexedSchemaMigrations(db, 27);
-    seedPaymentServicePreflightFixture(db);
+    await seedPaymentServicePreflightFixture(db);
     db.close();
     writeFileSync(
       join(dir, "nimbus.toml"),

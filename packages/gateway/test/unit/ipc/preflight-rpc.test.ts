@@ -28,7 +28,7 @@ describe("preflight-rpc: deploy.preflight", () => {
   });
 
   it("returns a configured envelope for a fixture-seeded service", async () => {
-    const { config } = seedPaymentServicePreflightFixture(db);
+    const { config } = await seedPaymentServicePreflightFixture(db);
     const out = await dispatchPreflightRpc(
       "deploy.preflight",
       { service: "payment-service", target_ref: "main" },
