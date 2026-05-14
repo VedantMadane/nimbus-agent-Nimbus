@@ -12,10 +12,16 @@
  * `consent.respond { approved: true }` and emit a stderr warning.
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type { IPCClient } from "../ipc-client/index.ts";
-import { registerAutoApproveConsentHandler } from "./interactive-ipc-handlers.ts";
+import {
+  registerAutoApproveConsentHandler,
+  registerInteractiveCliIpcHandlers,
+} from "./interactive-ipc-handlers.ts";
 
 interface RecordedCall {
   method: string;
@@ -79,5 +85,53 @@ describe("registerAutoApproveConsentHandler (BUG-002)", () => {
     }
     expect(warning).toContain("--yes");
     expect(warning).toContain("auto-approving");
+  });
+});
+
+describe("registerInteractiveCliIpcHandlers env-var dispatch", () => {
+  let tmpDir: string;
+  const ENV_KEY = "NIMBUS_SCRIPT_CONSENT_SOURCE";
+  let prevEnv: string | undefined;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "iicih-env-"));
+    prevEnv = process.env[ENV_KEY];
+  });
+
+  afterEach(() => {
+    if (prevEnv === undefined) delete process.env[ENV_KEY];
+    else process.env[ENV_KEY] = prevEnv;
+  });
+
+  test("with NIMBUS_SCRIPT_CONSENT_SOURCE set, consumes the JSONL file on consent.request", async () => {
+    const source = join(tmpDir, "decisions.jsonl");
+    writeFileSync(source, '{"approved":false}\n', "utf8");
+    process.env[ENV_KEY] = source;
+
+    const { client, fireConsent, calls } = makeFakeClient();
+    // Suppress stdout writes from the script handler so the test runner stays clean.
+    const originalStdout = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (() => true) as typeof process.stdout.write;
+    try {
+      registerInteractiveCliIpcHandlers(client);
+      await fireConsent({ requestId: "r-1", prompt: "post Slack message" });
+    } finally {
+      process.stdout.write = originalStdout;
+    }
+    expect(calls).toEqual([
+      { method: "consent.respond", params: { requestId: "r-1", approved: false } },
+    ]);
+  });
+
+  test("with empty NIMBUS_SCRIPT_CONSENT_SOURCE, treats env as unset (falls back to clack prompt)", () => {
+    process.env[ENV_KEY] = "";
+
+    const { client } = makeFakeClient();
+    // Just verify no throw — falls through to registerConsentPromptHandler which
+    // registers a handler that would call clack's confirm() on fire (we don't
+    // fire it here because clack would block). Behaviour-level coverage of the
+    // prompt path is intentionally out of scope; this test only pins the
+    // env-empty-string fallback contract.
+    expect(() => registerInteractiveCliIpcHandlers(client)).not.toThrow();
   });
 });

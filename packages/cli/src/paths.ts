@@ -13,6 +13,55 @@ export type CliPlatformPaths = {
   tempDir: string;
 };
 
+/**
+ * SCOPE NOTE for Phase 3 cast-tripwire harness consumers:
+ * `NIMBUS_GATEWAY_SOCKET` flows into `paths.socketPath` here, but most CLI
+ * commands construct their IPC client from `state.socketPath` read out of
+ * `<dataDir>/gateway.json` via `readGatewayState()` (see
+ * `packages/cli/src/lib/gateway-process.ts`). So this env var alone covers
+ * `serve.ts`, `start.ts`, and the `discoverSocketPath` fallback in
+ * `@nimbus-dev/client` — NOT the 26+ `new IPCClient(state.socketPath)` call
+ * sites in command files. The cast-driver harness (Task 9) must EITHER also
+ * write `gateway.json` pointing at the fake socket, OR ensure `gateway.json`
+ * is absent so commands fall back to `discoverSocketPath()`, which then
+ * honours this env var.
+ */
+
+/**
+ * Resolves the IPC socket path the CLI uses to connect to the Gateway.
+ *
+ * Prefers the `NIMBUS_GATEWAY_SOCKET` environment variable when set and
+ * non-empty — this lets the cast-driver tripwire harness (Phase 3) point the
+ * CLI at a fake-Gateway socket without touching production config.
+ * Falls back to the platform-default path when the env var is absent.
+ *
+ * This variable is an internal CI/dev flag; it is not part of the user-facing
+ * CLI contract and should not appear in user-facing documentation.
+ */
+export function resolveSocketPath(): string {
+  const envOverride = envGet("NIMBUS_GATEWAY_SOCKET");
+  if (envOverride !== undefined && envOverride.length > 0) {
+    return envOverride;
+  }
+  return defaultSocketPath();
+}
+
+/** Returns the platform-default Gateway socket path (no env-var override). */
+function defaultSocketPath(): string {
+  switch (process.platform) {
+    case "win32":
+      return String.raw`\\.\pipe\nimbus-gateway`;
+    case "darwin": {
+      const tmp = envGet("TMPDIR") ?? "/tmp";
+      return join(tmp, "nimbus-gateway.sock");
+    }
+    default: {
+      const runtimeDir = envGet("XDG_RUNTIME_DIR") ?? tmpdir();
+      return join(runtimeDir, "nimbus-gateway.sock");
+    }
+  }
+}
+
 export function getCliPlatformPaths(): CliPlatformPaths {
   switch (process.platform) {
     case "win32": {
@@ -32,19 +81,18 @@ export function getCliPlatformPaths(): CliPlatformPaths {
         configDir,
         dataDir,
         logDir: join(dataDir, "logs"),
-        socketPath: String.raw`\\.\pipe\nimbus-gateway`,
+        socketPath: resolveSocketPath(),
         extensionsDir: join(localAppData, "Nimbus", "extensions"),
         tempDir: join(tmpdir(), "nimbus"),
       };
     }
     case "darwin": {
       const root = join(homedir(), "Library", "Application Support", "Nimbus");
-      const tmp = envGet("TMPDIR") ?? "/tmp";
       return {
         configDir: root,
         dataDir: root,
         logDir: join(root, "logs"),
-        socketPath: join(tmp, "nimbus-gateway.sock"),
+        socketPath: resolveSocketPath(),
         extensionsDir: join(root, "extensions"),
         tempDir: join(tmpdir(), "nimbus"),
       };
@@ -53,14 +101,13 @@ export function getCliPlatformPaths(): CliPlatformPaths {
       const home = homedir();
       const configRoot = envGet("XDG_CONFIG_HOME") ?? join(home, ".config");
       const dataRoot = envGet("XDG_DATA_HOME") ?? join(home, ".local", "share");
-      const runtimeDir = envGet("XDG_RUNTIME_DIR") ?? tmpdir();
       const configDir = join(configRoot, "nimbus");
       const dataDir = join(dataRoot, "nimbus");
       return {
         configDir,
         dataDir,
         logDir: join(dataDir, "logs"),
-        socketPath: join(runtimeDir, "nimbus-gateway.sock"),
+        socketPath: resolveSocketPath(),
         extensionsDir: join(dataDir, "extensions"),
         tempDir: join(tmpdir(), "nimbus"),
       };

@@ -1,0 +1,55 @@
+{
+  "steps": [
+    {
+      "input": "nimbus expert \"p95 latency regression\"",
+      "trigger": "agents.expert",
+      "notifications": [
+        {
+          "method": "expert.briefReady",
+          "params": {
+            "sessionId": "s1",
+            "brief": "## Investigation\n\nThe p95 latency on the checkout endpoint rose from 120ms to 380ms over the past 2 hours. Top contributors:\n\n- 3 slow database queries on `orders` table (no recent index changes)\n- 1 retry storm against the payment-gateway connector\n\nInvestigation complete.\n",
+            "findings": {
+              "kind": "expert",
+              "agentVersion": 1,
+              "generatedAt": 1000000000000,
+              "latencyMs": 1200,
+              "gaps": [],
+              "query": { "topicOrFile": "p95 latency regression" },
+              "ranked": []
+            }
+          }
+        }
+      ],
+      "methodResponses": {
+        "agents.expert": { "sessionId": "s1" }
+      }
+    },
+    {
+      "input": "nimbus ask \"post incident summary to #ops\"",
+      "trigger": "agent.invoke",
+      "respondAfterNotifications": true,
+      "notifications": [
+        {
+          "method": "agent.chunk",
+          "params": { "text": "Drafting incident summary for #ops...\n" }
+        },
+        {
+          "method": "consent.request",
+          "params": {
+            "requestId": "req-slack-1",
+            "prompt": "Post to Slack #ops requires consent"
+          }
+        },
+        {
+          "method": "agent.chunk",
+          "params": { "text": "Posted to #ops.\n" }
+        }
+      ],
+      "methodResponses": {
+        "connector.listStatus": [{ "serviceId": "slack", "health": "healthy" }],
+        "agent.invoke": { "reply": "" }
+      }
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+name: incident-response
+description: |
+  Investigate a Slack-reported p95 latency regression with `nimbus expert`,
+  then post an incident summary to #ops with `nimbus ask`. Exercises both
+  read-only Markdown brief rendering and the HITL consent path.
+
+events: incident-response/events.json
+
+steps:
+  - input: nimbus expert "p95 latency regression"
+    expect: "Investigation complete"
+
+  - input: nimbus ask "post incident summary to #ops"
+    expect: "requires consent"
+  - consent: approve
+    expect: "Posted to #ops"
