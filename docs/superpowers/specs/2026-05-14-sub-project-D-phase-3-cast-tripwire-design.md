@@ -6,12 +6,13 @@
 
 ## 1. Why this exists
 
-The parent Sub-project D spec §3.3 + §3.5 + §5 Phase 3 + §6.1 commit to a deterministic cast-recording pipeline whose output hash acts as a structural CI tripwire for CLI rendering drift. A brainstorming audit found two things that change the shape of the work:
+The parent Sub-project D spec §3.3 + §3.5 + §5 Phase 3 + §6.1 commit to a deterministic cast-recording pipeline whose output hash acts as a structural CI tripwire for CLI rendering drift. A brainstorming audit and a plan-writing audit found three things that change the shape of the work:
 
 1. **There is no existing `.cast` file to migrate.** The parent spec references `docs/demos/incident-response.cast` as the canonical example, but the directory does not exist on disk and `find . -name '*.cast'` returns nothing. Phase 3 authors the first script and the entire `docs/demos/` tree from scratch, not migrates anything.
 2. **The parent spec's literal phrasing "the driver issues a `consent.respond` IPC call" is incompatible with the current Gateway.** [`ConsentCoordinatorImpl`](../../../packages/gateway/src/ipc/consent.ts) scopes pending consent to the originating client (`clientId` check at line 85) and rejects `consent.respond` from any other client with `"Unknown or foreign consent request"`. The driver cannot be a sibling IPC client answering on the CLI's behalf without a Gateway change.
+3. **No real-Gateway-subprocess E2E harness exists.** A plan-writing audit of [`packages/cli/test/e2e/`](../../../packages/cli/test/e2e/) and [`packages/gateway/test/e2e/`](../../../packages/gateway/test/e2e/) confirmed what [`expert.smoke.e2e.test.ts:10-15`](../../../packages/cli/test/e2e/expert.smoke.e2e.test.ts) states explicitly: "There is no harness today for 'spin up a real Gateway, seed it, run the CLI against it'." The CLI-side E2Es are no-Gateway smokes; the Gateway-side E2Es import `ToolExecutor` in-process with mocked dependencies. Building a real-Gateway+mock-MCP+LLM-stub harness would 2–3x Phase 3's scope.
 
-The architecture below routes around (2) by adding a CLI flag — keeping the Gateway and its HITL invariants untouched — and handles (1) by creating the directory tree alongside the first script.
+The architecture below routes around (2) by adding a CLI flag — keeping the Gateway and its HITL invariants untouched — handles (1) by creating the directory tree alongside the first script, and routes around (3) by bundling a thin **fake-Gateway IPC server** inside the cast driver (decision §2.7). The tripwire's guarantee — CLI rendering stability — is preserved; only the mock boundary moves from MCP/LLM to IPC.
 
 ## 2. Locked decisions
 
@@ -23,6 +24,7 @@ These came out of brainstorming. They override any conflicting wording in the pa
 4. **One script in this PR: `incident-response.yaml`.** The parent spec's §3.5 worked example. Exercises both read-only Markdown rendering and the HITL consent path. Additional scripts (`expert.yaml`, `query.yaml`, etc.) ship as follow-up PRs of the form "+1 YAML + 1 hash + 1 transcript + 1 cast" with no design pass.
 5. **Single PR for everything: CLI flag + driver + first YAML + CI gate.** The flag is meaningless without the driver consuming it; reviewers benefit from seeing the full integration. The CLI consent-path change is small (~50 LOC + tests) and well-contained.
 6. **Three committed artifacts per script, not just the hash.** `docs/demos/snapshots/<name>.hash` is the contract, `docs/demos/snapshots/<name>.txt` is the normalized-transcript baseline (without which CI cannot produce the unified-diff failure artifact §3 promises), and `docs/demos/<name>.cast` is the human-readable demo. All three are regenerated together by `bun run record-casts --update-snapshots` and committed in the same change.
+7. **Fake-Gateway IPC server in the driver, not a real Gateway subprocess.** The plan-writing audit (motivation §1.3) found no real-Gateway-subprocess harness exists. Building one would expand Phase 3 to 2–3x its approved scope. Instead, the cast driver bundles a thin in-process **fake-Gateway IPC server** (`scripts/cast-driver/fake-gateway.ts`, ~200 LOC) that speaks the JSON-RPC 2.0 socket protocol the CLI's `IPCClient` already expects. The YAML's `events:` field names an **IPC-event script** (a JSON fixture describing canned `engine.streamToken` sequences, scripted `consent.request` notifications, and method responses) rather than MCP or LLM fixtures. The CLI runs unchanged, talks IPC normally, renders normally, and the cast captures real CLI bytes. The tripwire's guarantee — *CLI rendering stability* — is identical; only the mock boundary moves from "MCP + LLM stub" to "IPC events". This shrinks the file inventory (no `mocks/slack.ts`, `mocks/github.ts`, or `mocks/llm-stub.ts` needed) and decouples Phase 3 entirely from any future real-Gateway-harness work.
 
 ## 3. Architecture
 
@@ -41,17 +43,25 @@ Driver parses YAML, groups consent steps under their preceding input step
 Driver writes one JSONL of consent decisions per input-step group
       │
       ▼
-Driver spawns mock MCP servers + stub LLM + fresh Gateway subprocess
-(temp dir, MockVault with synthetic creds, same pattern as packages/gateway/test/e2e/)
+Driver loads the IPC-event script for this YAML (per its `events:` field)
+      │
+      ▼
+Driver opens a fake-Gateway IPC server on a fresh temp socket path
+(JSON-RPC 2.0 over Unix socket / named pipe; mirrors `PlatformServices` defaults)
+The fake server holds: (a) a queue of scripted notifications to emit
+on each accepted `engine.askStream` call, and (b) a method table for
+the IPC methods the script invokes (`engine.askStream`, `consent.respond`,
+`status.*`, …).
       │
       ▼
 For each input step:
   spawn CLI subprocess with:
     --script-consent-source=<jsonl path>
     NO_COLOR=1 FORCE_COLOR=0 TERM=dumb COLUMNS=120 LINES=40 LANG=C.UTF-8
-    NIMBUS_GATEWAY_SOCKET=<temp socket>
+    NIMBUS_GATEWAY_SOCKET=<fake socket path>     (or equivalent IPC env)
     stdio: ignore | pipe | pipe
   capture stdout as {tMs, bytes} tuples
+  fake-Gateway emits scripted notifications + responses on cue
   wait for CLI exit (or per-step timeout)
   assert each expect: substring appears in captured stdout
       │
@@ -74,12 +84,12 @@ sha256(transcript) → hex
    - one summary line per script
       │
       ▼
-Teardown Gateway, mock MCP servers, temp dir
+Close fake-Gateway socket, delete temp dir
 ```
 
 ### 3.2 The CLI `--script-consent-source` flag
 
-Lives in [`packages/cli/src/lib/interactive-ipc-handlers.ts`](../../../packages/cli/src/lib/interactive-ipc-handlers.ts) alongside the existing `registerInteractiveConsentHandler` and `registerAutoApproveConsentHandler`. A new `registerScriptConsentHandler(client, source)`:
+Lives in [`packages/cli/src/lib/interactive-ipc-handlers.ts`](../../../packages/cli/src/lib/interactive-ipc-handlers.ts) alongside the existing `registerConsentPromptHandler` and `registerAutoApproveConsentHandler` (verified during plan-writing audit). A new `registerScriptConsentHandler(client, source)`:
 
 - Opens the JSONL file as a line-buffered read stream at handler registration time.
 - On each `consent.request` notification: reads the next line, parses `{"approved": boolean, "note"?: string}`, writes `[consent.request] <prompt>\n[scripted: approve|reject]<optional " — " + note>\n` to stdout, calls `client.call("consent.respond", { requestId, approved })`.
@@ -134,13 +144,11 @@ CI failure produces three artifacts under `--artifacts-dir`:
 | `scripts/cast-driver/cast-writer.ts` | Create | asciinema v2 NDJSON writer with frozen header timestamp. |
 | `scripts/cast-driver/normalize.ts` | Create | `NORMALIZATION_RULES` data + `apply()` function. Idempotent. |
 | `scripts/cast-driver/snapshot.ts` | Create | SHA-256, unified-diff, atomic write (tmp + rename). |
-| `scripts/cast-driver/harness.ts` | Create | Spawns Gateway + mock MCP + stub LLM; tears down on completion or abort. Reuses `packages/gateway/test/e2e/` patterns. |
-| `scripts/cast-driver/mocks/slack.ts` | Create | Minimal Bun MCP server that replays canned responses from a fixture JSON. |
-| `scripts/cast-driver/mocks/github.ts` | Create | Same shape as `slack.ts`. |
-| `scripts/cast-driver/mocks/llm-stub.ts` | Create only if no reusable stub exists in `packages/gateway/src/llm/` | Deterministic LLM provider that returns canned responses keyed by request signature. Reuses an existing stub if one is present (verified during plan writing). |
-| `scripts/cast-driver/fixtures/incident-response/{slack,github,llm}.json` | Create | Canned mock responses for the incident-response script. |
-| `scripts/cast-driver/{driver,normalize,yaml-script,cast-writer,snapshot}.test.ts` | Create | Unit tests for each pipeline stage. Covered by `bun run test:scripts`. |
-| `scripts/cast-driver/e2e.test.ts` | Create | End-to-end smoke against a minimal synthesized YAML in a temp dir. |
+| `scripts/cast-driver/fake-gateway.ts` | Create | Thin JSON-RPC 2.0 server bound to a temp socket. Speaks the wire protocol the CLI's `IPCClient` already expects. Loads an IPC-event script and exposes `enqueueNotifications()`, `setMethodResponse()`, `start()`, `stop()`. ~200 LOC. |
+| `scripts/cast-driver/harness.ts` | Create | Owns the lifecycle: load IPC-event script, open fake-Gateway socket, spawn CLI subprocesses per input step, tear down on completion or abort. No real Gateway, no MCP, no LLM. |
+| `scripts/cast-driver/fixtures/incident-response/events.json` | Create | IPC-event script for incident-response: ordered notifications + method responses the fake-Gateway emits during each input step. |
+| `scripts/cast-driver/{driver,normalize,yaml-script,cast-writer,snapshot,fake-gateway,capture}.test.ts` | Create | Unit tests for each pipeline stage. Covered by `bun run test:scripts`. |
+| `scripts/cast-driver/e2e.test.ts` | Create | End-to-end smoke: driver loads a minimal synthetic YAML + events.json in a temp dir, spawns the CLI, asserts hash check + update modes both work. |
 | `packages/cli/src/lib/interactive-ipc-handlers.ts` | Modify | Add `registerScriptConsentHandler(client, source)` alongside the two existing handlers. |
 | `packages/cli/src/index.ts` | Modify | Wire `--script-consent-source` flag + `NIMBUS_SCRIPT_CONSENT_SOURCE` env fallback. |
 | `packages/cli/test/unit/script-consent-handler.test.ts` | Create | Unit tests for the new handler: line consumption, mutual-exclusivity warning, error modes. |
@@ -173,36 +181,65 @@ cast-tripwire:
 
 Ubuntu-only — matches the `pr-quality` policy (PRs gate on Ubuntu; push-to-main runs the 3-OS matrix elsewhere). The tripwire is a determinism check, not a portability check; cross-platform CLI rendering differences are out of scope for this gate.
 
-## 6. Mock MCP fixtures and LLM stubbing
+## 6. Fake-Gateway IPC server
 
-The cast driver bundles minimal mock MCP servers (`mocks/slack.ts`, `mocks/github.ts`) — each a ~80-line Bun script that speaks MCP over stdio and replays responses from a fixture JSON keyed by tool name. The YAML's `mocks:` block names the fixture path for each connector:
+The cast driver does **not** spawn a real Gateway. It bundles a thin JSON-RPC 2.0 server (`scripts/cast-driver/fake-gateway.ts`, ~200 LOC) bound to a fresh temp socket path (or Windows named pipe — same `PlatformServices` shape the real Gateway uses). The CLI talks to the fake socket through its existing `IPCClient` without modification.
 
-```yaml
-mocks:
-  slack: incident-response/slack.json
-  github: incident-response/github.json
+**What the fake-Gateway implements.** Only the IPC methods the cast scripts exercise; everything else returns `METHOD_NOT_FOUND`. For `incident-response.yaml`:
+
+- `engine.askStream({ prompt })` — accepts, returns `{ streamId }`, then emits the scripted notification sequence for this input step.
+- `consent.respond({ requestId, approved })` — accepts (this is how the CLI's `--script-consent-source` flag completes consent); records the decision for assertion at run end.
+- `status.gateway()` / `status.index()` — simple stub responses if the script needs them.
+
+**What it emits.** The IPC-event script (one JSON file per cast YAML, located at `scripts/cast-driver/fixtures/<script-name>/events.json`) describes ordered notifications per input step:
+
+```json
+{
+  "steps": [
+    {
+      "input": "nimbus expert \"p95 latency regression\"",
+      "notifications": [
+        { "method": "agents.expert.briefReady", "params": { "sessionId": "s1", "brief": "## Investigation\n…\n" } }
+      ]
+    },
+    {
+      "input": "nimbus ask \"post incident summary to #ops\"",
+      "notifications": [
+        { "method": "engine.streamToken", "params": { "streamId": "stream-1", "token": "Drafting Slack post…\n" } },
+        { "method": "consent.request", "params": { "requestId": "req-1", "prompt": "Slack post requires consent" } },
+        { "method": "engine.streamToken", "params": { "streamId": "stream-1", "token": "Posted to #ops\n" } },
+        { "method": "engine.streamDone", "params": { "streamId": "stream-1", "result": "Posted to #ops" } }
+      ]
+    }
+  ]
+}
 ```
 
-The driver writes the fixture JSON content into a temp file per spawn and passes its path to the mock via env var, so the mock process is stateless and can be re-used across scripts with different fixtures.
+The `notifications` array is emitted in order. The `consent.request` entry pauses emission until the fake-Gateway receives the matching `consent.respond` from the CLI (which arrives because the CLI's `--script-consent-source` reads the YAML-derived JSONL and answers automatically). Order-of-emission discipline is the fake-Gateway's only stateful behaviour; everything else is canned-response lookup.
 
-LLM stubbing is the highest-risk implementation detail. Any token-level variability from a real LLM breaks the hash. The plan **must** start by reading [`packages/gateway/src/llm/`](../../../packages/gateway/src/llm/) and [`packages/gateway/test/e2e/`](../../../packages/gateway/test/e2e/) to determine whether a reusable deterministic stub provider already exists. If yes, the driver consumes it; if no, the driver bundles a minimal `LlmStubProvider` under `scripts/cast-driver/mocks/llm-stub.ts` and the Gateway subprocess is started with an env var (`NIMBUS_LLM_STUB=<path>`) that selects it from the LLM router. This decision is deferred to plan writing because it depends on code inspection, not design choice.
+**Byte-determinism.** The fake-Gateway emits exactly the bytes the events.json declares, in declared order. There is no LLM, no randomness, no timestamp injection, no session-ID generation outside what the fixture explicitly provides. The tripwire's determinism question reduces to "is events.json byte-stable across runs?" — yes, it's a static file.
+
+**What the fake-Gateway does NOT do.** No `ToolExecutor`, no `HITL_REQUIRED` set, no audit log, no MCP, no vault, no real LLM router. Those subsystems are exercised by their own test suites; the cast tripwire is for CLI rendering only.
+
+**Why this is sound.** The CLI is the system under test for rendering drift. The CLI does not know whether the IPC notifications it receives came from a real Gateway+MCP+LLM stack or from a fake server replaying a fixture — it renders identical bytes either way. The tripwire's guarantee is unchanged.
 
 ## 7. Edge cases
 
 - **First-run snapshot diff.** If `docs/demos/snapshots/<name>.txt` doesn't exist (first time the tripwire runs against a new script in CI), the driver emits a "first-run" message and writes `<name>.actual.txt` only — no diff. Hash check still runs against `<name>.hash`.
-- **`.cast` byte-stability vs LLM stub jitter.** The LLM stub must return identical bytes for identical prompts. The stub's request-signature generator (the key it hashes incoming prompts against) **must strip all non-deterministic fields** the Gateway injects: timestamps, session IDs, span IDs, trace/telemetry IDs, request IDs, and any wall-clock-derived identifier. The plan needs to verify the agent's prompt construction exhaustively — anything that reaches the LLM but varies run-to-run is either stripped at the stub boundary or fixed at the Gateway. If the same prompt would yield a stub cache-miss across two runs, the tripwire flakes; the cure is at the signature derivation, not at the stub fixture.
+- **`.cast` byte-stability vs fake-Gateway scripting.** The fake-Gateway emits exactly the bytes events.json declares — no LLM, no randomness, no timestamp injection in the emitted payloads (timestamps in CLI output come from the CLI itself and are normalized by rule 6). The byte-stability question reduces to "is events.json byte-stable?" — yes; it's a static fixture. The only stateful behaviour is "wait for matching `consent.respond` before emitting subsequent notifications", which is deterministic given the YAML's consent decisions are pre-written to the JSONL before the CLI is spawned.
 - **Consent ordering assumption.** The `--script-consent-source` JSONL is consumed sequentially: the driver writes consent decisions in YAML order and the CLI reads them in arrival order of `consent.request` notifications. This holds today because Mastra's tool execution within a single sub-agent is sequential, so consent requests within one CLI invocation fire in deterministic order. **If concurrent tool execution is ever introduced**, the JSONL line format must grow a `requestId` correlation field (`{ "requestId": "...", "approved": true }`) and the CLI handler must dispatch matched lines on demand instead of streaming them in order. Document this contract in the JSONL format comment so a future contributor doesn't break it silently.
 - **Windows local `--check` and path separators.** Phase 3 CI runs Ubuntu only; the committed snapshot is reference-Ubuntu. A Windows developer running `bun run record-casts --check` locally may see spurious hash mismatches because captured stdout contains Windows-style backslash paths (e.g. `C:\Users\...`) that the `<HOME>` / `<TMP>` substitution rules don't recognise. Workarounds, in order of preference: (a) run `--check` from WSL, (b) accept that local-Windows `--check` is best-effort and rely on CI as the contract. See §10 for the future fix.
 - **`expect:` substring not in stdout.** Driver aborts with a clear "expect missed" error before reaching the hash comparison. The CI artifact in this case is the captured stdout, not a transcript diff.
 - **Step timeout.** Per-step `timeoutMs?: number` (default 60_000). On timeout the CLI subprocess is killed (`SIGKILL` on POSIX, `taskkill /T` on Windows — though Phase 3 CI runs Ubuntu only), driver aborts with "step N timed out".
-- **Mock MCP fixture missing the called tool.** Mock server returns an MCP error to the Gateway, which surfaces it through the CLI's normal error rendering. The tripwire then catches the drift if the error text differs from snapshot.
+- **Fake-Gateway received an unscripted IPC method.** The CLI calls a method that has no scripted response (e.g., the CLI grows a new startup call we forgot to script). The fake-Gateway returns JSON-RPC `METHOD_NOT_FOUND` (-32601). The CLI surfaces that as a rendered error, and the tripwire catches the drift. To intentionally extend a script to cover a new method, add an entry to events.json — events.json is the inventory of "what IPC the CLI is allowed to use during this cast".
+- **Fake-Gateway events queue exhausted.** All scripted notifications consumed before the CLI exits — likely a CLI rendering change that triggered an extra IPC round-trip. Driver aborts with "events queue exhausted for step N" and dumps the remaining captured stdout. Likely fix: add the missing notifications to events.json and re-run `--update-snapshots`.
 - **`--update-snapshots` race.** Multiple scripts regenerating concurrently is fine — each writes to its own file. The atomic-write pattern (tmp + rename) prevents partial files even on Ctrl-C.
 - **Snapshot churn from unrelated PRs.** A CLI rendering change in any PR will fail the tripwire on every script that exercises that rendering. This is the intended behaviour. The author of the rendering change runs `bun run record-casts --update-snapshots` and commits both regenerated files in the same change.
 
 ## 8. Security & invariant adherence
 
 - **HITL (`I2`/`I3`/`I4`)** — untouched. `ToolExecutor.gate()` fires; `consent.request` is emitted; the CLI's consent handler (now with a third dispatch case) dispatches `consent.respond`. The `clientId` scoping at [`packages/gateway/src/ipc/consent.ts:85`](../../../packages/gateway/src/ipc/consent.ts) is satisfied because the answer comes from the originating client. No new invariant entry is needed — no new structural defense is added.
-- **No plaintext credentials (Non-Negotiable #3)** — driver harness uses `MockVault` with synthetic values. Mock MCP servers never receive real credentials. The cast captures CLI stdout, which under this design never contains a credential.
+- **No plaintext credentials (Non-Negotiable #3)** — the driver does not spawn a real Gateway, MCP servers, or LLM, so no vault access happens at all. The fake-Gateway emits only the bytes events.json declares; nothing reads a credential. The cast captures CLI stdout, which under this design never contains a credential.
 - **No Tauri allowlist change (`I7`)** — `consent.request` and `consent.respond` exist already; the flag is CLI-only and is not exposed to the renderer.
 - **No new IPC method** — the flag changes consent-decision sourcing inside the CLI, not the IPC surface.
 - **No `any` (Non-Negotiable #7)** — YAML parser output is `unknown`; the driver validates against an explicit schema before use. Captured stdout is `Uint8Array`, decoded to `string` at a documented boundary.
@@ -219,11 +256,12 @@ LLM stubbing is the highest-risk implementation detail. Any token-level variabil
 - Self-hosted runners. Cast tripwire uses ubuntu-24.04 GitHub-hosted runners.
 - Cross-platform CLI rendering coverage. The tripwire is a determinism check, not a portability check.
 - A Starlight `/demos/` page that renders the `.cast` files. Possible Phase 5 follow-up but not required for the tripwire to function.
+- **Building a real-Gateway+MCP+LLM-stub subprocess E2E harness.** Phase 3 explicitly opts out of this (decision §2.7). If a future PR lands such a harness, Phase 3's fake-Gateway can be replaced by it without changing the YAML schema or the snapshot contract — the events.json files would become harness-bootstrap fixtures instead.
 
 ## 10. Non-blocking items to flag in the plan
 
-- **LLM stub reuse vs bundle decision.** Plan Task 0: read `packages/gateway/src/llm/` and `packages/gateway/test/e2e/` to determine whether a reusable deterministic stub exists. Recommend reuse if available; bundle otherwise.
-- **Gateway subprocess env-var contract.** Plan should confirm the exact env-var names for: pointing the Gateway at mock MCP processes, using `MockVault` with synthetic creds, selecting the stub LLM. These exist in the e2e harness; the spec assumes the same wiring.
+- **Socket-path env-var contract.** The fake-Gateway listens on a temp socket; the spawned CLI must point at it. Plan Task 1 confirms the exact env-var name the CLI's `IPCClient` honours when overriding the default `PlatformServices` socket (commonly `NIMBUS_GATEWAY_SOCKET` or similar — verify against `packages/cli/src/ipc-client/` source before wiring).
+- **CLI's IPC startup calls.** The fake-Gateway must respond to every IPC method the CLI invokes on startup, not just the ones the YAML script obviously triggers. Plan Task 5 (fake-Gateway core) starts by running the CLI against a noop fake-Gateway and observing which methods it hits — those become the minimum scripted response set.
 - **Cross-Bun-version stability of `Bun.spawn` chunk timing.** If chunk boundaries vary across Bun patch releases, the `.cast` file changes but the normalized transcript should not (timing is normalized away). Plan can note this and assert it in a test.
 - **Windows compatibility.** Phase 3 CI runs Ubuntu only. The driver should still parse and execute on Windows for local dev — but the snapshot is reference-Ubuntu. Document that `--update-snapshots` should only be run on Linux to match CI.
 - **Targeted Windows-path normalization rule.** Not added in Phase 3 because a blanket `\` → `/` rule would corrupt legitimate backslashes in code/regex/JSON output, and a targeted rule (`[A-Za-z]:\\[\w\\.-]+`) needs validation against the actual byte sequences the CLI emits on Windows. If local Windows `--check` friction becomes real, a follow-up adds a targeted Windows-path rule between rules 4 and 5, normalizing Windows path literals to forward-slash form before `<TMP>`/`<HOME>` substitution runs.
