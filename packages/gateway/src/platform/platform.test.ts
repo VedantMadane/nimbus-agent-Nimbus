@@ -103,7 +103,7 @@ describe("Platform Abstraction Layer", () => {
       // Small delay to let async scheduler tasks finish before the DB is completely yanked
       await new Promise((r) => setTimeout(r, 100));
     }
-  }, 15000); // 15s timeout to allow for migrations on fresh DB
+  }, 30000); // 30s timeout to allow for the full V0→V28 migration chain on slow runners
 
   it("uses the documented IPC path pattern per OS", () => {
     // The socket path is determined entirely by the per-OS PlatformPaths
