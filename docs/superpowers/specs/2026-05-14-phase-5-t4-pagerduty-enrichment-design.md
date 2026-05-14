@@ -19,7 +19,8 @@ The fix is a single-file enrichment in `packages/gateway/src/connectors/pagerdut
 - **No schema change, no migration, no V<N> entry.** Only `metadata` (a JSON-encoded column) is touched.
 - **No backfill code path.** Pre-existing rows are overwritten on the next sync cycle as the cursor's `since` re-fetches their `updated_at` window. Documented as expected behaviour.
 - **No `[pagerduty].severity_strategy` config knob.** This PR uses strict `priority.name`. A configurable strategy (urgency-fallback, custom name → P1 map) is a follow-up if real users on non-`"P1"`-labelled priorities ask for it.
-- **No paging fix for >50 incidents between syncs.** The existing `limit=50, hasMore: false` behaviour predates this PR and is out of scope. Same data-loss profile as today.
+- **No paging fix for >50 incidents between syncs.** The existing `limit=50, hasMore: false` behaviour predates this PR and is out of scope. Same data-loss profile as today. **Tracked as a planned roadmap follow-up** under T4 wrap-up (paragraph added in §8.1) so the gap is visible — not just buried as an inline TODO that rots.
+- **No urgency-aware severity gap warning.** Gemini-CLI review §2.2 proposed warning when an incident has `urgency: "high"` but no `priority.name` — useful, but it changes the *preflight* contract (different file, different test surface) and requires deciding what fraction of urgency-only incidents should count as P1. **Tracked as part of the future `[pagerduty].severity_strategy` config-knob PR**, alongside the configurable `priority.name` → P1 alias map. Today this PR ships the strict rule; the future PR adds both the alias map *and* the urgency-gap warning together.
 - **No `<tool_output>` envelope wrapping.** This code path is not LLM-facing — it writes to the local index, not to the agent context. Invariant `I11` does not apply.
 - **No security-invariant touch.** No new defense, no new wiring, no new test under `security-invariants.test.ts`.
 
@@ -89,7 +90,7 @@ PagerDuty REST API
 
 | Path | Change |
 |---|---|
-| `packages/gateway/src/connectors/pagerduty-sync.ts` | Add two private helpers `pdServiceId(row)` and `pdPriorityName(row)`; inside `syncPagerdutyIncidentItems`, build a `metadata` object conditionally containing the three new fields. |
+| `packages/gateway/src/connectors/pagerduty-sync.ts` | (1) Add two private helpers `pdServiceId(row)` and `pdPriorityName(row)`; (2) inside `syncPagerdutyIncidentItems`, build a `metadata` object conditionally containing the three new fields; (3) bump `initialSyncDepthDays` from `14` to `30` so a fresh install's first DORA `--since 30d` window is populated immediately instead of after a 16-day backfill lag (Gemini-CLI review §2.3). |
 | `packages/gateway/src/connectors/pagerduty-sync.test.ts` | Add unit cases enumerating the §6 edge-case matrix. |
 | `packages/gateway/test/fixtures/dora/payment-service/seed.ts` | Replace hand-built incident metadata objects with `buildPagerdutyIncident(...)`-shaped payloads fed through the production parsing path. The hand-computed expectations in `expected-metrics.json` stay byte-identical. |
 | `packages/gateway/test/fixtures/preflight/payment-service/seed.ts` | Same shape change. Adds at least one `priority: null` incident to prove the strict-priority rule excludes it from the P1 filter. |
@@ -201,6 +202,17 @@ upsertIndexedItemForSync(ctx, {
 });
 ```
 
+Plus a one-line constant change at the top of the syncable to align the cold-start backfill with DORA's standard window:
+
+```ts
+// before
+const initialSyncDepthDays = 14;
+// after
+const initialSyncDepthDays = 30;
+```
+
+This only affects installs without a stored cursor (i.e. a fresh PagerDuty connection). Installs with an existing cursor continue from their `lastUpdated` checkpoint, so this is **not** a re-sync trigger for existing users. Network cost: at most one extra `GET /incidents` call (50 incidents per page; tail loss past page 1 is the pre-existing `hasMore: false` issue called out in §2 Non-goals).
+
 Plus two private helpers in the same file, reusing the existing `asRecord` / `stringField` utilities from `unknown-record.ts`:
 
 ```ts
@@ -254,6 +266,7 @@ Extends the existing test file. Each case feeds a real-shaped incident payload t
 | `omits opened_at_ms when created_at absent` | `created_at` removed | Same as above |
 | `cursor advancement still works with new metadata` | Two-incident payload with distinct `updated_at` | Returned cursor's `lastUpdated` matches the max `updated_at`; new fields don't disturb the cursor |
 | `does not throw on entirely malformed row` | `{ id: "X" }` only — every other field missing | Sync result returns successfully with `upserted >= 1`; no exception |
+| `fresh install uses 30-day backfill window` | First sync with `cursor: null` and `now` fixed | The `since` query parameter on the captured `fetch` URL equals `new Date(now - 30 * 86_400_000).toISOString()` — locks in the §5.4 constant change so a future revert is caught at unit-test time |
 
 ### 7.2 Integration — fixture re-shaping
 
@@ -301,11 +314,27 @@ Two edits in `docs/roadmap.md`:
 
 2. **Header status note** (extend the line at `roadmap.md:7`): append "T4 wrap-up: PagerDuty enrichment ✅ (2026-05-14)" to the dated `Last updated` line.
 
-### 8.2 Skill / file-map updates
+### 8.2 New roadmap follow-ups (added by this PR, not closed by it)
+
+Two `[ ]` items appended to T4 in `docs/roadmap.md` immediately after the PagerDuty enrichment line that this PR flips to `[x]`. These capture the Gemini-CLI review §2.1 + §2.2 follow-ups in a place that won't rot:
+
+```markdown
+- [ ] **PagerDuty sync pagination** — follow `has_more` on `GET /incidents` and walk pages
+  until exhausted (or until a `[pagerduty].max_pages_per_sync` cap is hit). Today the sync
+  fetches the first 50 incidents updated since the cursor and drops the tail. DORA accuracy
+  for high-volume orgs depends on this. No new credentials.
+- [ ] **`[pagerduty].severity_strategy` config knob** — let teams map non-`"P1"` priority
+  names (`"Critical"`, `"SEV-1"`) to preflight's P1 filter; emit a `gap` note in
+  `deploy.preflight` when the connector sees `urgency: "high"` incidents with no
+  `priority.name`, so operators can self-diagnose silent-zero preflight results. Bundles
+  the alias-map and urgency-gap-warning Gemini-CLI suggested separately in §2.2.
+```
+
+### 8.3 Skill / file-map updates
 
 None. No new file, no new IPC method, no new connector tool surface. The existing `nimbus-file-map.md` row for `connectors/pagerduty-sync.ts` already covers it.
 
-### 8.3 Commit / PR topology
+### 8.4 Commit / PR topology
 
 | Commit | Contents |
 |---|---|
@@ -325,7 +354,22 @@ None. All design decisions resolved in brainstorming:
 - Severity inclusion (beyond the roadmap line's literal `opened_at_ms` + `pagerduty_service_id`): **yes, bundled** — same code path, unblocks preflight in one PR.
 - Parser extraction: **kept inline** — refactor when the MCP write-tool path actually needs it.
 
-## 10. References
+## 10. Review disposition (Gemini-CLI, 2026-05-14)
+
+Source: [`2026-05-14-phase-5-t4-pagerduty-enrichment-review-feedback.md`](./2026-05-14-phase-5-t4-pagerduty-enrichment-review-feedback.md). Each suggestion is either folded into this PR (FIX) or punted to a tracked follow-up (DEFER) with rationale.
+
+| Review § | Item | Disposition | Rationale & where in this spec |
+|---|---|---|---|
+| 2.1 | Paging / `has_more` follow-up beyond first 50 incidents | **DEFER** | Out of scope per spec §2 (reviewer agrees). New tracked roadmap item added in §8.2 so the gap is visible — preferred over inline `// TODO` because TODOs rot once the PR ships. |
+| 2.2 | Severity strategy & "P1" hardcoding — warn when `urgency: "high"` but no `priority.name`; document in `nimbus.toml` | **DEFER** | Two-part change. The alias-map (`"Critical"` → `"P1"`) is already named as a future `[pagerduty].severity_strategy` config knob in §2 Non-goals. The new piece — emitting a `gap` note in preflight when urgency-without-priority is seen — touches a different file (`preflight/preflight.ts`) and changes the preflight contract; bundling it changes the review surface. Bundled into the same future config-knob PR (§8.2 follow-up #2). For now, the strict-`"P1"` rule is documented as expected behaviour in §6 row 8. |
+| 2.3 | `initialSyncDepthDays = 14` vs DORA's standard `--since 30d` window — fresh installs lose 16 days of CFR/MTTR data | **FIX** | Strongest catch in the review. Bumped `14 → 30` in §4.1 and §5.4. Only affects fresh installs (cursor-less); existing installs continue from their stored `lastUpdated`. Network cost is negligible (one extra `GET /incidents` call max). A new unit test in §7.1 (`fresh install uses 30-day backfill window`) pins the constant so a future accidental revert fails CI. |
+| 2.4 | Cursor migration confirmation (`CURSOR_PREFIX` unchanged) | **NO ACTION** | Confirmation only — already captured in §3 / §8.4 / §9. The cursor prefix stays `nimbus-pd1:` and existing cursors keep working. |
+| 3.1 | Export `pdServiceId` / `pdPriorityName` for future PagerDuty MCP server reuse | **DEFER** | YAGNI — the PagerDuty MCP server at `packages/mcp-connectors/pagerduty/` doesn't currently consume these helpers, and §9 of the spec already rejected speculative parser extraction. When the MCP write-tool path actually needs the parsing, that's the right time to extract — driven by a real second caller. |
+| 3.2 | `Date.parse` robustness for ISO-8601 | **NO ACTION** | Reviewer agrees the existing approach (paired with `Number.isFinite`) is correct. No change. |
+
+**Net effect on this PR:** one production-code change (`initialSyncDepthDays 14 → 30`), one new unit test, two new tracked roadmap follow-ups, zero changes to the metadata-enrichment core. Everything else stays as-designed.
+
+## 11. References
 
 - `packages/gateway/src/connectors/pagerduty-sync.ts` — the file modified by this PR
 - `packages/gateway/src/metrics/dora.ts:327-357` — `selectResolvedIncidents` consumer
