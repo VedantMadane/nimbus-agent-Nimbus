@@ -9,7 +9,8 @@
  * token through prefix-difference latency.
  */
 
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash } from "node:crypto";
+import { constantTimeStringEqual } from "../util/timing-safe-compare.ts";
 
 export const HTTP_API_DEPLOYMENT_TOKEN_VAULT_KEY = "http_api.deployment_token";
 
@@ -36,20 +37,6 @@ function extractBearer(req: Request): string | undefined {
   if (raw === null) return undefined;
   if (!raw.startsWith(BEARER_PREFIX)) return undefined;
   return raw.slice(BEARER_PREFIX.length);
-}
-
-function constantTimeStringEqual(a: string, b: string): boolean {
-  // Pad the shorter string so the comparison is over equal-length buffers.
-  // The length-difference itself is leaked only as "not equal" — it never
-  // reveals byte positions.
-  const aBuf = Buffer.from(a, "utf8");
-  const bBuf = Buffer.from(b, "utf8");
-  if (aBuf.length !== bBuf.length) {
-    // Burn the same number of cycles a real compare would, then return false.
-    timingSafeEqual(aBuf, aBuf);
-    return false;
-  }
-  return timingSafeEqual(aBuf, bBuf);
 }
 
 export function requireBearer(req: Request, ctx: RequireBearerContext): RequireBearerResult {

@@ -403,7 +403,7 @@ Smaller, lower-risk follow-ups surfaced when the B1 plans were retired. None are
 
 - [ ] **Broaden URL-userinfo redaction regex** — the current redactor in updater `lastError` and a couple of log paths matches the canonical `scheme://userinfo@host` form but misses compound schemes like `git+https://` and `svn+ssh://`; switch to `/[a-zA-Z0-9+\-.]+:\/\/[^\s/]+@[^\s/]+/gi` and add fixtures covering git/svn/ssh URLs
 - [ ] **`patchPerson` transaction wrapping** — the per-field `dbRun` migration (S5-F5) traded one statement for many; audit callers and wrap the multi-field paths in `db.transaction(() => …)` so a crash mid-update cannot leave a partial row
-- [ ] **Centralise timing-safe hex compare** — extract the `timingSafeEqual` hex helpers used independently by `updater/`, `extensions/verify-extensions.ts`, and `ipc/lan-pairing.ts` into a single `packages/gateway/src/util/hex-compare.ts`; reduces drift risk and gives invariant `I10` one wiring site to point at
+- [x] **Centralise timing-safe helpers** — extracted the `timingSafeEqual` hex helpers used independently by `updater/`, `extensions/verify-extensions.ts`, and `ipc/lan-pairing.ts` into `packages/gateway/src/util/timing-safe-compare.ts`; also added `constantTimeStringEqual` for bearer tokens (`ipc/http-auth.ts`) and extended the `I10` security-invariants test to assert all four call sites import from the canonical module (Phase 5 T6 PR 1)
 - [ ] **Deprecate `connector.startAuth` alias** — annotate with `@deprecated` JSDoc + emit a single warning log per gateway run; remove the alias in Phase 5 once the desktop UI has migrated entirely to `connector.auth`
 
 ### v0.1.1 batch (deferred from v0.1.0)

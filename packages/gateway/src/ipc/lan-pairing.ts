@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import bs58 from "bs58";
+import { constantTimeStringEqual } from "../util/timing-safe-compare.ts";
 
 /** 120-bit entropy → 20 base58 characters. */
 export function generatePairingCode(): string {
@@ -50,17 +51,8 @@ export class PairingWindow {
       this.close();
       return false;
     }
-    if (!timingSafeEqual(code, this.code)) return false;
+    if (!constantTimeStringEqual(code, this.code)) return false;
     this.close();
     return true;
   }
-}
-
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) {
-    diff |= (a.codePointAt(i) ?? 0) ^ (b.codePointAt(i) ?? 0);
-  }
-  return diff === 0;
 }

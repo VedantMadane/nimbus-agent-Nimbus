@@ -122,13 +122,13 @@ Companion files:
 
 ## I10 — Constant-time comparison for security-sensitive byte strings
 
-**Defense:** every comparison of a hash, signature, MAC, or pairing code uses `crypto.timingSafeEqual` (Node) or the Bun equivalent — never `===` or `!==`.
+**Defense:** every comparison of a hash, signature, MAC, pairing code, or bearer token uses the canonical helpers exported from `packages/gateway/src/util/timing-safe-compare.ts` — never `===` or `!==`, and never a locally-defined `timingSafeEqual` / `constantTimeStringEqual` outside that module.
 
-**Wired at:** `packages/gateway/src/extensions/verify-extensions.ts`, `packages/gateway/src/extensions/install-from-local.ts`, `packages/gateway/src/updater/updater.ts` (SHA-256 compare), `packages/gateway/src/ipc/lan-pairing.ts` (pairing code).
+**Wired at:** `packages/gateway/src/util/timing-safe-compare.ts` (canonical module — single source of truth). Call sites: `extensions/verify-extensions.ts` + `updater/updater.ts` consume `sha256HexEqualConstantTime`; `ipc/lan-pairing.ts` + `ipc/http-auth.ts` consume `constantTimeStringEqual`.
 
-**Anti-pattern:** `if (computed === expected)` for any value that an attacker can probe by timing. S6-F10 / S7-F8 were short-circuit equality on hashes.
+**Anti-pattern:** `if (computed === expected)` for any value that an attacker can probe by timing. S6-F10 / S7-F8 were short-circuit equality on hashes. Redefining a local `timingSafeEqual` or `constantTimeStringEqual` outside `util/timing-safe-compare.ts` is the same anti-pattern — it creates a parallel, untested code path that future changes may regress silently.
 
-**How to comply:** new hash/signature/MAC checks call `timingSafeEqual` on Buffers of equal length; reject before the call if lengths differ.
+**How to comply:** import `sha256HexEqualConstantTime` (for SHA-256 hex strings) or `constantTimeStringEqual` (for arbitrary same-length strings including bearer tokens and pairing codes) from `util/timing-safe-compare.ts`. Never roll a local timing-safe helper; the module's length-mismatch burn cycle and Buffer coercion cover the edge cases.
 
 ---
 

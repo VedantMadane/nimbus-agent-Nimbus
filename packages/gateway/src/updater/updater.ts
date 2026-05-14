@@ -1,4 +1,4 @@
-import { sha256HexEqualConstantTime } from "../util/hex-compare.ts";
+import { sha256HexEqualConstantTime } from "../util/timing-safe-compare.ts";
 import { fetchUpdateManifest, isPermittedSchemeForUpdater } from "./manifest-fetcher.ts";
 import { sha256Hex, verifyBinarySignature, verifyManifestEnvelope } from "./signature-verifier.ts";
 import type { PlatformTarget, UpdateManifest, UpdaterStatus } from "./types.ts";

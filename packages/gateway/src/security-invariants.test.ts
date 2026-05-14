@@ -124,6 +124,47 @@ describe("I8 — Tauri renderer CSP is restrictive", () => {
   });
 });
 
+describe("I10 — Constant-time compare helpers live in util/timing-safe-compare.ts", () => {
+  test("extensions/verify-extensions.ts imports sha256HexEqualConstantTime from util/timing-safe-compare", async () => {
+    const src = await read("packages/gateway/src/extensions/verify-extensions.ts");
+    expect(src).toMatch(
+      /import\s*\{\s*sha256HexEqualConstantTime\s*\}\s*from\s*["']\.\.\/util\/timing-safe-compare(?:\.ts)?["']/,
+    );
+  });
+
+  test("updater/updater.ts imports sha256HexEqualConstantTime from util/timing-safe-compare", async () => {
+    const src = await read("packages/gateway/src/updater/updater.ts");
+    expect(src).toMatch(
+      /import\s*\{\s*sha256HexEqualConstantTime\s*\}\s*from\s*["']\.\.\/util\/timing-safe-compare(?:\.ts)?["']/,
+    );
+  });
+
+  test("ipc/lan-pairing.ts imports constantTimeStringEqual from util/timing-safe-compare", async () => {
+    const src = await read("packages/gateway/src/ipc/lan-pairing.ts");
+    expect(src).toMatch(
+      /import\s*\{[^}]*\bconstantTimeStringEqual\b[^}]*\}\s*from\s*["']\.\.\/util\/timing-safe-compare(?:\.ts)?["']/,
+    );
+  });
+
+  test("ipc/http-auth.ts imports constantTimeStringEqual from util/timing-safe-compare", async () => {
+    const src = await read("packages/gateway/src/ipc/http-auth.ts");
+    expect(src).toMatch(
+      /import\s*\{[^}]*\bconstantTimeStringEqual\b[^}]*\}\s*from\s*["']\.\.\/util\/timing-safe-compare(?:\.ts)?["']/,
+    );
+  });
+
+  test("ipc/lan-pairing.ts does NOT define a local timingSafeEqual or constantTimeStringEqual", async () => {
+    const src = await read("packages/gateway/src/ipc/lan-pairing.ts");
+    expect(src).not.toMatch(/function\s+timingSafeEqual\s*\(/);
+    expect(src).not.toMatch(/function\s+constantTimeStringEqual\s*\(/);
+  });
+
+  test("ipc/http-auth.ts does NOT define a local constantTimeStringEqual", async () => {
+    const src = await read("packages/gateway/src/ipc/http-auth.ts");
+    expect(src).not.toMatch(/function\s+constantTimeStringEqual\s*\(/);
+  });
+});
+
 describe("I11 — Tool-result envelope on the LLM-facing path", () => {
   test("wrapToolOutput is exported from tool-output-envelope.ts", async () => {
     const src = await read("packages/gateway/src/engine/tool-output-envelope.ts");
