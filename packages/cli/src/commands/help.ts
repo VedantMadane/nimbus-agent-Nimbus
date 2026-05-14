@@ -23,6 +23,8 @@ Usage:
   nimbus catchup [--since 3d] [--json] [--service <id>]   Personalised retrospective digest weighted by your involvement
   nimbus metrics dora --service <id> [--since 30d] [--json]   DORA four-key metrics for a configured service
   nimbus deploy preflight --service <id> --target-ref <ref> [--mode warn|block|off] [--json]   Pre-deploy index check
+  nimbus deploy annotate --service <id> --sha <sha> --target-ref <ref> --env <env> --status <success|failure|cancelled|in_progress> --started-at <ms> [--provider P] [--run-id R] [--job-id J] [--workflow-url U] [--finished-at <ms>] [--json]
+      Record a completed deployment for DORA + agent correlation.
   nimbus vault set <k> <v>  Store a secret
   nimbus vault get <k>      Read a secret (prompts first)
   nimbus vault delete <k>    Remove a secret
