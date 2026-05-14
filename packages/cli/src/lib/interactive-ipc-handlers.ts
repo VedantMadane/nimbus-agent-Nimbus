@@ -139,7 +139,53 @@ export function registerScriptConsentHandler(client: IPCClient, source: string):
 }
 
 /**
+ * Consent-handler selection options. Mirrors the fields from `WithClientOptions`
+ * in `commands/data.ts` that are relevant to consent dispatch.
+ */
+export interface SelectConsentHandlerOptions {
+  /** Auto-approve all consent prompts (--yes). Ignored when scriptConsentSource is set. */
+  readonly yes: boolean;
+  /**
+   * Path to a JSONL file of scripted consent decisions. When set, overrides `yes`.
+   * A stderr warning is emitted when both are supplied.
+   */
+  readonly scriptConsentSource?: string;
+}
+
+/**
+ * Apply the consent-handler priority: script > yes > interactive prompt.
+ * Extracted from `withClient` in `commands/data.ts` so the dispatch logic and
+ * the mutual-exclusivity warning are unit-testable without a live gateway.
+ *
+ * Priority:
+ *   1. `scriptConsentSource` set → `registerScriptConsentHandler` (emits stderr
+ *      warning if `yes` is also true, since script takes precedence).
+ *   2. `yes` true → `registerAutoApproveConsentHandler`.
+ *   3. Neither → `registerConsentPromptHandler`.
+ */
+export function selectConsentHandler(client: IPCClient, opts: SelectConsentHandlerOptions): void {
+  if (opts.scriptConsentSource !== undefined && opts.scriptConsentSource.length > 0) {
+    if (opts.yes) {
+      process.stderr.write(
+        "[warn] --script-consent-source overrides --yes; consent decisions come from the JSONL file.\n",
+      );
+    }
+    registerScriptConsentHandler(client, opts.scriptConsentSource);
+    return;
+  }
+  if (opts.yes) {
+    registerAutoApproveConsentHandler(client);
+    return;
+  }
+  registerConsentPromptHandler(client);
+}
+
+/**
  * Consent prompts + streaming chunks — typical setup for interactive CLI commands.
+ *
+ * Used by: `ask`, `expert`, `impact`, `catchup`, `run-workflow`, `repl`.
+ * All six commands call this helper, so the env-var dispatch below applies to
+ * all of them.
  *
  * Consent dispatch priority:
  *   1. `NIMBUS_SCRIPT_CONSENT_SOURCE` env var (Phase 3 cast-tripwire harness) →
@@ -147,8 +193,8 @@ export function registerScriptConsentHandler(client: IPCClient, source: string):
  *   2. Otherwise → `registerConsentPromptHandler` (interactive @clack/prompts).
  *
  * `--yes` is handled in `data.ts` only (the three subcommands that own that flag)
- * because agent commands (`ask`, `expert`, `impact`, `catchup`, …) intentionally
- * don't auto-approve consent.
+ * because agent commands (`ask`, `expert`, `impact`, `catchup`, `run-workflow`,
+ * `repl`) intentionally don't auto-approve consent.
  */
 export function registerInteractiveCliIpcHandlers(client: IPCClient): void {
   const scriptSource = process.env["NIMBUS_SCRIPT_CONSENT_SOURCE"];

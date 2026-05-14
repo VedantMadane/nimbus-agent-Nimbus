@@ -1,11 +1,10 @@
 import { IPCClient } from "../ipc-client/index.ts";
+import { assertDestructiveDeleteAllowed, parseScriptConsentSource } from "../lib/data-helpers.ts";
 import { readGatewayState } from "../lib/gateway-process.ts";
-import {
-  registerAutoApproveConsentHandler,
-  registerConsentPromptHandler,
-  registerScriptConsentHandler,
-} from "../lib/interactive-ipc-handlers.ts";
+import { selectConsentHandler } from "../lib/interactive-ipc-handlers.ts";
 import { getCliPlatformPaths } from "../paths.ts";
+
+export { assertDestructiveDeleteAllowed, parseScriptConsentSource } from "../lib/data-helpers.ts";
 
 export async function runData(args: string[]): Promise<void> {
   const [sub, ...rest] = args;
@@ -50,36 +49,12 @@ async function withClient<T>(
   if (state === undefined) throw new Error("Gateway is not running. Start with: nimbus start");
   const client = new IPCClient(state.socketPath);
   await client.connect();
-  if (opts.scriptConsentSource !== undefined && opts.scriptConsentSource.length > 0) {
-    if (opts.yes) {
-      process.stderr.write(
-        "[warn] --script-consent-source overrides --yes; consent decisions come from the JSONL file.\n",
-      );
-    }
-    registerScriptConsentHandler(client, opts.scriptConsentSource);
-  } else if (opts.yes) {
-    registerAutoApproveConsentHandler(client);
-  } else {
-    registerConsentPromptHandler(client);
-  }
+  selectConsentHandler(client, opts);
   try {
     return await fn(client);
   } finally {
     await client.disconnect();
   }
-}
-
-/**
- * Parse --script-consent-source <path> from args, with env-var fallback.
- * Returns the resolved path or undefined.
- */
-function parseScriptConsentSource(args: string[]): string | undefined {
-  const idx = args.indexOf("--script-consent-source");
-  if (idx >= 0) {
-    return args[idx + 1];
-  }
-  const env = process.env["NIMBUS_SCRIPT_CONSENT_SOURCE"];
-  return env !== undefined && env.length > 0 ? env : undefined;
 }
 
 async function runDataExportCli(args: string[]): Promise<void> {
@@ -166,11 +141,7 @@ async function runDataDeleteCli(args: string[]): Promise<void> {
       console.log(`  Items to delete: ${String(pre.preflight.itemsToDelete)}`);
       console.log(`  Vault entries to delete: ${String(pre.preflight.vaultEntriesToDelete)}`);
       if (dryRun) return;
-      if (!yes && scriptConsentSource === undefined) {
-        throw new Error(
-          "Pass --yes (or --script-consent-source for cast-driver) to confirm destructive deletion (non-interactive CLI)",
-        );
-      }
+      assertDestructiveDeleteAllowed({ yes, scriptConsentSource });
       const result = await client.call<{ deleted: boolean }>("data.delete", {
         service,
         dryRun: false,
