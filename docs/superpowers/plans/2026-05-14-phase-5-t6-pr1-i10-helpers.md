@@ -418,13 +418,30 @@ bun run typecheck
 
 Expected: exits 0. A TypeScript error referencing `hex-compare.ts` from anywhere in the gateway means an import path was missed — re-grep with the next step.
 
-- [ ] **Step 3.9: Confirm no stale `hex-compare` references remain**
+- [ ] **Step 3.9: Confirm no stale `hex-compare` references remain anywhere in-repo**
+
+Code sites (must be zero matches — any hit is a missed import path):
 
 ```bash
-grep -rn "hex-compare" packages/gateway/src
+grep -rn "hex-compare" packages/gateway/src packages/cli/src packages/ui/src packages/sdk/src packages/client/src packages/mcp-connectors scripts
 ```
 
-Expected: zero matches. If matches remain, fix them before commit.
+Expected: zero matches. If matches remain, fix the import path or static reference before commit.
+
+Documentation / config sites (matches expected only in the spec + this plan + this PR's review-feedback narrative):
+
+```bash
+grep -rn "hex-compare" docs .claude/commands package.json 2>/dev/null
+```
+
+Expected matches:
+
+- `docs/SECURITY-INVARIANTS.md` — the I10 row's old wiring file name. **Task 6 updates this row** in the same commit pipeline; do not fix here.
+- `docs/superpowers/specs/2026-05-14-phase-5-t6-design.md` — intentional historical reference in §2 PR 1 (the rename is described in the past tense).
+- `docs/superpowers/plans/2026-05-14-phase-5-t6-pr1-i10-helpers.md` — this plan, in Task 1's verification grep + Task 3's commands.
+- `docs/superpowers/plans/2026-05-14-phase-5-t6-pr1-i10-helpers-review-feedback.md` (if landed) — the review narrative.
+
+Any **other** match — `.claude/commands/*.md` skill files, `docs/architecture.md`, `docs/roadmap.md`, `package.json`, etc. — must be either (a) updated to `timing-safe-compare` in Task 6's commit, or (b) explicitly excluded from the rename here with a documented reason. **Do not commit Task 3** until either condition is true for every doc-side match.
 
 - [ ] **Step 3.10: Commit the rename + new export + import-path updates**
 
@@ -804,11 +821,12 @@ EOF
 
 ---
 
-## Task 6 — Update `docs/SECURITY-INVARIANTS.md` I10 row
+## Task 6 — Update `docs/SECURITY-INVARIANTS.md` I10 row + sweep any other doc-side `hex-compare` mentions
 
 **Files:**
 
 - Modify: `docs/SECURITY-INVARIANTS.md`
+- Modify (conditional, if Step 3.9 surfaced matches outside the expected set): any other `.md` / `.json` file under `docs/`, `.claude/commands/`, or repo root that still references `hex-compare` after Task 3.
 
 - [ ] **Step 6.1: Locate the I10 row**
 
@@ -854,7 +872,19 @@ bun scripts/structure-audit/check-doc-references.ts --check
 
 Expected: exits 0. If a link breaks, fix it before committing.
 
-- [ ] **Step 6.5: Commit the docs update**
+- [ ] **Step 6.5: Sweep any other doc-side `hex-compare` mentions surfaced by Step 3.9**
+
+Re-run the doc-side grep from Step 3.9:
+
+```bash
+grep -rn "hex-compare" docs .claude/commands package.json 2>/dev/null
+```
+
+For every match **outside** the four expected sites listed in Step 3.9, edit the file to replace `hex-compare` with `timing-safe-compare`. Stage each edit alongside `docs/SECURITY-INVARIANTS.md` in the upcoming commit.
+
+If a match is in a historical artefact (a dated review-feedback file, a closed roadmap entry summarising a past PR), leave it alone — those are accurate at their date. Only narrative documentation that asserts present-tense behaviour needs updating.
+
+- [ ] **Step 6.6: Commit the docs update**
 
 ```bash
 git add docs/SECURITY-INVARIANTS.md
@@ -1017,6 +1047,20 @@ Expected: the PR URL is printed. Capture it and report it back to the user.
 Output the PR URL. No further action — the rest is review.
 
 ---
+
+## Review disposition (Gemini CLI, 2026-05-14)
+
+Source: [`2026-05-14-phase-5-t6-pr1-i10-helpers-review-feedback.md`](./2026-05-14-phase-5-t6-pr1-i10-helpers-review-feedback.md).
+
+| Review § | Item | Disposition | Rationale & where in this plan |
+| -------- | ---- | ----------- | ------------------------------ |
+| 2.1 | Burn-cycle approach when lengths mismatch — masks the guess length, not the secret's length (reasoner agrees this is the standard pattern for ASCII pairing codes + opaque bearer tokens) | **NO ACTION** | Confirmation only. The plan already specifies this shape (Task 3 step 3.3's `constantTimeStringEqual` body + Task 2 step 2.1's `constantTimeStringEqual: returns false for different lengths` test). |
+| 2.2 | Negative assertions ("file does NOT define a local helper") strongly prevent copy-paste regressions | **NO ACTION** | Confirmation only. Tests 5 + 6 in the I10 block already do this (Task 4 step 4.2). |
+| 2.3 | Step 3.9 grep also covers `.md` / `.json` references, not just code | **FIX** | Step 3.9 now runs two greps: (a) repo-wide code search across all `packages/*/src` + `scripts` (expected: zero matches), and (b) doc/config search over `docs`, `.claude/commands`, `package.json` (expected: only the four named historical / spec / plan / review-feedback sites). Task 6 gains a new Step 6.5 that sweeps any other doc-side match into the same commit as the SECURITY-INVARIANTS.md update. Bare historical artefacts (dated review-feedback, closed roadmap entries) stay untouched — those are accurate at their date. |
+| 3.1 | Naming consistency — file renamed, function name preserved to avoid caller churn | **NO ACTION** | Confirmation only. The plan locks this in Task 3 step 3.3 (file body keeps `sha256HexEqualConstantTime` export name verbatim) and Task 3 step 3.10's commit message ("Export name `sha256HexEqualConstantTime` stays so existing callers update import paths only"). |
+| 4 | Overall approval — plan is ready to execute | **NO ACTION** | No change required. |
+
+**Net effect on this plan:** Step 3.9 expanded into two scoped greps with explicit expected-match lists; Task 6 gains Step 6.5 (sweep extra doc-side matches into the same commit); Step 6.5 → Step 6.6 (commit step renumbered). Nothing in the TDD red/green flow, the file structure, or the task ordering changes.
 
 ## Self-review (run after writing this plan, before handing back)
 
