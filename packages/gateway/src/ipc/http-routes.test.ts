@@ -1,30 +1,41 @@
 import { describe, expect, it } from "bun:test";
-import { READ_ONLY_HTTP_ROUTES } from "./http-routes.ts";
+import { HTTP_ROUTES, READ_ONLY_HTTP_ROUTES } from "./http-routes.ts";
 
-describe("READ_ONLY_HTTP_ROUTES", () => {
-  it("includes the seven existing endpoints plus /v1/openapi.json, /v1/metrics/dora, and /v1/preflight/deploy", () => {
-    const paths = READ_ONLY_HTTP_ROUTES.map((r) => r.path);
-    expect(paths).toEqual([
-      "/v1/audit",
-      "/v1/connectors",
-      "/v1/health",
-      "/v1/items",
-      "/v1/items/{id}",
-      "/v1/metrics/dora",
-      "/v1/openapi.json",
-      "/v1/people",
-      "/v1/people/{id}",
-      "/v1/preflight/deploy",
+describe("HTTP_ROUTES", () => {
+  it("includes the canonical read-only endpoints plus POST /v1/deployments", () => {
+    const keys = HTTP_ROUTES.map((r) => `${r.method} ${r.path}`);
+    expect(keys).toEqual([
+      "GET /v1/audit",
+      "GET /v1/connectors",
+      "POST /v1/deployments",
+      "GET /v1/health",
+      "GET /v1/items",
+      "GET /v1/items/{id}",
+      "GET /v1/metrics/dora",
+      "GET /v1/openapi.json",
+      "GET /v1/people",
+      "GET /v1/people/{id}",
+      "GET /v1/preflight/deploy",
     ]);
   });
 
-  it("declares every route as GET", () => {
-    for (const route of READ_ONLY_HTTP_ROUTES) {
-      expect(route.method).toBe("GET");
+  it("declares every route as either GET or POST", () => {
+    for (const route of HTTP_ROUTES) {
+      expect(["GET", "POST"]).toContain(route.method);
     }
   });
 
+  it("contains exactly one POST entry (POST /v1/deployments)", () => {
+    const posts = HTTP_ROUTES.filter((r) => r.method === "POST");
+    expect(posts).toHaveLength(1);
+    expect(posts[0]).toEqual({ method: "POST", path: "/v1/deployments" });
+  });
+
   it("is frozen (immutable)", () => {
-    expect(Object.isFrozen(READ_ONLY_HTTP_ROUTES)).toBe(true);
+    expect(Object.isFrozen(HTTP_ROUTES)).toBe(true);
+  });
+
+  it("exposes a back-compat alias READ_ONLY_HTTP_ROUTES that is the same array", () => {
+    expect(READ_ONLY_HTTP_ROUTES).toBe(HTTP_ROUTES);
   });
 });
