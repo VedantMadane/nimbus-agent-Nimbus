@@ -161,6 +161,41 @@ jobs:
       - name: Run package READMEs audit
         run: bun run audit:package-readmes
 
+  cast-tripwire:
+    name: Cast transcript tripwire
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Nimbus CI
+        uses: ./.github/actions/setup-nimbus-ci
+
+      - name: Build @nimbus-dev/client (required by spawned CLI)
+        run: bun run --filter @nimbus-dev/client build
+
+      - name: Run cast tripwire
+        run: bun run record-casts --check --artifacts-dir=cast-artifacts
+
+      - name: Upload drift artifacts
+        if: failure()
+        uses: actions/upload-artifact@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          name: cast-drift
+          path: cast-artifacts/
+          retention-days: 7
+
   docs-build:
     name: Starlight build test
     runs-on: ubuntu-24.04
