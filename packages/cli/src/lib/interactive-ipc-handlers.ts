@@ -138,8 +138,24 @@ export function registerScriptConsentHandler(client: IPCClient, source: string):
   });
 }
 
-/** Consent prompts + streaming chunks — typical setup for interactive CLI commands. */
+/**
+ * Consent prompts + streaming chunks — typical setup for interactive CLI commands.
+ *
+ * Consent dispatch priority:
+ *   1. `NIMBUS_SCRIPT_CONSENT_SOURCE` env var (Phase 3 cast-tripwire harness) →
+ *      `registerScriptConsentHandler` reads decisions from the JSONL file.
+ *   2. Otherwise → `registerConsentPromptHandler` (interactive @clack/prompts).
+ *
+ * `--yes` is handled in `data.ts` only (the three subcommands that own that flag)
+ * because agent commands (`ask`, `expert`, `impact`, `catchup`, …) intentionally
+ * don't auto-approve consent.
+ */
 export function registerInteractiveCliIpcHandlers(client: IPCClient): void {
-  registerConsentPromptHandler(client);
+  const scriptSource = process.env["NIMBUS_SCRIPT_CONSENT_SOURCE"];
+  if (scriptSource !== undefined && scriptSource.length > 0) {
+    registerScriptConsentHandler(client, scriptSource);
+  } else {
+    registerConsentPromptHandler(client);
+  }
   registerAgentChunkStdout(client);
 }
