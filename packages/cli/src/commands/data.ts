@@ -166,7 +166,11 @@ async function runDataDeleteCli(args: string[]): Promise<void> {
       console.log(`  Items to delete: ${String(pre.preflight.itemsToDelete)}`);
       console.log(`  Vault entries to delete: ${String(pre.preflight.vaultEntriesToDelete)}`);
       if (dryRun) return;
-      if (!yes) throw new Error("Pass --yes to confirm destructive deletion (non-interactive CLI)");
+      if (!yes && scriptConsentSource === undefined) {
+        throw new Error(
+          "Pass --yes (or --script-consent-source for cast-driver) to confirm destructive deletion (non-interactive CLI)",
+        );
+      }
       const result = await client.call<{ deleted: boolean }>("data.delete", {
         service,
         dryRun: false,
