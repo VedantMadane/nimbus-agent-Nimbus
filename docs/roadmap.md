@@ -566,7 +566,28 @@ The local HTTP API and `@nimbus-dev/client` (Phase 3.5) unlock Nimbus as a data 
 - [ ] **Pre-commit hook template** — `nimbus-dev/hooks` package providing a pre-commit hook that checks whether files being committed have related open Jira/Linear tickets, active incidents, or a failing pipeline on the current branch; reports findings without blocking (configurable to block)
 - [ ] **`nimbus query` in CI** — documented pattern for using `nimbus query --json` inside CI pipelines (GitHub Actions, Jenkins, GitLab CI) to gate deployments, generate release notes from indexed PRs, or surface incident context in PR comments; requires Gateway running on a self-hosted runner or accessible over LAN
 - [x] **DORA Metrics** (2026-05-12, Phase 5 T4 PR 2) — compute the four key DORA metrics directly from already-indexed data with no new connectors required: *deployment frequency* (GitHub/GitLab releases + CI deploy runs), *lead time for changes* (PR open → merge → deploy correlation), *change failure rate* (deploy events correlated with PagerDuty/Datadog incidents within a configurable window), *mean time to restore* (incident open → resolve timestamps); exposed via `nimbus metrics dora [--service <name>] [--since 30d]` and the local HTTP API; renders in the Tauri dashboard alongside connector health
-- [ ] **PagerDuty connector enrichment** — populate `metadata.opened_at_ms` and `metadata.pagerduty_service_id` on indexed `incident` items so DORA CFR / MTTR compute against real data (Phase 5 T4 PR 2 ships against fixture-seeded incidents; production accuracy depends on this follow-up). No new credentials; reuses the existing PagerDuty OAuth.
+- [x] **PagerDuty connector enrichment** (2026-05-14, Phase 5 T4 wrap-up) — `pagerduty-sync.ts`
+  now writes `metadata.opened_at_ms` (from `incident.created_at`),
+  `metadata.pagerduty_service_id` (from `incident.service.id`), and
+  `metadata.severity` (from strict `incident.priority?.name`) on every indexed
+  `incident` row. DORA CFR/MTTR (PR 2) and Preflight active-P1 (PR 3a) now compute
+  against real PagerDuty data; both surfaces previously returned `no_pagerduty_mapping` /
+  zero findings in production. `initialSyncDepthDays` bumped 14 → 30 so a fresh install's
+  first `nimbus metrics dora --since 30d` window is fully populated. No schema change, no
+  migration — natural cursor re-sync overwrites pre-existing rows. Non-`"P1"` priority
+  names (`"Critical"`, `"SEV-1"`) pass through verbatim; a future
+  `[pagerduty].severity_strategy` config knob can map them to preflight's P1 filter if
+  user demand emerges.
+- [ ] **PagerDuty sync pagination** — follow `has_more` on `GET /incidents` and walk pages
+  until exhausted (or until a `[pagerduty].max_pages_per_sync` cap is hit). Today the sync
+  fetches the first 50 incidents updated since the cursor and drops the tail. DORA accuracy
+  for high-volume orgs depends on this. No new credentials.
+- [ ] **`[pagerduty].severity_strategy` config knob** — let teams map non-`"P1"` priority
+  names (`"Critical"`, `"SEV-1"`) to preflight's P1 filter; emit a `gap` note in
+  `deploy.preflight` when the connector sees `urgency: "high"` incidents with no
+  `priority.name`, so operators can self-diagnose silent-zero preflight results. Bundles
+  the alias-map and urgency-gap-warning Gemini-CLI suggested separately in the
+  enrichment review §2.2.
 
 ### Semantic Layer Enhancements
 
