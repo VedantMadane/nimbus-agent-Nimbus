@@ -238,7 +238,13 @@ describeWithFetchRestore("pagerduty-sync", () => {
       },
     ]);
     expect(result.itemsUpserted).toBe(2);
-    expect(result.cursor).toContain("2026-05-10T11:05:00Z");
+    expect(result.cursor).not.toBeNull();
+    const cursor = result.cursor as string;
+    expect(cursor.startsWith("nimbus-pd1:")).toBe(true);
+    const decodedJson = Buffer.from(cursor.slice("nimbus-pd1:".length), "base64url").toString(
+      "utf8",
+    );
+    expect(JSON.parse(decodedJson)).toEqual({ lastUpdated: "2026-05-10T11:05:00Z" });
   });
 
   test("does not throw on entirely malformed row", async () => {
