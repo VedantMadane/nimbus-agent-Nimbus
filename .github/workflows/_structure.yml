@@ -54,3 +54,6 @@ jobs:
 
       - name: D10/D11 — Nimbus invariants (binary)
         run: bun run audit:invariants
+
+      - name: Audit release-please manifest drift
+        run: bun run audit:release-please
