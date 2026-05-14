@@ -11,7 +11,13 @@
  */
 
 import type { Database } from "bun:sqlite";
+import {
+  EMPTY_NIMBUS_VAULT,
+  silentSyncContextExtras,
+} from "../../../../src/connectors/connector-sync-test-helpers.ts";
+import { syncPagerdutyIncidentItems } from "../../../../src/connectors/pagerduty-sync.ts";
 import type { DoraServiceConfig } from "../../../../src/metrics/dora-config.ts";
+import { buildPagerdutyIncident } from "../../pagerduty/build-incident.ts";
 
 export const FIXTURE_NOW_MS = 1_715_000_000_000;
 const DAY = 86_400_000;
@@ -45,7 +51,9 @@ function ins(db: Database, row: ItemRow): void {
   );
 }
 
-export function seedPaymentServiceFixture(db: Database): { config: DoraServiceConfig } {
+export async function seedPaymentServiceFixture(
+  db: Database,
+): Promise<{ config: DoraServiceConfig }> {
   // ---------------------------------------------------------------------------
   // Deploys: 13 total
   // ---------------------------------------------------------------------------
@@ -193,45 +201,45 @@ export function seedPaymentServiceFixture(db: Database): { config: DoraServiceCo
   // ---------------------------------------------------------------------------
   // PagerDuty incidents: 4 total (3 inside CFR window, 1 outside)
   // ---------------------------------------------------------------------------
-  // 3 incidents, each opened 10 min after the first 3 GHA deploys.
-  // Resolution durations: 20, 25, 30 minutes (1200, 1500, 1800 seconds).
+  // Flow built incidents through the production parser so the DORA calculator
+  // sees what syncPagerdutyIncidentItems would actually produce in prod.
+  const pdIncidents: unknown[] = [];
   for (let i = 0; i < 3; i++) {
     const deployAt = FIXTURE_NOW_MS - 5 * DAY - i * 2 * DAY;
     const openedAt = deployAt + 10 * 60_000;
     const resolvedAt = openedAt + (20 + i * 5) * 60_000;
-    ins(db, {
-      id: `pagerduty:inc_${i}`,
-      service: "pagerduty",
-      type: "incident",
-      external_id: `inc_${i}`,
-      title: `Incident ${i}`,
-      modified_at: resolvedAt,
-      metadata: {
+    pdIncidents.push(
+      buildPagerdutyIncident({
+        id: `inc_${i}`,
+        title: `Incident ${i}`,
+        createdAt: new Date(openedAt).toISOString(),
+        updatedAt: new Date(resolvedAt).toISOString(),
         status: "resolved",
-        pagerduty_service_id: "P12ABCD",
-        opened_at_ms: openedAt,
-      },
-    });
+        serviceId: "P12ABCD",
+        priorityName: "P1",
+      }),
+    );
   }
-
-  // 1 incident opened 90 minutes BEFORE its nearest preceding deploy — so no
-  // deploy precedes it within the 60-min window, and it does NOT attribute.
-  // It is still a valid resolved incident, so MTTR includes it.
-  // Duration: 30 minutes (1800 s).
   const outsideOpened = FIXTURE_NOW_MS - 7 * DAY - 90 * 60_000;
-  ins(db, {
-    id: "pagerduty:inc_outside",
-    service: "pagerduty",
-    type: "incident",
-    external_id: "inc_outside",
-    title: "Late alert",
-    modified_at: outsideOpened + 30 * 60_000,
-    metadata: {
+  const outsideResolved = outsideOpened + 30 * 60_000;
+  pdIncidents.push(
+    buildPagerdutyIncident({
+      id: "inc_outside",
+      title: "Late alert",
+      createdAt: new Date(outsideOpened).toISOString(),
+      updatedAt: new Date(outsideResolved).toISOString(),
       status: "resolved",
-      pagerduty_service_id: "P12ABCD",
-      opened_at_ms: outsideOpened,
-    },
-  });
+      serviceId: "P12ABCD",
+      priorityName: "P1",
+    }),
+  );
+
+  syncPagerdutyIncidentItems(
+    { db, vault: EMPTY_NIMBUS_VAULT, ...silentSyncContextExtras() },
+    pdIncidents,
+    new Date(FIXTURE_NOW_MS - 30 * DAY).toISOString(),
+    FIXTURE_NOW_MS,
+  );
 
   const config: DoraServiceConfig = {
     serviceId: "payment-service",

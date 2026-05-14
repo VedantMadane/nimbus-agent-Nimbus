@@ -45,8 +45,8 @@ describe("DORA real-db integration", () => {
     }
   });
 
-  it("computes all four metrics within ±5% of hand-computed values", () => {
-    const { config } = seedPaymentServiceFixture(db);
+  it("computes all four metrics within ±5% of hand-computed values", async () => {
+    const { config } = await seedPaymentServiceFixture(db);
     const result = computeDoraMetrics(db, config, FIXTURE_NOW_MS, WINDOW_MS);
 
     const expectedPath = join(

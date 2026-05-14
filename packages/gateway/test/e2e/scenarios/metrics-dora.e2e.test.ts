@@ -30,7 +30,7 @@ describe("nimbus metrics dora (e2e, in-process)", () => {
   test("returns the four-metric envelope for a configured service", async () => {
     const db = new Database(":memory:");
     runIndexedSchemaMigrations(db, TARGET_SCHEMA_VERSION);
-    const { config } = seedPaymentServiceFixture(db);
+    const { config } = await seedPaymentServiceFixture(db);
 
     const out = await dispatchMetricsRpc(
       "metrics.dora",
