@@ -381,11 +381,32 @@ Run:
 bun test packages/gateway/src/connectors/pagerduty-sync.test.ts
 ```
 
-Expected:
-- The two existing tests (`no-op when credentials missing`, `no-op when token is empty string`) pass.
-- The eleven new tests fail with assertions like `expect(meta.opened_at_ms).toBe(...)` → `undefined`, `expect(meta.severity).toBe("P1")` → `undefined`, and the `fresh install uses 30-day backfill window` test fails because `sinceMs` falls in the 14-day window.
+**Expected outcome — 2 pass, exactly 11 fail.** Anything else (test runner not loaded, type error, file-not-found, or a different test count) means a setup problem, not a TDD-red — stop and read the output before continuing.
 
-If anything else happens (e.g., type error, file-not-found), stop and read the output before continuing.
+Pass — the two pre-existing tests:
+
+1. `no-op when credentials missing`
+2. `no-op when token is empty string`
+
+Fail — every new test from Step 2.1:
+
+| # | Test name | Why it fails on this baseline |
+|---|---|---|
+| 3 | `enriches with opened_at_ms, pagerduty_service_id, severity on happy path` | `meta.opened_at_ms` / `meta.pagerduty_service_id` / `meta.severity` are all `undefined` (parser hasn't written them yet) |
+| 4 | `omits severity when priority is null` | `meta.opened_at_ms` / `meta.pagerduty_service_id` `undefined` — even though `severity` correctly stays `undefined`, the other two field assertions fail |
+| 5 | `omits severity when priority.name missing` | Same as #4 |
+| 6 | `omits pagerduty_service_id when service object missing` | `meta.opened_at_ms` / `meta.severity` `undefined` |
+| 7 | `omits pagerduty_service_id when service.id missing` | Same as #6 |
+| 8 | `passes severity through verbatim for non-P1 names` | `meta.severity` is `undefined` |
+| 9 | `omits opened_at_ms when created_at is malformed` | `meta.severity` / `meta.pagerduty_service_id` are `undefined` (even though `opened_at_ms` correctly stays undefined) |
+| 10 | `omits opened_at_ms when created_at absent` | `meta.opened_at_ms` correctly undefined here — but the test won't run if Step 2.1 has a typo because the suite would fail compilation. Listed for completeness. |
+| 11 | `cursor advancement still works with new metadata` | `expect(r.itemsUpserted).toBe(2)` may still pass, but if it's wrapped in the same describe and any earlier test threw, this will be reported as a failure too. |
+| 12 | `does not throw on entirely malformed row` | Currently passes accidentally (the parser tolerates the bare row); the new assertions on `meta.incidentId === "PT_BARE"` will pass but only after the metadata-building rewrite. Without the rewrite, `meta.severity` etc. are not present so the `toBeUndefined()` assertions succeed too — **this case may pass before Task 3**. That is fine; the value is in pinning behaviour, not in flagging a regression today. |
+| 13 | `fresh install uses 30-day backfill window` | `sinceMs` falls in the 14-day window — fails the `>=` lower-bound assertion (expected `now - 30d`, actual `now - 14d`). |
+
+**Important:** test #12 (`does not throw on entirely malformed row`) may pass before Task 3 because the existing parser already tolerates a bare row. That's expected — its purpose is to **stay** passing after Task 3, not to flag a regression today. If you see "12 fail" instead of "11 fail", verify that #12 is the only one passing prematurely; otherwise stop.
+
+If anything else happens (e.g., a `SyntaxError` because Step 2.1's code paste lost a character, or a `Cannot find module` because the import path drifted), stop and read the output before continuing.
 
 - [ ] **Step 2.3: Commit the failing tests**
 
@@ -1237,6 +1258,21 @@ Expected: the PR URL is printed. Capture it and report it back to the user.
 Output the PR URL. No further action — the rest is review.
 
 ---
+
+## Review disposition (Gemini-CLI, 2026-05-14)
+
+Source: [`2026-05-14-phase-5-t4-pagerduty-enrichment-review-feedback.md`](./2026-05-14-phase-5-t4-pagerduty-enrichment-review-feedback.md) (plan-level review, distinct from the spec-level review-feedback under `docs/superpowers/specs/`).
+
+| Review § | Item | Disposition | Rationale & where in this plan |
+|---|---|---|---|
+| 2.1 | Step 2.2 should explicitly list which tests are expected to fail so a setup problem isn't mistaken for a TDD red | **FIX** | Step 2.2 now contains the explicit pass/fail enumeration plus the named edge case (`does not throw on entirely malformed row`) that legitimately passes pre-Task-3. Executors who see anything other than "2 pass, 11 fail (with #12 the only premature pass allowed)" now have a stop signal. |
+| 2.2 | Async fixture seeding — note about `await` propagation | **NO ACTION** | Reviewer confirms Steps 5.3 and 6.3 already cover it. No change. |
+| 2.3 | Verify `packages/gateway/test/fixtures/pagerduty/` doesn't violate fixture-organization conventions | **VERIFIED** | `ls packages/gateway/test/fixtures` shows a mixed convention: `dora/`, `preflight/`, `deployments/` are consumer-named scenarios, while `obsidian/` and `openapi/` are source-data shape fixtures. `pagerduty/build-incident.ts` fits the latter category alongside `obsidian/` and `openapi/`. No move needed. |
+| 2.4 | Roadmap follow-up rows correctly tracked | **NO ACTION** | Reviewer confirms Step 7.3 covers it. |
+| 3.1 | Type safety on `metadata: Record<string, unknown>` | **NO ACTION** | Reviewer confirms the choice is aligned with the project's no-`any` rule. |
+| 3.2 | Add a test asserting a row dated 20 days ago (older than 14 but newer than 30) is indexed on cold start | **DEFER** | Under the mock-`fetch` test setup, this proposed test would NOT catch a `14 → 30` revert: the mock returns whatever incidents we hand it regardless of the `since` parameter the production code sends — so a 20-day-old incident would land in the index whether `initialSyncDepthDays` is `14`, `30`, or `999`. The existing Step 2.1 test (`fresh install uses 30-day backfill window`) is strictly stronger because it captures and asserts on the actual `since` query parameter sent to PagerDuty, which is the only behavioural artefact of the constant change. Adding the suggested test would give false confidence. |
+
+**Net effect on this plan:** one task-step expanded with the explicit test enumeration, one verification recorded for the fixture-directory layout, three notes confirmed as needing no action, one suggestion deferred with a stronger-test rationale.
 
 ## Self-review (run after writing this plan, before handing back)
 
