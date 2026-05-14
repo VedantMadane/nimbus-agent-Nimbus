@@ -161,15 +161,18 @@ Companion files:
 **Statement:** HTTP write routes go through a compile-time allowlist + bearer auth; the readonly DB handle never executes writes.
 
 **Wired at:**
+
 - `packages/gateway/src/ipc/http-server.ts` — POST routes dispatch through `dispatchWriteRoute` (and not the readonly handler).
 - `packages/gateway/src/ipc/http-write-routes.ts` — owns `WRITE_ROUTE_ALLOWLIST` (compile-time, currently a single entry: `"POST /v1/deployments"`).
 
 **Test:** `packages/gateway/src/security-invariants.test.ts` — three sub-asserts:
+
 1. `http-server.ts` imports `dispatchWriteRoute` from `./http-write-routes.ts`.
 2. `http-server.ts` opens at most one writable `Database` handle (the write-surface handle).
 3. `WRITE_ROUTE_ALLOWLIST.length === 1` and contains exactly `"POST /v1/deployments"`.
 
 **Anti-patterns:**
+
 - Opening a second writable `Database` handle in `http-server.ts` outside the server-context wiring.
 - Adding a new POST/PUT/DELETE handler that bypasses `dispatchWriteRoute`.
 - Adding entries to `WRITE_ROUTE_ALLOWLIST` without bumping the count assertion in `security-invariants.test.ts`.
