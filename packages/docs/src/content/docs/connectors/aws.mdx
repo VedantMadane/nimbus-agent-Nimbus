@@ -1,0 +1,49 @@
+---
+title: AWS
+description: Index Lambda functions, ECS services, and EC2 inventory from AWS through the local AWS CLI credential chain.
+---
+
+The AWS connector indexes a thin slice of your AWS account into the local SQLite index and exposes a small read + HITL-gated write surface to the agent. The MCP server shells out to the `aws` CLI v2, so it inherits whatever credential chain the CLI uses (vault-supplied access keys, `AWS_PROFILE`, or default `~/.aws/credentials`).
+
+---
+
+## What's indexed
+
+- **Service id:** `aws`
+- **Item types:** `lambda_function`
+
+## Authenticate
+
+```bash
+nimbus connector auth aws
+```
+
+The Gateway resolves credentials from the Vault keys `aws.access_key_id`, `aws.secret_access_key`, `aws.default_region`, and `aws.profile`. They are injected into the connector spawn environment as `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`, and `AWS_PROFILE`. If you'd rather use the AWS CLI default credential chain (e.g. an SSO session) leave the vault keys empty — the spawn inherits the parent process's `AWS_*` environment.
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `aws_ecs_service_list` | List ECS services in a cluster. |
+| `aws_lambda_list` | List Lambda functions (first page). |
+
+## Write tools (HITL-gated)
+
+Every tool below requires interactive consent through the Gateway HITL gate before it executes.
+
+| Tool | Purpose |
+|---|---|
+| `aws_ec2_instance_start` | Start EC2 instances. |
+| `aws_ec2_instance_stop` | Stop EC2 instances. |
+| `aws_ecs_service_update` | Update an ECS service (e.g. new task definition). |
+| `aws_lambda_invoke` | Invoke a Lambda function. |
+
+## Platform notes
+
+- Requires the **`aws` CLI v2** on `PATH` — the MCP server invokes it via `Bun.spawn(["aws", ...])`.
+- Credentials are resolved from the Vault and injected as environment variables at spawn time. They are never written to the index, never logged, and never reach the LLM context.
+
+## See also
+
+- [Connectors overview](./overview)
+- [HITL and safety](../user-guide/hitl-and-safety/)

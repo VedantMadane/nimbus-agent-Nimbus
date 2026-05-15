@@ -1,0 +1,48 @@
+---
+title: Slack
+description: Index Slack messages from your channels + DMs and post messages with HITL-gated write tools.
+---
+
+The Slack connector indexes channel and DM messages into the local SQLite index and exposes read tools across channels, DMs, threads, search, and users, plus two HITL-gated write tools for posting messages.
+
+---
+
+## What's indexed
+
+- **Service id:** `slack`
+- **Item types:** `message`
+
+## Authenticate
+
+```bash
+nimbus connector auth slack
+```
+
+OAuth (Slack user access token). The Gateway resolves a short-lived user access token via the Slack OAuth flow (refreshed via `getValidSlackAccessToken`) and injects it into the connector spawn as `SLACK_USER_ACCESS_TOKEN`.
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `slack_channel_history` | Fetch message history for a channel, DM, or mpim. |
+| `slack_channel_list` | List channels the user is a member of (public, private, mpim, im). |
+| `slack_dm_history` | Fetch DM / mpim history (alias of `channel_history`). |
+| `slack_dm_list` | List direct message conversations (im + mpim). |
+| `slack_search` | Search messages (workspace search). |
+| `slack_thread_replies` | Fetch replies in a thread (channel + thread parent ts). |
+| `slack_user_get` | Get a single user profile by ID. |
+| `slack_user_list` | List users in the workspace (paginated). |
+
+## Write tools (HITL-gated)
+
+Every tool below requires interactive consent through the Gateway HITL gate before it executes.
+
+| Tool | Purpose |
+|---|---|
+| `slack_message_post` | Post a message to a channel. |
+| `slack_message_post_dm` | Open or find a DM with user id(s) and send a message. |
+
+## See also
+
+- [Connectors overview](./overview)
+- [HITL and safety](../user-guide/hitl-and-safety/)

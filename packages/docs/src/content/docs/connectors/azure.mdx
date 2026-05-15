@@ -1,0 +1,46 @@
+---
+title: Azure
+description: Index Azure subscription metadata and act on App Services and AKS node pools through the Azure CLI.
+---
+
+The Azure connector indexes basic subscription metadata into the local SQLite index and exposes a small read + HITL-gated write surface. The MCP server shells out to the `az` CLI, using either a service-principal session seeded from the Vault or a pre-existing `az login` session.
+
+---
+
+## What's indexed
+
+- **Service id:** `azure`
+- **Item types:** `subscription`
+
+## Authenticate
+
+```bash
+nimbus connector auth azure
+```
+
+The Gateway resolves credentials from the Vault keys `azure.tenant_id`, `azure.client_id`, and `azure.client_secret`. They are injected into the connector spawn environment as `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET`, and the spawn opens a service-principal session against `az`. If you'd rather use a pre-existing `az login` session, leave the vault keys empty.
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `azure_app_service_list` | List App Services in a resource group. |
+
+## Write tools (HITL-gated)
+
+Every tool below requires interactive consent through the Gateway HITL gate before it executes.
+
+| Tool | Purpose |
+|---|---|
+| `azure_aks_node_pool_scale` | Scale an AKS node pool. |
+| `azure_app_service_restart` | Restart an App Service. |
+
+## Platform notes
+
+- Requires the **`az` CLI** on `PATH` — the MCP server invokes it via `Bun.spawn(["az", ...])`.
+- The sync handler runs `az account show` once per cycle to seed the indexed subscription item.
+
+## See also
+
+- [Connectors overview](./overview)
+- [HITL and safety](../user-guide/hitl-and-safety/)

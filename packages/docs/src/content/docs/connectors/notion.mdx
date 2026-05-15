@@ -1,0 +1,48 @@
+---
+title: Notion
+description: Index Notion pages and databases and act on pages, blocks, and comments via HITL-gated write tools.
+---
+
+The Notion connector indexes pages into the local SQLite index and exposes read tools for pages, databases, blocks, and comments, plus four HITL-gated write tools for creating pages, appending blocks, and posting comments.
+
+---
+
+## What's indexed
+
+- **Service id:** `notion`
+- **Item types:** `page`
+
+## Authenticate
+
+```bash
+nimbus connector auth notion
+```
+
+OAuth (Notion). The Gateway resolves a Bearer access token via the Notion OAuth flow (refreshed via `getValidNotionAccessToken`) and injects it into the connector spawn as `NOTION_ACCESS_TOKEN`.
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `notion_block_children` | List child blocks of a block or page. |
+| `notion_comment_list` | List comments for a block or page. |
+| `notion_database_list` | Search Notion databases (`POST /v1/search`, object filter `database`). |
+| `notion_database_query` | Query a Notion database. |
+| `notion_page_get` | Retrieve a Notion page and its direct child blocks. |
+| `notion_page_list` | Search Notion pages the integration can access (`POST /v1/search`, object filter `page`). |
+
+## Write tools (HITL-gated)
+
+Every tool below requires interactive consent through the Gateway HITL gate before it executes.
+
+| Tool | Purpose |
+|---|---|
+| `notion_block_append` | Append blocks to a parent block. `childrenJson` is a JSON array of block objects. |
+| `notion_comment_create` | Create a comment thread on a page. |
+| `notion_page_create` | Create a page under a parent page. |
+| `notion_page_update` | Update page properties. Pass properties JSON as a string. |
+
+## See also
+
+- [Connectors overview](./overview)
+- [HITL and safety](../user-guide/hitl-and-safety/)

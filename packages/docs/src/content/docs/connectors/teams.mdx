@@ -1,0 +1,45 @@
+---
+title: Microsoft Teams
+description: Index Teams channel messages and post to channels + chats with HITL-gated write tools.
+---
+
+The Microsoft Teams connector indexes channel messages into the local SQLite index and exposes read tools for teams, channels, chats, and messages, plus two HITL-gated write tools for posting to channels and chats.
+
+---
+
+## What's indexed
+
+- **Service id:** `teams`
+- **Item types:** `message` (channel messages; external id format `<teamId>:<channelId>:<messageId>`)
+
+## Authenticate
+
+```bash
+nimbus connector auth teams
+```
+
+OAuth (Microsoft Graph). The Gateway resolves a short-lived access token via the Microsoft OAuth flow (`getValidMicrosoftAccessToken`) and injects it into the connector spawn as `MICROSOFT_OAUTH_ACCESS_TOKEN`.
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `teams_channel_list` | List channels in a team (standard + private the app can read). |
+| `teams_channel_messages` | List recent messages in a team channel (not delta; for interactive reads). |
+| `teams_chat_list` | List 1:1 and group chats for the signed-in user. |
+| `teams_chat_messages` | List messages in a chat. |
+| `teams_team_list` | List Microsoft Teams the signed-in user has joined (pagination via `nextLink`). |
+
+## Write tools (HITL-gated)
+
+Every tool below requires interactive consent through the Gateway HITL gate before it executes.
+
+| Tool | Purpose |
+|---|---|
+| `teams_message_post` | Post a message to a team channel. |
+| `teams_message_post_chat` | Post a message to a chat. |
+
+## See also
+
+- [Connectors overview](./overview)
+- [HITL and safety](../user-guide/hitl-and-safety/)
