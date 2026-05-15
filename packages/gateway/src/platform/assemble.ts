@@ -50,6 +50,7 @@ import type { SyncContext } from "../sync/types.ts";
 import { startTelemetryFlushScheduler } from "../telemetry/flush-scheduler.ts";
 import { createNimbusVault } from "../vault/factory.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
+import { GATEWAY_VERSION } from "../version.ts";
 import { AnomalyDetectorStub } from "../watcher/anomaly-detector.ts";
 import { registerConnectorMeshSyncables } from "./assemble-sync-registrations.ts";
 import { openUrlInDefaultBrowser } from "./browser.ts";
@@ -361,7 +362,7 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   const ipcOpts: Parameters<typeof createIpcServer>[0] = {
     listenPath: paths.socketPath,
     vault,
-    version: "0.1.0",
+    version: GATEWAY_VERSION,
     localIndex,
     dataDir: paths.dataDir,
     configDir: paths.configDir,
@@ -385,7 +386,7 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
     dataDir: paths.dataDir,
     activeTomlPath,
     getDatabase: () => db,
-    gatewayVersion: "0.1.0",
+    gatewayVersion: GATEWAY_VERSION,
     logger: syncLogger,
     coldStartMs: gatewayAssemblyMs,
   });
