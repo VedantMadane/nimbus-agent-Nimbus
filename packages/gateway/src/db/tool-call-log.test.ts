@@ -1,5 +1,8 @@
 import { Database } from "bun:sqlite";
 import { beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { TOOL_CALL_LOG_V29_SCHEMA_SQL } from "../index/tool-call-log-v29-sql.ts";
 import {
@@ -220,12 +223,19 @@ describe("writeToolCallLog + readToolCallLog", () => {
   });
 
   test("write swallows DiskFullError-shaped errors gracefully (does not throw)", () => {
-    // Re-open with the table read-only by closing first then opening read-only — write
-    // attempts will throw a constraint-shaped error. The helper's internal try/catch
-    // must swallow it so the LLM-facing path is never broken.
+    // Provoke a SQLiteError ("attempt to write a readonly database") and confirm
+    // the helper's internal try/catch swallows it so the LLM-facing path is
+    // never broken. Bun's `bun:sqlite` rejects `:memory:` + readonly:true at the
+    // constructor, so we use a file-backed DB instead (same contract).
     db.close();
-    const ro = new Database(":memory:", { readonly: true });
+    const tmpDir = mkdtempSync(join(tmpdir(), "tool-call-log-ro-"));
+    const dbPath = join(tmpDir, "ro.sqlite");
+    const seed = new Database(dbPath);
+    seed.exec(TOOL_CALL_LOG_V29_SCHEMA_SQL);
+    seed.close();
+    const ro = new Database(dbPath, { readonly: true });
     expect(() => writeToolCallLog(ro, entry())).not.toThrow();
     ro.close();
+    rmSync(tmpDir, { recursive: true, force: true });
   });
 });
