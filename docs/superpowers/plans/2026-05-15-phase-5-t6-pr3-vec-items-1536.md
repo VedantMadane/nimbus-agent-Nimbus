@@ -2083,10 +2083,10 @@ EOF
 // packages/gateway/src/ipc/index-reembed-rpc.test.ts
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-import { MockVault } from "@nimbus-dev/sdk/testing";
 import pino from "pino";
 import { runIndexedSchemaMigrations } from "../index/migrations/runner.ts";
 import { tryLoadSqliteVec } from "../index/sqlite-vec-load.ts";
+import { MockVault } from "../vault/mock.ts";
 import { dispatchIndexReembedRpc, IndexReembedRpcError } from "./index-reembed-rpc.ts";
 
 function freshCtx() {
@@ -2918,7 +2918,6 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MockVault } from "@nimbus-dev/sdk/testing";
 import pino from "pino";
 import { runIndexedSchemaMigrations } from "../../../src/index/migrations/runner.ts";
 import { tryLoadSqliteVec } from "../../../src/index/sqlite-vec-load.ts";
@@ -2926,6 +2925,7 @@ import {
   dispatchIndexReembedRpc,
   type IndexReembedRpcContext,
 } from "../../../src/ipc/index-reembed-rpc.ts";
+import { MockVault } from "../../../src/vault/mock.ts";
 
 function freshCtx(): {
   db: Database;
@@ -3045,7 +3045,7 @@ describe("nimbus index reembed — end-to-end", () => {
 });
 ```
 
-(If `Xenova/all-MiniLM-L6-v2` requires downloading model weights at test time and that's slow / unreliable in CI, the integration test should mock `createLocalEmbedder` via a Bun module-mock or substitute a small stub embedder factory. If `MockVault` from `@nimbus-dev/sdk/testing` is not the actual import path, look it up via `grep -rn "MockVault" packages/gateway/test packages/sdk/src` and use whichever module exports it.)
+(If `Xenova/all-MiniLM-L6-v2` requires downloading model weights at test time and that's slow / unreliable in CI, the integration test should mock `createLocalEmbedder` via a Bun module-mock or substitute a small stub embedder factory.)
 
 - [ ] **Step 14.2: Run the integration test**
 
@@ -3268,6 +3268,24 @@ EOF
 - `FORBIDDEN_OVER_LAN` entries `"index.reembed"` + `"index.reembedCancel"` — Task 12 wires; Task 12 test asserts.
 
 **Placeholder scan:** every step shows real code, real commands, real expected output. The two "if X applies" notes (Step 6.5 unused-import cleanup, Step 13.1 `subscribe` API confirmation, Step 12.2 `__dirname` vs `import.meta.dir`) are calibration prompts based on whichever convention the file already uses — they have a clear default action and a clear fallback action. No "TODO/TBD" remain.
+
+---
+
+## Review Disposition (Gemini CLI, 2026-05-15)
+
+Source: [`2026-05-15-phase-5-t6-pr3-vec-items-1536-review-feedback.md`](./2026-05-15-phase-5-t6-pr3-vec-items-1536-review-feedback.md).
+
+| Review § | Item | Disposition | Rationale |
+|---|---|---|---|
+| 1 | `(service \|\| ':' \|\| type) IN (...)` blocks index use | **NO ACTION** | The dominant cost on this query is the `NOT EXISTS` correlated subquery against `embedding_chunk` (uses `idx_embedding_chunk_item_id` + `idx_embedding_chunk_model`) and the `ORDER BY i.modified_at DESC LIMIT N` (uses `idx_item_modified_at`). The routing-key filter is ~14 string comparisons per row — sub-second on typical indexes. A composite `(service, type)` index would help only this query and add schema weight; OR-pair rewriting noises up the SQL with no measurable win at 14 keys on a maintenance CLI path. If benchmarks ever show a hot path, a future PR can revisit. |
+| 2 | V30 transactionality | **NO ACTION** | Already verified in the spec disposition (§9 row 1). Plan Step 1.2 uses the runner's `db.transaction(() => { db.exec(...); db.exec("PRAGMA user_version = 30"); recordMigration(...); })()` shape — `DROP TRIGGER` + `CREATE TRIGGER` + `CREATE VIRTUAL TABLE` are atomic, mirroring `migrateIndexedV5ToV6` at `runner.ts:146`. |
+| 3 | CLI subscription ordering | **NO ACTION (reviewer self-confirmation)** | Step 13.1 wires `c.subscribe(...)` calls before `c.call("index.reembed", ...)`. |
+| 4 | Constants usage in production code | **NO ACTION** | Production code uses `SUPPORTED_EMBEDDING_DIMS` for validation (Tasks 4 Step 4.3, 8 Step 8.3) and `EMBEDDING_DIM_OPENAI` for the embedder factory (Task 6 Step 6.3). Test literals (`384` / `1536`) are intentional — they assert the dim contract; substituting the constant would be circular. |
+| 5 | Skipped-count summary on the CLI | **NO ACTION (reviewer self-confirmation)** | Step 13.1's CLI prints `Reembedded N item(s); skipped M (Xms).`; re-running is idempotent. |
+| Q1 | `allObservedRoutingKeys` impl | **NO ACTION** | Helper was removed in spec-review item 2 (§9 of the design spec). Plan Task 5 Step 5.3 uses `PROSE_HEAVY_TYPES` directly with `{ in: proseKeys }` / `{ notIn: proseKeys }` — no DB scan, no caching. Reviewer was reading the pre-disposition spec. |
+| Q2 | `MockVault` import path | **FIX (real defect)** | Verified via grep: `MockVault` lives at `packages/gateway/src/vault/mock.ts`, **not** `@nimbus-dev/sdk/testing`. Tasks 11 Step 11.1 and 14 Step 14.1 both fixed inline to import from the relative path (`../vault/mock.ts` for the unit test, `../../../src/vault/mock.ts` for the integration test). |
+
+**Net effect on the plan:** one targeted import-path fix in two test files (Tasks 11 + 14), one parenthetical hedge removed in Task 14, and this disposition section. No task ordering, file count, or commit topology changes.
 
 ---
 
