@@ -47,16 +47,26 @@ Single source of truth for the gateway version string. Migrate the two existing 
 // packages/gateway/src/version.ts
 
 /**
- * Gateway version string — single source of truth.
+ * Gateway version string — single source of truth, gateway-internal.
  *
  * Consumed by:
- * - `platform/assemble.ts` IPC server `version` field
+ * - `platform/assemble.ts` IPC server `version` field (surfaced via
+ *   `gateway.ping` to clients)
  * - `platform/assemble.ts` telemetry collector `gatewayVersion` field
  * - `updater/factory.ts` Updater `currentVersion` field
  *
  * Bump in lockstep with `packages/gateway/package.json` `version` on every
- * release. A static-time check that this matches `package.json` is intentionally
- * out of scope (the build pipeline asserts release consistency at tag time).
+ * gateway release. The CLI / UI / SDK never import gateway internals (per
+ * the package-dependency rules in CLAUDE.md — IPC-only) and consume the
+ * version dynamically through `gateway.ping`, so the constant is correctly
+ * gateway-package-private.
+ *
+ * Known gap: `release-please` does not currently track the gateway as a
+ * component, so neither `package.json` nor this constant is auto-bumped on
+ * release. Single-sourcing reduces the manual hand-edit burden from two
+ * sites to one (was: assemble.ts:364 and :388 — both inline literals).
+ * Adding the gateway as a release-please component + listing this file in
+ * `extra-files` is tracked as a separate follow-up (see roadmap).
  */
 export const GATEWAY_VERSION = "0.1.0";
 ```
@@ -574,7 +584,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  server?.stop();
+  // `stop(true)` forces immediate close of active connections — without the
+  // `true`, Bun.serve waits for HTTP keep-alive sockets to drain, which can
+  // delay the test runner exit on Windows in particular.
+  server?.stop(true);
   server = undefined;
 });
 
@@ -708,12 +721,13 @@ Items deferred from the Phase 4 internal security audit (B1, 2026-04-25; summary
 Flip the L412 checkbox and rewrite the body:
 
 ```markdown
-- [x] **Updater production wiring (S6-F1)** (PR #<NN>) — the `Updater` state machine is now instantiated in gateway startup via `packages/gateway/src/updater/factory.ts` and attached to the IPC server via `setUpdater`. `nimbus update --check` and `updater.checkNow` IPC now return live state instead of `ERR_UPDATER_NOT_CONFIGURED`; with `[updater].check_on_startup = true` (default), the gateway emits `updater.updateAvailable` on startup if a newer version is published at the configured manifest URL. Four follow-ups remain before end-to-end auto-update is usable in production:
+- [x] **Updater production wiring (S6-F1)** (PR #<NN>) — the `Updater` state machine is now instantiated in gateway startup via `packages/gateway/src/updater/factory.ts` and attached to the IPC server via `setUpdater`. `nimbus update --check` and `updater.checkNow` IPC now return live state instead of `ERR_UPDATER_NOT_CONFIGURED`; with `[updater].check_on_startup = true` (default), the gateway emits `updater.updateAvailable` on startup if a newer version is published at the configured manifest URL. Five follow-ups remain before end-to-end auto-update is usable in production:
   - [ ] Publish `latest.json` from `release.yml` so the default manifest URL resolves to a real envelope (today: 404)
   - [ ] Linux `invokeInstaller` — POSIX binary swap + restart helper
   - [ ] macOS + Windows `invokeInstaller` — gated on signing certs (Phase 13 entry)
   - [ ] `recordUpdateEvent` audit-log integration — wire `system.update.{start,verified,installed,failed}` rows
   - [ ] `Updater.getStatus()` to expose cached `CheckNowResult` so a late-connecting client (e.g., Tauri Updates panel) can read the startup-check result without re-fetching
+  - [ ] Track the gateway as a `release-please` component so `packages/gateway/package.json` + `packages/gateway/src/version.ts` (`GATEWAY_VERSION` constant) are auto-bumped on release. Today both are hand-edited; the wiring PR collapses two hand-edit sites into one, but the manual step still exists.
 ```
 
 (Replace `#<NN>` with the actual PR number once the PR is opened — Step 7.3 below.)
