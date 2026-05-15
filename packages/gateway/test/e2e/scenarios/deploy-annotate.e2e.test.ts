@@ -22,7 +22,7 @@ import { runIndexedSchemaMigrations } from "../../../src/index/migrations/runner
 import { dispatchDeploymentRpc } from "../../../src/ipc/deployment-rpc.ts";
 
 const NOW = 1747142641204;
-const TARGET_SCHEMA_VERSION = 28;
+const TARGET_SCHEMA_VERSION = 29;
 
 describe("E2E (in-process): nimbus deploy annotate", () => {
   let dir: string;
