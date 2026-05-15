@@ -2,15 +2,16 @@ name: Structure audit
 
 # Reusable workflow — fast PR check (≤30 s budget) for the binary subset of
 # audit:* gates: D1/D2/D3 (boundaries), D8 (any-count ratchet), D10/D11
-# (Nimbus invariants).
+# (Nimbus invariants), and release-please manifest drift.
 #
 # Ubuntu-only by design: every gate is static analysis with zero OS variance.
 # The platform-equality non-negotiable is a runtime property
 # (B3 structure audit design § 6.1).
 #
-# NOT YET wired into ci.yml — current main has 5 D10 + 56 D11 violations
-# (Phase 2 missed.md). The last top-5 fix PR (Phase 3) wires this once
-# D10/D11 are clean.
+# Wired into ci.yml as `pr-quality-structure` (PR side) and `ci-structure`
+# (push side). Failures block PRs — the D8 any-count ratchet and the D10/D11
+# nimbus-invariant checks are the static-time complement to runtime
+# enforcement in `security-invariants.test.ts`.
 on:
   workflow_call:
     inputs:
