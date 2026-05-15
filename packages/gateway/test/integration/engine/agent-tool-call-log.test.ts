@@ -17,8 +17,8 @@ function freshAuditDb(): Database {
 // constructor actually touches.
 function stubLocalIndex(): LocalIndex {
   return {
-    search: () => ({ rows: [], total: 0 }),
-    fetchMore: () => ({ rows: [], total: 0 }),
+    searchRankedAsync: async () => [],
+    fetchMoreItems: () => [],
     traverseGraph: () => ({ entities: [], relations: [] }),
     getDatabase: () => new Database(":memory:"),
   } as unknown as LocalIndex;
@@ -60,12 +60,12 @@ describe("agent.ts wrapToolForLlm — tool_call_log audit-write", () => {
 
   test("writes a status='error' row when the wrapped tool throws (and re-throws)", async () => {
     const auditDb = freshAuditDb();
-    // Use a localIndex whose `search` throws. createNimbusEngineAgent's
-    // searchLocalIndex tool calls localIndex.search(query) — when search
+    // Use a localIndex whose `searchRankedAsync` throws. createNimbusEngineAgent's
+    // searchLocalIndex tool calls localIndex.searchRankedAsync(query) — when it
     // throws, the wrapper catches, logs, and re-throws.
     const throwingIndex = {
       ...stubLocalIndex(),
-      search: () => {
+      searchRankedAsync: () => {
         throw new Error("simulated tool failure");
       },
     } as unknown as LocalIndex;
