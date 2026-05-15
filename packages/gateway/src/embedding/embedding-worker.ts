@@ -122,7 +122,7 @@ function setupDb(dbPath: string): void {
     embedChain = embedChain
       .then(async () => {
         const row = conn
-          .query(`SELECT id, title, body_preview FROM item WHERE id = ?`)
+          .query(`SELECT id, service, type, title, body_preview FROM item WHERE id = ?`)
           .get(itemId) as IndexedItem | null | undefined;
         if (row === null || row === undefined) {
           return;

@@ -70,10 +70,9 @@ export function createLazyEmbeddingRuntime(
         if (p === null) {
           return;
         }
-        const row = db.query(`SELECT id, title, body_preview FROM item WHERE id = ?`).get(itemId) as
-          | IndexedItem
-          | null
-          | undefined;
+        const row = db
+          .query(`SELECT id, service, type, title, body_preview FROM item WHERE id = ?`)
+          .get(itemId) as IndexedItem | null | undefined;
         if (row === null || row === undefined) {
           return;
         }

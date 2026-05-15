@@ -47,6 +47,8 @@ describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline", () => {
     });
     await pipeline.embedItem({
       id: itemId,
+      service: "filesystem",
+      type: "file",
       title: "alpha",
       body_preview: "beta gamma",
     });
@@ -77,7 +79,13 @@ describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline", () => {
     });
     const itemId = "s:x";
     const pipeline = new SqliteEmbeddingPipeline({ db, embedder: mockEmbedder(384, "m2") });
-    await pipeline.embedItem({ id: itemId, title: "t", body_preview: null });
+    await pipeline.embedItem({
+      id: itemId,
+      service: "s",
+      type: "file",
+      title: "t",
+      body_preview: null,
+    });
     await pipeline.deleteItemEmbeddings(itemId);
     expect((db.query("SELECT COUNT(*) AS c FROM embedding_chunk").get() as { c: number }).c).toBe(
       0,

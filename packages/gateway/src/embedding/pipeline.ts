@@ -119,7 +119,8 @@ export class SqliteEmbeddingPipeline implements EmbeddingPipeline {
     while (true) {
       const rows = this.db
         .query(
-          `SELECT i.id AS id, i.title AS title, i.body_preview AS body_preview
+          `SELECT i.id AS id, i.service AS service, i.type AS type,
+                  i.title AS title, i.body_preview AS body_preview
            FROM item i WHERE NOT EXISTS (
              SELECT 1 FROM embedding_chunk c
              WHERE c.item_id = i.id AND c.model = ?
