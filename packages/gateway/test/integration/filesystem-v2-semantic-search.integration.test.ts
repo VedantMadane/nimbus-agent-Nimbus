@@ -108,6 +108,12 @@ export function renewCredentials() { return {}; }
       semanticSearch: {
         model: MODEL,
         embedQuery: async () => q,
+        embedQueryDual: async () => ({
+          vec384: q,
+          vec1536: null,
+          model384: MODEL,
+          model1536: null,
+        }),
       },
     });
 

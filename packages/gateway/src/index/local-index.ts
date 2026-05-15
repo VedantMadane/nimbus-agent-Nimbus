@@ -242,6 +242,16 @@ export type SemanticSearchDeps = {
   /** Must match `embedding_chunk.model` (e.g. `all-MiniLM-L6-v2`). */
   model: string;
   embedQuery: (text: string) => Promise<Float32Array | null>;
+  /** Hybrid-aware query embedding — runtime returns whichever vectors it can produce.
+   *  - local-only:  { vec384, null, model384, null }
+   *  - openai-only: { null, vec1536, null, model1536 }
+   *  - hybrid:      both populated */
+  embedQueryDual: (text: string) => Promise<{
+    vec384: Float32Array | null;
+    vec1536: Float32Array | null;
+    model384: string | null;
+    model1536: string | null;
+  }>;
 };
 
 export type LocalIndexOptions = {
@@ -662,7 +672,7 @@ export class LocalIndex {
     if (canHybrid) {
       const t0 = performance.now();
       try {
-        const qVec = await ss.embedQuery(nameQ);
+        const dual = await ss.embedQueryDual(nameQ);
         const hybridOpts: HybridSearchOptions = {
           query: nameQ,
           limit: query.limit ?? 50,
@@ -676,8 +686,12 @@ export class LocalIndex {
         if (query.itemType !== undefined && query.itemType !== "") {
           hybridOpts.itemType = query.itemType;
         }
-        if (qVec !== null && qVec !== undefined) {
-          hybridOpts.queryEmbedding = qVec;
+        if (dual.vec384 !== null) {
+          hybridOpts.queryEmbedding = dual.vec384;
+        }
+        if (dual.vec1536 !== null && dual.model1536 !== null) {
+          hybridOpts.queryEmbedding1536 = dual.vec1536;
+          hybridOpts.embeddingModel1536 = dual.model1536;
         }
         const hybridResults = await hybridSearch(this.db, hybridOpts);
 
