@@ -65,11 +65,27 @@ END;
 3. When sqlite-vec is loaded, `vec_items_1536` exists; the 384-dim trigger has the `WHEN OLD.dims = 384` clause (verified via `sqlite_master.sql`); the 1536-dim trigger exists.
 4. When sqlite-vec is unavailable (`NIMBUS_FORCE_NO_VEC=1` or the absent-vec path), `vec_items_1536` does not exist but the migration row is still recorded.
 
+**Pre-conditions already guaranteed by V6 + the runner.** Two safety properties the V30 migration relies on without re-asserting them:
+
+- `embedding_chunk.dims INTEGER NOT NULL` was declared at V6 (`embedding-v6-sql.ts:16`). Every existing row has a non-null `dims` value, so the new `WHEN OLD.dims = 384` and `WHEN OLD.dims = 1536` clauses are well-defined for all rows.
+- Every migration step in `runner.ts` runs inside a single `db.transaction(() => { db.exec(...); db.exec("PRAGMA user_version = N"); recordMigration(...); })()` (see `migrateIndexedV5ToV6` at `runner.ts:146` for the pattern). The `DROP TRIGGER` + `CREATE TRIGGER` + `CREATE VIRTUAL TABLE` sequence in V30 is therefore atomic — there is no window where `DELETE FROM embedding_chunk` would miss its propagation to `vec_items_384`.
+
 ## Section 2 — Routing module
 
 **New file.** `packages/gateway/src/embedding/routing.ts`:
 
 ```typescript
+/** Embedding dimensions for the two supported provider tracks.
+ *  Used to derive `vec_items_<dim>` table names (the only valid values),
+ *  and to validate query embeddings before KNN. Bumping this list requires
+ *  a corresponding `vec_items_<dim>` migration. */
+export const EMBEDDING_DIM_LOCAL = 384 as const;
+export const EMBEDDING_DIM_OPENAI = 1536 as const;
+export const SUPPORTED_EMBEDDING_DIMS = new Set<number>([
+  EMBEDDING_DIM_LOCAL,
+  EMBEDDING_DIM_OPENAI,
+]);
+
 /** Items whose primary content is natural language prose.
  *  Keys are "<service>:<type>" pairs derived from item.service + item.type.
  *  When provider="hybrid" AND openai.api_key is in vault, these route to
@@ -100,6 +116,8 @@ export function isProseHeavy(service: string, type: string): boolean {
   return PROSE_HEAVY_TYPES.has(routingKey(service, type));
 }
 ```
+
+`SUPPORTED_EMBEDDING_DIMS` is the single source of truth consumed by `pipeline.ts` (constructor gate), `vec-store.ts` (query-dim gate), and `dual-search.ts` (validation). When future providers introduce new dimensions, this set + the corresponding `vec_items_<dim>` migration are the only places that need to change.
 
 **Why a separate module:** keeps the set as a single-screen, grep-able diff; provides a single home for the helper functions used by both the pipeline and the search path. Membership changes are reviewable in the diff alone, not via TOML / UI surface.
 
@@ -138,9 +156,11 @@ Mechanical; covered by the existing test bodies after the type expansion.
 Today the pipeline hardcodes `vec_items_384`. Two changes:
 
 ```typescript
+import { SUPPORTED_EMBEDDING_DIMS } from "./routing.ts";
+
 constructor(options) {
   …
-  if (this.embedder.dims !== 384 && this.embedder.dims !== 1536) {
+  if (!SUPPORTED_EMBEDDING_DIMS.has(this.embedder.dims)) {
     throw new Error(`unsupported embedding dim: ${String(this.embedder.dims)}`);
   }
   this.vecTable = `vec_items_${String(this.embedder.dims)}`;
@@ -196,11 +216,13 @@ export class RoutingEmbeddingPipeline implements EmbeddingPipeline {
 
   async backfillAll(onProgress?): Promise<void> {
     // Routing-aware backfill: each inner pipeline backfills only items that
-    // ROUTE to it, not items that "happen to be missing this model".
-    const localTypes  = (await this.allObservedRoutingKeys()).filter(k => !PROSE_HEAVY_TYPES.has(k));
-    const openaiTypes = Array.from(PROSE_HEAVY_TYPES);
-    await this.local.backfillForRoutingKeys(localTypes, onProgress);
-    await this.openai.backfillForRoutingKeys(openaiTypes, onProgress);
+    // ROUTE to it, not items that "happen to be missing this model". The
+    // PROSE_HEAVY_TYPES set is fixed at module load, so each inner call uses
+    // it directly with `IN (...)` / `NOT IN (...)` — no DISTINCT scan over
+    // `item` is needed.
+    const proseKeys = Array.from(PROSE_HEAVY_TYPES);
+    await this.openai.backfillForRoutingKeys({ in: proseKeys }, onProgress);
+    await this.local.backfillForRoutingKeys({ notIn: proseKeys }, onProgress);
   }
 }
 ```
@@ -208,17 +230,21 @@ export class RoutingEmbeddingPipeline implements EmbeddingPipeline {
 A new method on `SqliteEmbeddingPipeline`:
 
 ```typescript
-async backfillForRoutingKeys(
-  keys: readonly string[],   // e.g. ["slack:message", "gmail:email"]
-  onProgress?,
-): Promise<void> {
+type RoutingScope =
+  | { in: readonly string[] }     // include items whose (service||':'||type) IS in this set
+  | { notIn: readonly string[] }; // include items whose (service||':'||type) is NOT in this set
+
+async backfillForRoutingKeys(scope: RoutingScope, onProgress?): Promise<void> {
   // Same query shape as backfillAll, plus a WHERE filter:
-  //   AND (i.service || ':' || i.type) IN (?,?,?,…)
+  //   AND (i.service || ':' || i.type) IN  (?,?,?,…)   -- scope.in
+  //   AND (i.service || ':' || i.type) NOT IN (?,?,?,…)  -- scope.notIn
   // Same `WHERE NOT EXISTS … model = ?` semantics so re-runs are idempotent.
+  // No DISTINCT pass over `item`; the existing `idx_item_service` /
+  // `idx_item_type` indexes plus the NOT EXISTS sub-select cover the access pattern.
 }
 ```
 
-This keeps backfill correctness clean: a Slack message that has an OpenAI-1536 chunk is never *also* MiniLM-embedded, even though it's "missing" a MiniLM chunk by the old criterion.
+This keeps backfill correctness clean: a Slack message that has an OpenAI-1536 chunk is never *also* MiniLM-embedded, even though it's "missing" a MiniLM chunk by the old criterion. The two scopes are disjoint by construction (one is the literal complement of the other against the fixed `PROSE_HEAVY_TYPES` set), so an item is only ever considered by one inner pipeline.
 
 ### 3d. `create-embedding-runtime.ts` — provider switch
 
@@ -271,10 +297,12 @@ All tests use a stub `Embedder` — no real HTTP to OpenAI.
 ### 4a. `vec-store.ts` — `vectorSearchChunks` becomes dim-aware
 
 ```typescript
+import { SUPPORTED_EMBEDDING_DIMS } from "../embedding/routing.ts";
+
 export function vectorSearchChunks(db, options): VectorChunkHit[] {
   const dims = options.queryEmbedding.length;
-  if (dims !== 384 && dims !== 1536) {
-    throw new Error(`expected 384- or 1536-dim query embedding, got ${String(dims)}`);
+  if (!SUPPORTED_EMBEDDING_DIMS.has(dims)) {
+    throw new Error(`unsupported query embedding dim: ${String(dims)}`);
   }
   const vecTable = `vec_items_${String(dims)}`;   // same I9-safe pattern as §3b
   let sql = `
@@ -418,10 +446,12 @@ nimbus index reembed --model <id>
 | `--item-type` | `slack:message` → exact `(service, type)` pair. `message` → type-only filter across services. Discriminator is the presence of a colon. |
 | `--service` | Alternative scope filter; e.g. `--service slack` reembeds every Slack item regardless of type. |
 | `--limit` | Maximum total items processed (after `--item-type` / `--service` filter). |
-| `--batch-size` | Default 100 (matches OpenAI's batch sweet spot). |
+| `--batch-size` | Default 100. Server-side clamp `1 ≤ batchSize ≤ 256` (OpenAI's documented per-request input limit on `text-embedding-3-small`). Values outside the range are silently coerced; the resolved value is echoed in the run summary. |
 | `--dry-run` | No HTTP calls, no DB writes. Reports the count that *would* be processed. Exit 0. |
 | `--yes` | Required for non-dry runs (mirrors `nimbus db repair` safety). Without it, prints the planned action and exits 0. |
 | `--json` | Emits a single final-summary JSON object instead of progress lines. |
+
+**Colon discriminator safety.** Verified at spec time: no service id (`github`, `slack`, …) and no item `type` value (`message`, `git_commit`, `obsidian_note`, …) currently contains a colon, so a colon in `--item-type` unambiguously separates the two halves. Future service-name conventions (e.g. an `aws:lambda`-style service id) would need a different escape — flagged here so the assumption isn't silent.
 
 **Pre-flight checks** (CLI-side):
 
@@ -443,7 +473,9 @@ New module `packages/gateway/src/ipc/index-reembed-rpc.ts`:
 **Posture** (all locked here, no exception):
 
 - **NOT** in Tauri `ALLOWED_METHODS` (CLI-only for v1, mirroring `db.*`). Any future UI demand requires a separate Tauri-allowlist PR per `nimbus-tauri-allowlist`.
-- **NOT** LAN-callable. `checkLanMethodAllowed` rejects `index.reembed*` per the I5 contract; same posture as `audit.toolCalls` and the rest of the new `index.*` write surface.
+- **NOT** LAN-callable. `checkLanMethodAllowed` in `ipc/lan-rpc.ts` is **default-allow with a blocklist** (the `index` namespace is intentionally LAN-allowed for the read paths `index.search` / `index.query` / `index.getItem`). So this PR adds **two explicit full-method-name entries** to `FORBIDDEN_OVER_LAN`: `"index.reembed"` and `"index.reembedCancel"`. This mirrors the existing `"connector.addMcp"` line in that list. The read-path `index.*` methods stay LAN-callable; only the reembed writes are blocked.
+
+**CLI subscription ordering.** Notification listeners for `index.reembedProgress` / `index.reembedDone` / `index.reembedError` must be attached **before** the CLI issues the `index.reembed` request. Otherwise an early progress notification can race ahead of the first listener registration and be dropped. The CLI matches the existing `llm.pullModel` pattern: register listeners → call → loop on listener events until `done` or `error` resolves the wait.
 
 ### 5c. Job runner inside the Gateway
 
@@ -468,7 +500,7 @@ async function runReembedJob(deps, params): Promise<void> {
   //    Idempotent: re-running with the same args only sees items still
   //    missing the target model.
   //
-  // 4. Loop batches of params.batchSize (default 100):
+  // 4. Loop batches of clamp(params.batchSize ?? 100, 1, 256):
   //      a. embedder.embed(texts)
   //      b. On 429 / 5xx → wait Retry-After header (or 2 s) → 1 retry.
   //         On retry-fail → skip batch, log, increment `skipped`.
@@ -519,8 +551,8 @@ Matches the parent sequencing spec's recommendation; richer exit codes deferred 
 ### 6b. Security invariants
 
 - **I7 (Tauri allowlist):** not touched — `index.reembed*` is not in `ALLOWED_METHODS`. No count assertion change in `gateway_bridge.rs`.
-- **I5 (LAN method allow-list):** not touched — `index.reembed*` is rejected by `checkLanMethodAllowed`. Same posture as `audit.toolCalls`.
-- **I9 (bound parameters):** not touched — `vec_items_<dims>` strings are built from a numeric `dims` value with a hard `dims ∈ {384, 1536}` check (enum-equivalent), never from caller-supplied data. `SECURITY-INVARIANTS.md` does not change.
+- **I5 (LAN method allow-list):** **wiring change.** `checkLanMethodAllowed` in `ipc/lan-rpc.ts` is default-allow with a blocklist; the `index` namespace is intentionally LAN-allowed for read paths (`index.search` / `index.query` / `index.getItem`). This PR adds **two explicit full-method-name entries** to `FORBIDDEN_OVER_LAN`: `"index.reembed"` and `"index.reembedCancel"` — mirroring the existing `"connector.addMcp"` precedent on `lan-rpc.ts:17`. The existing I5 enforcement test in `security-invariants.test.ts` already asserts `FORBIDDEN_OVER_LAN`'s membership; one new assertion line covers the two new entries. `SECURITY-INVARIANTS.md` §I5 anti-pattern column is extended to include "exposing `index.*` write methods over LAN without a full-method-name entry" so a future contributor doesn't reintroduce the gap.
+- **I9 (bound parameters):** not touched — `vec_items_<dims>` strings are built from a numeric `dims` value validated against `SUPPORTED_EMBEDDING_DIMS` (enum-equivalent), never from caller-supplied data. `SECURITY-INVARIANTS.md` does not change.
 - **No new invariant added.** The PR strengthens correctness through dim-aware triggers but introduces no new structural defense that would meet the I-numbered "production wiring + docs entry + enforcement test" triple-rule bar.
 
 ### 6c. Docs updates (same PR)
@@ -528,7 +560,8 @@ Matches the parent sequencing spec's recommendation; richer exit codes deferred 
 | File | Update |
 |---|---|
 | `docs/architecture.md` | "Local Database Schema": add `vec_items_1536` row; note dim-aware delete triggers. "Embedding" section: hybrid mode + routing module description. |
-| `docs/cli-reference.md` | New `nimbus index reembed` subsection: examples, exit codes, vault-key prerequisites. |
+| `docs/cli-reference.md` | New `nimbus index reembed` subsection: examples, exit codes, vault-key prerequisites, batch-size clamp range. |
+| `docs/SECURITY-INVARIANTS.md` | §I5 anti-pattern column extended to flag the `index.*` write-method blocklist requirement. |
 | `docs/roadmap.md` | Flip the T6 PR 3 checkbox; extend the `Last updated:` header with `T6 PR3 ✅ (2026-05-15)`. |
 | `.claude/commands/nimbus-file-map.md` | Add rows: `embedding/routing.ts`, `embedding/routing-pipeline.ts`, `search/dual-search.ts`, `index/vec-items-1536-v30-sql.ts`, `cli/commands/index-cmd.ts`, `ipc/index-reembed-rpc.ts`. |
 | `.claude/commands/nimbus-ipc.md` | Extend the `index.*` section with the four new method names (request + cancel + 3 notifications). |
@@ -544,7 +577,7 @@ The parent sequencing spec already excluded several items; this PR3 spec confirm
 - **Tauri UI surface** — no `ALLOWED_METHODS` edits; CLI-only.
 - **LAN exposure** — `index.reembed*` stays IPC-only via `I5`.
 - **Per-model distance normalisation** — RRF / min-max merge deferred until empirical recall data justifies it.
-- **Orphan cleanup** for 384-dim OpenAI rows after the 384→1536 upgrade — visible via existing `embedding_chunk.model` filtering; manual operator action; not automated in this PR.
+- **Orphan cleanup** for 384-dim OpenAI rows after the 384→1536 upgrade — visible via existing `embedding_chunk.model` filtering; manual operator action; not automated in this PR. A future `nimbus db cleanup` subcommand is the natural home (would also subsume the existing `db.snapshots prune` ergonomics).
 - **Retention policy** for `vec_items_*` — out of scope; existing item lifecycle (delete from `item` → CASCADE to `embedding_chunk` → dim-aware trigger to `vec_items_*`) is the only cleanup path.
 - **PROSE_HEAVY_TYPES TOML / extension surface** — entries change via source code only in this PR.
 
@@ -560,8 +593,27 @@ The parent sequencing spec already excluded several items; this PR3 spec confirm
 ## See also
 
 - [Parent sequencing spec](./2026-05-14-phase-5-t6-design.md) — locks PR order; this document fills §2 PR 3's deferred decisions.
-- [`../../SECURITY-INVARIANTS.md`](../../SECURITY-INVARIANTS.md) — I5 / I7 / I9 (none of which change in this PR).
+- [`../../SECURITY-INVARIANTS.md`](../../SECURITY-INVARIANTS.md) — I5 (anti-pattern column extended) / I7 / I9.
 - [`../../architecture.md`](../../architecture.md) — Local Database Schema (gets the V30 update in the same PR).
 - `nimbus-db-migrations` skill — V30 numbering and runner pattern.
 - `nimbus-ipc` skill — new `index.reembed*` methods follow the namespace conventions.
 - `nimbus-tauri-allowlist` skill — confirms the no-allowlist-edit posture.
+
+## Section 9 — Review disposition (Gemini CLI, 2026-05-15)
+
+Source: [`2026-05-15-phase-5-t6-pr3-vec-items-1536-review-feedback.md`](./2026-05-15-phase-5-t6-pr3-vec-items-1536-review-feedback.md). Each suggestion is either folded into the spec (**FIX**), confirmed as already-correct (**NO ACTION**), or pushed to a future PR with explicit rationale (**DEFER**).
+
+| Review § | Item | Disposition | Rationale & where in this spec |
+|---|---|---|---|
+| 1 | V30 trigger safety — `dims` null-check + transaction wrapping | **NO ACTION** | Both pre-conditions are guaranteed elsewhere: `embedding_chunk.dims INTEGER NOT NULL` was declared at V6 (`embedding-v6-sql.ts:16`), so no nulls exist; and every migration in `runner.ts` runs inside `db.transaction(...)` (see `migrateIndexedV5ToV6` at `runner.ts:146` for the pattern), so the V30 drop+recreate+create-table sequence is atomic. The reviewer's "window where deletes don't propagate" doesn't exist. §1 now states both pre-conditions explicitly so a future reader doesn't have to rediscover them. |
+| 2 | `RoutingEmbeddingPipeline.backfillAll` should not do a DISTINCT scan | **FIX** | The original §3c sketch referenced a vaguely-defined `allObservedRoutingKeys()` helper. Reviewer's alternative (use the fixed `PROSE_HEAVY_TYPES` set directly with `IN (...)` for the OpenAI side and `NOT IN (...)` for the local side) is both cleaner and the actual intent — no DISTINCT scan needed. §3c rewritten: `backfillAll` now passes `{ in: proseKeys }` / `{ notIn: proseKeys }` scopes to a typed `backfillForRoutingKeys(scope)` method. The two scopes are disjoint by construction (one is the literal complement of the other against a fixed set), so an item is only considered by one inner pipeline. Existing `idx_item_service` / `idx_item_type` indexes plus the existing `NOT EXISTS` sub-select cover the access pattern. |
+| 3 | Magic numbers `384` / `1536` in pipeline + migrations | **FIX** | New constants `EMBEDDING_DIM_LOCAL = 384` and `EMBEDDING_DIM_OPENAI = 1536` live in `embedding/routing.ts`, alongside a `SUPPORTED_EMBEDDING_DIMS` set. The constructor gate in `pipeline.ts` (§3b) and the query-dim gate in `vec-store.ts` (§4a) both reference the set — one source of truth. Future-provider additions touch one file (plus the corresponding `vec_items_<dim>` migration). |
+| 4 | `--item-type` colon discriminator future-proofing | **NO ACTION** (with note) | Verified at spec time: no current service id and no current item `type` value contains a colon, so the discriminator is unambiguous today. §5a now flags this assumption explicitly — a future service-name convention (e.g. `aws:lambda`-style) would require a different escape. Documented, not solved. |
+| 5 | CLI must register `index.reembedProgress` listeners before sending the request | **FIX** | Real implementation gotcha — early notifications could race ahead of listener registration. §5b extended with an explicit "CLI subscription ordering" paragraph naming the `llm.pullModel` precedent (register listeners → call → loop on listener events until `done` or `error`). The implementation plan will lock the exact API call order. |
+| 6 | Retry policy should use exponential backoff | **NO ACTION** | The brainstorm explicitly chose "1 retry with backoff" over multi-retry exponential (recorded in the brainstorm dialog; option 2 of the AskUserQuestion was rejected). The 2 s value is only the *fallback* when OpenAI omits `Retry-After` — which is unusual in practice. Single retry bounds latency so a stuck batch doesn't stall the run; the idempotent re-run is the operator's tool for genuinely flaky periods. Adding exponential backoff would expand the test surface (timer-mocked retry-state) without changing the steady-state behaviour. |
+| 7 | I5 — explicit blocklist entry for `index.reembed*` | **FIX (real defect)** | `checkLanMethodAllowed` in `ipc/lan-rpc.ts:44–55` is default-allow with a `FORBIDDEN_OVER_LAN` blocklist. The `index` namespace is intentionally LAN-allowed for read paths (`index.search` / `index.query` / `index.getItem`), so a plain "not in blocklist" stance would have left `index.reembed` reachable over LAN. §6b rewritten to specify the wiring: add `"index.reembed"` and `"index.reembedCancel"` as full-method-name entries to `FORBIDDEN_OVER_LAN` (mirroring the `"connector.addMcp"` precedent on `lan-rpc.ts:17`); extend the I5 enforcement test in `security-invariants.test.ts` to assert their membership; extend `SECURITY-INVARIANTS.md` §I5 anti-pattern column to flag the `index.*` write-method gap. Caught a genuine hole. |
+| Q1 | Orphan cleanup — future `nimbus db cleanup`? | **DEFER (already documented; wording tightened)** | §7 already listed orphan cleanup as Out of Scope. Wording now names `nimbus db cleanup` as the natural home (would also subsume the existing `db.snapshots prune` ergonomics). No new PR scope. |
+| Q2 | Hybrid search distance-merge balance / weight multiplier | **NO ACTION** | §4e already documents the L2-merge approximation and flags RRF / min-max as a follow-up when empirical recall data warrants it. Reviewer confirmed deferring is fine. |
+| Q3 | `--batch-size` upper bound | **FIX** | OpenAI's `text-embedding-3-small` accepts up to 256 inputs per request. §5a clamps `--batch-size` to `1 ≤ N ≤ 256` server-side; values outside the range are silently coerced and the resolved value is echoed in the run summary. §5c's batch loop reads `clamp(params.batchSize ?? 100, 1, 256)`. |
+
+**Net effect on this spec:** four targeted FIX edits (§3c rewrite, §3b + §4a + §2 constants, §5a colon note + batch-size clamp, §5b subscription-ordering paragraph, §6b I5 wiring rewrite, §6c docs row), one wording tighten in §7, and this §9 disposition table. Nothing about file structure, schema columns, or commit topology changes. PR scope unchanged.
