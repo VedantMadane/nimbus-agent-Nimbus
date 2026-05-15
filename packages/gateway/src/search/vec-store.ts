@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { SUPPORTED_EMBEDDING_DIMS } from "../embedding/routing.ts";
 
 export type VectorChunkHit = {
   itemId: string;
@@ -10,7 +11,11 @@ export type VectorChunkHit = {
 };
 
 /**
- * KNN over `vec_items_384` joined to `embedding_chunk` for a given embedding model.
+ * KNN over `vec_items_<dim>` joined to `embedding_chunk` for a given embedding model.
+ * `dim` is derived from the query embedding's length and validated against
+ * `SUPPORTED_EMBEDDING_DIMS` — same I9-safe enum-equivalent pattern as the
+ * pipeline's `vecTable` derivation.
+ *
  * Caller must have loaded sqlite-vec on this connection.
  */
 export function vectorSearchChunks(
@@ -24,18 +29,22 @@ export function vectorSearchChunks(
     since?: number;
   },
 ): VectorChunkHit[] {
-  if (options.queryEmbedding.length !== 384) {
+  const dims = options.queryEmbedding.length;
+  if (!SUPPORTED_EMBEDDING_DIMS.has(dims)) {
     throw new Error(
-      `expected 384-dim query embedding, got ${String(options.queryEmbedding.length)}`,
+      `unsupported query embedding dim: ${String(dims)} (expected one of ${Array.from(
+        SUPPORTED_EMBEDDING_DIMS,
+      ).join(",")})`,
     );
   }
+  const vecTable = `vec_items_${String(dims)}`;
   const lim = Math.min(500, Math.max(1, Math.floor(options.limit)));
   const q = new Float32Array(options.queryEmbedding);
   let sql = `
     SELECT ec.item_id AS itemId, ec.chunk_index AS chunkIndex, ec.chunk_text AS chunkText,
            ec.vec_rowid AS vecRowid, knn.distance AS distance
     FROM (
-      SELECT rowid, distance FROM vec_items_384 WHERE embedding MATCH ? AND k = ?
+      SELECT rowid, distance FROM ${vecTable} WHERE embedding MATCH ? AND k = ?
     ) knn
     INNER JOIN embedding_chunk ec ON ec.vec_rowid = knn.rowid AND ec.model = ?
     INNER JOIN item i ON i.id = ec.item_id
