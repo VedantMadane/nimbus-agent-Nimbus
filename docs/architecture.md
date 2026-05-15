@@ -19,6 +19,27 @@
 
 ---
 
+## Contents
+
+- [Overview](#overview)
+- [Cross-Platform Architecture](#cross-platform-architecture)
+- [Package Dependency Rules](#package-dependency-rules)
+- [Data Flow Diagram](#data-flow-diagram)
+- [Subsystem 1: The Nimbus Engine](#subsystem-1-the-nimbus-engine)
+- [Subsystem 2: The MCP Connector Mesh](#subsystem-2-the-mcp-connector-mesh)
+- [Subsystem 3: The Secure Vault](#subsystem-3-the-secure-vault)
+- [Subsystem 4: The Extension Registry](#subsystem-4-the-extension-registry)
+- [Phase 4 Subsystems](#phase-4-subsystems)
+- [Built-in Agents Pattern](#built-in-agents-pattern)
+- [Phase 6+ Subsystems (Planned)](#phase-6-subsystems-planned)
+- [Nimbus Gateway: Process Lifecycle](#nimbus-gateway-process-lifecycle)
+- [Local Database Schema](#local-database-schema)
+- [Testing Architecture](#testing-architecture)
+- [Security Model](#security-model)
+- [Directory Structure](#directory-structure)
+
+---
+
 ## Overview
 
 Nimbus is a local-first AI agent for DevOps engineers, security practitioners, and senior developers who run systems in production. It is composed of four primary subsystems, all hosted inside a single headless **Nimbus Gateway** process. Clients — the CLI, the Tauri 2.0 desktop app, or the VS Code extension — communicate with the Gateway exclusively over a local IPC socket. No subsystem is directly accessible from the client tier.
