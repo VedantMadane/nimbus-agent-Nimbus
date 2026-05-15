@@ -117,10 +117,27 @@ jobs:
       - name: Unit tests (with coverage) — macOS/Windows (retry once)
         if: runner.os != 'Linux'
         shell: bash
+        # Retry-once tolerates the cold-runner timeout outliers in
+        # `packages/gateway/src/perf/` and `packages/gateway/src/platform/` on
+        # Windows/macOS that come in under budget on a warm second attempt.
+        # Critically, attempt 2's exit code MUST propagate — without that, two
+        # consecutive genuine failures look identical to two transient flakes
+        # and the job exits 0 (silent flake hiding). Mirrors the same shape
+        # used by `pr-quality-cross-platform` in `ci.yml`.
         run: |
+          set +e
           for attempt in 1 2; do
-            bun test packages/gateway packages/cli packages/sdk packages/client packages/mcp-connectors scripts --coverage --coverage-reporter=lcov --reporter=junit --reporter-outfile=junit-reports/junit-unit.xml && break
-            echo "Attempt $attempt failed, retrying in 5 s..." && sleep 5
+            bun test packages/gateway packages/cli packages/sdk packages/client packages/mcp-connectors scripts --coverage --coverage-reporter=lcov --reporter=junit --reporter-outfile=junit-reports/junit-unit.xml
+            code=$?
+            if [ "$code" -eq 0 ]; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 2 ]; then
+              echo "Both attempts failed with exit code $code"
+              exit "$code"
+            fi
+            echo "Attempt $attempt failed (exit $code), retrying in 5 s..."
+            sleep 5
           done
         env:
           CI: "true"
