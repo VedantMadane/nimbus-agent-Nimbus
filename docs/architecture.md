@@ -1101,6 +1101,17 @@ const streamReq: JSONRPCRequest = {
 // audit.verify(params: { full?, since? }) -> { ok: true, checkedCount, errors: [] }
 // audit.exportAll() -> { auditEntries: [] }
 
+// Tool-call audit read surface (Phase 5 T6 PR 2 — V29 tool_call_log)
+// IPC-only — NOT LAN-callable (I5), NOT in Tauri ALLOWED_METHODS (I7),
+// NOT exposed via the read-only HTTP API. Same exfiltration-class posture as vault.*.
+// audit.toolCalls(params: {
+//   sessionId?: string,                     // '' = ONLY rows with NULL session_id; non-empty = exact match
+//   toolId?: string, status?: 'ok'|'error',
+//   since?: number, until?: number,         // unix ms inclusive bounds
+//   limit?: number,                         // 1..1000, default 100
+//   cursor?: { calledAt: number, id: number } // composite (calledAt, id) resumption cursor
+// }) -> { toolCalls: ToolCallLogReadEntry[], hasMore: boolean, nextCursor: { calledAt, id } | null }
+
 // Consent gate — Gateway emits a consent request; client surfaces it to the user
 // Gateway → Client: { method: "consent.request", params: { actionId, prompt, details } }
 // Client → Gateway: { method: "consent.respond", params: { actionId, approved: true } }
@@ -1110,7 +1121,7 @@ const streamReq: JSONRPCRequest = {
 
 ## Local Database Schema
 
-> **Canonical migration list:** the runner at [`packages/gateway/src/index/migrations/runner.ts`](../packages/gateway/src/index/migrations/runner.ts) holds the authoritative `INDEXED_SCHEMA_STEPS` array — each step pairs a `migrateIndexedV<N>ToV<M>` function with the SQL constants imported from sibling [`packages/gateway/src/index/`](../packages/gateway/src/index/) `*-v<N>-sql.ts` files. The runner wraps each step in a single transaction, writes a pre-migration backup to `<dataDir>/backups/pre-migration-V<N>-<timestamp>.db`, records success in the `_schema_migrations` ledger, and rolls back on a thrown migration. **Latest applied migration: V26** (`obsidian_notes` shadow table + `backlinks` graph relation). Migrations are append-only and forward-only — no `down()` function. See [`.claude/commands/nimbus-db-migrations.md`](../.claude/commands/nimbus-db-migrations.md) for the authoring contract (numbering, batched backfill, FTS5 / vec0 cautions).
+> **Canonical migration list:** the runner at [`packages/gateway/src/index/migrations/runner.ts`](../packages/gateway/src/index/migrations/runner.ts) holds the authoritative `INDEXED_SCHEMA_STEPS` array — each step pairs a `migrateIndexedV<N>ToV<M>` function with the SQL constants imported from sibling [`packages/gateway/src/index/`](../packages/gateway/src/index/) `*-v<N>-sql.ts` files. The runner wraps each step in a single transaction, writes a pre-migration backup to `<dataDir>/backups/pre-migration-V<N>-<timestamp>.db`, records success in the `_schema_migrations` ledger, and rolls back on a thrown migration. **Latest applied migration: V29** (`tool_call_log` audit table — Phase 5 T6 PR 2, complement to invariant `I11`). Migrations are append-only and forward-only — no `down()` function. See [`.claude/commands/nimbus-db-migrations.md`](../.claude/commands/nimbus-db-migrations.md) for the authoring contract (numbering, batched backfill, FTS5 / vec0 cautions).
 >
 > The SQL block below is the **shape**, not a snapshot of every column. Phase 6+ tables (covered in [§ Phase 6+ Subsystems](#phase-6-subsystems-planned)) will land as new migrations and new item types — `service` / `team` / `scorecard` / `dora_metric` (Phase 7), `security_finding` / `posture_finding` / `security_incident` / `sbom_artifact` (Phase 8), `llm_trace` / `ml_model` / `vector_index` / `ai_spend_event` (Phase 9), and the multimodal-understanding / sandbox-execution tables (Phase 14).
 
@@ -1311,6 +1322,28 @@ ALTER TABLE workflow_run ADD COLUMN params_override_json TEXT;
 -- Audit session rehydration (Phase 4 WS6 — V24 migration)
 ALTER TABLE audit_log ADD COLUMN session_id TEXT;
 CREATE INDEX idx_audit_log_session_id ON audit_log(session_id);
+
+-- Tool-call audit log (Phase 5 T6 PR 2 — V29 migration)
+-- Forensic complement to invariant I11 (the <tool_output> envelope on the
+-- LLM-facing path). Written at both wrapToolOutput sites (engine/agent.ts
+-- wrapToolForLlm + connectors/lazy-mesh/mesh.ts listTools) via writeToolCallLog
+-- in db/tool-call-log.ts (best-effort — never breaks the LLM-facing path).
+-- Envelopes >64 KiB are truncated with a "...[truncated, N bytes total]" marker.
+-- Read surface: audit.toolCalls IPC (read-only, IPC-only — NOT LAN-callable per
+-- I5, NOT in Tauri ALLOWED_METHODS per I7, NOT exposed via the HTTP API).
+CREATE TABLE tool_call_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id      TEXT,                                       -- NULL when no agentRequestContext.run in scope
+    tool_id         TEXT NOT NULL,                              -- "github_repo_pr_list" | "searchLocalIndex" | ...
+    service         TEXT NOT NULL,                              -- "github" | "filesystem" | "local" | ...
+    called_at       INTEGER NOT NULL,                           -- unix ms when the wrapped tool was invoked
+    duration_ms     INTEGER NOT NULL,                           -- wall-clock ms from invocation to envelope emission
+    result_envelope TEXT NOT NULL,                              -- full <tool_output>...</tool_output> (capped 64 KiB)
+    status          TEXT NOT NULL CHECK(status IN ('ok','error'))
+);
+CREATE INDEX idx_tool_call_log_session   ON tool_call_log(session_id);
+CREATE INDEX idx_tool_call_log_tool_time ON tool_call_log(tool_id, called_at);
+CREATE INDEX idx_tool_call_log_called_at ON tool_call_log(called_at);
 
 -- Extension registry (mirrors the extensions SQLite schema in Subsystem 4)
 CREATE TABLE extensions (

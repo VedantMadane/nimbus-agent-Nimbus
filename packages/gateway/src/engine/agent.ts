@@ -1,3 +1,5 @@
+import type { Database } from "bun:sqlite";
+
 import { Mastra } from "@mastra/core";
 import { Agent } from "@mastra/core/agent";
 import { createTool } from "@mastra/core/tools";
@@ -6,6 +8,7 @@ import { redactAuditPayload } from "../audit/format-audit-payload.ts";
 import { Config, getEffectiveAgentModel } from "../config.ts";
 import { CONNECTOR_SERVICE_IDS } from "../connectors/connector-catalog.ts";
 import { getConnectorHealth } from "../connectors/health.ts";
+import { writeToolCallLog } from "../db/tool-call-log.ts";
 import type { IndexSearchQuery, LocalIndex, TraverseGraphOptions } from "../index/local-index.ts";
 import type { SessionMemoryStore } from "../memory/session-memory-store.ts";
 import { searchPersons } from "../people/person-store.ts";
@@ -24,8 +27,18 @@ const MAX_TOOL_STRING_LEN = 2000;
  * S8-F3 / chain C4 — wrap a tool definition so its execute returns a
  * `<tool_output>`-tagged string. The LLM is instructed by the system prompt
  * to treat envelope contents as data, never instructions.
+ *
+ * Phase 5 T6 PR 2 — when `auditDb` is supplied, also writes a `tool_call_log`
+ * row capturing the envelope, duration, sessionId, and ok/error status.
+ * Errors are logged then re-thrown so the existing LLM-facing error
+ * handling path is unchanged.
  */
-function wrapToolForLlm<T>(service: string, tool: string, toolDef: T): T {
+function wrapToolForLlm<T>(
+  service: string,
+  tool: string,
+  toolDef: T,
+  auditDb: Database | undefined,
+): T {
   const td = toolDef as unknown as {
     execute?: (input: unknown, ctx?: unknown) => Promise<unknown>;
   };
@@ -34,8 +47,41 @@ function wrapToolForLlm<T>(service: string, tool: string, toolDef: T): T {
   return {
     ...(toolDef as object),
     execute: async (input: unknown, ctx?: unknown): Promise<string> => {
-      const raw = await original(input, ctx);
-      return wrapToolOutput({ service, tool }, raw);
+      const sessionId = getAgentRequestSessionId() ?? null;
+      const calledAt = Date.now();
+      let status: "ok" | "error" = "ok";
+      let envelope: string;
+      try {
+        const raw = await original(input, ctx);
+        envelope = wrapToolOutput({ service, tool }, raw);
+      } catch (err) {
+        status = "error";
+        envelope = wrapToolOutput({ service, tool }, { error: String(err) });
+        if (auditDb !== undefined) {
+          writeToolCallLog(auditDb, {
+            sessionId,
+            toolId: tool,
+            service,
+            calledAt,
+            durationMs: Date.now() - calledAt,
+            resultEnvelope: envelope,
+            status,
+          });
+        }
+        throw err;
+      }
+      if (auditDb !== undefined) {
+        writeToolCallLog(auditDb, {
+          sessionId,
+          toolId: tool,
+          service,
+          calledAt,
+          durationMs: Date.now() - calledAt,
+          resultEnvelope: envelope,
+          status,
+        });
+      }
+      return envelope;
     },
   } as unknown as T;
 }
@@ -70,6 +116,8 @@ export type NimbusEngineAgentDeps = {
   searchServicePriority?: ReadonlyMap<string, number>;
   /** When set, exposes recall/append session memory tools (requires `agent.invoke` sessionId). */
   sessionMemoryStore?: SessionMemoryStore;
+  /** Database handle for tool_call_log audit writes (Phase 5 T6 PR 2). */
+  auditDb?: Database;
 };
 
 /**
@@ -397,23 +445,30 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
 
   // Wraps each LLM-facing read tool results in a <tool_output> envelope (Invariant I11).
   const baseTools = {
-    searchLocalIndex: wrapToolForLlm("index", "searchLocalIndex", searchLocalIndex),
-    fetchMoreIndexResults: wrapToolForLlm("index", "fetchMoreIndexResults", fetchMoreIndexResults),
-    traverseGraph: wrapToolForLlm("index", "traverseGraph", traverseGraph),
-    resolvePerson: wrapToolForLlm("people", "resolvePerson", resolvePerson),
-    listConnectors: wrapToolForLlm("connectors", "listConnectors", listConnectors),
-    getAuditLog: wrapToolForLlm("audit", "getAuditLog", getAuditLog),
+    searchLocalIndex: wrapToolForLlm("index", "searchLocalIndex", searchLocalIndex, deps.auditDb),
+    fetchMoreIndexResults: wrapToolForLlm(
+      "index",
+      "fetchMoreIndexResults",
+      fetchMoreIndexResults,
+      deps.auditDb,
+    ),
+    traverseGraph: wrapToolForLlm("index", "traverseGraph", traverseGraph, deps.auditDb),
+    resolvePerson: wrapToolForLlm("people", "resolvePerson", resolvePerson, deps.auditDb),
+    listConnectors: wrapToolForLlm("connectors", "listConnectors", listConnectors, deps.auditDb),
+    getAuditLog: wrapToolForLlm("audit", "getAuditLog", getAuditLog, deps.auditDb),
     ...(recallSessionMemory !== undefined && appendSessionMemory !== undefined
       ? {
           recallSessionMemory: wrapToolForLlm(
             "session",
             "recallSessionMemory",
             recallSessionMemory,
+            deps.auditDb,
           ),
           appendSessionMemory: wrapToolForLlm(
             "session",
             "appendSessionMemory",
             appendSessionMemory,
+            deps.auditDb,
           ),
         }
       : {}),

@@ -261,6 +261,10 @@ async function createSchedulerWithMesh(
     // S8-F9 — pass db + logger so args_json failures surface as
     // persistent_error in connector health and a warn log line.
     healthDb: db,
+    // Phase 5 T6 PR 2 — same db handle used for tool_call_log audit writes
+    // from listTools' wrapped execute path. Two distinct field names so
+    // the two concerns stay readable.
+    auditDb: db,
     logger: syncLogger,
     // Wave A PR 2 — thread the absolute filesystem-root paths so the
     // obsidian MCP child can discover `.obsidian/` markers itself.

@@ -136,11 +136,13 @@ Companion files:
 
 **Defense:** every tool result that flows into an LLM context is wrapped in a textual `<tool_output service="..." tool="...">…</tool_output>` envelope by `wrapToolOutput` in `packages/gateway/src/engine/tool-output-envelope.ts`. Literal `</tool_output>` substrings inside the body are escaped to `<\/tool_output>` so attacker-controlled content cannot terminate the envelope and re-enter "instruction mode".
 
-**Wired at:** the agent's tool wrapper in `packages/gateway/src/engine/agent.ts`. The planner-side `ConnectorDispatcher` returns the bare result on its own path (gated by HITL); the envelope is applied at the LLM-facing boundary only.
+**Wired at:** the agent's tool wrapper in `packages/gateway/src/engine/agent.ts` (`wrapToolForLlm`) and the lazy-mesh dispatcher in `packages/gateway/src/connectors/lazy-mesh/mesh.ts` (`listTools`). The planner-side `ConnectorDispatcher` returns the bare result on its own path (gated by HITL); the envelope is applied at the LLM-facing boundary only.
 
-**Anti-pattern:** building a new agent surface that calls a tool and feeds the raw result to the LLM. S8-F3 / chain C4 documented exactly this (no envelope present despite the doc claim) — the prompt-injection defense was a soft barrier (LLM-SDK message typing) only.
+**Audit-write complement (Phase 5 T6 PR 2, V29 `tool_call_log`):** at both wiring sites above, the envelope string is also written to `tool_call_log` via `writeToolCallLog` from `packages/gateway/src/db/tool-call-log.ts` (best-effort — internal try/catch swallows `DiskFullError` and constraint violations so an audit-write failure can never break the LLM-facing path). Forensic completeness is best-effort; functional correctness is mandatory. The read surface is `audit.toolCalls` IPC (read-only, IPC-only — NOT LAN-callable per `I5`, NOT in Tauri `ALLOWED_METHODS` per `I7`, NOT exposed via the read-only HTTP API — same exfiltration-class posture as `vault.*`).
 
-**How to comply:** any new LLM-facing tool result goes through `wrapToolOutput`. The HITL gate is the structural defense for destructive actions; the envelope raises the bar against prompt injection on read-only and conversational paths.
+**Anti-pattern:** building a new agent surface that calls a tool and feeds the raw result to the LLM. S8-F3 / chain C4 documented exactly this (no envelope present despite the doc claim) — the prompt-injection defense was a soft barrier (LLM-SDK message typing) only. A second-order anti-pattern is wiring `wrapToolOutput` without also calling `writeToolCallLog` — the envelope still works, but the forensic record needed to reconstruct what the LLM saw is silently lost.
+
+**How to comply:** any new LLM-facing tool result goes through `wrapToolOutput` AND `writeToolCallLog` at the same site. The HITL gate is the structural defense for destructive actions; the envelope raises the bar against prompt injection on read-only and conversational paths; the audit-write closes the forensic-reconstruction gap after the fact.
 
 ---
 
