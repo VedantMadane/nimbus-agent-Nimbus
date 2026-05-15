@@ -1,5 +1,7 @@
 import { MCPClient } from "@mastra/mcp";
 
+import { writeToolCallLog } from "../../db/tool-call-log.ts";
+import { getAgentRequestSessionId } from "../../engine/agent-request-context.ts";
 import { wrapToolOutput } from "../../engine/tool-output-envelope.ts";
 import { extensionProcessEnv } from "../../extensions/spawn-env.ts";
 import type { PlatformPaths } from "../../platform/paths.ts";
@@ -42,6 +44,8 @@ export class LazyConnectorMesh {
   private readonly inactivityMs: number;
   /** S8-F9 — optional db + logger so args_json failures can transition health and log. */
   private readonly healthDb: import("bun:sqlite").Database | undefined;
+  /** Phase 5 T6 PR 2 — when supplied, listTools' wrapped execute writes tool_call_log rows. */
+  private readonly auditDb: import("bun:sqlite").Database | undefined;
   private readonly logger: MeshLogger | undefined;
   private toolsEpoch = 0;
   /** Constructor-bound facade exposing the slot state-machine to extracted free functions. */
@@ -57,6 +61,8 @@ export class LazyConnectorMesh {
       healthDb?: import("bun:sqlite").Database;
       /** S8-F9 — when supplied, args_json parse failures emit a warn line. */
       logger?: MeshLogger;
+      /** Phase 5 T6 PR 2 — when supplied, listTools' wrapped execute writes tool_call_log rows. */
+      auditDb?: import("bun:sqlite").Database;
       /**
        * Wave A PR 2 — absolute paths of `[[filesystem.roots]]` discovered at
        * gateway boot. Threaded into `MeshSpawnContext.obsidianVaultPaths`
@@ -68,6 +74,7 @@ export class LazyConnectorMesh {
     this.inactivityMs = options?.inactivityMs ?? 300_000;
     this.listUserMcpConnectors = options?.listUserMcpConnectors ?? (() => []);
     this.healthDb = options?.healthDb;
+    this.auditDb = options?.auditDb;
     this.logger = options?.logger;
     this.filesystem = new MCPClient({
       servers: {
@@ -397,6 +404,7 @@ export class LazyConnectorMesh {
     Record<string, { execute?: (input: unknown, context?: unknown) => Promise<unknown> }>
   > {
     const merged = await this.listToolsForDispatcher();
+    const auditDb = this.auditDb;
     for (const key of Object.keys(merged)) {
       const value = merged[key];
       if (value === undefined) continue;
@@ -405,8 +413,41 @@ export class LazyConnectorMesh {
       const service = key.split("_")[0] ?? "mcp";
       merged[key] = {
         execute: async (input: unknown, ctx?: unknown): Promise<string> => {
-          const raw = await inner(input, ctx);
-          return wrapToolOutput({ service, tool: key }, raw);
+          const sessionId = getAgentRequestSessionId() ?? null;
+          const calledAt = Date.now();
+          let status: "ok" | "error" = "ok";
+          let envelope: string;
+          try {
+            const raw = await inner(input, ctx);
+            envelope = wrapToolOutput({ service, tool: key }, raw);
+          } catch (err) {
+            status = "error";
+            envelope = wrapToolOutput({ service, tool: key }, { error: String(err) });
+            if (auditDb !== undefined) {
+              writeToolCallLog(auditDb, {
+                sessionId,
+                toolId: key,
+                service,
+                calledAt,
+                durationMs: Date.now() - calledAt,
+                resultEnvelope: envelope,
+                status,
+              });
+            }
+            throw err;
+          }
+          if (auditDb !== undefined) {
+            writeToolCallLog(auditDb, {
+              sessionId,
+              toolId: key,
+              service,
+              calledAt,
+              durationMs: Date.now() - calledAt,
+              resultEnvelope: envelope,
+              status,
+            });
+          }
+          return envelope;
         },
       };
     }
@@ -432,6 +473,7 @@ export async function createLazyConnectorMesh(
     inactivityMs?: number;
     listUserMcpConnectors?: () => readonly UserMcpConnectorRow[];
     healthDb?: import("bun:sqlite").Database;
+    auditDb?: import("bun:sqlite").Database;
     logger?: MeshLogger;
     obsidianVaultPaths?: readonly string[];
   },

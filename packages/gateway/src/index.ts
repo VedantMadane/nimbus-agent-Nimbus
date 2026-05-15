@@ -34,6 +34,7 @@ async function main(): Promise<void> {
   const dispatcher = createConnectorDispatcher(dispatcherClient);
   const engine = createNimbusEngineAgent({
     localIndex: platform.localIndex,
+    auditDb: platform.localIndex.getDatabase(),
     ...(platform.sessionMemoryStore === undefined
       ? {}
       : { sessionMemoryStore: platform.sessionMemoryStore }),

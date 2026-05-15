@@ -46,6 +46,7 @@ import { SCHEDULER_V2_MIGRATION_SQL } from "../scheduler-schema-sql.ts";
 import { INITIAL_SCHEMA_SQL } from "../schema-sql.ts";
 import { tryLoadSqliteVec } from "../sqlite-vec-load.ts";
 import { SUB_TASK_RESULTS_V17_SQL } from "../sub-task-results-v17-sql.ts";
+import { TOOL_CALL_LOG_V29_SCHEMA_SQL } from "../tool-call-log-v29-sql.ts";
 import {
   UNIFIED_ITEM_V3_MIGRATE_FROM_LEGACY_SQL,
   UNIFIED_ITEM_V3_SCHEMA_SQL,
@@ -384,6 +385,14 @@ function migrateIndexedV27ToV28(db: Database, now: number): void {
   })();
 }
 
+function migrateIndexedV28ToV29(db: Database, now: number): void {
+  db.transaction(() => {
+    db.exec(TOOL_CALL_LOG_V29_SCHEMA_SQL);
+    db.exec("PRAGMA user_version = 29");
+    recordMigration(db, 29, "tool_call_log audit table (T6 PR 2)", now);
+  })();
+}
+
 const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 0, toVersion: 1, apply: migrateIndexedV0ToV1 },
   { fromVersion: 1, toVersion: 2, apply: migrateIndexedV1ToV2 },
@@ -413,6 +422,7 @@ const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 25, toVersion: 26, apply: migrateIndexedV25ToV26 },
   { fromVersion: 26, toVersion: 27, apply: migrateIndexedV26ToV27 },
   { fromVersion: 27, toVersion: 28, apply: migrateIndexedV27ToV28 },
+  { fromVersion: 28, toVersion: 29, apply: migrateIndexedV28ToV29 },
 ];
 
 const BACKFILL_LABELS: readonly string[] = [
@@ -444,6 +454,7 @@ const BACKFILL_LABELS: readonly string[] = [
   "obsidian_notes shadow table (Wave A PR 2) (backfilled)",
   "merged_as graph_relation_type (DORA Lead Time, T4 PR 2) (backfilled)",
   "deployment_items shadow table (T4 PR 3b) (backfilled)",
+  "tool_call_log audit table (T6 PR 2) (backfilled)",
 ];
 
 /**

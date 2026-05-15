@@ -24,7 +24,7 @@ import {
   seedPaymentServiceFixture,
 } from "../../fixtures/dora/payment-service/seed.ts";
 
-const TARGET_SCHEMA_VERSION = 28;
+const TARGET_SCHEMA_VERSION = 29;
 
 describe("nimbus metrics dora (e2e, in-process)", () => {
   test("returns the four-metric envelope for a configured service", async () => {
