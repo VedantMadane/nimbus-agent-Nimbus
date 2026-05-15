@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
 
 import { type ChunkOptions, chunkText, itemTextForEmbedding } from "./chunker.ts";
+import { SUPPORTED_EMBEDDING_DIMS } from "./routing.ts";
 import type { Embedder, EmbeddingPipeline, IndexedItem } from "./types.ts";
 
 const DEFAULT_BACKFILL_BATCH = 50;
@@ -23,6 +24,7 @@ export class SqliteEmbeddingPipeline implements EmbeddingPipeline {
   private readonly backfillBatchSize: number;
   private readonly logger: Logger | undefined;
   private readonly chunkOptions: Partial<ChunkOptions> | undefined;
+  private readonly vecTable: string;
 
   constructor(options: SqliteEmbeddingPipelineOptions) {
     this.db = options.db;
@@ -30,6 +32,10 @@ export class SqliteEmbeddingPipeline implements EmbeddingPipeline {
     this.backfillBatchSize = Math.max(1, options.backfillBatchSize ?? DEFAULT_BACKFILL_BATCH);
     this.logger = options.logger;
     this.chunkOptions = options.chunkOptions;
+    if (!SUPPORTED_EMBEDDING_DIMS.has(this.embedder.dims)) {
+      throw new Error(`unsupported embedding dim: ${String(this.embedder.dims)}`);
+    }
+    this.vecTable = `vec_items_${String(this.embedder.dims)}`;
   }
 
   get embeddingModel(): string {
@@ -73,12 +79,12 @@ export class SqliteEmbeddingPipeline implements EmbeddingPipeline {
       this.db.run(`DELETE FROM embedding_chunk WHERE item_id = ? AND model = ?`, [itemId, model]);
 
       const maxRow = this.db
-        .query(`SELECT COALESCE(MAX(rowid), 0) AS m FROM vec_items_384`)
+        .query(`SELECT COALESCE(MAX(rowid), 0) AS m FROM ${this.vecTable}`)
         .get() as { m: number | bigint };
       let nextRowid = Number(maxRow.m) + 1;
 
       const insertVec = this.db.prepare(
-        `INSERT INTO vec_items_384(rowid, embedding) VALUES (?, vec_f32(?))`,
+        `INSERT INTO ${this.vecTable}(rowid, embedding) VALUES (?, vec_f32(?))`,
       );
       const insertChunk = this.db.prepare(
         `INSERT INTO embedding_chunk (item_id, chunk_index, chunk_text, vec_rowid, model, dims, embedded_at)
@@ -129,6 +135,72 @@ export class SqliteEmbeddingPipeline implements EmbeddingPipeline {
            LIMIT ?`,
         )
         .all(model, this.backfillBatchSize) as IndexedItem[];
+
+      if (rows.length === 0) {
+        break;
+      }
+      for (const row of rows) {
+        try {
+          await this.embedItem(row);
+        } catch (err) {
+          this.logger?.warn({ err, itemId: row.id }, "embedding backfill item failed");
+        }
+        done += 1;
+        onProgress?.(done, total);
+      }
+    }
+  }
+
+  /**
+   * Routing-aware backfill: same `WHERE NOT EXISTS … model = ?` semantics as
+   * `backfillAll` plus a fixed-set membership filter on `(service||':'||type)`.
+   *
+   * `scope.in` includes items whose routing key IS in the set; `scope.notIn`
+   * includes items whose routing key is NOT in the set. Used by
+   * `RoutingEmbeddingPipeline` to scope each inner pipeline to its slice.
+   */
+  async backfillForRoutingKeys(
+    scope: { in: readonly string[] } | { notIn: readonly string[] },
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<void> {
+    const model = this.embedder.model;
+    const keys = "in" in scope ? scope.in : scope.notIn;
+    if (keys.length === 0) {
+      // Empty `in` scope is a no-op; empty `notIn` scope means "match everything",
+      // which is identical to backfillAll — fall through to it.
+      if ("in" in scope) {
+        return;
+      }
+      return this.backfillAll(onProgress);
+    }
+    const placeholders = keys.map(() => "?").join(",");
+    const op = "in" in scope ? "IN" : "NOT IN";
+    const filter = `AND (i.service || ':' || i.type) ${op} (${placeholders})`;
+
+    const totalRow = this.db
+      .query(
+        `SELECT COUNT(*) AS c FROM item i WHERE NOT EXISTS (
+           SELECT 1 FROM embedding_chunk c
+           WHERE c.item_id = i.id AND c.model = ?
+         ) ${filter}`,
+      )
+      .get(model, ...keys) as { c: number };
+    const total = totalRow.c;
+    let done = 0;
+
+    while (true) {
+      const rows = this.db
+        .query(
+          `SELECT i.id AS id, i.service AS service, i.type AS type,
+                  i.title AS title, i.body_preview AS body_preview
+           FROM item i WHERE NOT EXISTS (
+             SELECT 1 FROM embedding_chunk c
+             WHERE c.item_id = i.id AND c.model = ?
+           ) ${filter}
+           ORDER BY i.modified_at DESC
+           LIMIT ?`,
+        )
+        .all(model, ...keys, this.backfillBatchSize) as IndexedItem[];
 
       if (rows.length === 0) {
         break;
