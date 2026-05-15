@@ -9,6 +9,18 @@ Phases are thematic, not calendar-bound. A phase begins when its dependencies ar
 
 ---
 
+## Contents
+
+- [Guiding Principles](#guiding-principles)
+- [Commercial Roadmap](#commercial-roadmap)
+- [Status Overview](#status-overview)
+- [Shipped](#shipped) — Phases 1, 2, 3, 3.5, 4
+- [Active](#active) — Phase 5
+- [Planned](#planned) — Phases 6 through 15
+- [How to Update This Document](#how-to-update-this-document)
+
+---
+
 ## Guiding Principles
 
 Every roadmap decision is evaluated against the project's non-negotiables:
@@ -58,11 +70,13 @@ Commercial license also available now for organizations that need to embed Nimbu
 
 ---
 
-## Phase 1 — Foundation ✅
+## Shipped
+
+### Phase 1 — Foundation ✅
 
 **Goal:** Make the Gateway real and the security model provable.
 
-### Delivered
+#### Delivered
 
 - [x] Bun workspace monorepo with root `package.json` and `bunfig.toml`
 - [x] CI: `pr-quality` job on PRs (Ubuntu); 3-platform matrix on push to `main`/`develop`
@@ -75,7 +89,7 @@ Commercial license also available now for organizations that need to embed Nimbu
 - [x] Unit + integration test suite; coverage gates: Engine ≥85%, Vault ≥90%
 - [x] `bun audit` + `trivy` + CodeQL security scanning in CI
 
-### Acceptance Criteria (all met)
+#### Acceptance Criteria (all met)
 
 - `nimbus ask "find all markdown files modified this week"` executes end-to-end on Windows, macOS, and Linux
 - Any destructive follow-up action triggers the HITL consent prompt before any tool call is dispatched
@@ -84,13 +98,13 @@ Commercial license also available now for organizations that need to embed Nimbu
 
 ---
 
-## Phase 2 — The Bridge ✅
+### Phase 2 — The Bridge ✅
 
 **Goal:** Connect every surface a developer works across — cloud storage, email, source control, communication, project tracking, and knowledge management — and unify them in the local index.
 
-### Delivered
+#### Delivered
 
-#### First-party MCP connectors (all with delta sync + index population)
+##### First-party MCP connectors (all with delta sync + index population)
 
 - [x] **Google Drive** — file list, metadata, search; OAuth PKCE; `Changes` API delta; write (create/trash/move/rename) behind HITL
 - [x] **Gmail** — message list, thread read, label list, draft create/send; OAuth PKCE
@@ -108,7 +122,7 @@ Commercial license also available now for organizations that need to embed Nimbu
 - [x] **Confluence** — spaces, pages, blog posts, inline comments; API token; write behind HITL
 - [x] **Discord** (opt-in, off by default) — servers, channels, threads; bot token; read-only index
 
-#### Infrastructure
+##### Infrastructure
 
 - [x] OAuth PKCE utility — `portRange` config, `--port`/`--scopes` CLI flags, no-secret desktop PKCE; token written to Vault only
 - [x] Per-provider rate limiter — token bucket per provider; `[sync.quotas]` config; `penalise()` on 429
@@ -125,14 +139,14 @@ Commercial license also available now for organizations that need to embed Nimbu
 - [x] Coverage gates met: Engine ≥85%, Vault ≥90%, Sync scheduler ≥80%, Rate limiter ≥85%, People graph ≥80%
 - [x] Linux headless installers (`.deb` + `.tar.gz`); Windows NSIS + macOS pkg sources
 
-### Acceptance Criteria (all met)
+#### Acceptance Criteria (all met)
 
 - `nimbus ask "find everything I've touched across Drive, GitHub, Slack, and Linear this sprint"` returns merged, ranked results in under 200ms from the local index
 - `nimbus ask "who is the most active reviewer on the payment-service repo and what are they working on in Linear?"` resolves the cross-service identity link without a network call
 - Revoking a connector's auth (`nimbus connector remove google`) deletes all associated Vault entries and index rows atomically; no orphaned credentials
 - All write operations through Slack, Linear, Jira, Notion, Confluence connectors trigger HITL before any outbound call
 
-### Deferred from Phase 2 (by design)
+#### Deferred from Phase 2 (by design)
 
 | Topic | Resolved in |
 |---|---|
@@ -144,57 +158,57 @@ Commercial license also available now for organizations that need to embed Nimbu
 
 ---
 
-## Phase 3 — Intelligence ✅
+### Phase 3 — Intelligence ✅
 
 **Goal:** Make Nimbus semantically aware and proactively useful. Extend into CI/CD, cloud infrastructure, observability MCPs, workflows, watchers, extensions, and specialized agents.
 
 **Status:** **Complete** on `main` (closed 2026-04). This section is the authoritative post-closure summary (the long-form Phase 3 plan doc was retired when the phase closed). **Phase 3.5** owns observability, conversational E2E harnesses, and remaining polish.
 
-### Dependencies (met)
+#### Dependencies (met)
 
 - Phase 2 unified metadata index
 - Extension SDK + Registry v1 for safe third-party MCP / `nimbus connector add --mcp`
 
-### Delivered
+#### Delivered
 
-#### Semantic layer
+##### Semantic layer
 
 - [x] **Embedding pipeline** — Bun worker; `@xenova/transformers` local default; `sqlite-vec` (`vec_items_384`); OpenAI opt-in; provider/model switch + resumable backfill; `MINIMUM_MODEL_VERSION` in `embedding/model.ts`
 - [x] **Hybrid search** — BM25 + vector RRF; chunk dedupe / parent chunk context where implemented; `nimbus search --semantic`; quality gate: `packages/gateway/test/benchmark/search-quality.test.ts`
 - [x] **RAG session memory** — per-session embedded chunks; IPC `session.*`; hourly prune; isolation tests in `session-memory-store.test.ts`
 
-#### Extension ecosystem
+##### Extension ecosystem
 
 - [x] **Extension Registry v1** — `nimbus.extension.json`; manifest **and** entry-point SHA-256 on startup; scaffold + install/list/enable/disable/remove; tarball / URL / local path; see `docs/contributors/extension-author-walkthrough.md`
 - [ ] **Extension sandbox hardening** — full syscall/network isolation → **Phase 5** (process + scoped env today)
 - [ ] **Extension Marketplace** — **Phase 4** (Tauri)
 
-#### CI/CD and infrastructure MCP connectors
+##### CI/CD and infrastructure MCP connectors
 
 - [x] Jenkins, GitHub Actions, CircleCI, GitLab CI (pipelines/jobs + HITL)
 - [x] AWS, Azure, GCP (CLI-backed tools + sync + HITL mutations)
 - [x] **IaC** — Terraform / CloudFormation / Pulumi via MCP; sync heartbeat + **drift hints** (`nimbus status --drift`, `gateway.ping` `includeDrift`) — not full Terraform-state vs live reconciliation (later phase)
 - [x] Kubernetes, Datadog, Grafana, Sentry, PagerDuty, New Relic
 
-#### Automation and graph
+##### Automation and graph
 
 - [x] **Workflows** — `workflow-runner` / store; `nimbus workflow`; script files `nimbus run`; dry-run / `--no-ttv` HITL safety
 - [x] **Watchers** — post-sync evaluation; rate limiting + cycle detection; cron gating; startup catch-up; unit coverage in `watcher-engine.test.ts` / `watcher-store.test.ts`
 - [x] **Relationship graph** — `graph_entity` / `graph_relation`; `traverseGraph`; indexed incident correlation substrate: `packages/gateway/test/e2e/scenarios/incident-correlation-indexed.e2e.test.ts`
 - [x] **Filesystem intelligence (v2 scope shipped)** — `[[filesystem.roots]]`, `code_symbol`, git/deps metadata; semantic recall via shared embedding + hybrid search. Deeper vision (blame UX, multi-manifest parsers, etc.) → later phases
 
-#### Agents and CLI
+##### Agents and CLI
 
 - [x] **DevOps** and **Research** agents — domain-tuned prompts and tool scoping in Gateway engine
 - [x] **Session CLI** — TTY REPL (`nimbus` no args); headless bundle defaults to bundled MiniLM (`scripts/package-headless-bundle.ts`)
 
-#### Security and quality
+##### Security and quality
 
 - [x] **Phase 3 HITL action ids** in `packages/gateway/src/engine/executor.ts` — exercised by `packages/gateway/test/e2e/scenarios/hitl-write-ops.test.ts`
 - [x] **Coverage gates** — embedding ≥80%, workflow ≥80%, watcher ≥80%, extensions ≥85% (see root `package.json` + `.github/workflows/_test-suite.yml`)
 - [x] **Three-platform CI** — push matrix in `.github/workflows/ci.yml`
 
-### Intentionally incomplete (follow-ups)
+#### Intentionally incomplete (follow-ups)
 
 | Topic | Where it lands |
 |---|---|
@@ -203,7 +217,7 @@ Commercial license also available now for organizations that need to embed Nimbu
 | Deterministic TTY E2E for `nimbus ask` / anaphoric session turns | Phase 3.5 |
 | Extension syscall sandbox | Phase 5 |
 
-### Acceptance criteria (all met for Phase 3 closure)
+#### Acceptance criteria (all met for Phase 3 closure)
 
 - **Indexed** cross-service incident correlation (PagerDuty, GitHub PR, Jenkins, Slack, AWS-style alert) via search + graph — `incident-correlation-indexed.e2e.test.ts`; conversational `nimbus ask` on same data = manual smoke
 - Contributor path documented — `docs/contributors/extension-author-walkthrough.md`
@@ -213,7 +227,7 @@ Commercial license also available now for organizations that need to embed Nimbu
 
 ---
 
-## Phase 3.5 — Observability & Developer Experience ✅
+### Phase 3.5 — Observability & Developer Experience ✅
 
 **Goal:** Make Nimbus debuggable, composable, and trustworthy before the public `v0.1.0` release. Connectors, workflows, and the index are only as useful as your ability to see what they're doing, query them programmatically, and recover when things go wrong.
 
@@ -221,12 +235,12 @@ Commercial license also available now for organizations that need to embed Nimbu
 
 > **Status (2026-04-15):** Phase 3.5 is **✅ Complete**. All acceptance criteria have been verified on Windows, macOS, and Linux. `@nimbus-dev/client` is published to npm. The Starlight docs site is live. Phase 4 (Presence) is now active.
 
-### Dependencies
+#### Dependencies
 
 - Phase 3 connector mesh and watcher system (health model builds on them)
 - Phase 3 Extension Registry v1 (extension testing infrastructure builds on the SDK)
 
-### Delivered on `main` (high level)
+#### Delivered on `main` (high level)
 
 **Self-observability**
 
@@ -278,7 +292,7 @@ Commercial license also available now for organizations that need to embed Nimbu
 - [x] **`nimbus doctor`** — Bun minimum, Linux `secret-tool`, Gateway IPC + `config.validate`, `diag.snapshot` index total + per-connector health table; exit `0` / `1` / `2` for ok / warnings / hard failures (`packages/cli/src/commands/doctor.ts`)
 - [x] **First-run / empty index guidance** — `nimbus start` prints next-step hints once (TTY, skip with `--no-wizard`); `nimbus ask` exits early with no connectors; Gateway `runAsk` returns onboarding text when the index has zero items
 
-### Acceptance (all criteria met)
+#### Acceptance (all criteria met)
 
 - [x] **`nimbus query` latency harness** — p95 < 500ms on 8k-row index; strict mode (`< 100ms`) gated by `NIMBUS_RUN_QUERY_BENCH=1`
 - [x] **`bun audit --audit-level high` clean** — workspace audit passes at HIGH threshold
@@ -287,7 +301,7 @@ Commercial license also available now for organizations that need to embed Nimbu
 
 ---
 
-## Phase 4 — Presence ✅
+### Phase 4 — Presence ✅
 
 **Goal:** Give Nimbus a face, a local AI backbone that requires no cloud API key, and the trust foundations needed for a public `v0.1.0` release.
 
@@ -295,7 +309,7 @@ Commercial license also available now for organizations that need to embed Nimbu
 >
 > The end-to-end manual smoke checklist for headless releases lives at [`docs/release/manual-smoke-headless.md`](./release/manual-smoke-headless.md) and covers TUI + VS Code only. The Tauri-only checklist for the future `desktop-v0.1.0` tag lives at [`docs/release/manual-smoke-desktop.md`](./release/manual-smoke-desktop.md).
 
-### Dependencies
+#### Dependencies
 
 - **Phase 3.5 complete** — all Phase 3.5 acceptance criteria must pass before Phase 4 begins; the docs site, onboarding, and data integrity work are release prerequisites
 - Phase 3 Extension Registry v1 (Marketplace panel depends on it)
@@ -305,7 +319,7 @@ Commercial license also available now for organizations that need to embed Nimbu
 - Phase 3.5 configuration profiles (Settings panel profile switcher depends on it)
 - Code signing certificates provisioned before release build step
 
-### Desktop Application (Tauri 2.0)
+#### Desktop Application (Tauri 2.0)
 
 > **Code complete; release vehicle deferred to Phase 13.** Every WS5 item below is implemented and tested in-tree, but publishing signed Tauri installers as release artifacts moved out of the `v0.1.0` release gate and into Phase 13 — see [§ Phase 13 → Desktop Release Vehicle](#desktop-release-vehicle). The Tauri smoke checklist no longer gates `v0.1.0`; it gates the future `desktop-v0.1.0` tag.
 
@@ -318,7 +332,7 @@ Commercial license also available now for organizations that need to embed Nimbu
 - [x] **Watcher management UI (WS5-D)** — create, pause, delete; graph-aware condition builder; history-of-fires drawer
 - [x] **Workflow pipeline editor (WS5-D)** — step list editor, run, dry-run toggle, delete; run history drawer with audit deep-link + "Run with params…" override
 
-#### WS5 Sub-project B acceptance
+##### WS5 Sub-project B acceptance
 
 - Dashboard (metrics + connectors + audit) renders within 2 s against a populated Gateway.
 - HITL popup opens within 1 s of `consent.request`; Approve / Reject → `consent.respond`.
@@ -327,16 +341,16 @@ Commercial license also available now for organizations that need to embed Nimbu
 - `ALLOWED_METHODS` grew by exactly four read-side methods; no `vault.*` or `db.*` writes.
 - `packages/ui` coverage ≥ 80 % lines / ≥ 75 % branches.
 
-### Local LLM & Multi-Agent
+#### Local LLM & Multi-Agent
 
 - [x] **Local LLM support** — Ollama integration (model discovery, pull, load, unload via Gateway IPC); llama.cpp fallback (GGUF model files, no Ollama required); per-task model routing (fast local model for classification; remote for multi-step reasoning; configurable); fully air-gapped operation when a local model is loaded
 - [x] **Multi-agent orchestration** — coordinator agent decomposes complex tasks into independent sub-tasks; sub-agents run in parallel in isolated tool scopes; all sub-agent write operations remain HITL-gated; coordinator cannot approve on behalf of the user *(loop-guard config stubs in place: `NIMBUS_MAX_AGENT_DEPTH` default 3, `NIMBUS_MAX_TOOL_CALLS_PER_SESSION` default 20; `agent.gasLimitReached` notification reserved)*
 
-### Built-in Agent Workflows
+#### Built-in Agent Workflows
 
 First-party demonstrations of multi-agent orchestration. **Deferred to the v0.1.1 batch** — see the table later in this section. The Phase 4 multi-agent infrastructure ships without first-party agents; the agents themselves slip out of `v0.1.0` to keep the release scope tight.
 
-### VS Code Extension
+#### VS Code Extension
 
 - [x] **VS Code extension** — `@nimbus-dev/client`-based IPC client (Node.js/TypeScript, separate from the Bun Gateway); connects to the running Gateway over domain socket / named pipe using the existing JSON-RPC 2.0 protocol; no new Gateway APIs required
   - Commands palette: `Nimbus: Ask`, `Nimbus: Search`, `Nimbus: Run Workflow`
@@ -346,21 +360,21 @@ First-party demonstrations of multi-agent orchestration. **Deferred to the v0.1.
   - Published to Open VSX Registry and VS Code Marketplace
   - `packages/vscode-extension` workspace package; depends on `@nimbus-dev/client` only; never imports Gateway source
 
-### Editor AI Context (MCP Native)
+#### Editor AI Context (MCP Native)
 
 - [ ] **Native Cursor / Claude Code / Copilot context exposure** — expose the Nimbus local index as an MCP server endpoint that AI coding assistants can connect to directly. Cursor, Claude Code, and any MCP-compatible editor AI can then query the Nimbus index as a tool during code generation — giving the assistant access to incident history, deployment state, open PRs, and connector health without the user switching context. Implementation: the Gateway's existing JSON-RPC IPC surface is wrapped as an MCP stdio server via a thin adapter (`packages/gateway/src/ipc/mcp-adapter.ts`); read-only tools only (`searchIndex`, `getConnectorStatus`, `getRecentIncidents`, `getOpenPRs`); no write tools exposed; no HITL surface required. Configured via `nimbus mcp-server` CLI command which prints the MCP server config block the user pastes into their editor's `mcp.json`. This is not a new protocol — Nimbus is already MCP-native; this just inverts the client/server relationship for the local index.
 
-### Terminal Power Users
+#### Terminal Power Users
 
 - [x] **Rich TUI** (Ink-based) `v0.1.0` — builds on the Phase 3 Session CLI; pane layout: query input, result stream, connector health sidebar, active watcher list; keyboard navigation; SSH-safe; real-time inline HITL consent; `nimbus tui` command; also launchable from system tray
 
-### Voice Interface
+#### Voice Interface
 
 - [x] **Local STT** — `whisper-cli` subprocess called by the Gateway voice service; model: `whisper-base.en` (default) / user-selectable via config; audio never leaves the machine
 - [x] **Voice queries** — `voice.transcribe` + `voice.speak` IPC methods; TTS via `NativeTtsProvider` (`say` on macOS, PowerShell SAPI on Windows, `espeak-ng`/`spd-say` on Linux)
 - [x] **Wake word** (opt-in, disabled by default) — background loop in Gateway voice service; `voice.startWakeWord` / `voice.stopWakeWord` IPC
 
-### Data Sovereignty
+#### Data Sovereignty
 
 - [x] **Full export** — `nimbus data export --output nimbus-backup.tar.gz`: SQLite snapshot, vault credential manifest (re-encrypted with user passphrase + BIP39 recovery seed), BLAKE3 integrity hashes in manifest; `--no-index` flag to omit SQLite snapshot
 - [x] **Full import** — `nimbus data import nimbus-backup.tar.gz`: verifies BLAKE3 hashes, decrypts manifest (passphrase or recovery seed), re-seals credentials into target machine's native Vault, restores index
@@ -369,7 +383,7 @@ First-party demonstrations of multi-agent orchestration. **Deferred to the v0.1.
 - [x] **Data minimization / connector reindex** — `nimbus connector reindex <name> [--depth <metadata_only|summary|full>]`: prunes body/embeddings at `metadata_only`, writes `data.minimization.prune` audit entry
 - **[Deferred to v0.1.1.]** SQLite encryption at rest (SQLCipher) — see the v0.1.1 batch table.
 
-### Automation & Graph Enhancements
+#### Automation & Graph Enhancements
 
 These items resolve deferred decisions from Phase 3.
 
@@ -378,18 +392,18 @@ These items resolve deferred decisions from Phase 3.
 - **[Deferred to v0.1.1.]** Workflow branching and conditionals — see the v0.1.1 batch table.
 - [x] **Per-connector OAuth vault keys** — per-service keys implemented: `google_drive.oauth`, `google_gmail.oauth`, `google_photos.oauth` for Google; `onedrive.oauth`, `outlook.oauth`, `teams.oauth` for Microsoft; `nimbus connector auth` writes per-service key on each PKCE flow; Microsoft keys back-filled from `microsoft.oauth` on Gateway startup; legacy shared keys kept as fallback for Google until each service re-auths; eliminates scope-collision between Google connectors
 
-### Remote Access
+#### Remote Access
 
 - [x] **Optional encrypted LAN remote access** — E2E encrypted (NaCl box via tweetnacl), no relay server; paired peers exchange X25519 public keys via a 120-bit base58 pairing code issued during a 5-minute window; read-only by default; write requires explicit `nimbus lan grant-write <peer-id>` on the host; `vault.*`, `updater.*`, `lan.*`, `profile.*` forbidden over LAN regardless of grant; disabled by default (`[lan] enabled = false`); mDNS host discovery deferred to a post-v0.1.0 point release
 
-### Release Infrastructure
+#### Release Infrastructure
 
 - [x] **Linux GPG-signed binaries + `SHA256SUMS.asc`** — signing scripts + `release.yml` workflow live; `nimbus-verify.{sh,ps1}` helpers cross-check fingerprint; `release` GitHub Environment gates the publish job
 - [ ] **macOS Gatekeeper notarization + Windows Authenticode signing** — **explicitly deferred to a later point release (NOT `v0.1.1`)**, gated on a maintainer decision to fund recurring procurement (Apple Developer Program $99/yr + Windows EV cert ~$470–$840/yr). For `v0.1.0`, macOS and Windows binaries ship **unsigned**; the GPG-signed `SHA256SUMS.asc` is the canonical integrity boundary, and one-time bypass is documented in [`install-macos-unsigned.md`](./install-macos-unsigned.md) / [`install-windows-unsigned.md`](./install-windows-unsigned.md). See [`SECURITY.md` §"v0.1.0 signing cut-line"](./SECURITY.md#v010-signing-cut-line) for the full rationale.
 - [x] Auto-update — Ed25519-signed binary manifest (`latest.json`); `Updater` state machine verifies signature before install; `nimbus update --check` / `nimbus update`; Gateway emits `updater.updateAvailable` on startup
 - [x] Plugin API v1 — `@nimbus-dev/sdk` frozen at v1.0.0; `AuditLogger`, `HitlRequest`, `runContractTests` stable surface; `CHANGELOG.md` documents breaking-change policy
 
-### Security audit follow-ups (B1)
+#### Security audit follow-ups (B1)
 
 Items deferred from the Phase 4 internal security audit (B1, 2026-04-25; summary in [`docs/SECURITY.md`](./SECURITY.md#security-audits)). The High, Medium, and Low PRs (`#112`, `#113`, commit `806453a`) closed all 78 unique findings; these three remain open. S6-F1 (Updater production wiring) gates the headless `v0.1.0` tag. The two Tauri-specific items (S4-F6, S4-F8) gate the future `desktop-v0.1.0` tag — see [§ Phase 13 → Desktop Release Vehicle](#desktop-release-vehicle).
 
@@ -397,7 +411,7 @@ Items deferred from the Phase 4 internal security audit (B1, 2026-04-25; summary
 - [ ] **Profile-switch global broadcast refactor (S4-F8)** — Rust-side window-registry refactor so `profile.switched` events fan out through a registered subscriber list instead of walking the live Tauri window list on each notification; same UI-rebuild PR as S4-F6. **Gates `desktop-v0.1.0`, not `v0.1.0`.**
 - [ ] **Updater production wiring (S6-F1)** — instantiate the `Updater` state machine in gateway startup so `nimbus update --check` and `updater.updateAvailable` run against a live state object; lands when GA prerequisites (signing certs, manifest server) are signed off. **Gates `v0.1.0`.**
 
-#### Polish items from B1 follow-up review
+##### Polish items from B1 follow-up review
 
 Smaller, lower-risk follow-ups surfaced when the B1 plans were retired. None are gating for `v0.1.0` but each closes a paper-cut a future audit would flag.
 
@@ -406,7 +420,7 @@ Smaller, lower-risk follow-ups surfaced when the B1 plans were retired. None are
 - [x] **Centralise timing-safe helpers** — extracted the `timingSafeEqual` hex helpers used independently by `updater/`, `extensions/verify-extensions.ts`, and `ipc/lan-pairing.ts` into `packages/gateway/src/util/timing-safe-compare.ts`; also added `constantTimeStringEqual` for bearer tokens (`ipc/http-auth.ts`) and extended the `I10` security-invariants test to assert all four call sites import from the canonical module (Phase 5 T6 PR 1)
 - [ ] **Deprecate `connector.startAuth` alias** — annotate with `@deprecated` JSDoc + emit a single warning log per gateway run; remove the alias in Phase 5 once the desktop UI has migrated entirely to `connector.auth`
 
-### v0.1.1 batch (deferred from v0.1.0)
+#### v0.1.1 batch (deferred from v0.1.0)
 
 These items have no external blocker; they slip out of `v0.1.0` to keep the release scope tight, and ship in `v0.1.1` once the listed trigger is met.
 
@@ -423,7 +437,7 @@ These items have no external blocker; they slip out of `v0.1.0` to keep the rele
 | **`nimbus standup` (personal standup update from indexed activity)** — assembles everything the authenticated user did across all connected services in the last 24 hours (configurable via `--since`): PRs opened, reviewed, and merged; tickets moved or commented on; incidents responded to; deployments triggered; Slack threads participated in. Output is copy-pasteable Markdown. Scoped to the current user's identity as resolved by the people graph. `--format <markdown\|slack\|plain>` flag. Read-only, no HITL. Entirely local — nothing is posted anywhere without a separate explicit command. | engineering work only — uses existing people graph |
 | **`nimbus index health` (index quality report beyond raw item counts)** — embedding coverage percentage per connector, connectors contributing stale data (last synced more than a configurable threshold ago), item types with sparse metadata (missing `url`, `modified_at`, or `raw_meta` fields), and an overall query confidence score (0–100) derived from coverage and freshness. Helps users understand why they're getting weak query results before giving up on Nimbus. Integrates with `nimbus doctor` — a confidence score below 60 prints a warning in `nimbus doctor` output. Read-only, no HITL. `--json` flag for machine-readable output. | engineering work only — index metrics already collected |
 
-### Maintenance-initiative follow-ups (B-series)
+#### Maintenance-initiative follow-ups (B-series)
 
 The B1 security audit completed in Phase 4. Three more initiatives are active or sequenced; each gets its own design spec when picked up.
 
@@ -432,7 +446,7 @@ The B1 security audit completed in Phase 4. Three more initiatives are active or
 - [ ] **B4 — Bug-hunt audit** — ranked by user-facing impact / engineering cost.
 - [ ] **Third-party package upgrades** — npm + cargo crate upgrades **deferred from the toolchain refresh** (the refresh PR bumped runner OSes, Node, and Rust MSRV but left dependency upgrades for a focused follow-up).
 
-### Acceptance Criteria
+#### Acceptance Criteria
 
 - `v0.1.0` macOS + Windows binaries install and run correctly after the documented unsigned-install bypass; Linux installers verify cleanly against `SHA256SUMS.asc`. (Native Gatekeeper / SmartScreen acceptance is the bar for the *post-v0.1.1 signing release*, not v0.1.0.)
 - `nimbus ask "summarize everything that happened across my projects this week"` runs fully locally via Ollama — no API key, no network call — in under 30 seconds on a mid-range laptop
@@ -446,85 +460,87 @@ The B1 security audit completed in Phase 4. Three more initiatives are active or
 
 ---
 
-## Phase 5 — The Extended Surface
+## Active
+
+### Phase 5 — The Extended Surface
 
 **Goal:** Fill every connector gap so that wherever a knowledge worker or developer spends time, their data is in the index. Mature the extension ecosystem. Establish Nimbus as a first-class data layer for CI/CD pipelines and external tooling.
 
-### Dependencies
+#### Dependencies
 
 - Phase 3 Extension Registry v1 (new connectors should ship as community extensions where possible)
 - Phase 3.5 `@nimbus-dev/client` and local HTTP API (CI/CD data layer depends on them)
 - Phase 4 Plugin API v1 stable and documented
 
-### New Connector Categories
+#### New Connector Categories
 
-#### Browser & Reading
+##### Browser & Reading
 
 - [ ] **Pocket / Readwise / Raindrop** — saved articles, highlights, reading lists, tags; read-only index
 - [x] **Obsidian vault connector** (2026-05-10, Phase 5 Wave A PR 2) — indexes local Markdown vaults with frontmatter metadata, backlinks, and daily notes; uses `[[filesystem.roots]]` as the discovery mechanism; `obsidian_note` item type; backlinks surfaced in the relationship graph (`backlinks` edge type, V26 migration adds `obsidian_notes` shadow table); append to daily note behind HITL (`obsidian.note.append`); no network call required — fully local. Hybrid surface: gateway-side syncable at `packages/gateway/src/connectors/obsidian-sync.ts` plus a thin MCP package at `packages/mcp-connectors/obsidian/` that hosts the HITL-gated `obsidian_append_to_daily_note` write tool. Vault id is derived from the absolute vault root path (`sha256(path).slice(0, 12)`); moving a vault re-issues all note ids — documented in `docs/architecture.md`.
 - [ ] **Zotero** — index whitepapers, PDFs, and citations alongside technical docs; `research_paper` item type; read-only
 
-#### API Surface Intelligence
+##### API Surface Intelligence
 
 - [x] **OpenAPI / AsyncAPI spec indexer** (2026-05-10, Phase 5 Wave A PR 1) — gateway-side syncable at `packages/gateway/src/connectors/openapi-indexer-sync.ts` that crawls `[[filesystem.roots]]` for `openapi.{yaml,yml,json}`, `swagger.{yaml,yml,json}`, and `asyncapi.{yaml,yml,json}` files; parses each endpoint as an `api_endpoint` item with fields: `path`, `method`, `operation_id`, `tags`, `deprecated`, `service_name` (inferred from per-spec `nimbus.openapi.toml` override → enclosing directory → `info.title` slug → `service-<sha8>` fallback), `spec_file`, `spec_version`, `last_modified`. Mtime-based delta sync, sticky deletes for endpoints removed from re-parsed specs. Emits `api_endpoint → service` edges into the relationship graph so `nimbus impact` answers naturally include API-surface ramifications. V25 migration adds the `api_endpoint` shadow table; the unified `item` table holds the cross-cutting search row (`service = "openapi"`, `type = "api_endpoint"`). Discovery walker is depth-bounded (`[openapi].max_walk_depth`, default 8), respects `[openapi].ignore_globs`, skips a default-ignored dir set (`node_modules`, `.git`, `dist`, `build`, `target`, `.next`, `out`, `vendor`, `.cache`), and never follows symlinks. Spec-size gate (`[openapi].max_spec_bytes`, default 5 MiB); skipped specs surface in the connector's `getLastSyncStats()` for health snapshots. Indexing is fully local — no outbound call. Remote-repo spec discovery, external `$ref` resolution, and AsyncAPI 3.0 are deferred to a follow-up. Parser: `js-yaml` for synchronous parsing; `@readme/openapi-parser` (v6) reserved for future validation.
 
-#### Email via IMAP/SMTP
+##### Email via IMAP/SMTP
 
 - [ ] **Generic IMAP connector** — any IMAP server (Fastmail, ProtonMail, self-hosted); credentials in Vault; `body_preview` indexing; `email.send` behind HITL via SMTP
 - [ ] **Fastmail MCP connector** — JMAP native (faster and more efficient than IMAP)
 - [ ] **ProtonMail MCP connector** — ProtonMail Bridge integration; local IMAP interface; read-only (E2EE precludes server-side access)
 
-#### Meetings & Async Video
+##### Meetings & Async Video
 
 - [ ] **Zoom** — meeting metadata, recordings index, AI-generated transcripts (Zoom AI Companion); OAuth; read-only; `meeting.summary` and `meeting.transcript` item types; linked to calendar events via meeting URL
 - [ ] **Google Meet** — meeting metadata and auto-generated transcripts via Google Workspace; OAuth (extends existing Google connector auth); read-only; indexed alongside Google Calendar events
 - [ ] **Loom** — async video index: title, description, transcript, viewer stats; OAuth; read-only; `loom_video` item type
 
-#### Finance & Expenses
+##### Finance & Expenses
 
 - [ ] **Expensify** — expense reports, receipts, reimbursement status; read-only index; submit behind HITL
 - [ ] **Ramp** — transactions, receipts, budgets, vendor spend; read-only index
 - [ ] **Mercury** — business banking; balances, transactions, bills; read-only; wire/ACH behind HITL
 - [ ] **Stripe** — invoices, payments, customers, disputes, subscription events; read-only; refund behind HITL
 
-#### CRM & Sales
+##### CRM & Sales
 
 - [ ] **HubSpot** — contacts, companies, deals, activities, notes; OAuth; write behind HITL
 - [ ] **Salesforce** — Lead, Contact, Account, Opportunity, Case; OAuth; write behind HITL
 - [ ] **Pipedrive** — deals, persons, organisations, activities, notes; API key; write behind HITL
 
-#### Support & Community
+##### Support & Community
 
 - [ ] **Zendesk / Intercom** — tickets, conversations, help articles; read-only index; correlate customer history with code/PR changes
 - [ ] **Stack Overflow (Teams/Private)** — index internal knowledge base, questions, and answers; read-only
 
-#### HR & Recruiting
+##### HR & Recruiting
 
 - [ ] **Greenhouse** — jobs, candidates, applications, scorecards, offers; write (move stage, post feedback) behind HITL
 - [ ] **Lever** — requisitions, candidates, feedback, interviews; write behind HITL
 
-#### Design & Creative
+##### Design & Creative
 
 - [ ] **Figma** — files, frames, comments, version history, FigJam boards; OAuth; comment post behind HITL
 - [ ] **Miro** — boards, cards, sticky notes, comments; OAuth; write behind HITL
 - [ ] **Canva** — designs, folders, shared projects; OAuth; read-only index
 
-#### Databases & Infrastructure
+##### Databases & Infrastructure
 
 - [ ] **Local DB Schema Indexing** — index saved queries or schema documentation from local DB tools (pgAdmin, DBeaver, DataGrip); enables semantic recall of "that one SQL query I wrote last month"
 - [ ] **Vercel / Netlify** — deployment status, preview URLs, project metadata; correlate deploys with PR/Slack history
 
-#### Feature Flags
+##### Feature Flags
 
 - [ ] **LaunchDarkly** — flags, environments, targeting rules, flag evaluation history; API key; flag toggle behind HITL; `feature_flag` item type indexed with name, state, environments, last modified; critical for incident correlation ("was this flag enabled when the alert fired?")
 - [ ] **Flagsmith** — flags, segments, environments; API key; read-only index + toggle behind HITL; self-hosted `flagsmith.api_base` support for on-premise deployments
 
-#### GitOps & Deployment
+##### GitOps & Deployment
 
 - [ ] **ArgoCD** (read-only) — applications, sync status, rollout history, health state, manifests; API token or kubeconfig; `gitops_app` item type indexed with repo, target revision, sync status, health; enables deployment correlation without Jenkins for k8s-first teams. Write tools (`sync`, `rollback`) deferred to Phase 6 — see [§ Phase 6 → Deferred from Phase 5](#deferred-from-phase-5)
 - [ ] **Flux** (read-only) — kustomizations, helm releases, sources, image automations; kubeconfig; read-only health and history index; complements ArgoCD coverage for teams mixing both. Write tools (`reconcile`) deferred to Phase 6 — see [§ Phase 6 → Deferred from Phase 5](#deferred-from-phase-5)
 
-#### Data Warehouses, Orchestration & BI (Personal-Auth)
+##### Data Warehouses, Orchestration & BI (Personal-Auth)
 
 - [ ] **Databricks** (PAT) — workspaces, notebooks (metadata only), jobs, clusters, SQL warehouses; `data_pipeline` item type indexed with job name, status, triggering user, cluster id, started_at, duration; `job.trigger`, `job.cancel`, `cluster.restart` behind HITL
 - [ ] **Metabase** (API key) — saved questions, dashboards, collections; `dashboard` item type; read-only index
@@ -541,7 +557,7 @@ The B1 security audit completed in Phase 4. Three more initiatives are active or
 - [ ] **Great Expectations** — validation run results parsed from CI artefacts (no live creds required); `data_quality_test` item type indexed with suite name, batch id, expectation name, success/failure, observed value; read-only
 - [ ] **Local data profiling** (Filesystem v2+) — indexes local `.parquet`, `.csv`, `.jsonl`, `.json`, `.orc` files under `[[filesystem.roots]]`: column names, column types, file size, row-count estimate from Parquet footer / line count; `data_model` item type with `provider = "filesystem"`. **Explicitly never indexed:** cell values, row samples, first-N-rows previews, header-row data values. Contract test asserts the connector surface has no row-fetch or row-sample tool.
 
-#### Security & Vulnerability Tooling
+##### Security & Vulnerability Tooling
 
 - [ ] **Snyk** — open source vulnerabilities, licence issues, container scan results, IaC misconfigs; API token; `vulnerability` item type indexed with severity, CVE ID, affected package, fix availability; enables CVE-to-repo-to-open-PR correlation queries from the local index
 - [ ] **SonarQube / SonarCloud** — code quality issues, security hotspots, coverage, technical debt; API token; self-hosted `sonar.host_url` support; `code_issue` item type; read-only index
@@ -550,13 +566,13 @@ The B1 security audit completed in Phase 4. Three more initiatives are active or
 - [ ] **SBOM / supply chain tracking** — ingests CycloneDX or SPDX SBOMs from CI artefacts or GitHub Dependency Graph; indexes component → repo → version relationships; enables queries like "which of my services ship lodash <4.17.21?" without touching each repo; no auth required beyond existing GitHub/GitLab connectors
 - [ ] **`nimbus security scan`** — local secret and credential hygiene scan across indexed filesystem roots and repository content. Runs a Gitleaks-compatible pattern set against already-indexed file content (requires `[indexing.depth] = "full"` or `"summary"` for the relevant connector); never fetches new content for the scan — only what is already in the local index. Reports: files containing high-confidence secret patterns (API keys, tokens, private keys), which connector/service they belong to, and whether the file has been modified since the secret was introduced (via git metadata already indexed). Output: `nimbus security scan --json` for machine-readable results; plain text table by default. Write operations: none — purely read. HITL: not triggered. Fits naturally into the existing `nimbus doctor` / `nimbus diag` diagnostic family. New CLI command at `packages/cli/src/commands/security.ts`; pattern definitions at `packages/gateway/src/security/secret-patterns.ts`.
 
-### Team Intelligence
+#### Team Intelligence
 
 - [x] **T3 PR 1 — coordinator parallelism + `nimbus expert`** (2026-05-09) — `AgentCoordinator.executeAll` runs sub-agents in parallel; `expert.ts` ships as the first built-in agent. `nimbus expert <topic-or-file>` answers "who on my team has the most context on this?" by querying the relationship graph and indexed metadata: PR authorship via indexed code symbols, review participation patterns, Slack thread activity, and Linear/Jira ticket assignments. Returns a ranked list of people with a confidence score and the evidence behind each ranking (e.g. "authored 4 of the last 6 PRs touching this file, resolved 2 incidents tagged `payment-retry`"). Uses the existing people graph — no new connectors required. Read-only, no HITL. CLI: `nimbus expert <topic-or-file>`; IPC: `agents.expert`; notification: `agents.expert.briefReady`.
 - [x] **T3 PR 2 — `nimbus impact`** (2026-05-09) — second built-in agent: reverse-dependency blast radius. `nimbus impact <file-or-PR-url>` answers "if I change this, what breaks?" by running a reverse dependency query across the relationship graph: which services import the affected module (via indexed code symbols and `depends_on` graph edges), which pipelines would rebuild (via `pipeline_run` items linked to the repo), which dashboards pull from affected data models (via `upstream_refs` graph edges), and which on-call rotations own the affected services (via PagerDuty schedule index). Five parallel sub-agents. Returns a structured impact report with blast radius by category. Built entirely on the Phase 3 relationship graph substrate — no new connectors required. Read-only, no HITL. `--json` flag for CI integration. CLI: `nimbus impact <file-or-PR-url>`; IPC: `agents.impact`; notification: `agents.impact.briefReady`.
 - [x] **T3 PR 3 — `nimbus catchup`** (2026-05-10) — third built-in agent: personalized retrospective digest. `nimbus catchup --since <duration>` returns everything that happened across connected services while the user was away, prioritized by relevance to their recent work history. Unlike `nimbus changelog` (which is service-scoped and uniform), `nimbus catchup` is personalized — it weights activity by the user's historical involvement: services they own, repos they contribute to, incidents they've responded to, people they collaborate with frequently. Default window: `3d`. Output: structured Markdown with sections per service, prioritized by relevance score. Read-only, no HITL. Five parallel sub-agents (`s_owned_services`, `s_active_repos`, `s_responded_incidents`, `s_collaborators`, `s_window_items`) over the local index; three-tier self-person resolver (override → git email → OS username). CLI: `nimbus catchup [--since 3d] [--json] [--service <id>]`; IPC: `agents.catchup`; notification: `catchup.briefReady`. T3 epic complete.
 
-### Nimbus as a CI/CD Data Layer
+#### Nimbus as a CI/CD Data Layer
 
 The local HTTP API and `@nimbus-dev/client` (Phase 3.5) unlock Nimbus as a data source for CI pipelines and external tooling. This section makes that story explicit with first-class integration points.
 
@@ -589,14 +605,14 @@ The local HTTP API and `@nimbus-dev/client` (Phase 3.5) unlock Nimbus as a data 
   the alias-map and urgency-gap-warning Gemini-CLI suggested separately in the
   enrichment review §2.2.
 
-### Semantic Layer Enhancements
+#### Semantic Layer Enhancements
 
 These items resolve deferred decisions from Phase 3.
 
 - [ ] **Multi-model embedding** — add `vec_items_1536` virtual table for OpenAI `text-embedding-3-small` (and compatible) embeddings alongside the existing `vec_items_384` (`all-MiniLM-L6-v2`); `embedding_chunk.dims` and `embedding_chunk.model` are already recorded — schema is pre-positioned (Phase 3); per-item-type model routing: code symbols use local MiniLM by default; prose items use the configured model; `nimbus index reembed --model <id>` triggers selective backfill; multiple models can be active simultaneously with queries fan-out across matching vec tables and RRF-merged
 - [ ] **Extension sandbox hardening** — enforce full syscall/network isolation for extension child processes: seccomp BPF filter on Linux, App Sandbox entitlements on macOS, AppContainer token on Windows; network access must be declared in `nimbus.extension.json` under a `permissions.network` key and enforced at the kernel level; replaces the Phase 3 honour-system env restriction; extensions without `permissions.network` run fully offline; contract tests in `@nimbus-dev/sdk` verify sandbox enforcement on all three platforms
 
-### T6 — B1 hardening + semantic layer prep
+#### T6 — B1 hardening + semantic layer prep
 
 Phase 5 Core item 5. Four sequential PRs in the order below, locked by the [T6 sequencing spec](./superpowers/specs/2026-05-14-phase-5-t6-design.md). Each PR follows the T4-wrap-up cadence (brainstorm → spec → plan → execute → PR). Bridge work between T4 (just merged) and T2 (sandbox + Marketplace v2).
 
@@ -605,14 +621,14 @@ Phase 5 Core item 5. Four sequential PRs in the order below, locked by the [T6 s
 - [ ] **T6 PR 3 — `vec_items_1536` + per-type routing + reembed CLI (V30)** — closes "Multi-model embedding" above; per-item-type model routing with `text-embedding-3-small` for prose-heavy types (gated on `openai.api_key` in vault, default = MiniLM) and a `nimbus index reembed --model <id> [--item-type <type>] [--dry-run]` CLI for selective backfill.
 - [ ] **T6 PR 4 — Typed `dbRun` / `dbExec` mega-PR (~79 sites)** — closes "Typed `dbRun` / `dbExec` migration (S5-F4)" below; mechanical refactor across every package + new static-audit rule in `check-nimbus-invariants.ts` banning direct `db.run` / `db.exec` outside the wrapper. Tentative new invariant **I14** — locked in PR 4's per-PR spec.
 
-### Security audit follow-ups (B1)
+#### Security audit follow-ups (B1)
 
 Items deferred from the Phase 4 internal security audit (B1, 2026-04-25) that fit naturally with Phase 5's hardening pass.
 
 - [ ] **Typed `dbRun` / `dbExec` migration (S5-F4)** — convert the 79 production `db.run()` call sites to the centralised typed wrapper used by `db/write.ts` so every SQL execution path goes through the `SQLITE_FULL` / `DiskFullError` translation layer; tracked separately from the high-throughput refactor work because the change touches every package
 - [x] **Structured tool-call result auditing (S8-F10)** (2026-05-15, Phase 5 T6 PR 2) — V29 `tool_call_log` table; `writeToolCallLog` wired at both `wrapToolOutput` sites; `audit.toolCalls` IPC read surface
 
-### Extension Marketplace v2
+#### Extension Marketplace v2
 
 - [ ] Community ratings and reviews per extension
 - [ ] Verified publisher badges (GPG-signed manifest from a registered publisher)
@@ -620,7 +636,7 @@ Items deferred from the Phase 4 internal security audit (B1, 2026-04-25) that fi
 - [ ] Extension dependency resolution (one extension can depend on another)
 - Extension monetization (paid extensions, license key enforcement, revenue sharing) deferred to Phase 6 — see [§ Phase 6 → Deferred from Phase 5](#deferred-from-phase-5)
 
-### Wave B — Mobile & Frontend Engineering (stretch)
+#### Wave B — Mobile & Frontend Engineering (stretch)
 
 Connector breadth for mobile and frontend engineering disciplines that didn't fit the original Phase 5 categories. Each is read-only in Phase 5; write tools (releasing a build, dismissing a Web-Vitals regression) land in Phase 8 (Security Engineering) or Phase 12 (Enterprise) depending on shape. Does not gate Phase 5 completion.
 
@@ -634,7 +650,7 @@ Connector breadth for mobile and frontend engineering disciplines that didn't fi
 - [ ] **LogRocket / FullStory / Datadog RUM** — frontend session replays metadata (no replay-payload bodies indexed by default), error events, Web Vitals (LCP, FID, CLS, INP); read-only; opt-in to indexing PII-redacted metadata
 - [ ] **Web-vitals watcher** — fires when LCP/FID/CLS p75 regresses past configurable threshold over a 24-h window for a tracked service; surfaces in morning briefing; ties into Phase 7 DORA dashboard
 
-### Acceptance Criteria
+#### Acceptance Criteria
 
 - A user with a Fastmail account can run `nimbus connector auth fastmail` and have their inbox indexed within 5 minutes using the IMAP connector
 - A HubSpot deal update initiated by the agent triggers HITL before any outbound API call
@@ -656,20 +672,22 @@ Connector breadth for mobile and frontend engineering disciplines that didn't fi
 
 ---
 
-## Phase 6 — Team
+## Planned
+
+### Phase 6 — Team
 
 **Goal:** Make Nimbus a collaborative layer for engineering teams — shared intelligence without surrendering local sovereignty.
 
 > **Composes with Phase 7 (Engineering Excellence):** the federation primitives, Team Vault, ChatOps, admin console, and org-level policy engine in this phase are the multipliers for Phase 7's service catalog, DORA metrics, feature-flag, and shared knowledge graph features. Phase 6 ships independently of Phase 7 — but when both are present, the `@nimbus excellence` ChatOps shortcut, embedded DORA panels in the admin console, and federated synchronisation of the Phase 7 knowledge graph + automation library all light up.
 
-### Dependencies
+#### Dependencies
 
 - Phase 4 encrypted LAN remote access (E2EE channel foundation for Nimbus-to-Nimbus)
 - Phase 4 tamper-evident audit log (required for org-level compliance controls)
 - Phase 4 Plugin API v1 (team connectors can ship as extensions)
 - Phase 3.5 configuration profiles (team policy interacts with per-user profile config)
 
-### Shared Infrastructure
+#### Shared Infrastructure
 
 - [ ] **Nimbus-to-Nimbus federation** — two Gateways share a scoped index namespace over E2E-encrypted channel (NaCl box); no relay server; each side controls which `item` types and services it exposes; revocable per peer
 - [ ] **Cross-user conflict detection** — use the federated index to detect "Work-in-Progress collisions" (e.g., Alice editing `auth.ts` while Bob is assigned to the related Jira ticket); notifies the user before starting changes
@@ -677,14 +695,14 @@ Connector breadth for mobile and frontend engineering disciplines that didn't fi
 - [ ] **Shared index namespaces** — user publishes a named namespace (e.g. `project:zurich`) as a filtered slice of their index; teammates subscribe over the federation channel; changes propagate on next sync cycle
 - [ ] **LAN discovery** — Gateways advertise each other via mDNS; `nimbus team discover` lists available peers; pairing requires explicit mutual approval
 
-### Identity & Access
+#### Identity & Access
 
 - [ ] **SSO/OIDC/SAML** — enterprise identity provider integration; tokens stored in the Vault; Gateway validates ID token on every session
 - [ ] **SCIM user provisioning** — automated user lifecycle driven by IdP; deprovisioned users' shared namespaces revoked automatically
 - [ ] **Role-based access control** — `owner`, `editor`, `viewer` roles per shared namespace; enforced at the federation protocol layer, not just the UI
 - [ ] **Multi-user HITL** — workspace owner delegates HITL approval rights to a named team member for a specific workflow; delegate sees a pending approval queue; every delegation recorded in audit log
 
-### Data Warehouses & BI (SSO-gated)
+#### Data Warehouses & BI (SSO-gated)
 
 Depends on Team Vault (above) so service-account / SSO credentials can be shared across a workspace without each user re-authenticating.
 
@@ -695,7 +713,7 @@ Depends on Team Vault (above) so service-account / SSO credentials can be shared
 - [ ] **Monte Carlo** (SSO) — data quality incidents, freshness alerts, schema change logs, monitored tables; `data_quality_test` item type indexed with monitor id, table, incident status, severity, first-seen-at; read-only; `dq.incident.resolve` behind HITL
 - [ ] **Bigeye** (SSO) — data quality metrics, SLA breaches, monitored schemas, anomaly records; `data_quality_test` item type; read-only; `dq.sla.acknowledge` behind HITL
 
-### Shared Workflows & Policy
+#### Shared Workflows & Policy
 
 - [ ] **Team-owned workflow pipelines** — pipelines in a shared namespace; any team member can trigger; write steps require HITL from the triggering user; no credentials embedded in pipeline YAML
 - [ ] **Team "Huddle" Briefing** — aggregate morning briefing summarizing team achievements across PRs, tickets, and incidents without manual status reporting
@@ -704,14 +722,14 @@ Depends on Team Vault (above) so service-account / SSO credentials can be shared
 - [ ] **Org-level policy engine** — `nimbus.policy.toml` enforces: connector allowlists, `retentionDays` floor, HITL threshold overrides, audit log shipping destination; interacts with per-user profile config from Phase 3.5
 - [ ] **Policy enforcement at the Gateway** — policy loaded on startup; connectors not in the allowlist disabled before the mesh starts; violations logged to audit trail
 
-### ChatOps
+#### ChatOps
 
 - [ ] **Bidirectional Slack/Teams bot** — team members interact with the shared Nimbus Gateway via `@nimbus` in a channel; read queries (`@nimbus who's on call for payment-service?`) answered from the shared index; write commands (`@nimbus rollback payment-service to v1.4`) route to the HITL queue of the appropriate team member before executing — the bot never bypasses the consent gate
 - [ ] **HITL via Slack/Teams** — pending HITL approvals surfaced as interactive Slack/Teams messages; approver clicks Approve/Reject in-channel; decision recorded in audit log with approver identity; deep link to the full approval context
 - [ ] **Notification routing** — watcher alerts and incident summaries optionally routed to a designated Slack/Teams channel; configurable per watcher rule and per team namespace
 - [ ] **Bot security model** — bot token stored in Team Vault; bot can only act on behalf of the requesting user's authorised scope; channel-to-namespace mapping enforced in policy; no bot command can exceed the requesting user's permission level
 
-### Admin & Observability
+#### Admin & Observability
 
 - [ ] **Admin console** — web UI served locally by the Gateway: user list, namespace health, connector status across the team, audit log viewer, policy editor
 - [ ] **Team audit log** — federation events appended to each member's local audit log; owner can request a merged view
@@ -719,39 +737,39 @@ Depends on Team Vault (above) so service-account / SSO credentials can be shared
 
 <a id="deferred-from-phase-5"></a>
 
-### Deferred from Phase 5
+#### Deferred from Phase 5
 
 Items moved here from Phase 5 per the T1 sequencing spec. Read-only counterparts of split items remain in Phase 5.
 
-#### Browser & Reading
+##### Browser & Reading
 
 - [ ] **Web clipper** — browser extension saves a page into the Nimbus index with a tag; includes a browser "sidecar" UI (overlay) to show related local items without leaving the tab; surfaced in `nimbus search` alongside Drive files and emails
 - [ ] **Mendeley** — index whitepapers, PDFs, and citations alongside technical docs; `research_paper` item type; read-only (Zotero shipped in Phase 5)
 
-#### Email & Calendar (macOS-only)
+##### Email & Calendar (macOS-only)
 
 - [ ] **Apple Mail + macOS Calendar** — Apple Mail via local IMAP (no Bridge required); macOS Calendar via CalDAV (`caldav.apple.com`); macOS only; credentials in Vault; calendar events indexed as `event` items; mail indexed as `email` items with body preview; create/delete calendar event and draft send behind HITL
 
-#### HR
+##### HR
 
 - [ ] **Workday** — time off, headcount, org chart, job postings; read-only where API access allows. Lifted to Phase 6 because typical Workday tenancy is org-wide and pairs naturally with team identity / SSO already landing in this phase
 
-#### GitOps (Write Tools)
+##### GitOps (Write Tools)
 
 - [ ] **ArgoCD writes** — `gitops.app.sync`, `gitops.app.rollback` behind HITL; depends on the read-only ArgoCD connector landing in Phase 5
 - [ ] **Flux writes** — `gitops.kustomization.reconcile`, `gitops.helmrelease.reconcile` behind HITL; depends on the read-only Flux connector landing in Phase 5
 
-#### ML/AI (Write Tools)
+##### ML/AI (Write Tools)
 
 - [ ] **MLflow writes** — `ml.model.promote`, `ml.model.transition-stage` behind HITL; depends on the read-only MLflow connector landing in Phase 5
 - [ ] **SageMaker writes** — `ml.endpoint.update`, `ml.endpoint.delete`, `ml.job.stop` behind HITL; depends on the read-only SageMaker connector landing in Phase 5
 - [ ] **Vertex AI writes** — `ml.endpoint.update`, `ml.pipeline.cancel` behind HITL; depends on the read-only Vertex AI connector landing in Phase 5
 
-#### Marketplace v2 Monetization
+##### Marketplace v2 Monetization
 
 - [ ] **Paid extensions** — license-key enforcement via local validation; revenue sharing to publisher; depends on Marketplace v2 ratings/reviews/verified-publisher work landing in Phase 5 T2
 
-### Acceptance Criteria
+#### Acceptance Criteria
 
 - Two Nimbus instances on the same LAN establish a federated namespace in under 60 seconds with no external server involved
 - A team member's HITL approval on a shared workflow is recorded in both the approver's and the workspace owner's local audit log
@@ -762,13 +780,13 @@ Items moved here from Phase 5 per the T1 sequencing spec. Read-only counterparts
 
 ---
 
-## Phase 7 — Engineering Excellence
+### Phase 7 — Engineering Excellence
 
 **Goal:** Give engineers a local, queryable view of how their team operates — service ownership, DORA / SPACE health, feature-flag state, and a shared knowledge graph that turns one engineer's hard-won pattern into the team's reusable automation. **Single-user-first;** Phase 6 federation amplifies the value but is not a precondition.
 
 > **Composes with Phase 6 (Team):** Phase 7 ships fully on a solo machine, but every wave gets richer when Phase 6 federation is available. Wave 1's ownership graph merges federated peers' service catalogs into a single cross-team view; Wave 4's knowledge graph + automation library publish to Phase 6 shared namespaces; Wave 4's team policy library produces fragments the Phase 6 org-level policy engine consumes; the `nimbus excellence` agent can optionally aggregate DORA snapshots and stale-flag counts across federated peers (still LAN-bounded, no relay server).
 
-### Dependencies
+#### Dependencies
 
 - Phase 4 LLM router + multi-agent orchestration (the `nimbus excellence` agent is a built-in)
 - Phase 4 Plugin API v1 (long-tail vendors land as community extensions)
@@ -776,11 +794,11 @@ Items moved here from Phase 5 per the T1 sequencing spec. Read-only counterparts
 - Phase 3.5 telemetry counters (engineering-metrics dashboard reads aggregate metrics from same pipeline)
 - *Optional / enhancing only:* Phase 6 federation — see Composes-with note above
 
-### Structure
+#### Structure
 
 Four ordered waves. Waves 1 → 2 → 4 are sequential because Wave 2 references the `service` / `team` item types added in Wave 1, and Wave 4 (capstone) ties Waves 1–3 together. **Wave 3 has no dependency on Waves 1–2 and can land in parallel.**
 
-### Wave 1 — Service Catalog & Ownership
+#### Wave 1 — Service Catalog & Ownership
 
 Adds `service`, `component`, `team`, `scorecard` item types and the ownership graph used by every later wave.
 
@@ -791,7 +809,7 @@ Adds `service`, `component`, `team`, `scorecard` item types and the ownership gr
 - [ ] **Ownership graph** — extends the Phase 3 relationship graph with `code_symbol → service → team` resolution; `nimbus ask "who owns this file?"` answered locally without a live API call
 - [ ] **`nimbus services list / show`** — CLI surface; supports `--owned-by`, `--scorecard-status`
 
-### Wave 2 — DORA / Engineering Metrics
+#### Wave 2 — DORA / Engineering Metrics
 
 Builds on Wave 1's `service` / `team` item types. Inherently aggregate-level so privacy posture is conservative — ingest only the user's own team metrics, never individual engineer PII beyond what the user already has access to in the source.
 
@@ -805,7 +823,7 @@ Builds on Wave 1's `service` / `team` item types. Inherently aggregate-level so 
 - [ ] **SLO burn-rate forecaster** — connects to Datadog / Prometheus SLIs; runs a local regression on deploy frequency × change-failure rate × recent incident pattern × day-of-week seasonality to forecast whether the team will blow their error budget before month end; dashboard surfaces top-N feature contributions so the forecast is not a black box; no external ML infrastructure required
 - [ ] **Privacy contract test** — asserts no individual-engineer-keyed metric is indexed unless the user is explicitly admin/owner in the source system
 
-### Wave 3 — Feature Flags & Experimentation
+#### Wave 3 — Feature Flags & Experimentation
 
 Independent of Waves 1–2; can ship in parallel. Critical: write tools are production-impacting, so HITL gating is non-negotiable and the consent dialog must show before/after rollout %, environments affected, and segment scope.
 
@@ -817,7 +835,7 @@ Independent of Waves 1–2; can ship in parallel. Critical: write tools are prod
 - [ ] **Stale flag watcher** — fires on flags at 100% rollout > N days (default 90); surfaces in the morning briefing
 - [ ] **`nimbus flags list / show`** — CLI surface; supports `--stale`, `--service`, `--environment`
 
-### Wave 4 — Shared Knowledge Graph + Automation Library + `nimbus excellence`
+#### Wave 4 — Shared Knowledge Graph + Automation Library + `nimbus excellence`
 
 Capstone. Ties Waves 1–3 together; works on a solo machine, federation amplifies it.
 
@@ -829,13 +847,13 @@ Capstone. Ties Waves 1–3 together; works on a solo machine, federation amplifi
 - [ ] **`nimbus excellence` built-in agent** — read-only, parallel sub-agents over: service catalog, DORA metrics, feature flags, recent deploy/incident activity; emits `agents.excellence.briefReady` notification; CLI surface `nimbus excellence [--service <name> | --team <name>]` (mirrors `nimbus expert / impact / catchup` per `nimbus-agent-patterns`)
 - [ ] **Excellence dashboard** — Tauri page combining DORA grid + service-catalog browser + stale-flag list + automation template list
 
-### Stretch (does not gate phase completion)
+#### Stretch (does not gate phase completion)
 
 - [ ] **Long-tail vendors as community extensions** — Atlassian Compass, Roadie (managed Backstage), Configu, Hatica, Code Climate Velocity, GitClear; ship via Marketplace v2 per the "comprehensive then community" model
 - [ ] **Self-hosted preference path** — Flagsmith / Unleash / Backstage self-hosted variants documented as the recommended privacy-conservative defaults; matches Nimbus values
 - [ ] **Cross-vendor DORA harmonisation** — when two DORA connectors are connected (e.g. LinearB + Sleuth), the engine reconciles overlapping metrics with a configurable preference order; surfaces a "DORA confidence" indicator
 
-### Acceptance Criteria
+#### Acceptance Criteria
 
 - A connected Backstage instance with 50+ services indexes in under 60 seconds; `nimbus services list --owned-by my-team` returns the correct subset from the local index without a live API call
 - `nimbus ask "who owns src/billing/retry.ts?"` resolves the chain `code_symbol → repository → service → team` from the local relationship graph in under 200 ms
@@ -848,7 +866,7 @@ Capstone. Ties Waves 1–3 together; works on a solo machine, federation amplifi
 
 ---
 
-## Phase 8 — Security Engineering
+### Phase 8 — Security Engineering
 
 **Goal:** Bring the security practitioner's tool surface into the local index and ship the four built-in security agents that turn that surface into actionable briefs. Read-first; every write tool gates on HITL with rich diff preview because security writes (acknowledging vulnerabilities, rotating secrets, suppressing findings) are decisions with downstream consequences. Full design in [`docs/superpowers/specs/2026-05-10-phase-8-security-engineering-design.md`](./superpowers/specs/2026-05-10-phase-8-security-engineering-design.md).
 
@@ -856,7 +874,7 @@ Capstone. Ties Waves 1–3 together; works on a solo machine, federation amplifi
 >
 > **Composes with Phase 10 (The Autonomous Agent):** Phase 10's incident correlation engine queries security findings from the Phase 8 index. The two `nimbus incident*` agents are deliberately distinct — Phase 8's `nimbus incident` is security-shaped (attacker indicators, exposed endpoints, vuln CVEs, IR runbooks); Phase 10's `nimbus incident-brief` is operational (deploy → PR → commit → CI → Slack). When both ship, each brief includes a section sourced from the other domain.
 
-### Dependencies
+#### Dependencies
 
 - Phase 4 LLM router + multi-agent orchestration (built-in agents)
 - Phase 4 Plugin API v1 (long-tail vendors as community extensions)
@@ -864,7 +882,7 @@ Capstone. Ties Waves 1–3 together; works on a solo machine, federation amplifi
 - Phase 7 service catalog (`service` / `team` item types — security findings attribute to services and route to owner teams)
 - Phase 3.5 telemetry counters
 
-### Wave 1 — Code & Dependency Scanning
+#### Wave 1 — Code & Dependency Scanning
 
 - [ ] **Snyk** (Code + Open Source + Container) — SAST, SCA vulns, container scan; `snyk.issue.ignore` HITL
 - [ ] **Semgrep** — SAST rules + custom packs; `semgrep.finding.suppress` HITL
@@ -874,7 +892,7 @@ Capstone. Ties Waves 1–3 together; works on a solo machine, federation amplifi
 - [ ] **Dependabot / Renovate state** — read-only; open dependency PRs, severity, age
 - [ ] **`nimbus security <repo|service>`** — built-in agent ranking open findings by severity × exploitability × age; emits `agents.security.briefReady`
 
-### Wave 2 — Cloud & Container Security Posture
+#### Wave 2 — Cloud & Container Security Posture
 
 - [ ] **Wiz** — CSPM findings, attack-path graph, identity over-permissions; `wiz.issue.assign`, `wiz.issue.resolve` HITL
 - [ ] **Prisma Cloud** — CSPM, CWPP, CIEM; `prisma.alert.acknowledge` HITL
@@ -883,7 +901,7 @@ Capstone. Ties Waves 1–3 together; works on a solo machine, federation amplifi
 - [ ] **Sysdig / Falco** — runtime threat detections, policy violations; `sysdig.alert.silence` HITL
 - [ ] **`nimbus posture <cloud-account|cluster>`** — built-in agent ranking by exploitability × blast radius × asset criticality; emits `agents.posture.briefReady`
 
-### Wave 3 — Incident Response & SOC
+#### Wave 3 — Incident Response & SOC
 
 - [ ] **FireHydrant** — incidents, runbooks, retros, severity, affected services; `firehydrant.incident.update`, `firehydrant.incident.resolve` HITL
 - [ ] **Rootly** — incidents, retro templates, action items; `rootly.incident.update` HITL
@@ -893,7 +911,7 @@ Capstone. Ties Waves 1–3 together; works on a solo machine, federation amplifi
 - [ ] **VirusTotal** — hash / IP / domain reputation, recent submissions; read-only
 - [ ] **`nimbus incident <alert-id|incident-id>`** — security-incident-shaped: attacker indicators (IPs, hashes, domains), affected services + owners, exposed endpoints, recent vulnerable deploys, IR runbook recommendations; emits `agents.security_incident.briefReady`. **Distinct** from Phase 10's `nimbus incident-brief` (operational shape).
 
-### Wave 4 — Supply Chain & Identity
+#### Wave 4 — Supply Chain & Identity
 
 - [ ] **Sigstore Rekor** — signed artifacts, transparency-log entries; read-only (Rekor is append-only globally)
 - [ ] **in-toto / SLSA provenance** — build provenance, attestation graph; read-only
@@ -905,13 +923,13 @@ Capstone. Ties Waves 1–3 together; works on a solo machine, federation amplifi
 - [ ] **Least-privilege auto-remediation** — agent watches AWS IAM and Okta usage (Wave 4 Okta logs ingestion provides the visibility) and drafts terraform / config PRs to revoke unused permissions after 30 days; HITL-gated merge; enforces least privilege without manual hunting
 - [ ] **`nimbus supply-chain <repo|artifact>`** — SBOM diff against last release, signed-vs-unsigned dependencies, attestation gaps, license-policy violations, transparency-log presence; emits `agents.supply_chain.briefReady`
 
-### Stretch (does not gate phase completion)
+#### Stretch (does not gate phase completion)
 
 - [ ] **Long-tail vendors as community extensions** — Lacework, Orca, Aqua, Anchore, Mend, FOSSA, Black Duck, Tracecat, Torq, Recorded Future, MISP
 - [ ] **`nimbus security --remediate <finding-id>`** — agent proposes a fix PR for highest-confidence findings (lockfile bump for SCA, secret-rotation flow for GitGuardian); HITL-gated; experimental
 - [ ] **STIX/TAXII threat-intel feed** — read-only ingestion of community threat-intel feeds into the `threat_indicator` table
 
-### Acceptance Criteria
+#### Acceptance Criteria
 
 - A connected Snyk org with 100+ open vulns indexes in under 60 s; `nimbus security my-service` returns the top-N ranked open findings from the local index without a live API call
 - `nimbus posture aws-prod` returns CSPM + IaC + runtime findings ranked by exploitability × blast radius from the local index in under 15 s
@@ -923,7 +941,7 @@ Capstone. Ties Waves 1–3 together; works on a solo machine, federation amplifi
 
 ---
 
-## Phase 9 — AI Engineering Loop
+### Phase 9 — AI Engineering Loop
 
 **Goal:** Bring the tool surface that ML engineers and AI-product teams already use into the local index, and ship `nimbus model-health` + `nimbus rag-health` to surface actionable status without a live API call. Read-first for ingestion; HITL on the few write tools (`prompt.deploy`, `model.promote-stage`, `feature.publish`) because pushing a prompt or promoting a model is a production change. Full design in [`docs/superpowers/specs/2026-05-10-phase-9-ai-engineering-loop-design.md`](./superpowers/specs/2026-05-10-phase-9-ai-engineering-loop-design.md).
 
@@ -931,7 +949,7 @@ Capstone. Ties Waves 1–3 together; works on a solo machine, federation amplifi
 >
 > **Composes with Phase 10 (The Autonomous Agent):** Phase 10's incident correlation engine pulls AI-Eng Loop signals when an LLM-backed feature is in the affected scope. Phase 10's standing-approval engine can suppress noise from `nimbus model-health` after N consecutive identical decisions.
 
-### Dependencies
+#### Dependencies
 
 - Phase 4 LLM router + multi-agent orchestration
 - Phase 4 Plugin API v1
@@ -939,7 +957,7 @@ Capstone. Ties Waves 1–3 together; works on a solo machine, federation amplifi
 - Phase 7 service catalog (AI features attribute to services and route to owner teams)
 - Phase 3.5 telemetry counters
 
-### Wave 1 — LLM Observability & Evaluation
+#### Wave 1 — LLM Observability & Evaluation
 
 - [ ] **Helicone** — LLM traces, latency p50/p95/p99, cost per request, error rate; read-only
 - [ ] **Langfuse** (open source, self-hostable) — traces, sessions, prompt versions, eval datasets; `langfuse.prompt.deploy` HITL
@@ -949,7 +967,7 @@ Capstone. Ties Waves 1–3 together; works on a solo machine, federation amplifi
 - [ ] **Prompt-regression watcher** — fires when an eval-suite pass-rate drops below threshold (configurable; default 95% of trailing 7-day mean)
 - [ ] **AI context minimizer** — periodic agent over Helicone / Langfuse / LangSmith trace ingestion; analyses prompt traces, identifies context segments the LLM didn't materially use, and surfaces removal suggestions; directly reduces token cost and latency on the user's own prompts
 
-### Wave 2 — ML Model Lifecycle
+#### Wave 2 — ML Model Lifecycle
 
 Phase 5/6 already index model registry entries from MLflow / SageMaker / Vertex AI; Phase 9 adds the **operational** signals.
 
@@ -959,7 +977,7 @@ Phase 5/6 already index model registry entries from MLflow / SageMaker / Vertex 
 - [ ] **Tecton** — feature pipelines, materialisation state, online-store health; `tecton.feature.publish` HITL
 - [ ] **Fiddler** — model performance, fairness/bias monitors, segment drilldowns; `fiddler.monitor.acknowledge` HITL
 
-### Wave 3 — Vector Stores & RAG Infrastructure
+#### Wave 3 — Vector Stores & RAG Infrastructure
 
 - [ ] **Pinecone** — indexes, namespace stats, vector count, recent upsert/delete events; read-only (Phase 9 write surface deferred)
 - [ ] **Weaviate** (open source, self-hostable) — classes/collections, object counts, schema versions, recent imports; read-only
@@ -968,7 +986,7 @@ Phase 5/6 already index model registry entries from MLflow / SageMaker / Vertex 
 - [ ] **Ragas / TruLens** (CLI integration) — RAG eval runs, faithfulness / answer-relevance / context-precision scores; read-only
 - [ ] **Embedding-drift watcher** — fires when a vector index's embedding-function version diverges from the model that originally embedded the indexed content; surfaces in morning briefing
 
-### Wave 4 — AI Cost & Governance
+#### Wave 4 — AI Cost & Governance
 
 - [ ] **OpenAI usage export** — per-API-key, per-model spend, token counts, daily aggregates; read-only
 - [ ] **Anthropic usage export** — per-API-key spend, token counts, model breakdown; read-only
@@ -978,19 +996,19 @@ Phase 5/6 already index model registry entries from MLflow / SageMaker / Vertex 
 - [ ] **AI cost watcher** — fires when 24 h spend exceeds 7-day rolling average by configurable threshold (default 50%); surfaces in morning briefing
 - [ ] **Policy-violation watcher** — fires when an LLM call routes to a model class violating the active policy (e.g. PII data class to non-residency-compliant model); blocks via the existing LLM router air-gap mechanism
 
-### Built-in Agents
+#### Built-in Agents
 
 - [ ] **`nimbus model-health [<model-name>]`** — parallel sub-agents over LLM observability + eval + cost connectors; per-model brief with latency p50/p95/p99, eval-suite pass rate trajectory, cost burn vs. budget, recent prompt regressions, drift indicators; emits `agents.modelHealth.briefReady`
 - [ ] **`nimbus rag-health [<rag-app-name>]`** — parallel sub-agents over vector-store + RAG-eval + ingestion connectors; per-application brief with retrieval-quality scores, embedding-version drift, vector-store health, knowledge-base freshness, recent ingestion failures; emits `agents.ragHealth.briefReady`
 
-### Stretch (does not gate phase completion)
+#### Stretch (does not gate phase completion)
 
 - [ ] **Long-tail vendors as community extensions** — Aporia, Phoenix Arize, OpenLLMetry, Pezzo, Hopsworks, Featureform, Dynamic.ai, Confident AI, DeepEval
 - [ ] **Eval-as-a-watcher** — `nimbus` runs Promptfoo evals locally on a configurable schedule against locally-indexed prompt versions; results feed `nimbus model-health`. Two use cases share the same primitive: (a) **zero-shot bring-your-own-model evaluator** — download a newly released open-source model and run the existing eval suite locally to see if it is better for the team's use case; (b) **prompt A/B testing** — route a prompt-diff through the same eval suite and compare pass rates before recommending the new version
 - [ ] **Local fine-tuning data curation** — agent identifies high-quality human artefacts (well-written incident post-mortems, effective PR reviews, polished design docs) from the local index and packages them into a JSONL dataset for Phase 14 style / voice fine-tuning; distinct from Phase 14's tool-use trace dataset builder (which targets agent traces); user approves the dataset before fine-tune kickoff
 - [ ] **Bring-your-own-model fine-tune trace** — when Phase 14 (AI v2) ships fine-tuning, Phase 9 indexes the resulting fine-tuned model's training-run telemetry as `ml_model` rows
 
-### Acceptance Criteria
+#### Acceptance Criteria
 
 - A connected Helicone account with 1M+ traces indexes recent traces (last 24 h) in under 60 s; `nimbus model-health gpt-4o-prod` returns latency p50/p95/p99 + cost burn from the local index in under 15 s with no live API call
 - A prompt-regression watcher fires on a connected Braintrust suite when pass-rate drops below threshold; surfaces in morning briefing
@@ -1002,20 +1020,20 @@ Phase 5/6 already index model registry entries from MLflow / SageMaker / Vertex 
 
 ---
 
-## Phase 10 — The Autonomous Agent
+### Phase 10 — The Autonomous Agent
 
 **Goal:** Transform Nimbus from a reactive tool into a proactive collaborator that watches, learns, and acts — always within the bounds of what you have authorised.
 
 **Scope note:** This phase contains items with very different risk and complexity profiles. Standing approvals, scheduled workflows, morning briefings, deadline tracking, and the incident correlation engine are low-risk, buildable directly on Phase 3 infrastructure, and form the **core** of this phase. LoRA fine-tuning and the Infrastructure-as-Agent SRE loop are research-adjacent and are marked **stretch** — they do not gate phase completion if the core items pass their acceptance criteria.
 
-### Dependencies
+#### Dependencies
 
 - Phase 3 Watcher system and RAG conversational memory
 - Phase 3 Proactive anomaly detection (watcher baseline learning)
 - Phase 4 Local LLM support and multi-agent orchestration
 - Phase 4 Tamper-evident audit log (standing approvals are recorded and auditable)
 
-### Core — Standing Approvals & Scheduling
+#### Core — Standing Approvals & Scheduling
 
 - [ ] **Standing approval rules** — users pre-authorise specific recurring write patterns; stored in SQLite with explicit scope, expiry, and item count ceiling; agent checks standing rules before prompting for HITL. Canonical use cases include autonomous drafting of dependency-update PRs (Dependabot / Renovate equivalents) and lint-fix PRs once the user has approved the same pattern N times in a row
 - [ ] **Approval learning** — after N consecutive identical approvals (configurable; default: 5), Nimbus suggests a standing rule; user must explicitly confirm; suggestion is logged
@@ -1028,7 +1046,7 @@ Phase 5/6 already index model registry entries from MLflow / SageMaker / Vertex 
 - [ ] **Deadline tracking** — monitors items with due dates across Linear, Jira, GitHub, and Calendar; fires notification 24h before deadline when no recent activity is detected on the item
 - [ ] **`nimbus schedule list`** — shows all active scheduled workflows with next fire time and last run status
 
-### Core — Incident Correlation Engine
+#### Core — Incident Correlation Engine
 
 - [ ] **Automatic incident assembly** — when a monitoring alert fires, agent automatically queries the local index for: last deployment before the alert, associated PR, triggering commit, CI run result, Slack/Teams threads mentioning the affected service; assembles a structured incident summary without any user query. For **data-platform** alerts (PagerDuty events tagged `data`, Monte Carlo / Bigeye incidents, failing dbt test notifications) the same assembly also pulls: last Airflow / Dagster / Prefect DAG run logs, recent dbt test failures, recent warehouse schema changes (Snowflake / BigQuery `INFORMATION_SCHEMA` deltas), and the dbt-model-authoring PRs merged in the preceding 24 hours — delivered as a single "Data Incident Brief"
 - [ ] **Incident timeline** — structured Markdown timeline (alert → deploy → commit → PR → CI); exported via `nimbus incident show <alert-id>` or surfaced in the Tauri dashboard
@@ -1037,7 +1055,7 @@ Phase 5/6 already index model registry entries from MLflow / SageMaker / Vertex 
 - [ ] **Post-mortem generation** — after incident resolution, agent drafts a structured post-mortem (timeline, root cause, contributing factors, action items) from the assembled incident record and HITL decision log; user reviews and edits before HITL-gated push to Notion or Confluence; template is configurable
 - [ ] **On-call schedule awareness** — indexes PagerDuty/OpsGenie on-call schedules; answers `nimbus ask "who's on call for payment-service right now?"` from the local index; feeds on-call context into the morning briefing and incident assembly so the agent can route notifications to the right engineer without an additional API call
 
-### Core — Agent Memory & Personalization
+#### Core — Agent Memory & Personalization
 
 - [ ] **Long-term episodic memory** — agent stores summarised observations from past sessions in a dedicated SQLite table; recalled at query time via semantic similarity
 - [ ] **Personalization layer** — agent adapts communication style and tool selection priority based on observed user preferences; preferences are explicit (configurable), not inferred silently
@@ -1045,11 +1063,11 @@ Phase 5/6 already index model registry entries from MLflow / SageMaker / Vertex 
 - [ ] **Decision pattern recognition** — agent identifies repeated HITL decision patterns across history; surfaces them as standing rule candidates
 - [ ] **Point-in-time index queries** — ability to reconstruct the state of the indexed data at a specific historical timestamp using sync history and item `modified_at` metadata already stored in the index. Enables queries like `nimbus ask "what was the deployment state of payment-service at 14:32 last Tuesday?"` for post-incident analysis. Implementation: the query layer filters indexed items to their state at the requested timestamp using `modified_at` and sync cycle timestamps already recorded in `sync_state`; no new data collection required. Exposed via `--at <ISO8601-or-relative-time>` flag on `nimbus ask` and `nimbus query`. Read-only, no HITL.
 
-### Core — LAN Hardening (deferred from Phase 4 B1 audit)
+#### Core — LAN Hardening (deferred from Phase 4 B1 audit)
 
 - [ ] **LAN forward secrecy (S3-F8)** — replace the static X25519 pairing identity with per-session ephemeral DH so a future pairing-key compromise cannot decrypt past LAN sessions; multi-PR handshake redesign incompatible with the v0.1.0 LAN protocol — gated on a versioned LAN handshake bump; tracked from the Phase 4 internal security audit (B1, 2026-04-25)
 
-### Stretch — Local Model Fine-Tuning
+#### Stretch — Local Model Fine-Tuning
 
 *These items do not gate phase completion. They are explicitly aspirational.*
 
@@ -1057,7 +1075,7 @@ Phase 5/6 already index model registry entries from MLflow / SageMaker / Vertex 
 - [ ] **Domain-specific recall** — fine-tuned adapter improves agent's ability to match user naming conventions and project context when drafting or classifying
 - [ ] **`nimbus model train --adapter writing-style`** — background fine-tuning job; `nimbus model status` shows progress; adapters versioned and rollback-safe
 
-### Stretch — Infrastructure-as-Agent (SRE Loop)
+#### Stretch — Infrastructure-as-Agent (SRE Loop)
 
 *These items do not gate phase completion. They are explicitly aspirational.*
 
@@ -1070,7 +1088,7 @@ Phase 5/6 already index model registry entries from MLflow / SageMaker / Vertex 
 - [ ] **Sustainability connectors** — carbon-footprint reporting feeds the SRE loop's "right-size to lower-carbon region" recommendations: **Cloud Carbon Footprint** (open source), **Climatiq**, **Watershed**, AWS / Azure / GCP carbon footprint exports
 - [ ] **Runbook automation** — common SRE runbooks registered as named HITL-gated actions; agent proposes the right runbook when an incident matches a known pattern
 
-### Acceptance Criteria (core items only)
+#### Acceptance Criteria (core items only)
 
 - A standing approval rule for "archive read Gmail threads older than 60 days" executes its next scheduled run without any user prompt; every archived thread appears in the audit log under the rule ID
 - When a PagerDuty P1 fires, the incident summary (deploy, PR, commit, CI result, Slack thread) is assembled and available via `nimbus incident show` within 30 seconds of the alert being indexed — no user query required
@@ -1081,19 +1099,19 @@ Phase 5/6 already index model registry entries from MLflow / SageMaker / Vertex 
 
 ---
 
-## Phase 11 — Sovereign Mesh
+### Phase 11 — Sovereign Mesh
 
 **Goal:** Extend Nimbus beyond the single machine — across the user's own devices, between trusted people, and into the physical world — without any relay server or trusted third party.
 
 **Note on the Digital Executor:** The dead man's switch and Shamir's Secret Sharing items address a real use case: secure handover of credentials and cryptographic keys to trusted people upon death or extended incapacitation. They are included because they are a natural extension of the local sovereignty model — if Nimbus holds the keys to your digital life, it should have a principled way to hand them to the people you designate. They are not a novelty feature; they are the logical conclusion of the "no cloud, no intermediary" architecture applied to the hardest edge case.
 
-### Dependencies
+#### Dependencies
 
 - Phase 4 tamper-evident audit log and data export/import
 - Phase 6 federation protocol (Nimbus-to-Nimbus channel is the mesh primitive)
 - Phase 10 standing approvals (mobile HITL approvals are a standing-approval variant)
 
-### Cross-Device Sync
+#### Cross-Device Sync
 
 - [ ] **P2P index sync** — encrypted index sync between a user's own machines; BLAKE3-keyed protocol; vector-clock conflict resolution; no third party
 - [ ] **Selective sync** — user controls which `item` types and services sync to which device; configuration stored in the Vault per profile
@@ -1101,7 +1119,7 @@ Phase 5/6 already index model registry entries from MLflow / SageMaker / Vertex 
 - [ ] **Geofenced context switching** — Phase 3.5 configuration profiles extended with a "trusted-network" gate; sensitive index namespaces auto-disable sync (and optionally lock the Vault) when the device connects to an untrusted / public Wi-Fi BSSID; configuration is local-only, no cloud involved
 - [ ] **Mesh backup sharding** — encrypted shards of the index + Vault are distributed across the user's trusted devices using erasure coding over the Phase 6 federation channel; recovery from any M-of-N shards; reuses the Digital Executor's Shamir cryptographic shape applied to live backup instead of inheritance; eliminates the need for cloud backup while preserving durability
 
-### Mobile Companion
+#### Mobile Companion
 
 - [ ] **iOS app** — connects to home Gateway over E2EE LAN or WireGuard tunnel; no cloud relay; natural language queries, HITL approval queue, watcher notifications, read-only connector status
 - [ ] **Android app** — same feature set as iOS
@@ -1109,20 +1127,20 @@ Phase 5/6 already index model registry entries from MLflow / SageMaker / Vertex 
 - [ ] **Biometric HITL** — use the Mobile Companion as the primary HITL gate; approvals cryptographically signed with a device key and authorized via FaceID/TouchID for a superior security/UX balance
 - [ ] **Mobile HITL signature** — approvals cryptographically signed with a device key stored in the phone's secure enclave
 
-### Physical Sovereignty
+#### Physical Sovereignty
 
 - [ ] **Hardware vault integration** — YubiKey and Ledger as a second factor; FIDO2/WebAuthn locally; unlock requires physical device presence
 - [ ] **Hardware audit-log signing** — support for Nitrokey or OpenPGP cards to cryptographically sign the BLAKE3 audit chain, making it physically tamper-proof
 - [ ] **Air-gapped secret management** — credentials for sensitive connectors stored exclusively on a hardware key; Gateway requests them via USB/NFC at sync time; never written to disk even temporarily
 - [ ] **Decentralized Identifiers (DIDs)** — self-sovereign DIDs for Nimbus-to-Nimbus authentication; DID document stored locally; no central registry required
 
-### Digital Executor
+#### Digital Executor
 
 - [ ] **Dead man's switch** — configures cryptographic keys and documents to be handed over to named recipients if Gateway is inactive for a configurable period
 - [ ] **Threshold secret sharing** — executor payload split using Shamir's Secret Sharing across N trusted recipients; any M-of-N can reconstruct; no single recipient can access it alone. Extends to runtime privileged credentials (production secrets, root tokens) so no single engineer or compromised machine can unilaterally access critical credentials — same Shamir primitive applied to live credentials instead of inheritance payload
 - [ ] **Executor audit trail** — every check-in, near-trigger, and handover event logged in the tamper-evident audit chain; recipients receive a verifiable log alongside the payload
 
-### Stretch — Internationalisation (i18n / l10n)
+#### Stretch — Internationalisation (i18n / l10n)
 
 The mobile companion is the natural moment to introduce locale awareness; the same string-extraction effort serves the Tauri UI, CLI, and TUI. Does not gate phase completion.
 
@@ -1132,7 +1150,7 @@ The mobile companion is the natural moment to introduce locale awareness; the sa
 - [ ] **Right-to-left support** — Tauri UI honours `dir="rtl"` for RTL locales; verified with Hebrew sample translation in QA
 - [ ] **Indexed-content character-set robustness** — the FTS5 tokeniser handles CJK + non-Latin scripts correctly; verified by an integration test that indexes a Japanese-language Notion page and queries it back
 
-### Acceptance Criteria
+#### Acceptance Criteria
 
 - Index syncs between two machines on the same LAN in under 60 seconds for a 50,000-item dataset; no data passes through any external server
 - A HITL approval made on the mobile app executes within 5 seconds on the home Gateway; action and approval signature appear in the local audit log
@@ -1141,20 +1159,20 @@ The mobile companion is the natural moment to introduce locale awareness; the sa
 
 ---
 
-## Phase 12 — Enterprise
+### Phase 12 — Enterprise
 
 **Goal:** Make Nimbus deployable and auditable at institutional scale. Tied to the commercial license tier — AGPL users retain all individual and team features; enterprise deployment, compliance tooling, and SLA support are commercial.
 
 **Dependency note:** The Phase 10 dependency is narrowed to **standing approvals only**. Docker, Helm, SAML SSO, audit log shipping, and SCIM provisioning do not require the autonomous agent or LoRA fine-tuning to be complete. The SRE loop stretch items are independent of enterprise deployment.
 
-### Dependencies
+#### Dependencies
 
 - Phase 6 Team (Enterprise builds on the team collaboration foundation)
 - Phase 4 tamper-evident audit log (required for compliance export)
 - Phase 10 standing approvals (required for unattended enterprise workflows)
 - Phase 3.5 telemetry infrastructure (audit log shipping uses the same batched-transmission pipeline)
 
-### Deployment & Operations
+#### Deployment & Operations
 
 - [ ] **Docker image** — official `ghcr.io/nimbus/gateway` image; multi-arch (amd64/arm64); configurable via env vars and mounted `nimbus.toml`
 - [ ] **Helm chart** — `nimbus/gateway` Helm chart for Kubernetes; namespace isolation, persistent volume for SQLite, external Vault backend (HashiCorp Vault), RBAC, NetworkPolicy
@@ -1164,7 +1182,7 @@ The mobile companion is the natural moment to introduce locale awareness; the sa
 - [ ] **Managed update channel** — enterprise updates on a dedicated channel with 2-week delay vs. main; allows internal QA before rollout
 - [ ] **Remote vector store adapters** — pluggable `VectorStore` interface with Qdrant, Weaviate, and Pinecone backends; `sqlite-vec` remains the default (local-first principle); remote backend enabled only via explicit `[index.vector_store]` config block — never on by default; suitable for enterprise deployments with centralised vector infrastructure or index sizes exceeding local storage thresholds; resolves the Phase 3 deferral (remote stores were incompatible with local-first for individual users; self-hosted enterprise deployments clear the privacy boundary)
 
-### Centralized Policy & Compliance
+#### Centralized Policy & Compliance
 
 - [ ] **Policy-as-code** — `nimbus.policy.toml` extended for enterprise: per-user role assignments, connector allowlists, data classification labels, mandatory audit log shipping, HITL threshold overrides per user group
 - [ ] **Data Loss Prevention (DLP) Gate** — pre-dispatch scanner that flags PII, secrets, or "Internal Only" content before it is sent to remote LLMs or exported
@@ -1174,7 +1192,7 @@ The mobile companion is the natural moment to introduce locale awareness; the sa
 - [ ] **Data residency controls** — per-connector restriction to a named geographic boundary; Gateway enforces at ingest; non-compliant items flagged and excluded from the index
 - [ ] **Formal security audit** — third-party penetration test of Gateway, IPC surface, Vault, and extension sandbox; published report; responsible disclosure programme and bug bounty
 
-### GRC Platforms (Compliance Automation)
+#### GRC Platforms (Compliance Automation)
 
 Connectors for the GRC tools enterprises already use to evidence SOC 2 / ISO 27001 / HIPAA / PCI-DSS controls. Read-only ingestion of control state into the local index; the Phase 12 `nimbus compliance check` output is consumable by these platforms via standard auditor formats.
 
@@ -1184,26 +1202,26 @@ Connectors for the GRC tools enterprises already use to evidence SOC 2 / ISO 270
 - [ ] **Tugboat Logic / OneTrust GRC (read-only)** — controls, risks, audit logs; read-only
 - [ ] **Automated compliance-evidence attachments** — agent maps locally-indexed Jira tickets, PRs, deploy logs, and audit-log entries to specific auditor evidence requests in the connected GRC platform (Drata / Vanta / Secureframe); produces a one-click evidence package per request; turns audit preparation from a weeks-long manual task into an export
 
-### Identity & Governance
+#### Identity & Governance
 
 - [ ] **Enterprise SSO** — SAML 2.0 and OIDC; tokens in enterprise Vault, not browser cookies; session binding to machine identity
 - [ ] **SCIM 2.0 provisioning** — automated user lifecycle driven by IdP; deprovisioned users' Vault entries and shared namespaces revoked within one sync cycle
 - [ ] **Knowledge Isolation (Project Boundaries)** — strict index partitioning to ensure context from one client/project never bleeds into another
 - [ ] **Privileged access management** — named admin users can view (not export) any team member's connector health and audit log; cannot view index content or credentials
 
-### Admin Console (Enterprise)
+#### Admin Console (Enterprise)
 
 - [ ] **Org-wide dashboard** — Gateway health per member, index item counts by service, watcher fire rate, HITL queue depth, audit log freshness
 - [ ] **Policy editor** — GUI for `nimbus.policy.toml` with validation and diff preview before applying
 - [ ] **Credential rotation assistant** — identifies connectors with credentials older than a configurable threshold; guides admin through coordinated re-auth with minimal downtime
 
-### SLA & Support
+#### SLA & Support
 
 - [ ] **Priority support tier** — dedicated CSM, 4h response SLA for P1 issues, private Slack channel
 - [ ] **Deployment assistance** — official runbooks for Docker/Kubernetes/air-gapped deployments; reference architecture for common enterprise stacks
 - [ ] **DPA and legal templates** — Data Processing Agreement, sub-processor list, GDPR Article 28 documentation for enterprise procurement
 
-### Acceptance Criteria
+#### Acceptance Criteria
 
 - The Helm chart deploys a functional Gateway cluster on Kubernetes with persistent storage and NetworkPolicy in under 15 minutes from a clean cluster
 - `nimbus compliance check` produces a machine-readable JSON report passing a reference auditor schema without manual intervention
@@ -1212,11 +1230,11 @@ Connectors for the GRC tools enterprises already use to evidence SOC 2 / ISO 270
 
 ---
 
-## Phase 13 — Desktop Distribution
+### Phase 13 — Desktop Distribution
 
 **Goal:** Publish the Tauri desktop UI as signed, OS-gatekeeper-clean release artifacts. The desktop UI itself was built in Phase 4 (WS5-A through WS5-D, all `[x]` in [§ Phase 4](#phase-4--presence-)); what slipped from `v0.1.0` was the release vehicle — signed installers, per-OS build matrix, Gatekeeper / SmartScreen handling, and the Tauri-specific security audit follow-ups. This phase delivers the `desktop-v0.1.0` tag, gated independently of the headless `v0.1.0` and `vscode-v0.1.0` tags.
 
-### Dependencies
+#### Dependencies
 
 - Phase 4 WS5 (Tauri UI code-complete in-tree)
 - Phase 4 WS4 (Updater state machine + Ed25519 signing plumbing)
@@ -1224,7 +1242,7 @@ Connectors for the GRC tools enterprises already use to evidence SOC 2 / ISO 270
 
 <a id="desktop-release-vehicle"></a>
 
-### Desktop Release Vehicle
+#### Desktop Release Vehicle
 
 The Tauri desktop UI was code-complete in Phase 4 (WS5-A through WS5-D) but did not ship as a release artifact in `v0.1.0`. Phase 13 is the release vehicle: signed installers, a per-OS `build-ui` matrix in `release.yml`, and the Tauri-specific security audit follow-ups deferred from B1. The desktop tag is `desktop-v0.1.0`, gated independently of the headless `v0.1.0` and `vscode-v0.1.0` tags.
 
@@ -1237,7 +1255,7 @@ The Tauri desktop UI was code-complete in Phase 4 (WS5-A through WS5-D) but did 
 - [ ] **`desktop-v0.1.0` smoke pass** — every section in [`docs/release/manual-smoke-desktop.md`](./release/manual-smoke-desktop.md) green on Windows + both macOS arches + Ubuntu 24.04
 - [ ] **`nimbus desktop` CLI shim (optional)** — a thin `packages/cli/src/commands/desktop.ts` command that locates and launches the installed Tauri app, so users can launch the desktop UI from the same CLI surface they use for everything else
 
-### Stretch — Channel Reach (does not gate phase completion)
+#### Stretch — Channel Reach (does not gate phase completion)
 
 Native package-manager distribution; gated independently of the desktop tag, may ship as `headless-channel-v0.1.x` after `desktop-v0.1.0` is green.
 
@@ -1250,7 +1268,7 @@ Native package-manager distribution; gated independently of the desktop tag, may
 - [ ] **MacPorts** (macOS) — Portfile maintained alongside Homebrew
 - [ ] **Nix flake** — `nix run github:nimbus/nimbus#nimbus`; reproducible build outputs
 
-### Acceptance Criteria
+#### Acceptance Criteria
 
 - `desktop-v0.1.0` produces `.dmg` (notarized, both arches), `.msi` (Authenticode-signed), `.AppImage` and `.deb` (GPG-detached signatures) as release artifacts.
 - A user double-clicking the macOS `.dmg` and the Windows `.msi` from a clean OS install is not blocked by Gatekeeper or SmartScreen.
@@ -1259,13 +1277,13 @@ Native package-manager distribution; gated independently of the desktop tag, may
 
 ---
 
-## Phase 14 — Agent Evolution / AI v2
+### Phase 14 — Agent Evolution / AI v2
 
 **Goal:** Expand Nimbus's intrinsic agent capabilities along four dimensions — multimodal I/O, isolated code execution, computer use, and runtime tool generation. Highest risk-blast-radius phase; structured Core / Stretch so the phase remains shippable even if the most research-adjacent capabilities slip. Full design in [`docs/superpowers/specs/2026-05-10-phase-14-agent-evolution-design.md`](./superpowers/specs/2026-05-10-phase-14-agent-evolution-design.md).
 
 > **Composes with Phase 10 (Autonomous Agent):** Phase 10's standing approvals are explicitly **not** extended to Phase 14 capabilities by default. The autonomous agent's incident correlation engine can however invoke Phase 14 capabilities under HITL when the user explicitly approves a multi-step remediation. Phase 14 capabilities can be disabled at the org level via Phase 12's policy-as-code.
 
-### Dependencies
+#### Dependencies
 
 - Phase 4 LLM router + multi-agent orchestration
 - Phase 4 Plugin API v1
@@ -1273,7 +1291,7 @@ Native package-manager distribution; gated independently of the desktop tag, may
 - Phase 12 Enterprise policy-as-code (org-level disable mechanism)
 - All prior platform phases stable — this phase inherits, never overrides
 
-### Core — Multimodal I/O
+#### Core — Multimodal I/O
 
 - [ ] **Image input — vision-model OCR + scene understanding** — indexed screenshots, design-file thumbnails, whiteboard photos passed to a local or remote VLM (Pixtral, Llama 3.2 Vision, Claude Sonnet / Opus, GPT-4o); structured caption + entity extraction stored as `image_understanding` rows
 - [ ] **Video input — local STT + frame captioning** — Loom / Vidyard / meeting recordings indexed via `whisper-cli` STT + periodic frame caption; `video_understanding` rows with transcript, frame captions, speaker diarization
@@ -1281,7 +1299,7 @@ Native package-manager distribution; gated independently of the desktop tag, may
 - [ ] **Image output via local SD/Flux** — `nimbus diagram <description>` produces a draft diagram via locally-installed Stable Diffusion or Flux; HITL on save-to-file; opt-in
 - [ ] **Multimodal MCP tools** — `searchLocalIndexImages`, `summarizeVideo`, `extractActionItemsFromAudio`; wrapped via `wrapToolOutput` per invariant `I11`
 
-### Core — Code Execution Sandbox
+#### Core — Code Execution Sandbox
 
 - [ ] **Local sandbox runner** — Bun + Deno (`--no-net` by default) inside `bwrap` (Linux) / `sandbox-exec` (macOS) / AppContainer (Windows); per-execution capability flags (`--allow-net`, `--allow-fs <path>`, `--allow-env <var>`)
 - [ ] **Optional remote sandbox adapters** — pluggable adapters for E2B, Modal, Daytona, fly.io machines; enabled only via explicit `[code_execution.remote_sandbox]` config; `enforce_air_gap = true` blocks remote sandboxes regardless of config
@@ -1289,7 +1307,7 @@ Native package-manager distribution; gated independently of the desktop tag, may
 - [ ] **Output capture and feed-back** — stdout/stderr/exit-code/runtime returned to the LLM via `wrapToolOutput`; binary outputs recorded in audit log
 - [ ] **`nimbus exec --interactive`** — REPL mode where each agent-emitted code block individually requires Enter-to-approve
 
-### Stretch — Computer Use (browser / terminal / screen)
+#### Stretch — Computer Use (browser / terminal / screen)
 
 *Highest-risk capability. Per-action HITL by default; sandboxed runtimes; explicit per-session opt-in.*
 
@@ -1298,7 +1316,7 @@ Native package-manager distribution; gated independently of the desktop tag, may
 - [ ] **Screen capture + click** — desktop OS-level click + keystroke; sandboxed application target only (cannot drive Nimbus UI itself, cannot click outside target window)
 - [ ] **Action-stream audit** — every emitted action recorded with screenshot before/after for screen capture, DOM snapshot before/after for browser; supports post-incident replay
 
-### Stretch — Tool Generation & Fine-Tuning
+#### Stretch — Tool Generation & Fine-Tuning
 
 - [ ] **Runtime tool generation** — agent writes its own MCP tool stub; runs `@nimbus-dev/sdk` contract test; if green, registers ephemerally for the session only; HITL per tool registration
 - [ ] **Tool persistence** — `nimbus tool save <session-tool-id>` promotes ephemeral tool to a named installed extension after manual review; standard SHA-256-verified extension manifest path
@@ -1306,11 +1324,11 @@ Native package-manager distribution; gated independently of the desktop tag, may
 - [ ] **Tool-use trace dataset builder** — `nimbus dataset build --from-audit --kind tool-use` produces JSONL ready for the fine-tuner; user reviews + edits before train start
 - [ ] **Adapter rollback safety** — every fine-tune output is rollback-safe; previous adapter retained until explicit promotion
 
-### Org-Level Lockoff
+#### Org-Level Lockoff
 
 - [ ] **Capability disable via Enterprise policy** — `nimbus.policy.toml` honours `[capabilities.ai_v2]` block: `multimodal_input = false`, `code_execution = false`, `computer_use = false`, `tool_generation = false`, `local_finetuning = false`. Each false value disables the corresponding capability at gateway startup; required by regulated industries.
 
-### Acceptance Criteria — Core (gates phase)
+#### Acceptance Criteria — Core (gates phase)
 
 - A 5-minute Loom recording indexed via local STT + frame captioning produces a `video_understanding` row with non-empty transcript and at least one frame caption; verified e2e on Windows + macOS + Linux
 - `nimbus ask "what did I demo in the recording from yesterday?"` returns a coherent answer derived from the `video_understanding` row alone
@@ -1319,7 +1337,7 @@ Native package-manager distribution; gated independently of the desktop tag, may
 - `enforce_air_gap = true` blocks the remote sandbox adapter even when configured; verified by integration test
 - Privacy contract: no image / video / audio body data leaves the machine without explicit user opt-in for that artifact
 
-### Acceptance Criteria — Stretch (does not gate phase)
+#### Acceptance Criteria — Stretch (does not gate phase)
 
 - Browser automation completes a 3-step task (login → search → screenshot) against a sandboxed Chromium profile with HITL on every action; verified manually on Windows + macOS + Linux
 - An agent-generated MCP tool passes the contract test and registers ephemerally for the session; the tool is unavailable in a fresh session unless promoted via `nimbus tool save`
@@ -1328,19 +1346,19 @@ Native package-manager distribution; gated independently of the desktop tag, may
 
 ---
 
-## Phase 15 — Cross-Organizational Federation (The Global Mesh)
+### Phase 15 — Cross-Organizational Federation (The Global Mesh)
 
 **Goal:** Extend Nimbus's federation primitive across organisational boundaries — vendors, partner companies, contractors — without surrendering local sovereignty and without a central broker.
 
 > **Composes with Phase 6 (Team):** Phase 15 reuses Phase 6's NaCl-box federation channel and namespace primitive; the new contribution is a **lease envelope** that wraps a Phase 6 namespace with cryptographic time-bound + scope + revocation semantics. Phase 6 is intra-org; Phase 15 is the inter-org case.
 
-### Dependencies
+#### Dependencies
 
 - Phase 6 Nimbus-to-Nimbus federation (NaCl-box channel, scoped namespaces, RBAC enforcement at the federation protocol layer)
 - Phase 12 audit log shipping (enterprise leases must produce shippable audit trails per lease)
 - Phase 11 Decentralized Identifiers (DIDs are the natural identity primitive for cross-org peer authentication; not strictly required but recommended)
 
-### Core — B2B Index Leasing
+#### Core — B2B Index Leasing
 
 - [ ] **Lease envelope protocol** — cryptographically signed wrapper around a Phase 6 namespace export that adds: scope (item types, services), expiry (wall-clock + max-age), revocation key, lessee identity (DID or X.509). Wire format extends the existing NaCl-box framing; reuses the federation channel.
 - [ ] **Lease issuance + signing** — `nimbus lease issue --namespace <name> --to <peer> --scope <filter> --expires <duration>`; issuer signs with their X25519 (or DID-backed) key; recipient verifies signature before the leased namespace becomes queryable on their machine.
@@ -1348,7 +1366,7 @@ Native package-manager distribution; gated independently of the desktop tag, may
 - [ ] **Lease audit trail** — every issue, query, and revocation appended to the BLAKE3-chained audit log on both sides; in enterprise deployments, the audit ships via the Phase 12 audit-log shipping pipeline so legal can verify lease compliance independently.
 - [ ] **`nimbus lease list / show`** — local CLI surface; shows leases issued, leases received, expiry / revocation state.
 
-### Acceptance Criteria
+#### Acceptance Criteria
 
 - A lease issued from org A to a contractor at org B is queryable on the contractor's machine within one federation sync cycle; the lease envelope verifies against org A's published key before any leased row is written locally.
 - A revocation issued from org A purges all leased rows on org B's machine within one sync cycle; a subsequent query for any leased item returns empty; revocation appears in both audit logs with matching signatures.
