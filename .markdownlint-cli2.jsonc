@@ -37,6 +37,7 @@
     "!docs/perf/slo.md",
     "!.claude/worktrees/**",
     "!node_modules/**",
-    "!packages/docs/dist/**"
+    "!packages/docs/dist/**",
+    "!CHANGELOG.md"
   ]
 }
