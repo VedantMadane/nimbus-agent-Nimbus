@@ -170,6 +170,8 @@ function truncateEnvelope(envelope: string): string {
 
 The `65_504` head-cap leaves room for the suffix marker so the final string is always ≤ 65 536 bytes. The truncation marker is grep-able (`...[truncated,`) for forensic queries that want to find which calls hit the cap.
 
+**Multi-byte cut behaviour.** When the slice falls mid-UTF-8-sequence, `toString('utf8')` emits a U+FFFD () replacement character at the cut point. This is documented expected behaviour: the truncation marker is unaffected (it's appended *after* the head), the byte count in the marker is honest, and forensic parseability is preserved. Walking back to the previous UTF-8 boundary would buy at most 3 bytes of fidelity at the cost of extra logic; not worth it for this use case. (Gemini CLI review §2.1, NO ACTION.)
+
 Why 64 KiB: empirically large enough to hold a realistic GitHub PR list (50 PRs with descriptions ≈ 30–40 KiB) or a full Slack channel scan, small enough to bound cumulative growth. Per-row cap composes with the deferred retention-by-age policy — neither alone is sufficient for high-traffic agents.
 
 ### 5.3 Indexing rationale
@@ -204,18 +206,41 @@ And the corresponding entries in `INDEXED_SCHEMA_STEPS` and `BACKFILL_LABELS`. P
 
 ```typescript
 type AuditToolCallsParams = {
+  // ── User-facing filters (what to include in the result set) ───────────────
   /** Inclusive lower bound on called_at (unix ms). Default: no lower bound. */
   since?: number;
   /** Inclusive upper bound on called_at (unix ms). Default: no upper bound. */
   until?: number;
   /** 1..1000, default 100. */
   limit?: number;
-  /** Exact-match filter on session_id. Use empty string '' to find rows with NULL session_id. */
+  /**
+   * Exact-match filter on session_id.
+   *
+   * Two sentinel values:
+   *   - **Omit the field entirely** → no filter; returns rows from any session
+   *     (including NULL-session rows).
+   *   - `sessionId: ""` (empty string) → returns ONLY rows where session_id IS NULL.
+   *     Use this when you want to explicitly find orphan calls (no active
+   *     `agentRequestContext.run`).
+   *   - `sessionId: "s-123"` (non-empty) → returns ONLY rows with that exact session.
+   *
+   * The empty-string sentinel exists because JSON-RPC `null` is awkward in
+   * some client libraries; an explicit empty string is unambiguous.
+   */
   sessionId?: string;
   /** Exact-match filter on tool_id. */
   toolId?: string;
   /** Exact-match filter on status. */
   status?: "ok" | "error";
+
+  // ── Pagination cursor (resume from a previous page) ───────────────────────
+  /**
+   * Resumption cursor from a previous page's `nextCursor`. When set, the
+   * helper applies `WHERE (called_at, id) > (cursor.calledAt, cursor.id)` in
+   * addition to the user-facing filters. Caller passes this back verbatim;
+   * does not interpret the values.
+   */
+  cursor?: { calledAt: number; id: number };
 };
 ```
 
@@ -226,11 +251,17 @@ type AuditToolCallsResult = {
   toolCalls: ToolCallLogEntry[];
   hasMore: boolean;
   /**
-   * When `hasMore`, the smallest `called_at` strictly greater than the last
-   * returned row's `called_at` — pass back as `since` to fetch the next page.
+   * When `hasMore`, the composite cursor of the LAST row in `toolCalls`.
+   * Pass back verbatim as the next request's `cursor` to fetch the next page.
    * Null when `!hasMore`.
+   *
+   * Composite is required (not just `calledAt`) because multiple rows can
+   * share the same millisecond — a bare-timestamp cursor would either
+   * re-return them or skip them. The `(calledAt, id)` pair is strictly
+   * monotonic: AUTOINCREMENT guarantees `id` ordering, and SQLite never
+   * recycles rowids.
    */
-  nextSince: number | null;
+  nextCursor: { calledAt: number; id: number } | null;
 };
 
 type ToolCallLogEntry = {
@@ -245,13 +276,13 @@ type ToolCallLogEntry = {
 };
 ```
 
-Ordering: `ORDER BY called_at ASC, id ASC` — stable across same-millisecond rows.
+Ordering: `ORDER BY called_at ASC, id ASC` — stable across same-millisecond rows. The cursor's `WHERE (called_at, id) > (?, ?)` clause is rewritten to SQLite's idiom: `WHERE (called_at > ?1 OR (called_at = ?1 AND id > ?2))` — the index on `(tool_id, called_at)` plus the implicit rowid covers this efficiently.
 
 ### 6.3 Error envelope
 
 | Code | Trigger |
 |---|---|
-| `-32602` | `params` is null/array/non-object; `limit < 1`, `limit > 1000`, non-integer `limit`; `since`/`until` non-integer; `until < since`; `status` not in `{ 'ok', 'error' }`; `sessionId`/`toolId` non-string. |
+| `-32602` | `params` is null/array/non-object; `limit < 1`, `limit > 1000`, non-integer `limit`; `since`/`until` non-integer; `until < since`; `status` not in `{ 'ok', 'error' }`; `sessionId`/`toolId` non-string; `cursor` present but missing `calledAt`/`id`, non-object, non-integer fields, or negative values. |
 
 Mirrors `metrics-rpc.ts`'s shape (`MetricsRpcError(rpcCode, message)` → JSON-RPC error). The dispatcher pattern at `metrics-rpc.ts:86-101` is the canonical reference for `audit-rpc.ts`.
 
@@ -275,10 +306,11 @@ Mirrors `metrics-rpc.ts`'s shape (`MetricsRpcError(rpcCode, message)` → JSON-R
 | 6 | `result_envelope` exceeds 64 KiB | `truncateEnvelope` slices to 65 504 bytes UTF-8 + appends `...[truncated, N bytes total]`. The truncated string is what's stored; the original is what flows back to the LLM. (Audit visibility differs from LLM visibility — by design, since the audit table is for forensics not replay.) |
 | 7 | Concurrent tool invocations within the same session | Each invocation writes its own row independently. SQLite's `AUTOINCREMENT` ensures `id` ordering; `called_at` may collide at millisecond resolution but `(called_at, id)` ordering is stable. |
 | 8 | Migration runs on a database where `audit_log` doesn't yet have row_hash (V18-or-earlier) | Migration runner steps strictly: V28 must be applied before V29. The runner's existing `INDEXED_SCHEMA_STEPS` ordering enforces this. No interaction between V29 and any earlier migration. |
-| 9 | IPC caller passes `sessionId: ""` | Treated as the explicit "find NULL session rows" filter — translated to `WHERE session_id IS NULL` in `readToolCallLog`. |
+| 9 | IPC caller passes `sessionId: ""` | Treated as the explicit "find NULL session rows" filter — translated to `WHERE session_id IS NULL` in `readToolCallLog`. **To get all sessions including NULL ones, omit the `sessionId` param entirely** (do NOT pass empty string). The two are semantically distinct; see §6.1 for the full sentinel table. |
 | 10 | IPC caller passes `since: 0` (UNIX epoch) | Valid lower bound; matches all rows. The `0` is a number; passes type validation. |
 | 11 | IPC caller passes `until` without `since` | Valid; `WHERE called_at <= ?` only. |
-| 12 | Pagination: `limit` returned, `hasMore: true`, `nextSince: T` — caller paginates forward | Next call passes `since: T`; row at `called_at = T` is included by the `>=` semantics, but `id` ordering ensures no duplicate row is returned (the dispatcher's pagination logic uses `(called_at, id)` cursor pairs internally even though only `called_at` is exposed). See §10.2 for the worked example. |
+| 12 | Pagination: caller receives `nextCursor: { calledAt: T, id: N }` and resumes | Caller passes back `cursor: { calledAt: T, id: N }` verbatim. Helper applies `WHERE (called_at > T OR (called_at = T AND id > N))`. Composite cursor guarantees no duplicate rows even when many rows share the same millisecond. See §10.2 for the worked example. |
+| 13 | IPC caller passes both `since: S` and `cursor: { calledAt: C, id: N }` | Both are applied — they're independent. `since` is a user-facing lower bound on the result set; `cursor` is a resumption marker within that set. If `cursor.calledAt < since`, the cursor is functionally a no-op (the `since` filter dominates) — not an error. |
 
 ### 7.1 Failure-mode invariants we commit to
 
@@ -303,9 +335,10 @@ Each case uses a fresh in-memory `Database` with the V29 SQL applied.
 | `filter by toolId` | Insert two rows; filter by tool_id returns only the matching one. |
 | `filter by status` | Insert one ok + one error; filter `{ status: 'error' }` returns one. |
 | `filter by since/until window` | Insert three rows at t=100/200/300; filter `{ since: 150, until: 250 }` returns only t=200. |
-| `pagination across hasMore` | Insert 250 rows; `limit: 100` returns first 100, `hasMore: true`, `nextSince` set; second call with `since: nextSince` returns rows 101–200. |
-| `pagination is correct across same-millisecond rows` | Insert 5 rows at called_at = 100, 200, 200, 300, 400 (the two at 200 have ids 2 and 3); `limit: 3` returns rows 1–3 with `nextSince: 200`; second call with `since: 200` returns ONLY rows 4 and 5 (no duplicates of ids 2 / 3). Pins the `(called_at, id)` cursor-pair invariant called out in §10.2. |
-| `final page has hasMore: false, nextSince: null` | Same fixture; third call exhausts the table. |
+| `pagination across hasMore using composite cursor` | Insert 250 rows; `limit: 100` returns first 100, `hasMore: true`, `nextCursor: { calledAt: <last>, id: <last> }`; second call with `cursor: nextCursor` returns rows 101–200. |
+| `pagination is correct across same-millisecond rows` | Insert 5 rows at called_at = 100, 200, 200, 300, 400 (the two at 200 have ids 2 and 3); `limit: 3` returns rows 1–3 with `nextCursor: { calledAt: 200, id: 3 }`; second call with that cursor returns ONLY rows 4 and 5 (no duplicates of ids 2 / 3, no skipped rows). Pins the `WHERE (called_at > ?1 OR (called_at = ?1 AND id > ?2))` rewrite from §6.2. |
+| `final page has hasMore: false, nextCursor: null` | Same fixture; third call exhausts the table. |
+| `cursor + since combine without conflict` | Insert 10 rows at t=100..1000; first call with `since: 200, limit: 5` returns rows at t=200..600 with `nextCursor: { calledAt: 600, id: <id> }`; second call with `since: 200, cursor: nextCursor` returns rows 700..1000 (the `since` lower bound stays applied; the cursor advances within it). |
 | `default limit is 100` | Insert 200 rows; no `limit` param returns 100. |
 | `limit clamped to 1000` | Insert 2000 rows; `limit: 5000` is rejected at the IPC layer (covered in audit-rpc.test.ts) — at the helper layer, document that `readToolCallLog` trusts its caller. |
 | `ordering: called_at ASC, id ASC` | Insert two rows with same `called_at`; verify deterministic order by id ASC. |
@@ -325,9 +358,12 @@ Each case uses a fresh in-memory `Database` with the V29 SQL applied.
 | `rejects status not in {ok, error}` | -32602. |
 | `rejects until < since` | -32602. |
 | `default limit is 100` | Returns at most 100 entries when limit omitted. |
-| `nextSince is the largest called_at when hasMore is true` | Worked example with 5 rows, limit 3; `nextSince === rows[2].called_at`. |
-| `nextSince is null when hasMore is false` | Single page exhausts table. |
-| `empty result returns hasMore=false, nextSince=null` | Empty table + no filters. |
+| `nextCursor is composite (calledAt, id) of the LAST row when hasMore is true` | Worked example with 5 rows, limit 3; `nextCursor === { calledAt: rows[2].calledAt, id: rows[2].id }`. |
+| `nextCursor is null when hasMore is false` | Single page exhausts table. |
+| `empty result returns hasMore=false, nextCursor=null` | Empty table + no filters. |
+| `rejects malformed cursor (-32602)` | `cursor: {}`, `cursor: { calledAt: 1 }` (missing id), `cursor: { calledAt: 'x', id: 1 }` (non-integer), `cursor: { calledAt: -1, id: 1 }` (negative). |
+| `cursor passed back verbatim from previous nextCursor round-trips correctly` | Pin the contract that the IPC client never has to inspect cursor internals. |
+| `omitted sessionId returns rows from all sessions including NULL` | Insert one NULL-session row + one with 's-1'; no `sessionId` param returns BOTH rows. (Distinct from `sessionId: ''` sentinel — see §6.1.) |
 
 ### 8.3 Integration — `engine/agent-tool-call-log.test.ts` (NEW)
 
@@ -449,21 +485,27 @@ Six commits, smallest-first, mirroring PR 1's pattern (TDD red landed before its
 ### 10.1 Forensic query — "What did the LLM see in session s-12?"
 
 ```ts
-const result = await client.audit.toolCalls({ sessionId: "s-12" });
-for (const call of result.toolCalls) {
-  console.log(`[${new Date(call.calledAt).toISOString()}] ${call.toolId} (${call.status})`);
-  console.log(call.resultEnvelope);
+let cursor: { calledAt: number; id: number } | undefined;
+while (true) {
+  const result = await client.audit.toolCalls({ sessionId: "s-12", cursor });
+  for (const call of result.toolCalls) {
+    console.log(`[${new Date(call.calledAt).toISOString()}] ${call.toolId} (${call.status})`);
+    console.log(call.resultEnvelope);
+  }
+  if (!result.hasMore || result.nextCursor === null) break;
+  cursor = result.nextCursor;
 }
-if (result.hasMore) { /* paginate with since: result.nextSince */ }
 ```
 
 ### 10.2 Pagination correctness across same-millisecond rows
 
 Suppose `tool_call_log` contains five rows at `called_at` = 100, 200, 200, 300, 400 (the two at 200 have ids 2 and 3 respectively).
 
-Call 1: `audit.toolCalls({ limit: 3 })` → returns rows id 1 (t=100), id 2 (t=200), id 3 (t=200). `hasMore: true`, `nextSince: 200` (the largest `called_at` returned).
+**Call 1:** `audit.toolCalls({ limit: 3 })` → returns rows id 1 (t=100), id 2 (t=200), id 3 (t=200). `hasMore: true`, `nextCursor: { calledAt: 200, id: 3 }` (the LAST row's composite cursor).
 
-Naively, call 2 with `since: 200` would re-return id 2 and id 3. The dispatcher prevents this by appending an internal `AND id > ?` clause when `since` matches the smallest matching row's `called_at` — implementation detail of `readToolCallLog`'s pagination, not exposed in the IPC surface. Tests in §8.1 cover this directly.
+**Call 2:** `audit.toolCalls({ limit: 3, cursor: { calledAt: 200, id: 3 } })` → the helper applies `WHERE (called_at > 200 OR (called_at = 200 AND id > 3))`. Rows id 2 (t=200, id < 3, fails) and id 3 (t=200, id == 3, fails) are excluded; id 4 (t=300) and id 5 (t=400) match. Returns 2 rows. `hasMore: false`, `nextCursor: null`.
+
+**Why a bare-timestamp cursor (the rejected design) was wrong:** if `nextSince: 200` were returned and the caller passed `since: 200` back, the helper would have to either (a) re-return ids 2 and 3 (correctness bug — duplicates), or (b) skip them with no way to disambiguate "this is a resumption" from "the user explicitly wants since=200". The composite `(calledAt, id)` cursor removes the ambiguity entirely (Gemini CLI review §2.3, FIX). Tests in §8.1 cover this directly.
 
 ### 10.3 Truncation at 64 KiB
 
@@ -487,10 +529,25 @@ None. All design decisions resolved in brainstorming:
 - sessionId: `getAgentRequestSessionId() ?? null` at both sites; column nullable.
 - DB wiring to mesh: new `auditDb?` option (matches existing `healthDb?` pattern).
 - Helper module: `db/tool-call-log.ts` owns both write and read.
-- IPC shape: filtered pagination with timestamp cursor; default limit 100, max 1000.
+- IPC shape: filtered pagination with composite `(calledAt, id)` cursor (Gemini CLI review §2.3); default limit 100, max 1000.
 - I11 test extension: three new assertions inside the existing block.
 
-## 12. References
+## 12. Review disposition (Gemini CLI, 2026-05-15)
+
+Source: [`2026-05-15-phase-5-t6-pr2-tool-call-log-review-feedback.md`](./2026-05-15-phase-5-t6-pr2-tool-call-log-review-feedback.md). Each suggestion is either folded into the spec (FIX) or punted with rationale (NO ACTION / DEFER).
+
+| Review § | Item | Disposition | Rationale & where in this spec |
+|---|---|---|---|
+| 2.1 | Multi-byte truncation may emit U+FFFD at the cut point | **NO ACTION** | Reviewer themselves flagged this as "acceptable for audit" — single-byte loss is negligible. The truncation marker is appended *after* the head bytes so it's unaffected; byte-count in the marker is honest; forensic parseability is preserved. Walking back to the previous UTF-8 boundary would buy at most 3 bytes of fidelity at non-trivial code cost. Documented as expected behaviour in §5.2 ("Multi-byte cut behaviour" paragraph) so a future reader doesn't mistake it for a bug. |
+| 2.2 | `sessionId: ''` NULL-session sentinel needs more prominent docs | **FIX** | The original spec buried the sentinel inside a JSDoc one-liner — easy to miss. §6.1's `sessionId` JSDoc now lists three explicit cases (omit / empty-string / non-empty) with the rationale for the empty-string sentinel (JSON-RPC `null` is awkward in some clients). §7 case 9 extended to call out that "all sessions including NULL" requires *omitting* the param, not passing empty string. New §8.2 test case `omitted sessionId returns rows from all sessions including NULL` pins the distinction at unit-test time. |
+| 2.3 | Pagination cursor needs composite `(called_at, id)` not bare timestamp | **FIX** | Strongest catch in the review. The original §10.2 hand-waved "the dispatcher prevents this by appending an internal `AND id > ?` clause" — but the dispatcher has no way to know the last `id` without it being passed back. Replaced bare `nextSince: number` with composite `nextCursor: { calledAt: number; id: number } \| null` and added matching `cursor?: { calledAt: number; id: number }` request param. The `since` user-facing filter stays independent from the resumption cursor — they compose. Rewrite of the WHERE clause locked in §6.2 (`WHERE (called_at > ?1 OR (called_at = ?1 AND id > ?2))`). §10.2 worked example rewritten to use the cursor; §8.1 / §8.2 test cases updated accordingly with three new pinning cases (`cursor + since combine without conflict`, `rejects malformed cursor`, `cursor passed back verbatim... round-trips correctly`). |
+| 2.4 | Error envelope persistence is correct | **NO ACTION** | Confirmation only. §3 / §7 case 1 / §7.1 invariant 2 already nail the contract. |
+| 3.1 | `dbRun` usage from day one is the correct forward-correct approach | **NO ACTION** | Confirmation only. §2 Non-goals already calls this out. |
+| 4 | Approved | — | No change required; ready for implementation planning. |
+
+**Net effect on this spec:** one wording edit in §5.2 (multi-byte note), one major IPC contract change in §6.1 / §6.2 (composite cursor), edge-case extensions in §7 cases 9/12/13, worked-example rewrite in §10.1 / §10.2, and four new test cases (one in §8.1, three in §8.2). Nothing about file structure, schema columns, security posture, or commit topology changes.
+
+## 13. References
 
 - [`docs/superpowers/specs/2026-05-14-phase-5-t6-design.md`](./2026-05-14-phase-5-t6-design.md) — parent T6 sequencing spec; §2 PR 2 sketch.
 - [`packages/gateway/src/engine/agent.ts`](../../../packages/gateway/src/engine/agent.ts) lines 28–41 — first wiring site (`wrapToolForLlm`).
