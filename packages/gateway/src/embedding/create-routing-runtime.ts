@@ -1,0 +1,162 @@
+import type { Database } from "bun:sqlite";
+import { join } from "node:path";
+import type { Logger } from "pino";
+
+import type { NimbusEmbeddingToml } from "../config/nimbus-toml.ts";
+import { readIndexedUserVersion } from "../index/migrations/runner.ts";
+import { ensureSqliteVecForConnection } from "../index/sqlite-vec-load.ts";
+import { processEnvGet } from "../platform/env-access.ts";
+import type { PlatformPaths } from "../platform/paths.ts";
+import type { NimbusVault } from "../vault/nimbus-vault.ts";
+import type { EmbeddingRuntime } from "./embedding-runtime.ts";
+import { createLocalEmbedder } from "./model.ts";
+import { createOpenAIEmbedder } from "./openai-embedder.ts";
+import { SqliteEmbeddingPipeline } from "./pipeline.ts";
+import { EMBEDDING_DIM_LOCAL, EMBEDDING_DIM_OPENAI } from "./routing.ts";
+import { RoutingEmbeddingPipeline } from "./routing-pipeline.ts";
+import type { Embedder, IndexedItem } from "./types.ts";
+
+async function resolveOpenAIApiKey(vault: NimbusVault): Promise<string> {
+  const envKey = processEnvGet("OPENAI_API_KEY")?.trim() ?? "";
+  if (envKey !== "") {
+    return envKey;
+  }
+  const v = await vault.get("openai.api_key");
+  return typeof v === "string" ? v.trim() : "";
+}
+
+/**
+ * Hybrid embedding runtime — wraps two `SqliteEmbeddingPipeline` instances
+ * (MiniLM 384 + OpenAI 1536) in a `RoutingEmbeddingPipeline`. Returns
+ * `null` if the OpenAI key is missing, the OpenAI embedder fails to build,
+ * or sqlite-vec is unavailable — caller falls back to MiniLM-only.
+ */
+export async function tryCreateRoutingEmbeddingRuntime(
+  db: Database,
+  paths: PlatformPaths,
+  logger: Logger,
+  toml: Pick<NimbusEmbeddingToml, "chunkTokens" | "chunkOverlapTokens" | "backfillBatchSize">,
+  vault: NimbusVault,
+): Promise<EmbeddingRuntime | null> {
+  const apiKey = await resolveOpenAIApiKey(vault);
+  if (apiKey === "") {
+    logger.warn("Hybrid embedding: openai.api_key missing; routing falls back to MiniLM-only");
+    return null;
+  }
+
+  let localEmbedder: Embedder;
+  let openaiEmbedder: Embedder;
+  try {
+    localEmbedder = await createLocalEmbedder({ cacheDir: join(paths.dataDir, "models") });
+    openaiEmbedder = await createOpenAIEmbedder({
+      apiKey,
+      model: "text-embedding-3-small",
+      dimensions: EMBEDDING_DIM_OPENAI,
+    });
+  } catch (err) {
+    logger.warn(
+      {
+        errName: err instanceof Error ? err.name : "Error",
+        errMessage: err instanceof Error ? err.message : String(err),
+      },
+      "Hybrid embedding init failed",
+    );
+    return null;
+  }
+
+  const uv = readIndexedUserVersion(db);
+  if (!ensureSqliteVecForConnection(db, uv)) {
+    logger.warn("sqlite-vec unavailable; hybrid mode falls back to MiniLM-only");
+    return null;
+  }
+
+  const local = new SqliteEmbeddingPipeline({
+    db,
+    embedder: localEmbedder,
+    backfillBatchSize: toml.backfillBatchSize,
+    chunkOptions: {
+      maxChunkTokens: toml.chunkTokens,
+      overlapTokens: toml.chunkOverlapTokens,
+    },
+    logger,
+  });
+  const openai = new SqliteEmbeddingPipeline({
+    db,
+    embedder: openaiEmbedder,
+    backfillBatchSize: toml.backfillBatchSize,
+    chunkOptions: {
+      maxChunkTokens: toml.chunkTokens,
+      overlapTokens: toml.chunkOverlapTokens,
+    },
+    logger,
+  });
+  const pipeline = new RoutingEmbeddingPipeline(db, local, openai);
+
+  let backfillStarted = false;
+
+  return {
+    scheduleItemEmbedding(itemId: string): void {
+      void (async () => {
+        const row = db
+          .query(`SELECT id, service, type, title, body_preview FROM item WHERE id = ?`)
+          .get(itemId) as IndexedItem | null | undefined;
+        if (row === null || row === undefined) {
+          return;
+        }
+        await pipeline.embedItem(row);
+      })().catch((err: unknown) => {
+        logger.warn({ err, itemId }, "embedding item failed");
+      });
+    },
+
+    async embedQuery(text: string): Promise<Float32Array | null> {
+      // Single-vec API stays on the local embedder for back-compat.
+      const vecs = await localEmbedder.embed([text]);
+      return vecs[0] ?? null;
+    },
+
+    async embedQueryDual(text: string): Promise<{
+      vec384: Float32Array | null;
+      vec1536: Float32Array | null;
+      model384: string | null;
+      model1536: string | null;
+    }> {
+      const [local384, openai1536] = await Promise.all([
+        localEmbedder.embed([text]),
+        openaiEmbedder.embed([text]),
+      ]);
+      return {
+        vec384: local384[0] ?? null,
+        vec1536: openai1536[0] ?? null,
+        model384: localEmbedder.model,
+        model1536: openaiEmbedder.model,
+      };
+    },
+
+    getEmbeddingModel(): string {
+      return localEmbedder.model;
+    },
+
+    getEmbeddingDims(): number {
+      return EMBEDDING_DIM_LOCAL;
+    },
+
+    getBackfillProgress(): { done: number; total: number } | null {
+      return null;
+    },
+
+    startBackgroundJobs(): void {
+      if (backfillStarted) {
+        return;
+      }
+      backfillStarted = true;
+      void pipeline.backfillAll().catch((err: unknown) => {
+        logger.warn({ err }, "hybrid embedding backfill failed");
+      });
+    },
+
+    terminate(): void {
+      /* in-process: nothing to tear down */
+    },
+  };
+}

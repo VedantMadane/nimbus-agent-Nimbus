@@ -7,6 +7,7 @@ import { readIndexedUserVersion } from "../index/migrations/runner.ts";
 import { processEnvGet } from "../platform/env-access.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
+import { tryCreateRoutingEmbeddingRuntime } from "./create-routing-runtime.ts";
 import type { EmbeddingRuntime } from "./embedding-runtime.ts";
 import { createLazyEmbeddingRuntime } from "./lazy-scheduler.ts";
 import { createOpenAIEmbedder } from "./openai-embedder.ts";
@@ -42,7 +43,11 @@ async function tryCreateOpenAIEmbeddingRuntime(
     openaiModel = "text-embedding-3-small";
   }
   try {
-    const embedder = await createOpenAIEmbedder({ apiKey, model: openaiModel, dimensions: 384 });
+    const embedder = await createOpenAIEmbedder({
+      apiKey,
+      model: openaiModel,
+      dimensions: 1536,
+    });
     return createLazyEmbeddingRuntime(db, paths.dataDir, logger, slice, embedder);
   } catch (err) {
     // S2-F9 — never pass the raw err object to pino. The OpenAI SDK's
@@ -88,7 +93,13 @@ export async function createEmbeddingRuntime(
     backfillBatchSize: tomlEmbedding.backfillBatchSize,
   };
 
-  if (tomlEmbedding.provider === "openai") {
+  if (tomlEmbedding.provider === "hybrid") {
+    const hybrid = await tryCreateRoutingEmbeddingRuntime(db, paths, logger, slice, vault);
+    if (hybrid !== null) {
+      return hybrid;
+    }
+    // Fall through to the local path below if hybrid setup failed.
+  } else if (tomlEmbedding.provider === "openai") {
     return tryCreateOpenAIEmbeddingRuntime(db, paths, logger, slice, tomlEmbedding, vault);
   }
 
