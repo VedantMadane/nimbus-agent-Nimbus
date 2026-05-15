@@ -4,7 +4,7 @@
 > **Predecessors:**
 > - [`2026-05-14-phase-5-t6-design.md`](./2026-05-14-phase-5-t6-design.md) — parent T6 sequencing spec. §2 PR 2 sketches the touchpoints; this per-PR spec locks them.
 > - [`../../SECURITY-INVARIANTS.md`](../../SECURITY-INVARIANTS.md) §I11 — the `<tool_output>` envelope this PR records.
-> - [`2026-05-14-phase-5-t6-pr1-i10-helpers-design.md`](./2026-05-14-phase-5-t6-pr1-i10-helpers-design.md) and [`../plans/2026-05-14-phase-5-t6-pr1-i10-helpers.md`](../plans/2026-05-14-phase-5-t6-pr1-i10-helpers.md) — cadence reference (TDD red/green flow, commit topology, exit criteria shape).
+> - T6 PR 1 (I10 timing-safe helper consolidation, merged as PR #292) — cadence reference (TDD red/green flow, commit topology, exit criteria shape). The plan/spec files for PR 1 were pruned in the 2026-05-15 `docs/superpowers/` cleanup; see `git log` on `packages/gateway/src/util/timing-safe-compare.ts` for the canonical history.
 
 ## 1. Goal
 
