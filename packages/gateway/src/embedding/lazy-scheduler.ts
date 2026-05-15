@@ -91,14 +91,27 @@ export function createLazyEmbeddingRuntime(
       return rows[0] ?? null;
     },
 
-    // Stubbed in Task 6; real impl in Task 7.
-    async embedQueryDual(_text: string): Promise<{
+    async embedQueryDual(text: string): Promise<{
       vec384: Float32Array | null;
       vec1536: Float32Array | null;
       model384: string | null;
       model1536: string | null;
     }> {
-      return { vec384: null, vec1536: null, model384: null, model1536: null };
+      const p = await ensurePipeline();
+      if (p === null) {
+        return { vec384: null, vec1536: null, model384: null, model1536: null };
+      }
+      const vecs = await p.embedTexts([text]);
+      const vec = vecs[0] ?? null;
+      if (vec === null) {
+        return { vec384: null, vec1536: null, model384: null, model1536: null };
+      }
+      const dims = p.embeddingDims;
+      if (dims === 1536) {
+        return { vec384: null, vec1536: vec, model384: null, model1536: p.embeddingModel };
+      }
+      // 384 (or any other supported single-pipeline mode)
+      return { vec384: vec, vec1536: null, model384: p.embeddingModel, model1536: null };
     },
 
     getEmbeddingModel(): string {
