@@ -2,7 +2,7 @@
 
 **Version:** 1.0
 **Runtime:** Bun v1.2+ / TypeScript 6.x (strict)
-**Status:** Phase 4 (Presence) ✅ Complete (WS1–WS6 + S2 + B2-P1 + B3-P1/2 complete) · `v0.1.0` released 2026-05-09 (headless Gateway + CLI + VS Code extension; `desktop-v0.1.0` Tauri release vehicle deferred to Phase 13) · Phase 5 (The Extended Surface) 🔵 Active (T3 PR 1+2+3 ✅ — `nimbus expert` + `nimbus impact` (both 2026-05-09) + `nimbus catchup` (2026-05-10); T3 epic complete)
+**Status:** Phase 4 (Presence) ✅ Complete (WS1–WS6 + S2 + B2-P1 + B3-P1/2 complete) · `v0.1.0` released 2026-05-09 (headless Gateway + CLI + VS Code extension; `desktop-v0.1.0` Tauri release vehicle deferred to Phase 13) · Phase 5 (The Extended Surface) 🔵 Active — T3 ✅ (`expert` + `impact` + `catchup`) · Wave A ✅ (OpenAPI indexer + Obsidian) · T4 ✅ (DORA + preflight + annotation + PagerDuty wrap-up) · T6 PR 1 ✅ (I10 helper consolidation, 2026-05-14) · T6 PR 2 ✅ (`tool_call_log` V29, 2026-05-15) · Sub-project A ✅ (README hero + OG card + asciinema cast, 2026-05-15)
 
 > **Authoring references for AI-assisted contributors:** the [`.claude/commands/nimbus-*.md`](../.claude/commands/) skill files are the load-bearing how-to references for every subsystem in this document. Treat this architecture doc as the *what + where* and the skills as the *how*. Pair them when adding new code:
 >
@@ -1452,7 +1452,7 @@ A new structural defense lands as a *triple*: the production wiring, an entry in
 
 ### Active invariants summary
 
-The current `I1`–`I12` set, mirrored from [`SECURITY-INVARIANTS.md`](./SECURITY-INVARIANTS.md). When changing a wiring site listed below, update the invariants file *and* the enforcement test in the same commit.
+The current `I1`–`I13` set, mirrored from [`SECURITY-INVARIANTS.md`](./SECURITY-INVARIANTS.md). When changing a wiring site listed below, update the invariants file *and* the enforcement test in the same commit.
 
 | # | Invariant | Wired at | Anti-pattern that regresses it |
 |---|---|---|---|
@@ -1465,9 +1465,10 @@ The current `I1`–`I12` set, mirrored from [`SECURITY-INVARIANTS.md`](./SECURIT
 | I7 | Tauri `ALLOWED_METHODS` matches gateway handlers; no RCE-class methods exposed to renderer | `ui/src-tauri/src/gateway_bridge.rs` | Adding `extension.install` / `connector.addMcp` to the renderer allowlist |
 | I8 | Tauri renderer CSP is restrictive (no `unsafe-inline`, no `unsafe-eval`) | `ui/src-tauri/tauri.conf.json` | `"csp": null` or loosening with `unsafe-*` |
 | I9 | All SQL uses bound parameters; identifiers go through `escapeIdentifier` | `db/write.ts`, `db/repair.ts`, `people/person-store.ts` | Template-literal SQL on caller-supplied data |
-| I10 | Constant-time compare for hashes / MACs / pairing codes | `extensions/verify-extensions.ts`, `updater/updater.ts`, `ipc/lan-pairing.ts` | `===` / `!==` on hash bytes |
+| I10 | Constant-time compare for hashes / MACs / pairing codes / bearer tokens | `util/timing-safe-compare.ts` (canonical) — `sha256HexEqualConstantTime` consumed by `extensions/verify-extensions.ts` + `updater/updater.ts`; `constantTimeStringEqual` consumed by `ipc/lan-pairing.ts` + `ipc/http-auth.ts` | `===` / `!==` on hash bytes; redefining a local `timingSafeEqual` / `constantTimeStringEqual` outside `util/timing-safe-compare.ts` |
 | I11 | LLM-facing tool results wrapped via `wrapToolOutput` | `engine/agent.ts`, `engine/tool-output-envelope.ts` | New agent surface that feeds raw tool results to the LLM |
 | I12 | DPAPI calls pass `pOptionalEntropy` from `<configDir>/vault/.entropy` | `vault/win32.ts` | Dropping the entropy parameter "for compatibility" |
+| I13 | HTTP write routes go through `WRITE_ROUTE_ALLOWLIST` + bearer auth | `ipc/http-server.ts`, `ipc/http-write-routes.ts` | New POST/PUT/DELETE handler that bypasses `dispatchWriteRoute` or opens a second writable DB outside the server context |
 
 A static-time complement (`scripts/structure-audit/check-nimbus-invariants.ts`) catches I1 (`spawn` under `connectors/` must use `extensionProcessEnv()`) and the vault-key allow-list at audit time. The runtime tests in `packages/gateway/src/security-invariants.test.ts` remain authoritative for invariant wiring; the static checks just catch regressions before the tests run.
 
