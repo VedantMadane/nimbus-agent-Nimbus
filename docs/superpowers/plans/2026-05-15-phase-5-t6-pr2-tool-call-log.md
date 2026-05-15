@@ -2675,6 +2675,23 @@ Output the PR URL. No further action — the rest is review.
 
 ---
 
+## Review disposition (Gemini CLI, 2026-05-15)
+
+Source: [`2026-05-15-phase-5-t6-pr2-tool-call-log-review-feedback.md`](./2026-05-15-phase-5-t6-pr2-tool-call-log-review-feedback.md).
+
+Every review item was a confirmation/observation — the reviewer flagged no issues. Net effect on this plan: **zero changes**. The disposition table below is for traceability so a future reader can confirm the plan was reviewed and approved without modification.
+
+| Review § | Item | Disposition | Rationale & where in this plan |
+| -------- | ---- | ----------- | ------------------------------ |
+| 2.1 | Composite cursor `WHERE (called_at > ? OR (called_at = ? AND id > ?))` correctly implements stable pagination across same-millisecond rows | **NO ACTION** | Confirmation only. Task 3 Step 3.2's `readToolCallLog` body has the WHERE-clause rewrite (the only correct shape — see spec §6.2 + the §2.3 review-disposition entry on the spec itself). Task 2's `pagination is correct across same-millisecond rows` test pins it. |
+| 2.2 | `truncateEnvelope` correctly uses a `65_504` head-cap to leave room for the suffix marker, keeping the stored string ≤ 65 536 bytes | **NO ACTION** | Confirmation only. Task 3 Step 3.2's `truncateEnvelope` body uses `MAX_ENVELOPE_BYTES = 65_536` and `TRUNCATION_HEAD_BYTES = 65_504`. Task 2's `envelope at exactly 64 KiB is NOT truncated` and `envelope over 64 KiB is truncated with grep-able marker` tests pin both edges. |
+| 2.3 | `parseAuditToolCallsParams` includes comprehensive validation for status, limit, and composite cursor; correctly maps to `-32602` | **NO ACTION** | Confirmation only. Task 12 Step 12.1's parser body covers every error case from spec §6.3. Task 11 has 5 explicit `-32602`-asserting test cases (`rejects null params`, `rejects array params`, `rejects non-integer limit`, `rejects status not in {'ok','error'}`, `rejects malformed cursor`) plus more. |
+| 2.4 | Integration tests for both Agent and Mesh assert the audit log is written even when a tool throws — critical forensic requirement | **NO ACTION** | Confirmation only. Task 6's `writes a status='error' row when the wrapped tool throws (and re-throws)` and Task 8's `writes status='error' when a wrapped mesh tool throws` test cases pin this at both wiring sites. |
+| 3.1 | `localIndex.getDatabase()` correctly wired to both Agent and Mesh as `auditDb`; using distinct field names (`auditDb` vs `healthDb`) for the same handle is a good readability choice | **NO ACTION** | Confirmation only. Task 10 Steps 10.1 / 10.2 wire both call sites with the same handle but distinct field names — the spec's design decision (locked during brainstorming Q on "DB wiring to mesh"). |
+| 4 | Overall approval — plan is ready to execute in the `phase-5-t6-pr2-tool-call-log` worktree | **NO ACTION** | No change required. Proceeding to execution. |
+
+**Net effect on this plan:** zero structural changes. This disposition table itself is the only addition — same shape as the PR 1 plan's review-disposition section, kept here so a future reader doesn't have to dig into git history to confirm the plan was reviewed.
+
 ## Self-review (run after writing this plan, before handing back)
 
 **Spec coverage check** — every spec section maps to a task:
