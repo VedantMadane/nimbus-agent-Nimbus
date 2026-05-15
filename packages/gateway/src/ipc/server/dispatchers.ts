@@ -3,6 +3,7 @@ import { asRecord } from "../../connectors/unknown-record.ts";
 import { bindConsentChannel, ToolExecutor } from "../../engine/executor.ts";
 import type { ConnectorDispatcher } from "../../engine/types.ts";
 import { CURRENT_SCHEMA_VERSION } from "../../index/local-index.ts";
+import { GATEWAY_VERSION } from "../../version.ts";
 import { AgentsRpcError, dispatchAgentsRpc } from "../agents-rpc.ts";
 import { AuditRpcError, dispatchAuditRpc } from "../audit-rpc.ts";
 import { AutomationRpcError, dispatchAutomationRpc } from "../automation-rpc.ts";
@@ -336,7 +337,7 @@ export async function tryDispatchDataRpc(
       index: ctx.options.localIndex,
       vault: ctx.options.vault,
       platform: rpcPlatform,
-      nimbusVersion: ctx.options.version ?? "0.1.0",
+      nimbusVersion: ctx.options.version ?? GATEWAY_VERSION,
       schemaVersion: CURRENT_SCHEMA_VERSION,
       ...(toolExecutor === undefined ? {} : { toolExecutor }),
     });
