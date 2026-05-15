@@ -25,6 +25,9 @@ This is the curated pointer index. Source-of-truth is the working tree — verif
 | `packages/gateway/src/engine/coordinator.ts` | `AgentCoordinator` — multi-agent sub-task orchestration, depth + tool-call guards; `executeAll` runs sub-tasks in parallel (Phase 5 T3 PR 1) |
 | `packages/gateway/src/engine/sub-agent.ts` | `runSubAgent` — single sub-task executor with `sub_task_results` DB lifecycle |
 | `packages/gateway/src/engine/tool-output-envelope.ts` | `wrapToolOutput` — invariant `I11` envelope at the LLM-facing boundary |
+| `packages/gateway/src/db/tool-call-log.ts` | `writeToolCallLog` + `readToolCallLog` + `MAX_ENVELOPE_BYTES` — forensic complement to `I11` (Phase 5 T6 PR 2 / V29); called at both `wrapToolOutput` wiring sites in `engine/agent.ts` + `connectors/lazy-mesh/mesh.ts` |
+| `packages/gateway/src/index/tool-call-log-v29-sql.ts` | V29 migration SQL — `tool_call_log` table + 3 indexes (`session`, `tool_id+called_at`, `called_at`) |
+| `packages/gateway/src/ipc/audit-rpc.ts` | `dispatchAuditRpc` — `audit.verify` / `audit.exportAll` / `audit.getSummary` / `audit.toolCalls` (Phase 5 T6 PR 2). `audit.toolCalls` is IPC-only — NOT LAN-callable (I5), NOT in Tauri allowlist (I7), NOT exposed via the HTTP API |
 
 ## Platform Abstraction Layer
 
