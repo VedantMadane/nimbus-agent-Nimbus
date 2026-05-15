@@ -197,6 +197,16 @@ jobs:
         # Exclude dependencies and tests to avoid false positives.
         run: bunx jscpd --min-lines 10 --min-tokens 50 --threshold 5 --reporters console -i "**/node_modules/**,**/*.test.ts,**/*.test.tsx,**/*.vitest.tsx" packages/
 
+  # Structure audit — D1/D2/D3 boundaries, D8 any-count ratchet, D10/D11
+  # nimbus-invariants, release-please manifest drift. Static-time complement
+  # to runtime enforcement in `security-invariants.test.ts`.
+  pr-quality-structure:
+    name: PR quality — Structure audit
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/_structure.yml
+    permissions:
+      contents: read
+
   # ── Push: full cross-platform matrix (two parallel matrix jobs) ────────────
 
   # TS/Bun suite — all 3 OSes, runs in parallel with ci-rust
@@ -242,6 +252,15 @@ jobs:
 
       - name: Setup Rust + Tauri checks
         uses: ./.github/actions/setup-rust-tauri
+
+  # Structure audit on push — same gates as `pr-quality-structure`. Cheap to
+  # re-run; catches the case where a force-push or merge bypasses the PR gate.
+  ci-structure:
+    if: github.event_name == 'push'
+    name: CI — Structure audit
+    uses: ./.github/workflows/_structure.yml
+    permissions:
+      contents: read
 
   # ── E2E Desktop ─────────────────────────────────────────────────────────────
 
