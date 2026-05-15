@@ -178,9 +178,22 @@ describe("I11 — Tool-result envelope on the LLM-facing path", () => {
     expect(src).toMatch(/replaceAll\("<\/tool_output>"/);
   });
 
-  test("agent.ts wraps tool results with the envelope on the LLM-facing path", async () => {
+  test("agent.ts both wraps with envelope AND writes tool_call_log on the LLM-facing path", async () => {
     const src = await read("packages/gateway/src/engine/agent.ts");
     expect(src).toMatch(/wrapToolOutput\(/);
+    expect(src).toMatch(/writeToolCallLog\(/);
+  });
+
+  test("mesh.ts:listTools both wraps with envelope AND writes tool_call_log", async () => {
+    const src = await read("packages/gateway/src/connectors/lazy-mesh/mesh.ts");
+    expect(src).toMatch(/wrapToolOutput\(/);
+    expect(src).toMatch(/writeToolCallLog\(/);
+  });
+
+  test("db/tool-call-log.ts exports writeToolCallLog and readToolCallLog", async () => {
+    const src = await read("packages/gateway/src/db/tool-call-log.ts");
+    expect(src).toMatch(/export function writeToolCallLog/);
+    expect(src).toMatch(/export function readToolCallLog/);
   });
 });
 
