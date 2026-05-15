@@ -110,6 +110,7 @@
     "test:coverage:sdk": "bun test packages/sdk --coverage --coverage-threshold-lines=80",
     "test:coverage:vscode-extension": "cd packages/vscode-extension && bunx vitest run --coverage",
     "record-casts": "bun scripts/cast-driver/run.ts",
+    "render:og-card": "bun scripts/render-og-card.ts",
     "regen-slo": "bun scripts/regen-slo.ts",
     "regen-slo:check": "bun scripts/regen-slo.ts --check",
     "docs:build": "bun run --filter @nimbus/docs build",
