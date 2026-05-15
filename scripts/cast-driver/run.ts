@@ -13,8 +13,7 @@ function parseArgs(argv: ReadonlyArray<string>): {
     const a = argv[i];
     if (a === "--check") mode = "check";
     else if (a === "--update-snapshots") mode = "update";
-    else if (a !== undefined && a.startsWith("--artifacts-dir="))
-      artifactsDir = a.slice("--artifacts-dir=".length);
+    else if (a?.startsWith("--artifacts-dir=")) artifactsDir = a.slice("--artifacts-dir=".length);
     else if (a === "--artifacts-dir") {
       const next = argv[i + 1];
       if (next !== undefined) {

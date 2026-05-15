@@ -16,7 +16,9 @@ export interface Rule {
   readonly apply: (text: string, ctx: NormalizationContext) => string;
 }
 
+// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI CSI parsing requires the literal ESC (\x1b) byte
 const ANSI_CSI = /\x1b\[[?]?[0-9;]*[A-Za-z]/g;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI OSC parsing requires the literal ESC (\x1b) and BEL (\x07) bytes
 const ANSI_OSC = /\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g;
 const ISO_8601 = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?/g;
 const EPOCH_MS = /\b\d{13}\b/g;
@@ -49,7 +51,7 @@ export const NORMALIZATION_RULES: ReadonlyArray<Rule> = [
       let text = t.replace(/\r\n/g, "\n");
       // (c) Lone trailing \r at EOF becomes \n
       if (text.endsWith("\r")) {
-        text = text.slice(0, -1) + "\n";
+        text = `${text.slice(0, -1)}\n`;
       }
       // (b) Within each line, keep only substring after last \r
       const lines = text.split("\n");
@@ -117,7 +119,7 @@ export const NORMALIZATION_RULES: ReadonlyArray<Rule> = [
         // If it's a labeled SHA (sha=abc123), replace just the hex part
         const labelMatch = match.match(/^(sha=|commit=|SHA=|COMMIT=)/i);
         if (labelMatch) {
-          return labelMatch[1] + "<SHA>";
+          return `${labelMatch[1]}<SHA>`;
         }
         // Otherwise it's a bare long hex, replace entirely
         return "<SHA>";

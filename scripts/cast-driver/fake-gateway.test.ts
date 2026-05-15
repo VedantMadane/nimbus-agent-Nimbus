@@ -25,7 +25,7 @@ async function rpc(method: string, params: unknown): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const client = connect(socketPath);
     client.on("connect", () => {
-      const msg = JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) + "\n";
+      const msg = `${JSON.stringify({ jsonrpc: "2.0", id: 1, method, params })}\n`;
       client.write(msg);
     });
     let buf = "";
@@ -78,12 +78,12 @@ describe("FakeGateway", () => {
       const client = connect(socketPath);
       client.on("connect", () => {
         client.write(
-          JSON.stringify({
+          `${JSON.stringify({
             jsonrpc: "2.0",
             id: 1,
             method: "engine.askStream",
             params: { prompt: "hi" },
-          }) + "\n",
+          })}\n`,
         );
       });
       let buf = "";
@@ -131,12 +131,12 @@ describe("FakeGateway", () => {
       const client = connect(socketPath);
       client.on("connect", () => {
         client.write(
-          JSON.stringify({
+          `${JSON.stringify({
             jsonrpc: "2.0",
             id: 1,
             method: "engine.askStream",
             params: { prompt: "x" },
-          }) + "\n",
+          })}\n`,
         );
       });
       let buf = "";
@@ -152,12 +152,12 @@ describe("FakeGateway", () => {
             if (parsed.method === "consent.request") {
               setTimeout(() => {
                 client.write(
-                  JSON.stringify({
+                  `${JSON.stringify({
                     jsonrpc: "2.0",
                     id: 2,
                     method: "consent.respond",
                     params: { requestId: "r1", approved: true },
-                  }) + "\n",
+                  })}\n`,
                 );
                 respondedAfterConsent = true;
               }, 50);
@@ -193,7 +193,7 @@ describe("FakeGateway", () => {
       const client = connect(socketPath);
       client.on("connect", () => {
         client.write(
-          JSON.stringify({ jsonrpc: "2.0", id: 1, method: "engine.askStream", params: {} }) + "\n",
+          `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "engine.askStream", params: {} })}\n`,
         );
       });
       let buf = "";
@@ -202,12 +202,12 @@ describe("FakeGateway", () => {
         const nl = buf.indexOf("\n");
         if (nl !== -1) {
           client.write(
-            JSON.stringify({
+            `${JSON.stringify({
               jsonrpc: "2.0",
               id: 2,
               method: "consent.respond",
               params: { requestId: "r1", approved: false },
-            }) + "\n",
+            })}\n`,
           );
           setTimeout(() => {
             client.end();
@@ -259,12 +259,12 @@ describe("FakeGateway", () => {
       const client = connect(socketPath);
       client.on("connect", () => {
         client.write(
-          JSON.stringify({
+          `${JSON.stringify({
             jsonrpc: "2.0",
             id: 1,
             method: "agents.expert",
             params: { topicOrFile: "latency" },
-          }) + "\n",
+          })}\n`,
         );
       });
       let buf = "";
@@ -318,7 +318,7 @@ describe("FakeGateway", () => {
       const client = connect(socketPath);
       client.on("connect", () => {
         client.write(
-          JSON.stringify({ jsonrpc: "2.0", id: 1, method: "agent.invoke", params: {} }) + "\n",
+          `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "agent.invoke", params: {} })}\n`,
         );
       });
       let buf = "";
