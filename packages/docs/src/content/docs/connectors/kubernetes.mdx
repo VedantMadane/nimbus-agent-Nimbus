@@ -1,0 +1,50 @@
+---
+title: Kubernetes
+description: Index workload state and act on deployments / pods through your existing kubeconfig.
+---
+
+The Kubernetes connector indexes deployment state into the local SQLite index and exposes a small read + HITL-gated write surface against whatever cluster your kubeconfig points at. The MCP server shells out to `kubectl`.
+
+---
+
+## What's indexed
+
+- **Service id:** `kubernetes`
+- **Item types:** `k8s_workload`
+
+## Authenticate
+
+```bash
+nimbus connector auth kubernetes
+```
+
+Stored in the Vault as `kubernetes.kubeconfig` (path) and optionally `kubernetes.context`. The kubeconfig path is exported into the connector spawn as `KUBECONFIG`; the optional context is passed via `--context`.
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `k8s_deployment_list` | List deployments in a namespace. |
+| `k8s_event_list` | List events in a namespace. |
+| `k8s_pod_list` | List pods in a namespace (default: `default`). |
+
+## Write tools (HITL-gated)
+
+Every tool below requires interactive consent through the Gateway HITL gate before it executes.
+
+| Tool | Purpose |
+|---|---|
+| `k8s_deployment_scale` | Scale a deployment. |
+| `k8s_pod_delete` | Delete a pod. |
+| `k8s_rollout_restart` | Restart a rollout (e.g. deployment). |
+
+## Platform notes
+
+- Requires the **`kubectl` CLI** on `PATH` and a valid kubeconfig file.
+- The sync handler runs `kubectl get deployments -A -o json` once per cycle.
+- The MCP server throws on startup if `KUBECONFIG` is unset.
+
+## See also
+
+- [Connectors overview](./overview)
+- [HITL and safety](../user-guide/hitl-and-safety/)

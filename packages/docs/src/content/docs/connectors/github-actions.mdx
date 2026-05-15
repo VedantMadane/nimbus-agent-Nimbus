@@ -1,0 +1,46 @@
+---
+title: GitHub Actions
+description: Index GitHub Actions workflow runs and trigger or cancel runs via the same PAT used for the GitHub connector.
+---
+
+The GitHub Actions connector is a deeper read surface on top of the same `GITHUB_PAT` used by the [GitHub connector](./github), focused on workflows, runs, jobs, and logs. It also exposes two HITL-gated write tools for triggering and cancelling runs.
+
+---
+
+## What's indexed
+
+- **Service id:** `github_actions`
+- **Item types:** `ci_run`
+
+## Authenticate
+
+The GitHub Actions connector reuses the same Vault key as the [GitHub connector](./github) — `github.pat` — and is injected at spawn as `GITHUB_PAT`. Authenticate once; both connectors work.
+
+```bash
+nimbus connector auth github
+```
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `gha_run_get` | Get a single workflow run by id. |
+| `gha_run_jobs` | List jobs for a workflow run. |
+| `gha_run_list` | List workflow runs for a repository. |
+| `gha_run_log` | Download console log text for a job (truncated). |
+| `gha_workflow_list` | List GitHub Actions workflows for a repository. |
+
+## Write tools (HITL-gated)
+
+Every tool below requires interactive consent through the Gateway HITL gate before it executes.
+
+| Tool | Purpose |
+|---|---|
+| `gha_run_cancel` | Cancel a workflow run. |
+| `gha_run_trigger` | Dispatch a workflow (`workflow_dispatch`). |
+
+## See also
+
+- [GitHub connector](./github) — shares the same PAT
+- [Connectors overview](./overview)
+- [HITL and safety](../user-guide/hitl-and-safety/)

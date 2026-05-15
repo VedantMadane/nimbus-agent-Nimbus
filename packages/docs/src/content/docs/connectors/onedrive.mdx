@@ -1,0 +1,44 @@
+---
+title: OneDrive
+description: Index OneDrive files and folders, download content, and act on items via HITL-gated write tools.
+---
+
+The OneDrive connector indexes file and folder metadata into the local SQLite index and exposes read tools for listing, searching, and downloading items, plus two HITL-gated write tools for moving and deleting.
+
+---
+
+## What's indexed
+
+- **Service id:** `onedrive`
+- **Item types:** `file`, `folder`
+
+## Authenticate
+
+```bash
+nimbus connector auth onedrive
+```
+
+OAuth (Microsoft Graph). The Gateway resolves a short-lived access token via the Microsoft OAuth flow (`getValidMicrosoftAccessToken`) and injects it into the connector spawn as `MICROSOFT_OAUTH_ACCESS_TOKEN`.
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `onedrive_item_download` | Download file content as base64 (capped by `maxBytes`, default 256 KiB). Folders are rejected. |
+| `onedrive_item_get` | Get OneDrive item metadata by id (file or folder). |
+| `onedrive_item_list` | List drive items under root or a folder (by `parentId`). Use `nextLink` from prior response for pagination. |
+| `onedrive_item_search` | Search OneDrive under `/me/drive/root/search`. |
+
+## Write tools (HITL-gated)
+
+Every tool below requires interactive consent through the Gateway HITL gate before it executes.
+
+| Tool | Purpose |
+|---|---|
+| `onedrive_item_delete` | Permanently delete a OneDrive item. |
+| `onedrive_item_move` | Move (and optionally rename) a drive item. |
+
+## See also
+
+- [Connectors overview](./overview)
+- [HITL and safety](../user-guide/hitl-and-safety/)

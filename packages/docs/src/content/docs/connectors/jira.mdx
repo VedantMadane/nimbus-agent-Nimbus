@@ -1,0 +1,51 @@
+---
+title: Jira
+description: Index Jira issues, search via JQL, and create / update / comment with HITL-gated write tools. Cloud only.
+---
+
+The Jira connector indexes issues into the local SQLite index and exposes read tools for issues, boards, sprints, and epics, plus three HITL-gated write tools for creating, updating, and commenting. Jira Cloud only.
+
+---
+
+## What's indexed
+
+- **Service id:** `jira`
+- **Item types:** `issue`
+
+## Authenticate
+
+```bash
+nimbus connector auth jira
+```
+
+Stored in the Vault as `jira.base_url`, `jira.email`, and `jira.api_token` and injected at spawn as `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`. The MCP server uses Atlassian Basic auth (email + API token). Generate an API token at [id.atlassian.com → Security → API tokens](https://id.atlassian.com/manage-profile/security/api-tokens).
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `jira_board_list` | List Jira boards (`GET /rest/agile/1.0/board`). |
+| `jira_epic_list` | List epics in a project via JQL search. |
+| `jira_issue_get` | Get a Jira issue by key or id. |
+| `jira_issue_list` | Search Jira issues with JQL (`POST /rest/api/3/search`). |
+| `jira_sprint_list` | List sprints for a board. |
+
+## Write tools (HITL-gated)
+
+Every tool below requires interactive consent through the Gateway HITL gate before it executes.
+
+| Tool | Purpose |
+|---|---|
+| `jira_comment_add` | Add a comment to a Jira issue. |
+| `jira_issue_create` | Create a Jira issue (requires project key + summary). |
+| `jira_issue_update` | Update summary and/or description on a Jira issue. |
+
+## Platform notes
+
+- **Jira Cloud only.** The base URL must be a `*.atlassian.net` site.
+
+## See also
+
+- [Confluence connector](./confluence) — Atlassian sibling, same auth pattern
+- [Connectors overview](./overview)
+- [HITL and safety](../user-guide/hitl-and-safety/)

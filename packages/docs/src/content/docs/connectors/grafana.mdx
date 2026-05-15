@@ -1,0 +1,37 @@
+---
+title: Grafana
+description: Index Grafana dashboards and read alert rules. Read-only.
+---
+
+The Grafana connector indexes dashboard metadata into the local SQLite index and exposes read tools for dashboards and alert rules. Read-only — there are no write tools.
+
+---
+
+## What's indexed
+
+- **Service id:** `grafana`
+- **Item types:** `dashboard`
+
+## Authenticate
+
+```bash
+nimbus connector auth grafana
+```
+
+Stored in the Vault as `grafana.url` and `grafana.api_token` and injected at spawn as `GRAFANA_URL` / `GRAFANA_API_TOKEN`. The MCP server uses Bearer auth against the Grafana API.
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `grafana_alert_list` | List alert rules (Ruler API). |
+| `grafana_dashboard_list` | Search dashboards. |
+
+## Write tools (HITL-gated)
+
+_No write tools — this connector is read-only._
+
+## See also
+
+- [Connectors overview](./overview)
+- [HITL and safety](../user-guide/hitl-and-safety/)

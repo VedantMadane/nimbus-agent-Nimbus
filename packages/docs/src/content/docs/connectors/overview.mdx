@@ -1,6 +1,8 @@
 ---
 title: First-party connectors
 description: Built-in MCP connectors — authenticate with nimbus connector auth
+sidebar:
+  order: 0
 ---
 
 Nimbus ships first-party MCP servers under `packages/mcp-connectors/` in the repository. Each connector syncs metadata into your local SQLite index; the Engine talks to connectors **only over MCP** (never direct cloud SDK calls from the Gateway).

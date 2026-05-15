@@ -1,0 +1,54 @@
+---
+title: Outlook
+description: Index Outlook mail and read mail / calendar / contacts. Tools register conditionally on granted Microsoft Graph scopes.
+---
+
+The Outlook connector indexes mail messages into the local SQLite index and exposes read tools across mail, calendar, and contacts, plus three HITL-gated write tools for sending mail and creating / deleting calendar events.
+
+Tools are **registered conditionally** based on the granted Microsoft Graph scopes — if a tool's required scope is not in `MICROSOFT_OAUTH_SCOPES`, it is not registered and the agent cannot call it.
+
+---
+
+## What's indexed
+
+- **Service id:** `outlook`
+- **Item types:** `email` (sync only indexes mail; calendar and contacts are MCP-only surfaces)
+
+## Authenticate
+
+```bash
+nimbus connector auth outlook
+```
+
+OAuth (Microsoft Graph). The Gateway resolves a short-lived access token via the Microsoft OAuth flow and injects it into the connector spawn as `MICROSOFT_OAUTH_ACCESS_TOKEN`. The granted scope set is also injected as `MICROSOFT_OAUTH_SCOPES` (space-separated) and gates which tools register at startup.
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `outlook_calendar_get` | Get a single calendar event by id. |
+| `outlook_calendar_list` | List calendar events in a time window (ISO 8601 `startDateTime` / `endDateTime`). |
+| `outlook_contact_get` | Get a single contact by id. |
+| `outlook_contact_list` | List contacts from the default folder. |
+| `outlook_mail_folders` | List mail folders (pagination via `nextLink`). |
+| `outlook_mail_list` | List mail messages (default folder `inbox` if `folderId` omitted). Pagination via `nextLink`. |
+| `outlook_mail_read` | Read a single message (body, headers, attachments metadata). |
+
+## Write tools (HITL-gated)
+
+Every tool below requires interactive consent through the Gateway HITL gate before it executes.
+
+| Tool | Purpose |
+|---|---|
+| `outlook_calendar_create` | Create a calendar event. |
+| `outlook_calendar_delete` | Delete a calendar event. |
+| `outlook_mail_send` | Send an email via Microsoft Graph. |
+
+## Platform notes
+
+- **Scope-gated tool registration.** Tools whose required Microsoft Graph scope is not in `MICROSOFT_OAUTH_SCOPES` are not registered at startup. Re-authenticate with broader scopes if you want more tools available.
+
+## See also
+
+- [Connectors overview](./overview)
+- [HITL and safety](../user-guide/hitl-and-safety/)
