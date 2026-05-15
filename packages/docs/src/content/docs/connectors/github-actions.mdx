@@ -3,7 +3,7 @@ title: GitHub Actions
 description: Index GitHub Actions workflow runs and trigger or cancel runs via the same PAT used for the GitHub connector.
 ---
 
-The GitHub Actions connector is a deeper read surface on top of the same `GITHUB_PAT` used by the [GitHub connector](./github), focused on workflows, runs, jobs, and logs. It also exposes two HITL-gated write tools for triggering and cancelling runs.
+The GitHub Actions connector is a deeper read surface on top of the same `GITHUB_PAT` used by the [GitHub connector](/connectors/github/), focused on workflows, runs, jobs, and logs. It also exposes two HITL-gated write tools for triggering and cancelling runs.
 
 ---
 
@@ -14,7 +14,7 @@ The GitHub Actions connector is a deeper read surface on top of the same `GITHUB
 
 ## Authenticate
 
-The GitHub Actions connector reuses the same Vault key as the [GitHub connector](./github) — `github.pat` — and is injected at spawn as `GITHUB_PAT`. Authenticate once; both connectors work.
+The GitHub Actions connector reuses the same Vault key as the [GitHub connector](/connectors/github/) — `github.pat` — and is injected at spawn as `GITHUB_PAT`. Authenticate once; both connectors work.
 
 ```bash
 nimbus connector auth github
@@ -41,6 +41,6 @@ Every tool below requires interactive consent through the Gateway HITL gate befo
 
 ## See also
 
-- [GitHub connector](./github) — shares the same PAT
-- [Connectors overview](./overview)
-- [HITL and safety](../user-guide/hitl-and-safety/)
+- [GitHub connector](/connectors/github/) — shares the same PAT
+- [Connectors overview](/connectors/overview/)
+- [HITL and safety](/user-guide/hitl-and-safety/)
