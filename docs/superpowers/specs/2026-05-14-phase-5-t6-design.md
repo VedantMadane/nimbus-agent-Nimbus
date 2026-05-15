@@ -7,7 +7,7 @@
 
 ## Purpose
 
-Phase 5 Core item 5 ([sequencing spec §2 row 5](./2026-05-06-phase-5-sequencing-design.md#phase-5-core-committed-in-this-order)) bundles four discrete sub-items under "B1 hardening + semantic layer prep":
+Phase 5 Core item 5 ([roadmap §T6](../../roadmap.md#t6--b1-hardening--semantic-layer-prep)) bundles four discrete sub-items under "B1 hardening + semantic layer prep":
 
 1. **Typed `dbRun` / `dbExec` migration** across the ~79 production `db.run()` call sites so every SQL execution path routes through `db/write.ts`'s `SQLITE_FULL` → `DiskFullError` translation.
 2. **`tool_call_log` audit table** for structured MCP-tool-call result auditing (B1 audit follow-up S8-F10) — complements the `<tool_output>` envelope (invariant I11) by recording the envelope's contents at audit time.
@@ -303,7 +303,5 @@ Source: [`2026-05-14-phase-5-t6-review-feedback.md`](./2026-05-14-phase-5-t6-rev
 
 ## See also
 
-- [`2026-05-06-phase-5-sequencing-design.md`](./2026-05-06-phase-5-sequencing-design.md) — parent Phase 5 sequencing spec; T6 is Core item 5.
-- [`2026-05-14-phase-5-t4-pagerduty-enrichment-design.md`](./2026-05-14-phase-5-t4-pagerduty-enrichment-design.md) — cadence reference for per-PR spec shape.
+- [`../../roadmap.md`](../../roadmap.md#t6--b1-hardening--semantic-layer-prep) — Phase 5 Core item 5; the canonical T6 sequencing now lives there.
 - [`../../SECURITY-INVARIANTS.md`](../../SECURITY-INVARIANTS.md) — I10 / I11 rationale; I14 candidate.
-- [`../../roadmap.md`](../../roadmap.md) — Phase 5 Core item 5.

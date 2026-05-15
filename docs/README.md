@@ -15,6 +15,12 @@
 [![Release: v0.1.0](https://img.shields.io/badge/release-v0.1.0-brightgreen)](https://github.com/nimbus-agent/Nimbus/releases/tag/v0.1.0)
 ![Status: Phase 5 Active](https://img.shields.io/badge/status-Phase_5_Active-blue)
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./assets/hero-cast-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="./assets/hero-cast-light.svg">
+  <img alt="Nimbus incident-response demo: 18-second walkthrough of nimbus ask correlating a PagerDuty alert with the recent deploy and PR, with consent-gated Slack post and rollback decisions." src="./assets/hero-cast-light.svg" width="720">
+</picture>
+
 </div>
 
 ---

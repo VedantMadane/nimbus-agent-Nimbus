@@ -100,6 +100,37 @@ jobs:
       - name: Run markdownlint-cli2
         run: bun run lint:markdown
 
+  og-card-render:
+    name: OG card render
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Nimbus CI
+        uses: ./.github/actions/setup-nimbus-ci
+
+      - name: Render OG card
+        run: bun run render:og-card
+
+      - name: Verify PNG is up to date
+        run: |
+          if ! git diff --exit-code docs/og-card.png; then
+            echo "::error::docs/og-card.png is out of date. Run 'bun run render:og-card' locally and commit the result."
+            exit 1
+          fi
+
   svg-audit:
     name: SVG asset audit
     runs-on: ubuntu-24.04
