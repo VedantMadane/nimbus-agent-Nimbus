@@ -89,11 +89,12 @@ export class FakeGateway {
   constructor(private readonly opts: FakeGatewayOptions) {}
 
   async start(): Promise<void> {
-    this.server = createServer((socket) => this.handleConnection(socket));
+    const server = createServer((socket) => this.handleConnection(socket));
+    this.server = server;
     await new Promise<void>((resolve, reject) => {
-      this.server!.once("listening", () => resolve());
-      this.server!.once("error", reject);
-      this.server!.listen(this.opts.socketPath);
+      server.once("listening", () => resolve());
+      server.once("error", reject);
+      server.listen(this.opts.socketPath);
     });
   }
 
@@ -262,10 +263,10 @@ export class FakeGateway {
         if (typeof p.requestId === "string") {
           const rid = p.requestId;
           // Check whether consent.respond already arrived early (async race).
-          if (this.earlyConsents.has(rid)) {
-            const approved = this.earlyConsents.get(rid)!;
+          const earlyApproved = this.earlyConsents.get(rid);
+          if (earlyApproved !== undefined) {
             this.earlyConsents.delete(rid);
-            this.consentDecisions.push({ requestId: rid, approved });
+            this.consentDecisions.push({ requestId: rid, approved: earlyApproved });
             // No pause needed — response is already here.
           } else {
             // Wait for the client's consent.respond to arrive.
