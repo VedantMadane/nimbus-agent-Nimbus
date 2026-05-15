@@ -105,7 +105,10 @@ describe("LazyConnectorMesh — UUID ids (S8-F8)", () => {
     const files = readdirSync(dir).filter((f) => f.endsWith(".ts"));
     const src = files.map((f) => readFileSync(join(dir, f), "utf8")).join("\n");
     // Every `id:` template literal that previously used Date.now() should now use randomUUID().
-    expect(src.includes("Date.now()")).toBe(false);
+    // Predicate scoped to id literals so unrelated Date.now() uses (e.g. Phase 5 T6 PR 2
+    // wall-clock `calledAt` / `durationMs` for tool_call_log rows) do not trip this gate.
+    expect(/id:\s*`[^`]*\$\{Date\.now\(\)\}/.test(src)).toBe(false);
+    expect(/id:\s*['"][^'"]*Date\.now\(\)/.test(src)).toBe(false);
     // randomUUID is imported and used.
     expect(src.includes("randomUUID")).toBe(true);
   });
