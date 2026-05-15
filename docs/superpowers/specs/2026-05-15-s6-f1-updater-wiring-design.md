@@ -33,7 +33,9 @@ After PR 4 merges:
 
 - **`packages/gateway/src/updater/factory.ts`** — `createUpdaterFromConfig({ updaterCfg, currentVersion, emit })` returns `Updater | undefined`. Returns `undefined` when `updaterCfg.enabled === false` or when `derivePlatformTarget()` returns `undefined`. Loads the embedded public key via `loadUpdaterPublicKey()` and uses a 30 s default `timeoutMs`.
 
-- **`packages/gateway/src/updater/platform-target.ts`** — `derivePlatformTarget()` maps `process.platform` + `process.arch` to one of the four supported `PlatformTarget` literals (`darwin-x86_64` / `darwin-aarch64` / `linux-x86_64` / `windows-x86_64`). Returns `undefined` for unsupported combos (e.g., `linux-aarch64`) so the factory can skip wiring without crashing.
+- **`packages/gateway/src/updater/platform-target.ts`** — `derivePlatformTarget()` maps `process.platform` + `process.arch` to one of the four supported `PlatformTarget` literals (`darwin-x86_64` / `darwin-aarch64` / `linux-x86_64` / `windows-x86_64`). Returns `undefined` for unsupported combos (e.g., `linux-aarch64`, `windows-aarch64`) so the factory can skip wiring without crashing.
+
+- **`packages/gateway/src/version.ts`** — single-export module: `export const GATEWAY_VERSION = "0.1.0"`. The PR adds a third consumer of the gateway version string (Updater factory) on top of the two existing literal sites at `assemble.ts:364` (IPC server) and `assemble.ts:388` (telemetry). Single-sourcing the constant means future bumps flip one line instead of three; not introducing the constant would entrench a foot-gun. Reading from `package.json` at runtime is intentionally rejected — adds I/O at startup and breaks under packaged-binary layouts.
 
 ### Modified files
 
@@ -46,9 +48,11 @@ After PR 4 merges:
 - **`packages/gateway/src/platform/assemble.ts`** — after `createIpcServer` returns:
   1. Call `loadNimbusUpdaterFromConfigDir(paths.configDir)` to get the user's `[updater]` config.
   2. Build `emit = (name, payload) => ipc.broadcast(name, payload ?? {})`.
-  3. Call `createUpdaterFromConfig({ updaterCfg, currentVersion: "0.1.0", emit, logger: syncLogger })`.
+  3. Call `createUpdaterFromConfig({ updaterCfg, currentVersion: GATEWAY_VERSION, emit, logger: syncLogger })`.
   4. If returned, call `ipc.setUpdater(updater)`.
-  5. If `updaterCfg.checkOnStartup`, fire `void updater.checkNow().catch(err => syncLogger.warn({ err: err instanceof Error ? err.message : String(err) }, "updater startup check failed"))` — non-blocking; failures log only.
+  5. If `updaterCfg.checkOnStartup`, fire `void updater.checkNow().catch(err => syncLogger.warn({ err: redactUrlUserinfo(err instanceof Error ? err.message : String(err)) }, "updater startup check failed"))` — non-blocking; failures log only. **The `redactUrlUserinfo` import is mandatory.** `Updater.checkNow()` redacts userinfo into its private `lastError` but re-throws the un-redacted original; logging the raw message would leak credentials embedded in `manifestUrl` (e.g., `https://user:secret@cdn.example.com/latest.json`) into the gateway log file.
+
+  Also in this PR: replace the two existing `"0.1.0"` literals at `assemble.ts:364` and `:388` with `GATEWAY_VERSION` from the new `../version.ts` module. Single-source so future bumps don't risk skewing across the three consumers.
 
 - **`docs/roadmap.md`** — L420 already marks the related Polish item complete; flip L412 from `[ ]` to `[x]` (with PR number) and rewrite the prose to enumerate the four follow-ups above. The "Gates `v0.1.0`" claim is removed since v0.1.0 already shipped — replaced with an honest "wiring exists; full auto-update awaits the four follow-up items".
 
@@ -56,7 +60,7 @@ After PR 4 merges:
 
 - **`packages/gateway/src/updater/factory.test.ts`** — covers (a) `enabled: false` returns `undefined`; (b) `enabled: true` with supported platform returns an `Updater`; (c) unsupported platform returns `undefined` with a logged warning; (d) `NIMBUS_UPDATER_DISABLE=1` env override is honored via the existing `parseNimbusUpdaterToml` path.
 
-- **`packages/gateway/src/updater/platform-target.test.ts`** — covers all four supported (platform, arch) combinations; covers two unsupported (`linux-aarch64`, `freebsd-x86_64`).
+- **`packages/gateway/src/updater/platform-target.test.ts`** — covers all four supported (platform, arch) combinations; covers three explicitly-unsupported combos (`linux-aarch64`, `windows-aarch64`, `freebsd-x86_64`). `windows-aarch64` is called out specifically to document that Copilot+/WoA support is intentionally deferred — adding it requires updating the `PlatformTarget` union, the manifest schema, and the release pipeline (Windows ARM build target). The graceful `undefined` fallback means a Windows-on-ARM gateway will return `ERR_UPDATER_NOT_CONFIGURED` for `updater.*` calls instead of crashing.
 
 - **Integration: `packages/gateway/test/integration/updater-wiring.test.ts`** — boots a gateway against a mock manifest HTTP server, calls `updater.checkNow` IPC, asserts it returns a live `CheckNowResult` (no `ERR_UPDATER_NOT_CONFIGURED`). Second case: with `NIMBUS_UPDATER_DISABLE=1`, asserts `ERR_UPDATER_NOT_CONFIGURED` is still returned (verifies the disable path).
 
@@ -69,14 +73,15 @@ Existing gates: `bun run test:coverage:updater` (≥80%) — already includes `u
 - **`checkOnStartup` failure must not block startup.** Wrap in `void Promise.resolve().then(() => updater.checkNow()).catch(...)` — never await.
 - **`derivePlatformTarget()` returning `undefined`** — log once at warn level, skip wiring. The dispatcher continues to return `ERR_UPDATER_NOT_CONFIGURED` for `updater.*` calls, which is the correct signal on an unsupported architecture.
 - **Manifest URL with userinfo** — the existing `redactUrlUserinfo` in `updater.ts` handles this; the factory does not need its own redaction layer.
-- **Race: setUpdater called before any client subscribes.** Notifications use `broadcastNotification` which iterates current sessions; if no clients are connected yet, the notification is dropped (same behavior as `connector.healthChanged` and `voice.microphoneActive`). Acceptable — clients explicitly call `updater.checkNow` to query state.
+- **Race: `setUpdater` called before any client subscribes.** Notifications use `broadcastNotification` which iterates current sessions; if no clients are connected yet, the notification is dropped (same behavior as `connector.healthChanged` and `voice.microphoneActive`). Acceptable for MVP — clients call `updater.checkNow` themselves on connect (the CLI does this naturally; the Tauri Updates panel will need to do it on mount). **Known limitation, deferred:** `Updater.getStatus()` does not currently expose `latestVersion` or `updateAvailable` from the cached `CheckNowResult`, so a late-connecting client cannot read the startup-check result without firing a second HTTP request. Caching the result inside the Updater + extending `UpdaterStatus` is a clean follow-up but it changes a tested public type and is out of scope for this wiring PR. Tracked as a separate roadmap follow-up: "Updater: cache last `CheckNowResult` in `UpdaterStatus` so late-connecting clients can read the startup-check result without re-fetching."
 
 ## Non-goals
 
-- No change to the hardcoded `"0.1.0"` gateway-version string (`assemble.ts:364`, `:388`). It's a pre-existing smell; sourcing from `package.json` is a separate refactor.
+- No build-time injection of the gateway version (Bun `--define` or generated `version.ts`). The new `version.ts` module exports a single literal constant; future bumps are one-line changes. Build-time injection is a release-pipeline concern that would touch all packages.
 - No change to the embedded public key or signature-verification logic.
 - No change to the dispatcher contract or the `updater.*` IPC method names.
 - No change to the `[updater]` TOML schema or env-var names.
+- No change to `UpdaterStatus` or `Updater` public API. Caching `CheckNowResult` inside the Updater (see Edge cases) is a deferred follow-up.
 
 ## Acceptance
 
