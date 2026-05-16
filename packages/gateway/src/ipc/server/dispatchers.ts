@@ -1,3 +1,4 @@
+import pino from "pino";
 import { loadNimbusServiceConfigsFromConfigDir } from "../../config/nimbus-toml.ts";
 import { asRecord } from "../../connectors/unknown-record.ts";
 import { bindConsentChannel, ToolExecutor } from "../../engine/executor.ts";
@@ -11,6 +12,7 @@ import { ConnectorRpcError, dispatchConnectorRpc } from "../connector-rpc.ts";
 import { DataRpcError, dispatchDataRpc } from "../data-rpc.ts";
 import { DeploymentRpcError, dispatchDeploymentRpc } from "../deployment-rpc.ts";
 import { DiagnosticsRpcError, dispatchDiagnosticsRpc } from "../diagnostics-rpc.ts";
+import { dispatchIndexReembedRpc, IndexReembedRpcError } from "../index-reembed-rpc.ts";
 import { generatePairingCode } from "../lan-pairing.ts";
 import { dispatchLlmRpc, LlmRpcError } from "../llm-rpc.ts";
 import { dispatchMetricsRpc, MetricsRpcError } from "../metrics-rpc.ts";
@@ -285,6 +287,38 @@ export async function tryDispatchReindexRpc(
   return phase4RpcSkipped;
 }
 
+export async function tryDispatchIndexReembedRpc(
+  ctx: ServerCtx,
+  method: string,
+  params: unknown,
+): Promise<unknown> {
+  if (method !== "index.reembed" && method !== "index.reembedCancel") {
+    return phase4RpcSkipped;
+  }
+  if (ctx.options.localIndex === undefined) {
+    throw new RpcMethodError(-32603, "index.reembed requires LocalIndex");
+  }
+  if (ctx.options.dataDir === undefined) {
+    throw new RpcMethodError(-32603, "index.reembed requires dataDir");
+  }
+  try {
+    const out = await dispatchIndexReembedRpc(method, params, {
+      db: ctx.options.localIndex.getDatabase(),
+      vault: ctx.options.vault,
+      paths: { dataDir: ctx.options.dataDir },
+      logger: pino({ level: "info" }),
+      notify: (m, p) => ctx.broadcastNotification(m, p as Record<string, unknown>),
+    });
+    if (out.kind === "hit") return out.value;
+  } catch (e) {
+    if (e instanceof IndexReembedRpcError) {
+      throw new RpcMethodError(e.rpcCode, e.message);
+    }
+    throw e;
+  }
+  return phase4RpcSkipped;
+}
+
 export async function tryDispatchProfileRpc(
   ctx: ServerCtx,
   method: string,
@@ -456,6 +490,8 @@ export async function tryDispatchPhase4Rpc(
   if (lanOutcome !== phase4RpcSkipped) return lanOutcome;
   const profileOutcome = await tryDispatchProfileRpc(ctx, method, params);
   if (profileOutcome !== phase4RpcSkipped) return profileOutcome;
+  const indexReembedOutcome = await tryDispatchIndexReembedRpc(ctx, method, params);
+  if (indexReembedOutcome !== phase4RpcSkipped) return indexReembedOutcome;
   return tryDispatchReindexRpc(ctx, method, params, clientId);
 }
 

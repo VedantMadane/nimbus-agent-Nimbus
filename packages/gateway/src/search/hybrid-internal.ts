@@ -1,7 +1,8 @@
 import type { Database } from "bun:sqlite";
 
+import { vectorSearchChunksDual } from "./dual-search.ts";
 import type { HybridIndexedItem, HybridSearchOptions, HybridSearchResult } from "./hybrid-types.ts";
-import { type VectorChunkHit, vectorSearchChunks } from "./vec-store.ts";
+import type { VectorChunkHit } from "./vec-store.ts";
 
 export function rrfTerm(rank: number, k: number): number {
   return 1 / (k + rank);
@@ -115,33 +116,38 @@ export function runVectorSearch(
   limit: number,
   serviceFilter: string | undefined,
   nameQ: string,
-): ReturnType<typeof vectorSearchChunks> {
+): VectorChunkHit[] {
   const semantic = opts.semantic ?? true;
-  if (semantic && opts.queryEmbedding !== undefined && nameQ.length > 0) {
-    const vecOpts: {
-      queryEmbedding: Float32Array;
-      model: string;
-      limit: number;
-      service?: string;
-      itemType?: string;
-      since?: number;
-    } = {
-      queryEmbedding: opts.queryEmbedding,
-      model: opts.embeddingModel,
-      limit: Math.min(500, limit * 25),
-    };
-    if (serviceFilter !== undefined) {
-      vecOpts.service = serviceFilter;
-    }
-    if (opts.itemType !== undefined && opts.itemType !== "") {
-      vecOpts.itemType = opts.itemType;
-    }
-    if (opts.since !== undefined && opts.since > 0) {
-      vecOpts.since = opts.since;
-    }
-    return vectorSearchChunks(db, vecOpts);
+  if (!semantic || nameQ.length === 0) {
+    return [];
   }
-  return [];
+  const has384 = opts.queryEmbedding !== undefined;
+  const has1536 = opts.queryEmbedding1536 !== undefined;
+  if (!has384 && !has1536) {
+    return [];
+  }
+  const dualOpts: {
+    queryEmbedding384?: Float32Array;
+    queryEmbedding1536?: Float32Array;
+    model384?: string;
+    model1536?: string;
+    limit: number;
+    service?: string;
+    itemType?: string;
+    since?: number;
+  } = { limit: Math.min(500, limit * 25) };
+  if (opts.queryEmbedding !== undefined) {
+    dualOpts.queryEmbedding384 = opts.queryEmbedding;
+    dualOpts.model384 = opts.embeddingModel;
+  }
+  if (opts.queryEmbedding1536 !== undefined && opts.embeddingModel1536 !== undefined) {
+    dualOpts.queryEmbedding1536 = opts.queryEmbedding1536;
+    dualOpts.model1536 = opts.embeddingModel1536;
+  }
+  if (serviceFilter !== undefined) dualOpts.service = serviceFilter;
+  if (opts.itemType !== undefined && opts.itemType !== "") dualOpts.itemType = opts.itemType;
+  if (opts.since !== undefined && opts.since > 0) dualOpts.since = opts.since;
+  return vectorSearchChunksDual(db, dualOpts);
 }
 
 export function dedupeHybridByCanonicalUrl(results: HybridSearchResult[]): HybridSearchResult[] {

@@ -165,21 +165,26 @@ Health states: `healthy` \| `degraded` \| `error` \| `rate_limited` \| `unauthen
 
 ---
 
-### `index.*` — Read-only index queries
+### `index.*` — Read-only index queries (plus CLI-only reembed)
 
-Available to LAN peers without `grant-write`. Never mutates data.
+Read methods are available to LAN peers without `grant-write` and never mutate data. The `index.reembed*` write methods are **CLI-only** — NOT in the Tauri renderer allowlist (I7), and listed by full method name in `FORBIDDEN_OVER_LAN` (I5).
 
 | Method | Type | Description |
 |---|---|---|
 | `index.query` | request | Structured filter query over indexed items |
 | `index.search` | request | Hybrid BM25 + vector search |
 | `index.getItem` | request | Fetch a single item by id |
+| `index.reembed` | request | Selectively re-embed items to a target model. Returns `{ jobId }`; emits `index.reembedProgress` / `index.reembedDone` / `index.reembedError` notifications. CLI-only — NOT in Tauri allowlist; NOT LAN-callable (T6 PR 3). |
+| `index.reembedCancel` | request | Cancel an in-flight reembed job by `{ jobId }`. Returns `{ cancelled: boolean }`. |
 
 **Notifications (index):**
 
 | Notification | Payload |
 |---|---|
 | `index.changed` | `{ service, count }` — emitted after a sync cycle writes new rows |
+| `index.reembedProgress` | `{ jobId, done, total, skipped }` per batch (T6 PR 3) |
+| `index.reembedDone` | `{ jobId, succeeded, skipped, durationMs }` on completion (also fires for dry-runs with `dryRun: true` + `planned`) |
+| `index.reembedError` | `{ jobId, code, message }` on fatal abort (vault key missing, unknown model, auth failure) |
 
 ---
 

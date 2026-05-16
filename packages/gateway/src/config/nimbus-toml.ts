@@ -14,7 +14,7 @@ import { processEnvGet } from "../platform/env-access.ts";
 
 export type NimbusEmbeddingToml = {
   enabled: boolean;
-  provider: "local" | "openai";
+  provider: "local" | "openai" | "hybrid";
   model: string;
   chunkTokens: number;
   chunkOverlapTokens: number;
@@ -80,7 +80,7 @@ function setEmbeddingPauseOnBattery(out: Partial<NimbusEmbeddingToml>, valRaw: s
 
 function setEmbeddingProvider(out: Partial<NimbusEmbeddingToml>, valRaw: string): void {
   const p = parseString(valRaw).toLowerCase();
-  if (p === "local" || p === "openai") {
+  if (p === "local" || p === "openai" || p === "hybrid") {
     out.provider = p;
   }
 }

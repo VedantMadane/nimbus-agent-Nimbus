@@ -66,7 +66,7 @@ Companion files:
 
 **Wired at:** `lan-server.ts` `LanServer.handleEncryptedMessage()` — called *before* `this.opts.onMessage`, so the gate cannot be bypassed by upstream wiring.
 
-**Anti-pattern:** moving the allowlist check into the dispatcher, the IPC server, or any caller — anywhere outside the LAN server itself. S1-F2 / S3-F1 / chains C3 and C5 were a dead-code defense: the function existed but was never called from `LanServer` in production.
+**Anti-pattern:** moving the allowlist check into the dispatcher, the IPC server, or any caller — anywhere outside the LAN server itself. S1-F2 / S3-F1 / chains C3 and C5 were a dead-code defense: the function existed but was never called from `LanServer` in production. **Also:** exposing `index.*` write methods (`index.reembed`, `index.reembedCancel`, …) over LAN without an explicit `FORBIDDEN_OVER_LAN` entry — the namespace is intentionally LAN-allowed for read paths (`index.search` / `index.query` / `index.getItem`), so any new write surface needs a full-method-name entry.
 
 **How to comply:** when adding a new LAN-reachable method, update `WRITE_METHODS` and/or `FORBIDDEN_OVER_LAN` in `lan-rpc.ts`. Do not add a second enforcement path; extend the existing one.
 

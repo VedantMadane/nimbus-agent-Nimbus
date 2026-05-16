@@ -15,6 +15,8 @@ const FORBIDDEN_OVER_LAN = new Set([
   "audit", // exfiltration-class namespace
   "data", // exfiltration-class namespace
   "connector.addMcp", // full method — arbitrary command execution over network
+  "index.reembed", // T6 PR 3 — write-class index method (writes embedding_chunk + vec_items_*)
+  "index.reembedCancel", // T6 PR 3 — paired cancel for the long-running reembed job
 ]);
 
 const WRITE_METHODS = new Set([

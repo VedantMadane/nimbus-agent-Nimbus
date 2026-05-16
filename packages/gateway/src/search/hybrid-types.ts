@@ -30,6 +30,10 @@ export type HybridSearchOptions = {
   embeddingModel: string;
   /** Required when `semantic` and KNN is used. */
   queryEmbedding?: Float32Array;
+  /** Optional 1536-dim query vector for the hybrid (OpenAI side) KNN path. */
+  queryEmbedding1536?: Float32Array;
+  /** Model id paired with `queryEmbedding1536` (must match `embedding_chunk.model`). */
+  embeddingModel1536?: string;
   /** Adjacent chunks (±N) merged into `semanticSnippet`. */
   contextChunks?: number;
 };

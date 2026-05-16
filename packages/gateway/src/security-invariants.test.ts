@@ -101,6 +101,12 @@ describe("I5 — LAN method allowlist is intrinsic to LanServer", () => {
     }
     expect(src).toMatch(/"connector\.addMcp"/);
   });
+
+  test("FORBIDDEN_OVER_LAN blocks index.reembed* (T6 PR 3)", async () => {
+    const src = await read("packages/gateway/src/ipc/lan-rpc.ts");
+    expect(src).toMatch(/"index\.reembed"/);
+    expect(src).toMatch(/"index\.reembedCancel"/);
+  });
 });
 
 describe("I6 — LAN bind defaults to loopback", () => {

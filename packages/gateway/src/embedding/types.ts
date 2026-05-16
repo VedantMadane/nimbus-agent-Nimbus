@@ -1,6 +1,8 @@
 /** Row shape needed to build text for embedding (matches `item` core columns). */
 export type IndexedItem = {
   id: string;
+  service: string;
+  type: string;
   title: string;
   body_preview: string | null;
 };

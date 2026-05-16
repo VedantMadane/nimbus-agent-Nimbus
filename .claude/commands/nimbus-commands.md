@@ -222,6 +222,17 @@ nimbus deploy annotate --service <id> --sha <sha> --target-ref <ref> --env <env>
 http_api.deployment_token   # Bearer token required for POST /v1/deployments; set via `nimbus vault set http_api.deployment_token <token>` (CLI-only). Without it, the HTTP write surface refuses all POSTs with 401.
 ```
 
+### Phase 5 T6 — Forensic + hybrid embedding
+
+```bash
+nimbus index reembed --model <id> [--item-type <key>] [--service <name>] [--limit N] [--batch-size N] [--dry-run] [--yes] [--json]
+# Selective re-embedding to a target model. v1 models:
+#   openai:text-embedding-3-small  (1536-dim; needs vault key openai.api_key)
+#   Xenova/all-MiniLM-L6-v2        (384-dim; local, no key required)
+# Exit codes: 0 = run completed (any skips; rerun is idempotent), 1 = fatal abort.
+# IPC: index.reembed / index.reembedCancel — CLI-only (not in Tauri allowlist; FORBIDDEN_OVER_LAN).
+```
+
 ## Environment-variable overrides
 
 ### Multi-agent loop guards (Phase 4)

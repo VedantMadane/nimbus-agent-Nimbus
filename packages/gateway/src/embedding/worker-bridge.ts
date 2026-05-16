@@ -253,6 +253,24 @@ class EmbeddingWorkerBridge implements EmbeddingRuntime {
     });
   }
 
+  async embedQueryDual(text: string): Promise<{
+    vec384: Float32Array | null;
+    vec1536: Float32Array | null;
+    model384: string | null;
+    model1536: string | null;
+  }> {
+    const vec = await this.embedQuery(text);
+    if (vec === null) {
+      return { vec384: null, vec1536: null, model384: null, model1536: null };
+    }
+    return {
+      vec384: vec,
+      vec1536: null,
+      model384: this.getEmbeddingModel(),
+      model1536: null,
+    };
+  }
+
   getEmbeddingModel(): string {
     return LOCAL_EMBEDDING_MODEL_ID;
   }

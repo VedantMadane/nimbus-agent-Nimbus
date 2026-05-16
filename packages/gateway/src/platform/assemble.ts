@@ -133,6 +133,7 @@ async function createLocalIndexWithEmbeddingRuntime(
     semanticSearch = {
       model: rt.getEmbeddingModel(),
       embedQuery: (text: string) => rt.embedQuery(text),
+      embedQueryDual: (text: string) => rt.embedQueryDual(text),
     };
   }
   const localIndexOpts: LocalIndexOptions = {};

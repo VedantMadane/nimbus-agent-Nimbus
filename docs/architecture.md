@@ -2,7 +2,7 @@
 
 **Version:** 1.0
 **Runtime:** Bun v1.2+ / TypeScript 6.x (strict)
-**Status:** Phase 4 (Presence) ✅ Complete (WS1–WS6 + S2 + B2-P1 + B3-P1/2 complete) · `v0.1.0` released 2026-05-09 (headless Gateway + CLI + VS Code extension; `desktop-v0.1.0` Tauri release vehicle deferred to Phase 13) · Phase 5 (The Extended Surface) 🔵 Active — T3 ✅ (`expert` + `impact` + `catchup`) · Wave A ✅ (OpenAPI indexer + Obsidian) · T4 ✅ (DORA + preflight + annotation + PagerDuty wrap-up) · T6 PR 1 ✅ (I10 helper consolidation, 2026-05-14) · T6 PR 2 ✅ (`tool_call_log` V29, 2026-05-15) · Sub-project A ✅ (README hero + OG card + asciinema cast, 2026-05-15)
+**Status:** Phase 4 (Presence) ✅ Complete (WS1–WS6 + S2 + B2-P1 + B3-P1/2 complete) · `v0.1.0` released 2026-05-09 (headless Gateway + CLI + VS Code extension; `desktop-v0.1.0` Tauri release vehicle deferred to Phase 13) · Phase 5 (The Extended Surface) 🔵 Active — T3 ✅ (`expert` + `impact` + `catchup`) · Wave A ✅ (OpenAPI indexer + Obsidian) · T4 ✅ (DORA + preflight + annotation + PagerDuty wrap-up) · T6 PR 1 ✅ (I10 helper consolidation, 2026-05-14) · T6 PR 2 ✅ (`tool_call_log` V29, 2026-05-15) · T6 PR 3 ✅ (`vec_items_1536` V30 + hybrid routing + reembed CLI, 2026-05-15) · Sub-project A ✅ (README hero + OG card + asciinema cast, 2026-05-15)
 
 > **Authoring references for AI-assisted contributors:** the [`.claude/commands/nimbus-*.md`](../.claude/commands/) skill files are the load-bearing how-to references for every subsystem in this document. Treat this architecture doc as the *what + where* and the skills as the *how*. Pair them when adding new code:
 >
@@ -505,6 +505,8 @@ nimbus workflow save ./weekly-cleanup.yml --name weekly-cleanup
 | **Structured Metadata** | `bun:sqlite` | Fast exact-match retrieval — name, type, service, timestamps |
 | **Semantic Embeddings** | `sqlite-vec` virtual table | Vector search for RAG recall; local model via `@xenova/transformers` (no API key required) |
 | **Conversation History** | `bun:sqlite` | Multi-turn context; loads last 12 entries (≈ 6 user/assistant pairs) to provide follow-up context without prompt bloat. |
+
+**Hybrid mode (T6 PR 3, 2026-05-15):** with `[embedding].provider = "hybrid"`, items whose `(service, type)` pair appears in `embedding/routing.ts:PROSE_HEAVY_TYPES` route to OpenAI `text-embedding-3-small` (1536-dim, written to `vec_items_1536`); everything else stays on local MiniLM-L6-v2 (384-dim, `vec_items_384`). Query-side dual search uses `search/dual-search.ts:vectorSearchChunksDual` to merge KNN results across both tables. The `provider = "openai"` value is now a 1536-dim everywhere mode — the prior 384-dim semantics are gone. Selective backfill between models is the responsibility of `nimbus index reembed` (IPC `index.reembed`).
 
 ```typescript
 const results = await memoryLayer.hybridSearch({
@@ -1184,13 +1186,22 @@ CREATE VIRTUAL TABLE items_fts USING fts5(
 );
 
 -- Vector search (sqlite-vec)
--- Dimension-qualified to support future model expansion alongside existing data.
+-- Dimension-qualified to support multi-model coexistence side by side.
 -- Phase 3: vec_items_384 (float[384], all-MiniLM-L6-v2).
 CREATE VIRTUAL TABLE vec_items_384 USING vec0(
     embedding FLOAT[384]
 );
--- embedding_chunk table (metadata per chunk) references vec_items_384.rowid
--- and tracks model + dims to support future multi-model coexistence.
+-- Phase 5 T6 PR 3 (V30): vec_items_1536 (float[1536], text-embedding-3-small).
+-- Per-(service, type) routing in embedding/routing.ts:PROSE_HEAVY_TYPES
+-- dispatches prose-heavy items to OpenAI in hybrid mode; everything else
+-- stays on the 384-dim local table. Dim-aware delete triggers
+-- (embedding_chunk_ad_delete_vec384 / _vec1536) fan deletes to the matching
+-- vec table only.
+CREATE VIRTUAL TABLE vec_items_1536 USING vec0(
+    embedding FLOAT[1536]
+);
+-- embedding_chunk table (metadata per chunk) references vec_items_*.rowid
+-- and tracks model + dims to support multi-model coexistence.
 
 -- Full audit trail — append-only; written before each action executes
 CREATE TABLE action_log (

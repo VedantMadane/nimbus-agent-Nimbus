@@ -725,6 +725,39 @@ nimbus db prune --yes
 
 ---
 
+## Index Maintenance
+
+### `nimbus index reembed`
+
+Selectively re-embed indexed items to a target embedding model. Useful when switching between local MiniLM (384-dim, `vec_items_384`) and OpenAI `text-embedding-3-small` (1536-dim, `vec_items_1536`) — both tables can coexist; this command backfills missing chunks for a chosen model.
+
+```bash
+nimbus index reembed --model openai:text-embedding-3-small --item-type slack:message --dry-run
+nimbus index reembed --model openai:text-embedding-3-small --service slack --yes
+nimbus index reembed --model Xenova/all-MiniLM-L6-v2 --yes --json
+```
+
+**Flags:**
+
+| Flag | Required | Description |
+|---|---|---|
+| `--model <id>` | yes | Target embedding model id. v1 values: `openai:text-embedding-3-small` (needs vault key `openai.api_key`) or `Xenova/all-MiniLM-L6-v2` (local, no key required). |
+| `--item-type <key>` | no | Filter to one logical type. Accepts `"service:type"` (exact) or `"type"` alone. |
+| `--service <name>` | no | Restrict to a single connector service. |
+| `--limit N` | no | Cap the number of items to process. |
+| `--batch-size N` | no | Items per batch; default 100, clamped to `1..256`. |
+| `--dry-run` | no | Compute the candidate count and emit a `reembedDone` notification without writing. |
+| `--yes` | yes (non-dry) | Confirmation gate; required for any non-`--dry-run` invocation. |
+| `--json` | no | Suppress progress output; print the final summary as one JSON object. |
+
+**Behaviour:** the CLI subscribes to `index.reembedProgress` / `index.reembedDone` / `index.reembedError` notifications, issues the `index.reembed` request, and streams progress lines (`progress: 50/200 (skipped 0)`) by default. Re-running is idempotent — items already embedded against the target model are skipped, so retrying after a transient API failure is safe.
+
+**Exit codes:** `0` = run completed (any number of skips); operator re-runs to retry skipped items. `1` = fatal abort (vault key missing, unknown model, auth failure, Gateway down).
+
+**Security:** `index.reembed` and `index.reembedCancel` are CLI-only — both methods are in `FORBIDDEN_OVER_LAN` (invariant I5) and absent from the Tauri renderer allowlist (invariant I7).
+
+---
+
 ## Telemetry
 
 Telemetry is **opt-in** and **aggregate-only**. No content, query text, file names, or credentials are ever included. Disabled by default.

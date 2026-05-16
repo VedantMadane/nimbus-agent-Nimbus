@@ -52,6 +52,10 @@ import {
   UNIFIED_ITEM_V3_SCHEMA_SQL,
 } from "../unified-item-v3-sql.ts";
 import { USER_MCP_V11_MIGRATION_SQL } from "../user-mcp-v11-sql.ts";
+import {
+  VEC_ITEMS_1536_V30_NO_VEC_SQL,
+  VEC_ITEMS_1536_V30_SCHEMA_SQL,
+} from "../vec-items-1536-v30-sql.ts";
 import { WATCHER_GRAPH_V22_SQL } from "../watcher-graph-v22-sql.ts";
 import { WATCHER_V8_MIGRATION_SQL } from "../watcher-v8-sql.ts";
 import { WORKFLOW_RUN_COLUMNS_V23_SQL } from "../workflow-run-columns-v23-sql.ts";
@@ -393,6 +397,28 @@ function migrateIndexedV28ToV29(db: Database, now: number): void {
   })();
 }
 
+function migrateIndexedV29ToV30(db: Database, now: number): void {
+  const hasVec = vecTableExists(db);
+  const sql = hasVec ? VEC_ITEMS_1536_V30_SCHEMA_SQL : VEC_ITEMS_1536_V30_NO_VEC_SQL;
+  db.transaction(() => {
+    // Bun's bun:sqlite on macOS throws "SQL string mustn't be blank" for an
+    // empty `db.exec("")`; Windows/Linux tolerate it. The no-vec fallback is
+    // intentionally empty (records the migration row only).
+    if (sql.trim().length > 0) {
+      db.exec(sql);
+    }
+    db.exec("PRAGMA user_version = 30");
+    recordMigration(
+      db,
+      30,
+      hasVec
+        ? "vec_items_1536 + dim-aware delete triggers (T6 PR 3)"
+        : "vec_items_1536 (sqlite-vec unavailable, T6 PR 3)",
+      now,
+    );
+  })();
+}
+
 const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 0, toVersion: 1, apply: migrateIndexedV0ToV1 },
   { fromVersion: 1, toVersion: 2, apply: migrateIndexedV1ToV2 },
@@ -423,6 +449,7 @@ const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
   { fromVersion: 26, toVersion: 27, apply: migrateIndexedV26ToV27 },
   { fromVersion: 27, toVersion: 28, apply: migrateIndexedV27ToV28 },
   { fromVersion: 28, toVersion: 29, apply: migrateIndexedV28ToV29 },
+  { fromVersion: 29, toVersion: 30, apply: migrateIndexedV29ToV30 },
 ];
 
 const BACKFILL_LABELS: readonly string[] = [
@@ -455,6 +482,7 @@ const BACKFILL_LABELS: readonly string[] = [
   "merged_as graph_relation_type (DORA Lead Time, T4 PR 2) (backfilled)",
   "deployment_items shadow table (T4 PR 3b) (backfilled)",
   "tool_call_log audit table (T6 PR 2) (backfilled)",
+  "vec_items_1536 + dim-aware delete triggers (T6 PR 3) (backfilled)",
 ];
 
 /**
