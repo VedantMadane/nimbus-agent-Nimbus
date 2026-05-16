@@ -1,7 +1,8 @@
 /// <reference types="bun-types" />
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -14,12 +15,23 @@ const REPO_ROOT = new URL("../..", import.meta.url).pathname.replace(/^\/([A-Z]:
 const toUnix = (p: string) => p.replaceAll("\\", "/");
 
 // Resolve absolute paths for system tools to avoid PATH-based hijacking (Sonar S4036).
-// These tests only run on non-Windows (shellTest skips on win32), so POSIX fixed paths
-// are always in effect; the IS_WIN fallback is for module-level code that runs on all platforms.
+// Linux installs gpg at /usr/bin/gpg; macOS gets gpg via Homebrew at
+// /opt/homebrew/bin/gpg (Apple Silicon) or /usr/local/bin/gpg (Intel). We
+// resolve the first candidate that exists and fall back to the first entry
+// so spawnSync surfaces a clear ENOENT if no candidate is installed.
+// SHA256SUMS is generated in-process via node:crypto so no shell binary is
+// required for that step on any platform.
 const IS_WIN = process.platform === "win32";
+function resolveBin(candidates: readonly string[]): string {
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  return candidates[0] ?? "";
+}
 const BASH_BIN = IS_WIN ? "bash" : "/bin/bash";
-const SHA256SUM_BIN = IS_WIN ? "sha256sum" : "/usr/bin/sha256sum";
-const GPG_BIN = IS_WIN ? "gpg" : "/usr/bin/gpg";
+const GPG_BIN = IS_WIN
+  ? "gpg"
+  : resolveBin(["/usr/bin/gpg", "/opt/homebrew/bin/gpg", "/usr/local/bin/gpg"]);
 const VERIFY_SH = toUnix(join(REPO_ROOT, "scripts", "release", "nimbus-verify.sh"));
 const GEN_KEY = toUnix(join(REPO_ROOT, "scripts", "release", "fixtures", "gen-test-key.sh"));
 
@@ -62,9 +74,13 @@ beforeEach(() => {
   }
 
   // Create a simple artifact and its SHA256SUMS + signed .asc.
+  // SHA256SUMS format mirrors `sha256sum filename`: "<64-hex-lower>  filename\n".
+  // Computed in-process to avoid depending on coreutils' sha256sum (which is
+  // not shipped on macOS — Homebrew users would need coreutils).
   writeFileSync(join(cwd, "hello.bin"), "hello world", "utf8");
-  const sha = spawnSync(SHA256SUM_BIN, ["hello.bin"], { cwd, encoding: "utf8" });
-  writeFileSync(join(cwd, "SHA256SUMS"), sha.stdout, "utf8");
+  const helloBytes = readFileSync(join(cwd, "hello.bin"));
+  const hashHex = createHash("sha256").update(helloBytes).digest("hex");
+  writeFileSync(join(cwd, "SHA256SUMS"), `${hashHex}  hello.bin\n`, "utf8");
   const sign = spawnSync(
     GPG_BIN,
     [

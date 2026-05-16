@@ -37,6 +37,13 @@ function makeTinyDb(): { db: Database; cleanup: () => void; cap: () => void } {
   const dir = mkdtempSync(join(tmpdir(), "nimbus-diskfull-"));
   const dbPath = join(dir, "nimbus.db");
   const db = new Database(dbPath);
+  // The cap() fill runs thousands of autocommit INSERTs. On Windows CI each
+  // autocommit fsync dominates wall-clock time and exceeds the 5 s per-test
+  // timeout. Durability is not relevant to the fixture — disable fsync and
+  // use an in-memory rollback journal. SQLITE_FULL still fires correctly
+  // because it is governed by max_page_count, not by journal/sync mode.
+  db.exec("PRAGMA journal_mode = MEMORY");
+  db.exec("PRAGMA synchronous = OFF");
   runIndexedSchemaMigrations(db, 30);
   return {
     db,
