@@ -1,6 +1,11 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  type SandboxPermissions,
+  validateAndNormalizePermissions,
+} from "./permissions-validator.ts";
+
 /** Canonical spec name; preferred when both exist. */
 export const EXTENSION_MANIFEST_FILENAME = "nimbus.extension.json";
 
@@ -24,12 +29,20 @@ export function resolveExtensionManifestPath(dir: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Resolved manifest shape consumed by the rest of the Gateway. `permissions`
+ * is the normalized `SandboxPermissions` envelope; legacy array-form input is
+ * silently mapped to default-deny by the validator (see
+ * `permissions-validator.ts`).
+ */
 export type ExtensionManifest = {
   id: string;
   version: string;
   name?: string;
   /** Relative path to entry file (default dist/index.js). */
   entry?: string;
+  /** Sandbox permission envelope (object form; legacy array → default-deny). */
+  permissions: SandboxPermissions;
 };
 
 export function parseExtensionManifestJson(text: string): ExtensionManifest {
@@ -51,10 +64,18 @@ export function parseExtensionManifestJson(text: string): ExtensionManifest {
   const name = typeof o["name"] === "string" ? o["name"].trim() : undefined;
   const entry =
     typeof o["entry"] === "string" ? o["entry"].trim().replaceAll("\\", "/") : undefined;
+  // Manifests without an explicit `permissions` field are treated as the
+  // legacy default-deny shape — `validateAndNormalizePermissions(undefined)`
+  // is not called directly because the validator only accepts arrays or
+  // objects; missing → explicit empty object form.
+  const permissions = validateAndNormalizePermissions(
+    o["permissions"] === undefined ? {} : o["permissions"],
+  );
   return {
     id,
     version,
     ...(name !== undefined && name !== "" ? { name } : {}),
     ...(entry !== undefined && entry !== "" ? { entry } : {}),
+    permissions,
   };
 }
