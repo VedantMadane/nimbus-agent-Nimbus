@@ -53,9 +53,11 @@ function stubPagerdutyPages(pages: readonly PdPageResponse[]): { calls: string[]
     if (!url.startsWith("https://api.pagerduty.com/incidents")) {
       throw new Error(`unexpected fetch: ${url}`);
     }
-    const page = pages[Math.min(i, pages.length - 1)];
+    const page = pages[i];
     i += 1;
-    if (page === undefined) throw new Error("stubPagerdutyPages: no pages configured");
+    if (page === undefined) {
+      throw new Error(`stubPagerdutyPages: call ${i} exceeds ${pages.length} configured pages`);
+    }
     return new Response(JSON.stringify(page), {
       status: 200,
       headers: { "Content-Type": "application/json" },

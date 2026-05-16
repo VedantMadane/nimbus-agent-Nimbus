@@ -152,7 +152,7 @@ export function createPagerdutySyncable(options: PagerdutySyncableOptions): Sync
       let pagesFetched = 0;
       let totalUpserted = 0;
       let maxUpdated = since;
-      let lastTextLen = 0;
+      let totalBytesTransferred = 0;
       let pdHasMore = false;
 
       while (pagesFetched < maxPagesPerSync) {
@@ -169,7 +169,7 @@ export function createPagerdutySyncable(options: PagerdutySyncableOptions): Sync
           },
         });
         const text = await res.text();
-        lastTextLen = text.length;
+        totalBytesTransferred += text.length;
         if (!res.ok) {
           ctx.logger.warn(
             { serviceId: SERVICE_ID, status: res.status, page: pagesFetched },
@@ -186,7 +186,7 @@ export function createPagerdutySyncable(options: PagerdutySyncableOptions): Sync
             itemsDeleted: 0,
             hasMore: false,
             durationMs: Math.round(performance.now() - t0),
-            bytesTransferred: lastTextLen,
+            bytesTransferred: totalBytesTransferred,
           };
         }
         // Single JSON.parse per page — returns both `incidents` and `more`.
@@ -198,7 +198,7 @@ export function createPagerdutySyncable(options: PagerdutySyncableOptions): Sync
             itemsDeleted: 0,
             hasMore: false,
             durationMs: Math.round(performance.now() - t0),
-            bytesTransferred: lastTextLen,
+            bytesTransferred: totalBytesTransferred,
           };
         }
         const { upserted, maxUpdated: pageMax } = syncPagerdutyIncidentItems(
@@ -220,7 +220,7 @@ export function createPagerdutySyncable(options: PagerdutySyncableOptions): Sync
         itemsDeleted: 0,
         hasMore: pagesFetched >= maxPagesPerSync && pdHasMore,
         durationMs: Math.round(performance.now() - t0),
-        bytesTransferred: lastTextLen,
+        bytesTransferred: totalBytesTransferred,
       };
     },
   };
