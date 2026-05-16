@@ -150,6 +150,14 @@ jobs:
           run_pkg () {
             local pkg="$1"
             local safe_name="${pkg//\//-}"
+            # Skip packages with no test files — `bun test` exits 1 with
+            # "No tests found!" which would fail the step under
+            # `set -eo pipefail`. Several mcp-connectors are scaffold-only
+            # today and have no co-located *.test.ts yet.
+            if [ -z "$(find "${pkg}" -path "${pkg}/node_modules" -prune -o \( -name '*.test.ts' -o -name '*.test.tsx' -o -name '*.spec.ts' -o -name '*.spec.tsx' \) -print -quit)" ]; then
+              echo "::notice::Skipping ${pkg} — no test files."
+              return 0
+            fi
             echo "::group::Tests + coverage — ${pkg}"
             (
               cd "${pkg}"
