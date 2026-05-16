@@ -887,6 +887,17 @@ describe("D12 — direct db.run / db.exec outside allow-list", () => {
     expect(hits.length).toBe(1);
   });
 
+  test("flags a synthetic file with ctx.db.run", () => {
+    const files: FileEntry[] = [
+      {
+        relPath: "packages/gateway/src/synthetic.ts",
+        contents: "function h(ctx: SyncCtx) { ctx.db.run('UPDATE t SET n = 1'); }",
+      },
+    ];
+    const hits = findDirectDbRunExec(files);
+    expect(hits.length).toBe(1);
+  });
+
   test("does NOT flag dbRun / dbExec / dbStmtRun calls", () => {
     const files: FileEntry[] = [
       {
@@ -937,10 +948,10 @@ export const DB_RUN_EXEC_ALLOW_LIST: readonly string[] = [
 ];
 ```
 
-2. Replace the `DB_RUN_RE` regex (line 109) and the `collectDbRunCensus` function:
+2. Replace the `DB_RUN_RE` regex (line 109) and the `collectDbRunCensus` function. The new regex matches `db.run(`, `db.exec(`, `this.db.run(`, `this.db.exec(`, and `ctx.db.run(` / `ctx.db.exec(`. (The leading `\b` already handles the boundary in the `this.` / `ctx.` cases — `.` is non-word, `d` is word — but listing the prefixes explicitly is clearer at review time.)
 
 ```ts
-const DB_RUN_EXEC_RE = /\bdb\.(?:run|exec)\s*\(/;
+const DB_RUN_EXEC_RE = /\b(?:this\.|ctx\.)?db\.(?:run|exec)\s*\(/;
 
 export type DbRunHit = {
   file: string;
@@ -1554,6 +1565,20 @@ EOF
 ```
 
 Expected: PR URL returned. Reviewer can then run `/ultrareview` or `gh pr` as needed.
+
+---
+
+## Plan review disposition (`2026-05-16-phase-5-t6-pr4-typed-db-run-review.md`)
+
+| Review § | Item | Disposition | Where in this plan |
+| -------- | ---- | ----------- | ------------------ |
+| 1 | Named-parameter (`{ $id: 1 }`) object bindings in `dbRun` | **DEFER** | Inherits design-spec §13 disposition (`2026-05-16-phase-5-t6-pr4-typed-db-run-design.md`). Verified via grep against `packages/gateway/src/` on 2026-05-16: zero call sites use object-form params. Positional `unknown[]` covers every shape. Adding object-form support is YAGNI and grows the signature without a real caller. Future need can extend the signature in a follow-up without breaking existing callers (since the union would only widen the parameter type). |
+| 2 | Transaction-commit-time `SQLITE_FULL` not translated | **DEFER** | Inherits design-spec §11 risk 2 / §13 disposition. SQLite typically detects `SQLITE_FULL` at the individual statement level (page-write time) — `dbRun` / `dbExec` / `dbStmtRun` cover that path universally. The implicit `COMMIT` inside `db.transaction(() => { ... })()` is a known small gap, tracked for a follow-up "transaction-level disk-full" PR introducing `runInTransaction(db, fn)`. Adding a Task 11 test for the *unfixed* COMMIT-time case would document broken behavior; better to land the fix in the follow-up and add the test there. |
+| 3 | Task 9 regex doesn't explicitly mention `this.db` / `ctx.db` | **FIX** | Updated Task 9 Step 3 to `/\b(?:this\.|ctx\.)?db\.(?:run|exec)\s*\(/` and added a `ctx.db.run` synthetic-file test case in Step 1. (The original `\bdb\.` form is functionally equivalent — `\b` matches between `.` and `d` — but the explicit prefix is clearer at audit-review time.) |
+| 4 | Explicit `dbStmtRun` disk-full integration test | **NO ACTION** | Already covered twice: (a) Task 2's `dbStmtRun translates SQLITE_FULL into DiskFullError` is a wrapper-level live-DB test that fills a real `bun:sqlite` Database to `PRAGMA max_page_count = 4` and asserts `DiskFullError`; (b) Task 11's embedding test (`embedding: embedItem ... throws DiskFullError`) exercises `dbStmtRun(insertVec, ...)` and `dbStmtRun(insertChunk, ...)` end-to-end via `SqliteEmbeddingPipeline.embedItem`. Adding a third dedicated test would duplicate (a) without adding coverage. |
+| 5 | `dbStmtRun` parameter handling for named bindings | **NO ACTION** | The variadic signature `dbStmtRun(stmt, ...params)` transparently supports object-form bindings: a call like `dbStmtRun(stmt, { $id: 1 })` packs `params = [{ $id: 1 }]`, and `stmt.run(...params)` becomes `stmt.run({ $id: 1 })` — `bun:sqlite` handles the object form natively. No call sites use this today (verified by reading the three prepared-statement sites: `runner.ts:283`, `pipeline.ts:86`/`89`, `perf-fixture.ts:100` all use positional varargs), so no test is added, but the helper does not block adopters. |
+
+**Net effect on this plan:** one regex tightening in Task 9 (+ one new synthetic-file test case), plus this disposition section. No new tasks, no removed tasks. The two `DEFER` items inherit design-spec §13 disposition; the two `NO ACTION` items already have coverage in Tasks 2 and 11.
 
 ---
 
