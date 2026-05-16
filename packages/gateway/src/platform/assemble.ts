@@ -11,6 +11,7 @@ import {
   loadNimbusAutomationFromConfigDir,
   loadNimbusEmbeddingFromPath,
   loadNimbusLlmPartialFromPath,
+  loadNimbusPagerdutyFromConfigDir,
   loadNimbusUpdaterFromConfigDir,
   resolveNimbusTomlForProfile,
 } from "../config/nimbus-toml.ts";
@@ -275,7 +276,10 @@ async function createSchedulerWithMesh(
     // obsidian MCP child can discover `.obsidian/` markers itself.
     obsidianVaultPaths: fsV2Roots.map((r) => r.path),
   });
-  registerConnectorMeshSyncables(syncScheduler, connectorMesh);
+  const pagerdutyCfg = loadNimbusPagerdutyFromConfigDir(paths.configDir);
+  registerConnectorMeshSyncables(syncScheduler, connectorMesh, {
+    pagerdutyMaxPagesPerSync: pagerdutyCfg.maxPagesPerSync,
+  });
   registerUserMcpSyncablesFromDatabase(db, syncScheduler, connectorMesh);
   syncScheduler.start();
   evaluateWatchersStartupCatchUp(db, Date.now(), (t, b) => notifications.show(t, b), watcherOpts);
