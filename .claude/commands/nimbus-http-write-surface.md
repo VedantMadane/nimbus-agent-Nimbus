@@ -1,0 +1,132 @@
+---
+name: nimbus-http-write-surface
+description: >
+  Reference for the local HTTP API write surface and the `WRITE_ROUTE_ALLOWLIST` /
+  bearer-auth / per-token rate-limit / audit-on-rejection pipeline that protects it
+  (security invariant `I13`). Use this skill whenever you are adding a new HTTP
+  `POST` / `PUT` / `DELETE` handler, modifying an existing one, debating whether a
+  route should live on the local socket or on the HTTP API, wiring a new CI integration
+  that needs to feed data into the local index, or touching `http-server.ts` /
+  `http-write-routes.ts` / `http-auth.ts` / `http-rate-limit.ts`. Also trigger for
+  questions like "can I POST to the HTTP API?", "where does this token check live?",
+  "why is my route returning 503 `write_surface_disabled`?", "should this be a new
+  HTTP route or an IPC method?", or "the WRITE_ROUTE_ALLOWLIST count assertion is
+  wrong". Consult before any code that lets an external process write into the
+  gateway over HTTP — the HTTP API was historically read-only, and the carve-out
+  for `POST /v1/deployments` is the **only** sanctioned write path.
+---
+
+# Nimbus HTTP Write Surface (I13)
+
+## Why This Skill Exists
+
+Before Phase 5 T4 PR 3b, the read-only HTTP API (`nimbus serve`) was structurally read-only: a single `SQLITE_OPEN_READONLY` handle backed every route. T4 PR 3b carved out a narrow write surface for post-deploy annotation (`POST /v1/deployments`) so CI can feed DORA metrics directly. That carve-out is **the only HTTP write path Nimbus accepts**, and the discipline that keeps it that way is invariant `I13`. Adding a second write route is a security boundary change, not a routine handler addition.
+
+This skill is the rule a contributor consults **before** adding any HTTP `POST` / `PUT` / `DELETE` handler.
+
+## Where It Lives
+
+| File | Role |
+|---|---|
+| [`packages/gateway/src/ipc/http-write-routes.ts`](../../packages/gateway/src/ipc/http-write-routes.ts) | `WRITE_ROUTE_ALLOWLIST` (frozen, compile-time) + `dispatchWriteRoute` — the single dispatcher every HTTP write goes through |
+| [`packages/gateway/src/ipc/http-server.ts`](../../packages/gateway/src/ipc/http-server.ts) | Where POST requests are routed to `dispatchWriteRoute`; opens **at most one** writable `Database` handle (the read handle stays `SQLITE_OPEN_READONLY`) |
+| [`packages/gateway/src/ipc/http-auth.ts`](../../packages/gateway/src/ipc/http-auth.ts) | `requireBearer` + `tokenFingerprint` — reads the expected token from the `http_api.deployment_token` vault key; constant-time compare via `constantTimeStringEqual` (invariant `I10`) |
+| [`packages/gateway/src/ipc/http-rate-limit.ts`](../../packages/gateway/src/ipc/http-rate-limit.ts) | Per-token sliding-window rate limiter (default 60 req/min); surfaces `X-RateLimit-*` headers |
+| [`packages/gateway/src/security-invariants.test.ts`](../../packages/gateway/src/security-invariants.test.ts) | Three I13 sub-assertions — see "Enforcement" below |
+| [`packages/gateway/openapi/v1.yaml`](../../packages/gateway/openapi/v1.yaml) | Hand-authored OpenAPI schema; **the schema must list every allowlisted write route** — see "OpenAPI drift" below |
+
+## The Allowlist
+
+Currently a single entry:
+
+```typescript
+export const WRITE_ROUTE_ALLOWLIST: readonly string[] = Object.freeze([
+  "POST /v1/deployments",
+]);
+```
+
+Entries are `"<METHOD> <PATH>"` strings — exact match, no path templating, no method aliasing. `dispatchWriteRoute` rejects anything not in this array; unknown paths return 404, known paths on the wrong method return 405 with `Allow` header.
+
+## Enforcement (the I13 test triple)
+
+[`security-invariants.test.ts`](../../packages/gateway/src/security-invariants.test.ts) carries three assertions:
+
+1. **`http-server.ts` imports `dispatchWriteRoute`** from `./http-write-routes.ts`. A second dispatcher cannot exist; the import is the proof.
+2. **`http-server.ts` opens at most one writable `Database` handle** — counted by source-grep. Any second writable handle is a structural regression because it bypasses the dispatcher.
+3. **`WRITE_ROUTE_ALLOWLIST.length === 1`** and contains exactly `"POST /v1/deployments"`. Adding an entry **requires updating this assertion in the same commit** — the count is the integrity check, not just decoration.
+
+## Request Flow
+
+Every accepted write goes through this pipeline in `dispatchWriteRoute`:
+
+1. **Allowlist lookup** — `"<METHOD> <PATH>"` must be in `WRITE_ROUTE_ALLOWLIST`. Unknown → 404; known path, wrong method → 405.
+2. **Bearer auth** — `requireBearer(req, { expectedToken })`. Three outcomes:
+   - `surfaceDisabled`: vault key `http_api.deployment_token` not set → 503 `write_surface_disabled` (no audit row — surface is structurally off).
+   - `!ok`: bad / missing token → 401 `unauthorized` + audit row.
+   - `ok`: continue with `auth.fingerprint` (SHA-256 prefix of the token, for forensic tagging).
+3. **Rate limit** — `ctx.rateLimiter.check(auth.fingerprint)`. On miss → 429 + `Retry-After` + audit row. On hit, the response always carries `X-RateLimit-{Limit,Remaining,Reset}`.
+4. **Body parse** — `Content-Length` is checked against `MAX_BODY_BYTES = 8 KiB` **before** the body is read; the streaming length cap then re-checks `bodyBytes.byteLength`. UTF-8 decode is `{ fatal: true }`. JSON parse failures → 400 `invalid_json` + audit row.
+5. **Service allowlist (per-route)** — for `POST /v1/deployments`, the body's `service` field must be in `ctx.knownServices()`. Unknown → 400 `unknown_service` + audit row (with `known_services` hint truncated to 25 entries).
+6. **Route handler** — currently `dispatchDeploymentRpc("deployment.annotate", parsed, …)`. The handler writes its own success audit (do **not** double-write).
+7. **Rejection audit** — any non-2xx path calls `recordRejection(ctx, { tokenFingerprint, resultCode, reason, … })`, which appends a `deployment.annotation_rejected` row via `appendAuditEntry` (BLAKE3-chained, tamper-evident). The audit write is best-effort — wrapped in `try { … } catch { /* silent */ }` so a corrupted chain or full disk **cannot** fingerprint the rejection path.
+
+## Forbidden Categories
+
+These can **never** become HTTP write surfaces, no matter the bearer auth quality:
+
+| Category | Reason |
+|---|---|
+| `vault.*` writes | Same posture as I7 — credentials never leave the local socket. |
+| `engine.ask` / agent surfaces | Inbound prompts via HTTP are a prompt-injection multiplier; the only LLM entry points are the local socket + Tauri allowlist. |
+| Anything that bypasses `ToolExecutor` for a destructive action | Would regress I2 (HITL frozen set) silently. |
+| Anything that opens its own `Database` handle | Regresses the "at most one writable handle in `http-server.ts`" sub-assertion. |
+
+## Adding a New HTTP Write Route — Checklist
+
+When a new POST/PUT/DELETE genuinely needs to live on the HTTP API (not the IPC socket):
+
+- [ ] Confirm the action is **not** in the forbidden categories above. If destructive, it must go through `ToolExecutor` first and only become an HTTP surface for already-approved automation flows (CI annotation patterns).
+- [ ] Add `"<METHOD> <PATH>"` to `WRITE_ROUTE_ALLOWLIST` in `http-write-routes.ts`.
+- [ ] **Bump the `length` assertion** in `security-invariants.test.ts` (`expect(WRITE_ROUTE_ALLOWLIST.length).toBe(N)`). The count *is* the integrity check.
+- [ ] Add an `if (key === "<METHOD> <PATH>")` branch in `dispatchWriteRoute` that calls the route's handler. Route handlers throw typed errors (e.g. `DeploymentRpcError`) so the dispatcher can map them to `400 invalid_<field>` audit rows.
+- [ ] Decide whether the handler writes its own success audit (current pattern for `dispatchDeploymentRpc`). If yes, **do not double-write** in the dispatcher.
+- [ ] Add the route to [`packages/gateway/openapi/v1.yaml`](../../packages/gateway/openapi/v1.yaml). If you forget, `bun run audit:openapi-drift` (CI gate from Phase 5 T4 PR 1) will fail — the OpenAPI schema is the single source of truth for the published API surface.
+- [ ] The route must use the existing `ctx.writeDb` — never call `new Database(path, { readonly: false })` from a route handler.
+- [ ] If the route accepts a body, enforce a tight `MAX_BODY_BYTES` (8 KiB is the current default; raise only with documented justification).
+- [ ] Verify the bearer-auth + rate-limit + audit-on-rejection pattern still wraps the new route — `dispatchWriteRoute` does this by construction, but a handler that throws after auth must still surface a `recordRejection` call.
+- [ ] Update [`docs/cli-reference.md`](../../docs/cli-reference.md) §"CI/CD" (or a new section) and [`docs/SECURITY.md`](../../docs/SECURITY.md) §"IPC Surface" if the boundary description changes.
+- [ ] Update the `WRITE_ROUTE_ALLOWLIST` entry list in this skill and in [`docs/SECURITY-INVARIANTS.md`](../../docs/SECURITY-INVARIANTS.md) §I13.
+
+## Removing or Renaming a Route
+
+- [ ] Delete the allowlist entry, the dispatcher branch, and the OpenAPI path. **Decrement** the count assertion.
+- [ ] If the removal was security-driven (route turned out to be a vector), add a comment near the count assertion locking in the absence — same pattern Tauri allowlist uses for `extension.install`.
+- [ ] Audit the BLAKE3 chain (`nimbus audit verify`) — confirm the route never produced rows that downstream code depends on parsing.
+
+## OpenAPI Drift
+
+[`scripts/structure-audit/check-openapi-drift.ts`](../../scripts/structure-audit/check-openapi-drift.ts) compares `v1.yaml`'s declared paths against `READ_ONLY_HTTP_ROUTES` (and, by transitivity, against the live handler set). It's wired as `bun run audit:openapi-drift` and runs in the structure-audit CI gate. The write surface is small enough that drift here means *someone added a route and forgot the schema* — easy to fix, but the gate catches it before merge.
+
+## Anti-Patterns
+
+| Anti-pattern | Why it's bad | What to do instead |
+|---|---|---|
+| Adding a POST handler directly in `http-server.ts` and skipping `dispatchWriteRoute` | Bypasses the allowlist, bearer auth, rate limiting, and audit-on-rejection in one shot. This is the exact failure I13 prevents | Route every write through `dispatchWriteRoute`; add the allowlist entry first |
+| Opening a second writable `Database` handle "for performance" | Defeats sub-assertion 2 of the invariant test and reintroduces silent-write paths that bypass `dbRun` (I14) | Use `ctx.writeDb`. If write throughput is genuinely the bottleneck, that's a `db/write.ts` change, not a new handle |
+| Adding a route to `WRITE_ROUTE_ALLOWLIST` without updating the count assertion | Test fails immediately, but if `--no-verify` ships the commit, the integrity gate is gone | Always update both in the same diff. The count is the audit trail |
+| Loosening the 8 KiB body cap to support "richer" payloads | DoS surface — the cap exists so an unauthenticated probe can't fill the audit chain or exhaust memory before bearer auth runs | Keep payloads small. If the route genuinely needs more, raise the cap with justification in the PR and add a corresponding rate-limit tightening |
+| Suppressing the rejection audit because "rate-limit rejections are noisy" | The audit chain is the only forensic trail; suppression makes brute-force probes invisible | Tune the rate limit threshold instead; the audit row is the structural protection |
+| Logging the bearer token (or even the full fingerprint) to stderr | Bearer token must never appear in logs (`*.token` redact pattern). The 8-hex `tokenFingerprint` is the only safe identifier | Use `auth.fingerprint`; the redact rules cover the rest |
+
+## Reading the Audit
+
+`deployment.annotation_rejected` rows carry `{ token_fingerprint, source_ip, result_code, reason, service?, external_id? }`. Brute-force probes show up as runs of 401s with the same (or rotating) fingerprints; pattern-match `reason` to distinguish unauthorized / rate_limited / invalid_json / unknown_service / invalid_<field> / payload_too_large / internal_error. Success rows live in the `deployment.annotated` action type with the matching `external_id`.
+
+## See Also
+
+- [`docs/SECURITY-INVARIANTS.md`](../../docs/SECURITY-INVARIANTS.md) §I13 — canonical invariant statement
+- [`docs/SECURITY.md`](../../docs/SECURITY.md) §"IPC Surface" — boundary description
+- [`docs/architecture.md`](../../docs/architecture.md) §"Security Model" — threat-to-mitigation table
+- `nimbus-tauri-allowlist` skill — parallel pattern for the renderer-callable surface (I7)
+- `nimbus-security-invariants` skill — the triple rule (production wiring + docs + test) that all fourteen invariants follow
+- `nimbus-cicd-data-layer` skill — pair with this skill when authoring new DORA / preflight / deploy-annotation surfaces

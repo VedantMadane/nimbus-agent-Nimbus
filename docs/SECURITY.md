@@ -164,6 +164,8 @@ The Gateway listens only on a local domain socket (Unix) or named pipe (Windows)
 
 The optional LAN server (`nimbus lan enable`) and auto-updater (`nimbus update`) are guarded by the structural defenses listed in [`SECURITY-INVARIANTS.md`](./SECURITY-INVARIANTS.md) — the LAN method allowlist (`I5`), loopback bind default (`I6`), and updater signature/version checks. The B1 audit closed the High and Medium findings on these subsystems; remaining Low items are tracked in the [Phase 4 / Phase 10 roadmap entries](./roadmap.md). Production wiring of both features lands once GA prerequisites (signing certs, manifest server, LAN forward-secrecy redesign) are signed off.
 
+The opt-in read-only HTTP API (`nimbus serve`) gained a narrow write surface in Phase 5 T4 for post-deploy annotation (`POST /v1/deployments`). The surface is protected by a compile-time allowlist (`WRITE_ROUTE_ALLOWLIST` — invariant `I13`), bearer-token auth keyed on the `http_api.deployment_token` vault entry, and per-token rate limiting; every rejected request emits a `deployment.annotation_rejected` audit row so brute-force probes are tamper-evident on the BLAKE3 chain. The read-only `Database` handle still runs in `SQLITE_OPEN_READONLY` mode — writes go through a second, dedicated handle bound only to the allowlisted route. All SQLite writes anywhere in the gateway also pass through the `dbRun` / `dbExec` / `dbStmtRun` wrappers (invariant `I14`), which translate `SQLITE_FULL` into a typed `DiskFullError` so a full-disk event surfaces as a typed exception rather than a silently swallowed write.
+
 #### LAN remote access — trust model
 
 When `nimbus lan enable` is on, the LAN server accepts length-framed TCP connections protected by NaCl box (X25519 ECDH + XSalsa20-Poly1305). The trust establishment model is **explicit pairing**, not transparent discovery:
@@ -217,9 +219,9 @@ Migration V18 (`packages/gateway/src/index/audit-chain-v18-sql.ts`) added `row_h
 
 ---
 
-### Standing Approvals (Phase 5 — Security Model Pre-Design)
+### Standing Approvals (design for a future phase)
 
-Phase 5 will introduce standing approvals: pre-authorized patterns that allow recurring write actions to execute without an interactive HITL prompt. Because standing approvals are functionally a scoped HITL bypass, the security boundaries are defined here before implementation begins.
+A future phase will introduce standing approvals: pre-authorized patterns that allow recurring write actions to execute without an interactive HITL prompt. The feature is not yet on the Phase 5 delivery list, but because standing approvals are functionally a scoped HITL bypass, the security boundaries are recorded here so the design constraints are settled before any implementation begins.
 
 **Threat model:**
 

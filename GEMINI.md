@@ -46,10 +46,11 @@ Each invariant has a production wiring site and an enforcement test in `packages
 | I11 | LLM-facing tool results wrapped via `wrapToolOutput` | `engine/agent.ts`, `engine/tool-output-envelope.ts` | New agent surface that feeds raw tool results to the LLM |
 | I12 | DPAPI calls pass `pOptionalEntropy` from `<configDir>/vault/.entropy` | `vault/win32.ts` | Dropping the entropy parameter "for compatibility" |
 | I13 | HTTP write routes go through `WRITE_ROUTE_ALLOWLIST` + bearer auth | `ipc/http-server.ts`, `ipc/http-write-routes.ts` | New POST/PUT/DELETE handler that bypasses `dispatchWriteRoute` or opens a second writable DB outside the server context |
+| I14 | All SQLite write paths route through `dbRun` / `dbExec` / `dbStmtRun` | `db/write.ts` (`dbRun`, `dbExec`, `dbStmtRun`); enforced statically by `D12` in `check-nimbus-invariants.ts` | Direct `db.run(` or `db.exec(` outside `DB_RUN_EXEC_ALLOW_LIST` — swallows `SQLITE_FULL` |
 
 When changing a wiring site, update both the test and `SECURITY-INVARIANTS.md` in the same commit. When retiring an invariant, delete the row — never leave it as documentation drift.
 
-**Static-time complement:** `scripts/structure-audit/check-nimbus-invariants.ts` enforces I1 (`spawn` under `connectors/` must use `extensionProcessEnv()`) and the vault-key allow-list at static time. Runtime tests remain authoritative; the static checks fail before the test suite runs.
+**Static-time complement:** `scripts/structure-audit/check-nimbus-invariants.ts` enforces I1 (`spawn` under `connectors/` must use `extensionProcessEnv()`), the vault-key allow-list, and I14 (`DB_RUN_EXEC_ALLOW_LIST` — direct `db.run`/`db.exec` outside `db/write.ts` exits 1) at static time. Runtime tests remain authoritative; the static checks fail before the test suite runs.
 
 ---
 
@@ -110,6 +111,6 @@ When implementing, focus on the current phase. Do not add Phase N+1 features in 
 
 - [`docs/architecture.md`](./docs/architecture.md) — full subsystem design, IPC method catalogue, schema reference. Read before modifying any subsystem.
 - [`docs/roadmap.md`](./docs/roadmap.md) — phases, acceptance criteria, delivered summaries.
-- [`docs/SECURITY-INVARIANTS.md`](./docs/SECURITY-INVARIANTS.md) — I1–I12 rationale + anti-patterns.
+- [`docs/SECURITY-INVARIANTS.md`](./docs/SECURITY-INVARIANTS.md) — I1–I14 rationale + anti-patterns.
 - [`docs/cli-reference.md`](./docs/cli-reference.md) — full CLI subcommand reference.
-- `.claude/commands/nimbus-*.md` — domain skills (architecture, IPC, file-map, commands, testing, agents, connectors, migrations, security invariants, Tauri allowlist, tool-output envelope, Phase 4 reference). The Gemini CLI activates these on demand via `activate_skill`.
+- `.claude/commands/nimbus-*.md` — domain skills (architecture, IPC, file-map, commands, testing, agents, connectors, migrations, security invariants, Tauri allowlist, tool-output envelope, HTTP write surface (I13), embedding routing (T6 PR 3), CI/CD data layer (T4), Phase 4 reference). The Gemini CLI activates these on demand via `activate_skill`.

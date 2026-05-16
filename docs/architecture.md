@@ -1465,7 +1465,7 @@ A new structural defense lands as a *triple*: the production wiring, an entry in
 
 ### Active invariants summary
 
-The current `I1`–`I13` set, mirrored from [`SECURITY-INVARIANTS.md`](./SECURITY-INVARIANTS.md). When changing a wiring site listed below, update the invariants file *and* the enforcement test in the same commit.
+The current `I1`–`I14` set, mirrored from [`SECURITY-INVARIANTS.md`](./SECURITY-INVARIANTS.md). When changing a wiring site listed below, update the invariants file *and* the enforcement test in the same commit.
 
 | # | Invariant | Wired at | Anti-pattern that regresses it |
 |---|---|---|---|
@@ -1482,8 +1482,9 @@ The current `I1`–`I13` set, mirrored from [`SECURITY-INVARIANTS.md`](./SECURIT
 | I11 | LLM-facing tool results wrapped via `wrapToolOutput` | `engine/agent.ts`, `engine/tool-output-envelope.ts` | New agent surface that feeds raw tool results to the LLM |
 | I12 | DPAPI calls pass `pOptionalEntropy` from `<configDir>/vault/.entropy` | `vault/win32.ts` | Dropping the entropy parameter "for compatibility" |
 | I13 | HTTP write routes go through `WRITE_ROUTE_ALLOWLIST` + bearer auth | `ipc/http-server.ts`, `ipc/http-write-routes.ts` | New POST/PUT/DELETE handler that bypasses `dispatchWriteRoute` or opens a second writable DB outside the server context |
+| I14 | All SQLite write paths route through `dbRun` / `dbExec` / `dbStmtRun` | `db/write.ts` (`dbRun`, `dbExec`, `dbStmtRun`); enforced statically by `D12` in `check-nimbus-invariants.ts` | Direct `db.run(` or `db.exec(` outside `DB_RUN_EXEC_ALLOW_LIST` — swallows `SQLITE_FULL` |
 
-A static-time complement (`scripts/structure-audit/check-nimbus-invariants.ts`) catches I1 (`spawn` under `connectors/` must use `extensionProcessEnv()`) and the vault-key allow-list at audit time. The runtime tests in `packages/gateway/src/security-invariants.test.ts` remain authoritative for invariant wiring; the static checks just catch regressions before the tests run.
+A static-time complement (`scripts/structure-audit/check-nimbus-invariants.ts`) catches I1 (`spawn` under `connectors/` must use `extensionProcessEnv()`), the vault-key allow-list, and I14 (`DB_RUN_EXEC_ALLOW_LIST` — direct `db.run`/`db.exec` outside `db/write.ts` exits 1) at audit time. The runtime tests in `packages/gateway/src/security-invariants.test.ts` remain authoritative for invariant wiring; the static checks just catch regressions before the tests run.
 
 ### Threat-to-mitigation table
 
