@@ -1,6 +1,6 @@
 # Phase 5 T2 — Sandbox + Marketplace v2 — Sequencing Design
 
-> **Status:** Draft for review
+> **Status:** Draft (rev 2, review responses folded in — see §7 Review disposition at bottom)
 > **Author:** asafgolombek
 > **Date:** 2026-05-16
 > **Type:** Plan-of-plans (T2) — locks the order of five PRs that constitute Phase 5 sub-project T2. Each PR gets its own spec → plan → implementation cycle when it reaches the head of the queue.
@@ -63,7 +63,7 @@ Per-PR specs are written when each PR reaches the head of the queue. The scope s
 - New `packages/gateway/src/platform/sandbox/` subdirectory with:
   - `sandbox-runner.ts` — `SandboxRunner` PAL interface (`spawn(cmd, args, manifest, opts): ChildProcess`).
   - `linux.ts` — seccomp BPF filter (via `seccomp` Node lib or `prctl(PR_SET_SECCOMP)`); network egress blocked via netns + routing rule per allowed host; filesystem confinement via `bwrap` (already referenced in roadmap line 1312).
-  - `darwin.ts` — `sandbox-exec` with a generated `.sb` profile per extension; filesystem confinement via `(deny file-read*) (allow file-read* (subpath "<cwd>"))`.
+  - `darwin.ts` — `sandbox-exec` with a generated `.sb` profile per extension; filesystem confinement via `(deny file-read*) (allow file-read* (subpath "<cwd>"))`. **PR 1's per-PR spec must explicitly verify `sandbox-exec` viability against Bun child processes making network requests on macOS Sonoma + Sequoia** — Apple has officially deprecated `sandbox-exec` (still functional but flaky in newer versions with complex networking). If `sandbox-exec` proves untenable for the expected workload, the documented fallback is a minimal native `EndpointSecurity` wrapper (much higher effort — would push PR 1's size estimate up).
   - `win32.ts` — AppContainer token via `CreateAppContainerProfile` + `CreateProcessAsUserW`; network capability via `internetClient` SID; filesystem via per-profile allowlist.
 - Manifest schema additions in `extensions/manifest.ts`:
   - `permissions: { network?: string[]; filesystem?: { read?: string[]; write?: string[] } }` — `permissions` becomes an object (was a string array). Backwards-compat: existing array-form `permissions` auto-maps to `{}` (default-deny network + default-deny filesystem-outside-cwd).
@@ -87,6 +87,7 @@ Per-PR specs are written when each PR reaches the head of the queue. The scope s
 - Custom seccomp rules per-connector — defaults are sufficient for T2; per-connector overrides locked in PR 1's per-PR spec only if a first-party connector demonstrably needs one.
 - Defense against same-uid bypasses (an extension that exec's a setuid binary) — out of scope; defense is "extensions are not setuid binaries" and the static check enforces this at extension-install time.
 - Migration of currently-installed extensions onto the new sandbox — first-party connectors get `permissions.network` in this PR; third-party extensions installed pre-T2 are flagged "no sandbox declaration" and run in legacy mode until reinstalled. PR 1's per-PR spec locks the exact UX (warning at startup, badge in Marketplace).
+- AppContainer-profile lifecycle on Windows beyond the happy path — minimum-viable shape: profile created at extension install, deleted at extension uninstall, orphaned profiles reaped at Gateway startup by cross-checking `extension_state` against enumerated AppContainer SIDs. PR 1's per-PR spec locks the exact cleanup story (crash-during-spawn, uninstall-with-running-extension, Gateway-killed-mid-spawn) so we don't leak SIDs in the Windows registry over time.
 
 **Exit criteria.**
 
@@ -115,6 +116,7 @@ Per-PR specs are written when each PR reaches the head of the queue. The scope s
 **Out of scope.**
 
 - Publisher revocation beyond "publisher deletes their key from the registry → next sync evicts the cache → next startup disables extensions signed by that key" — locked in PR 2's per-PR spec.
+- GPG key rotation / expiration UX — GPG keys commonly carry expiration dates. Minimum-viable shape: at every startup, `verify-extensions.ts` checks key expiry; expired key → extension disabled with a clear error ("publisher `notion-corp` key expired YYYY-MM-DD; rerun `nimbus extension sync` to fetch the renewed key from the registry"). Grace period (e.g., 7-day soft-warn before hard-disable) is locked in PR 2's per-PR spec only if operator-survey data shows the hard-disable cliff is too aggressive.
 - Multi-signature manifests (two publishers must co-sign) — out of T2.
 - Quorum-based publisher trust — out of T2.
 - Migration of currently-installed unsigned extensions — they keep working but show "unverified publisher" badge in Marketplace + CLI. PR 2's per-PR spec locks the badge UX.
@@ -138,7 +140,7 @@ Per-PR specs are written when each PR reaches the head of the queue. The scope s
   - `extension.checkForUpdates` (read-only) — returns the list of available bumps.
   - `extension.update` (write — goes through HITL) — applies an approved bump.
 - Both added to Tauri allowlist (I7) alphabetically; `allowlist_exact_size` assertion bumped.
-- New CLI commands: `nimbus extension update [<id>] [--check]`, `nimbus extension info <id>`.
+- New CLI commands: `nimbus extension update [<id>] [--check]`, `nimbus extension info <id>`. The `--check` flag **bypasses the 24-h polling cache** and forces an immediate registry query — operators who want a manual force-poll outside the cadence get a single, well-known invocation.
 - HITL preview: changelog rendered as plain text (no markdown HTML execution); publisher status shown ("verified publisher: notion-corp" or "unverified publisher").
 - Update path: download new tarball → GPG verify (re-uses PR 2 path) → SHA-256 verify → atomic swap → audit-log entry.
 
@@ -177,6 +179,7 @@ Per-PR specs are written when each PR reaches the head of the queue. The scope s
 - Workspace-mode dep linking (npm workspaces) — N/A; extensions are not workspace packages.
 - Automatic upgrade of existing installs to satisfy a new install's constraints — user must explicitly upgrade conflicting installs. PR 4's per-PR spec locks the upgrade-suggestion UX.
 - Dep resolution for the extension's runtime `node_modules` — that's the extension author's problem; this PR is only about *Nimbus extension* dependencies.
+- Air-gap / offline install with unresolved deps — the solver requires registry data for every transitive dep. Minimum-viable failure shape: the solver throws a typed `OfflineDependencyResolutionError` naming the missing dep id + the parent extension that required it, and the install is refused atomically (no partial install). PR 4's per-PR spec locks the cache mechanism (likely a `nimbus extension cache <id>` CLI that pre-fetches the closure into a local mirror that the solver can read under `enforce_air_gap = true`).
 
 **Exit criteria.**
 
@@ -206,6 +209,7 @@ Per-PR specs are written when each PR reaches the head of the queue. The scope s
 - Anonymous / pseudonymous reviews — every review carries the signing public key.
 - UI for writing reviews — CLI-only per the explicit-user-action principle. The Marketplace UI is read-only for ratings.
 - Auth/identity beyond the signing key — no email, no third-party login.
+- Signing-key portability across machines — **accepted limitation in T2**. The Ed25519 key in vault `ratings.signing_key` is local-only; moving to a new machine generates a fresh key and the user's rating identity does not follow. Consistent with edit/delete reviews being out of scope (the registry cannot delete a rating signed by a key the user no longer holds). Export/import of the signing key is a follow-up only if user demand emerges; documented here so the limitation is visible at install-time rather than at machine-migration-time.
 
 **Exit criteria.**
 
@@ -322,6 +326,22 @@ When PR 5 merges (T2 complete):
 - Calendar dates for individual PRs — the parent sequencing spec excludes calendar from plans-of-plans.
 - Decisions about new I-numbered invariants beyond I15 + I16 — those are committed in this spec; further invariants are per-PR-spec calls.
 - Wave B (Mobile & Frontend Engineering connectors) — comes after T2 completes per the parent T1 sequencing.
+
+## Section 7 — Review disposition (2026-05-16)
+
+Source: [`2026-05-16-phase-5-t2-design-review.md`](./2026-05-16-phase-5-t2-design-review.md).
+
+| Review § | Item | Disposition | Rationale & where in this spec |
+| -------- | ---- | ----------- | ------------------------------ |
+| PR 1 | macOS `sandbox-exec` deprecation / Sonoma + Sequoia flakiness with complex networking | **DEFER + NOTE** | Real concern; `sandbox-exec` is officially deprecated though still functional. The viability test is an implementation tactic, not a sequencing decision — sequencing is the same whether the macOS branch picks `sandbox-exec` or `EndpointSecurity`. Folded into PR 1 touchpoints with explicit instruction that PR 1's per-PR spec verifies viability against Bun child processes making network requests on macOS Sonoma + Sequoia; documented fallback is a native `EndpointSecurity` wrapper (would push PR 1's size up). |
+| PR 1 | Win32 AppContainer profile SID leak in the Windows registry | **DEFER + NOTE** | Real concern (profile SIDs accumulate without cleanup). Lifecycle is a PR 1 implementation detail, not sequencing. Folded into PR 1 out-of-scope as a tracked bullet naming the minimum-viable shape (create at install / delete at uninstall / startup orphan-reap by cross-checking `extension_state` against enumerated AppContainer SIDs) and noting that PR 1's per-PR spec locks the cleanup story for the unhappy paths (crash-during-spawn, uninstall-with-running-extension, Gateway-killed-mid-spawn). |
+| PR 2 | GPG key rotation / expiration UX | **DEFER + NOTE** | GPG keys commonly carry expiration dates and the spec was silent on the case. The minimum-viable answer is hard-disable at next startup with a clear "re-sync the registry" message, but the exact UX (whether to add a 7-day soft-warn grace period) is a PR 2 design call. Folded into PR 2 out-of-scope as a tracked bullet. |
+| PR 3 | Explicit statement that `nimbus extension update --check` bypasses the 24-h polling cache | **FIX** | One-line clarification — the CLI command was already implied but the cache-bypass semantics were undocumented. Folded inline into PR 3 touchpoints: "The `--check` flag **bypasses the 24-h polling cache** and forces an immediate registry query." |
+| PR 4 | Failure behavior when registry is offline or air-gapped without all deps locally available | **FIX** | The spec needed a named failure class for offline dep resolution. Folded into PR 4 out-of-scope as a tracked bullet: the solver throws a typed `OfflineDependencyResolutionError` naming the missing dep id + parent extension, install is refused atomically (no partial install). PR 4's per-PR spec locks the cache mechanism (likely a `nimbus extension cache <id>` CLI that pre-fetches the closure for air-gap installs). |
+| PR 5 | Ed25519 signing-key portability across machines | **DOCUMENT** | Reviewer correctly identifies that moving to a new machine produces a fresh key and the user's rating identity does not follow. This is consistent with edit/delete reviews being out of scope (the registry cannot delete a rating signed by a key the user no longer holds). Folded into PR 5 out-of-scope as an explicitly-named accepted limitation, so the limitation is visible at install-time rather than at machine-migration-time. |
+| General | Formatting / structure compliment ("matches the excellent T6 spec") | **NO ACTION** | Confirmation only. |
+
+**Net effect on this spec:** one fix in PR 3 touchpoints (cache-bypass clarification), one fix in PR 4 out-of-scope (`OfflineDependencyResolutionError` named), one fix in PR 1 touchpoints (macOS sandbox-exec viability call-out), and three new tracked out-of-scope bullets (PR 1 AppContainer cleanup, PR 2 key rotation, PR 5 signing-key portability). Nothing about PR ordering, V<N> numbering, or PR scope changes. The new I15 + I16 invariants are unaffected.
 
 ## See also
 
