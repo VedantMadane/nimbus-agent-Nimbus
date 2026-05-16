@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 
+import { dbRun } from "../db/write.ts";
 import { readIndexedUserVersion } from "../index/migrations/runner.ts";
 
 export type UserMcpConnectorRow = {
@@ -67,7 +68,8 @@ export function insertUserMcpConnector(
     throw new Error("user_mcp_connector requires schema v11+");
   }
   const created = row.created_at ?? Date.now();
-  db.run(
+  dbRun(
+    db,
     `INSERT INTO user_mcp_connector (service_id, command, args_json, created_at) VALUES (?, ?, ?, ?)`,
     [row.service_id, row.command, row.args_json, created],
   );
@@ -77,6 +79,6 @@ export function deleteUserMcpConnector(db: Database, serviceId: string): boolean
   if (readIndexedUserVersion(db) < 11) {
     return false;
   }
-  const r = db.run(`DELETE FROM user_mcp_connector WHERE service_id = ?`, [serviceId]);
+  const r = dbRun(db, `DELETE FROM user_mcp_connector WHERE service_id = ?`, [serviceId]);
   return r.changes > 0;
 }

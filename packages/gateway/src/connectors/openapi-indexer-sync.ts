@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { closeSync, fstatSync, openSync, readFileSync } from "node:fs";
 import type { NimbusFilesystemRootToml } from "../config/filesystem-toml.ts";
+import { dbRun } from "../db/write.ts";
 import { deleteItemByPrimaryKey, upsertIndexedItemForSync } from "../index/item-store.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
 import { syncNoopResult } from "../sync/types.ts";
@@ -85,7 +86,8 @@ function upsertEndpoint(
     syncedAt: args.syncedAt,
   });
   const id = `${SERVICE_ID}:${externalId}`;
-  ctx.db.run(
+  dbRun(
+    ctx.db,
     `INSERT INTO api_endpoint (
       id, service_name, path, method, operation_id, tags_json, deprecated, spec_file, spec_version, last_modified, created_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -130,7 +132,7 @@ function deleteEndpointsAbsentFromSpec(
       continue;
     }
     deleteItemByPrimaryKey(db, row.id);
-    db.run("DELETE FROM api_endpoint WHERE id = ?", [row.id]);
+    dbRun(db, "DELETE FROM api_endpoint WHERE id = ?", [row.id]);
     deleted++;
   }
   return deleted;

@@ -14,6 +14,8 @@
 
 import type { Database } from "bun:sqlite";
 
+import { dbRun } from "../db/write.ts";
+
 /** Uniform jitter in [0, maxExclusive) for backoff spacing (CSPRNG). */
 function jitterBelowMs(maxExclusive: number): number {
   const word = new Uint32Array(1);
@@ -120,11 +122,13 @@ function upsertHealthRow(
   },
 ): void {
   // Ensure a sync_state row exists (may not exist yet for brand-new connectors).
-  db.run(
+  dbRun(
+    db,
     `INSERT OR IGNORE INTO sync_state (connector_id, last_sync_at, next_sync_token) VALUES (?, NULL, NULL)`,
     [connectorId],
   );
-  db.run(
+  dbRun(
+    db,
     `UPDATE sync_state
      SET health_state   = ?,
          retry_after    = ?,
@@ -151,7 +155,8 @@ function appendHistory(
   reason: string | null,
   occurredAt: number,
 ): void {
-  db.run(
+  dbRun(
+    db,
     `INSERT INTO connector_health_history
        (connector_id, from_state, to_state, reason, occurred_at)
      VALUES (?, ?, ?, ?, ?)`,
@@ -349,7 +354,9 @@ export function getConnectorHealthHistory(
  */
 export function pruneConnectorHealthHistory(db: Database, maxAgeDays: number): number {
   const cutoffMs = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
-  const result = db.run(`DELETE FROM connector_health_history WHERE occurred_at < ?`, [cutoffMs]);
+  const result = dbRun(db, `DELETE FROM connector_health_history WHERE occurred_at < ?`, [
+    cutoffMs,
+  ]);
   return result.changes;
 }
 

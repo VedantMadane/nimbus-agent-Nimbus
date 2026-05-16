@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 
+import { dbRun } from "../db/write.ts";
 import { readIndexedUserVersion } from "../index/migrations/runner.ts";
 
 export type WatcherRow = {
@@ -47,7 +48,8 @@ export function insertWatcher(
   const id = row.id ?? randomUUID();
   const now = row.created_at;
   const gpj = row.graph_predicate_json ?? null;
-  db.run(
+  dbRun(
+    db,
     `INSERT INTO watcher (id, name, enabled, condition_type, condition_json,
                           action_type, action_json, created_at, graph_predicate_json)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -70,23 +72,23 @@ export function deleteWatcher(db: Database, id: string): void {
   if (readIndexedUserVersion(db) < 8) {
     return;
   }
-  db.run(`DELETE FROM watcher WHERE id = ?`, [id]);
+  dbRun(db, `DELETE FROM watcher WHERE id = ?`, [id]);
 }
 
 export function setWatcherEnabled(db: Database, id: string, enabled: boolean): boolean {
   if (readIndexedUserVersion(db) < 8) {
     return false;
   }
-  const r = db.run(`UPDATE watcher SET enabled = ? WHERE id = ?`, [enabled ? 1 : 0, id]);
+  const r = dbRun(db, `UPDATE watcher SET enabled = ? WHERE id = ?`, [enabled ? 1 : 0, id]);
   return r.changes > 0;
 }
 
 export function updateWatcherLastChecked(db: Database, id: string, ts: number): void {
-  db.run(`UPDATE watcher SET last_checked_at = ? WHERE id = ?`, [ts, id]);
+  dbRun(db, `UPDATE watcher SET last_checked_at = ? WHERE id = ?`, [ts, id]);
 }
 
 export function updateWatcherLastFired(db: Database, id: string, ts: number): void {
-  db.run(`UPDATE watcher SET last_fired_at = ? WHERE id = ?`, [ts, id]);
+  dbRun(db, `UPDATE watcher SET last_fired_at = ? WHERE id = ?`, [ts, id]);
 }
 
 export function insertWatcherEvent(
@@ -96,7 +98,8 @@ export function insertWatcherEvent(
   conditionSnapshot: string,
   actionResult: string | null,
 ): void {
-  db.run(
+  dbRun(
+    db,
     `INSERT INTO watcher_event (watcher_id, fired_at, condition_snapshot, action_result)
      VALUES (?, ?, ?, ?)`,
     [watcherId, firedAt, conditionSnapshot, actionResult],
@@ -111,7 +114,7 @@ export function setWatcherGraphPredicate(
   if (readIndexedUserVersion(db) < 22) {
     return false;
   }
-  const r = db.run(`UPDATE watcher SET graph_predicate_json = ? WHERE id = ?`, [
+  const r = dbRun(db, `UPDATE watcher SET graph_predicate_json = ? WHERE id = ?`, [
     graphPredicateJson,
     id,
   ]);
