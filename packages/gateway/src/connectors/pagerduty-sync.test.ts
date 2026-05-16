@@ -42,6 +42,28 @@ function stubPagerdutyIncidents(incidents: unknown[]): void {
   }) as typeof fetch;
 }
 
+type PdPageResponse = { incidents: unknown[]; more: boolean };
+
+function stubPagerdutyPages(pages: readonly PdPageResponse[]): { calls: string[] } {
+  const calls: string[] = [];
+  let i = 0;
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    const url = urlFromFetchInput(input);
+    calls.push(url);
+    if (!url.startsWith("https://api.pagerduty.com/incidents")) {
+      throw new Error(`unexpected fetch: ${url}`);
+    }
+    const page = pages[Math.min(i, pages.length - 1)];
+    i += 1;
+    if (page === undefined) throw new Error("stubPagerdutyPages: no pages configured");
+    return new Response(JSON.stringify(page), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+  return { calls };
+}
+
 async function runOneSync(incidents: unknown[]): Promise<Database> {
   stubPagerdutyIncidents(incidents);
   const db = createMemoryIndexDb();
@@ -323,5 +345,161 @@ describeWithFetchRestore("pagerduty-sync", () => {
     const expectedMax = after - EXPECTED_BACKFILL_DAYS * 86_400_000 + 2000;
     expect(sinceMs).toBeGreaterThanOrEqual(expectedMin);
     expect(sinceMs).toBeLessThanOrEqual(expectedMax);
+  });
+
+  test("walks pages until parsed.more=false", async () => {
+    const { calls } = stubPagerdutyPages([
+      {
+        incidents: [
+          {
+            id: "P_A",
+            title: "A",
+            created_at: "2026-05-10T10:00:00Z",
+            updated_at: "2026-05-10T10:00:00Z",
+            status: "triggered",
+            priority: { name: "P1" },
+            service: { id: "PJK1HJ8" },
+          },
+        ],
+        more: true,
+      },
+      {
+        incidents: [
+          {
+            id: "P_B",
+            title: "B",
+            created_at: "2026-05-10T11:00:00Z",
+            updated_at: "2026-05-10T11:00:00Z",
+            status: "triggered",
+            priority: { name: "P1" },
+            service: { id: "PJK1HJ8" },
+          },
+        ],
+        more: true,
+      },
+      {
+        incidents: [
+          {
+            id: "P_C",
+            title: "C",
+            created_at: "2026-05-10T12:00:00Z",
+            updated_at: "2026-05-10T12:00:00Z",
+            status: "triggered",
+            priority: { name: "P1" },
+            service: { id: "PJK1HJ8" },
+          },
+        ],
+        more: false,
+      },
+    ]);
+    const db = createMemoryIndexDb();
+    const sync = createPagerdutySyncable({ ensurePagerdutyMcpRunning: async () => {} });
+    const vault = createStubVault({ "pagerduty.api_token": "test-token" });
+    const result = await sync.sync(syncTestContext(db, vault), null);
+    expect(calls.length).toBe(3);
+    expect(new URL(calls[1] as string).searchParams.get("offset")).toBe("100");
+    expect(new URL(calls[2] as string).searchParams.get("offset")).toBe("200");
+    expect(result.itemsUpserted).toBe(3);
+    expect(result.hasMore).toBe(false);
+    const cursor = result.cursor as string;
+    const decoded = Buffer.from(cursor.slice("nimbus-pd1:".length), "base64url").toString("utf8");
+    expect(JSON.parse(decoded)).toEqual({ lastUpdated: "2026-05-10T12:00:00Z" });
+  });
+
+  test("respects maxPagesPerSync cap and emits hasMore=true", async () => {
+    const { calls } = stubPagerdutyPages([
+      {
+        incidents: [
+          {
+            id: "P_A",
+            title: "A",
+            created_at: "2026-05-10T10:00:00Z",
+            updated_at: "2026-05-10T10:00:00Z",
+            status: "triggered",
+            priority: { name: "P1" },
+            service: { id: "PJK1HJ8" },
+          },
+        ],
+        more: true,
+      },
+      {
+        incidents: [
+          {
+            id: "P_B",
+            title: "B",
+            created_at: "2026-05-10T11:00:00Z",
+            updated_at: "2026-05-10T11:00:00Z",
+            status: "triggered",
+            priority: { name: "P1" },
+            service: { id: "PJK1HJ8" },
+          },
+        ],
+        more: true,
+      },
+      {
+        incidents: [
+          {
+            id: "P_C",
+            title: "Never reached",
+            created_at: "2026-05-10T12:00:00Z",
+            updated_at: "2026-05-10T12:00:00Z",
+            status: "triggered",
+            priority: { name: "P1" },
+            service: { id: "PJK1HJ8" },
+          },
+        ],
+        more: true,
+      },
+    ]);
+    const db = createMemoryIndexDb();
+    const sync = createPagerdutySyncable({
+      ensurePagerdutyMcpRunning: async () => {},
+      maxPagesPerSync: 2,
+    });
+    const vault = createStubVault({ "pagerduty.api_token": "test-token" });
+    const result = await sync.sync(syncTestContext(db, vault), null);
+    expect(calls.length).toBe(2);
+    expect(result.itemsUpserted).toBe(2);
+    expect(result.hasMore).toBe(true);
+    const cursor = result.cursor as string;
+    const decoded = Buffer.from(cursor.slice("nimbus-pd1:".length), "base64url").toString("utf8");
+    expect(JSON.parse(decoded)).toEqual({ lastUpdated: "2026-05-10T11:00:00Z" });
+  });
+
+  test("partial-failure preserves cursor progress from successful pages", async () => {
+    let call = 0;
+    globalThis.fetch = (async (_input: Parameters<typeof fetch>[0]) => {
+      call += 1;
+      if (call === 1) {
+        return new Response(
+          JSON.stringify({
+            incidents: [
+              {
+                id: "P_PAGE1",
+                title: "Page 1 row",
+                created_at: "2026-05-10T10:00:00Z",
+                updated_at: "2026-05-10T10:00:00Z",
+                status: "triggered",
+                priority: { name: "P1" },
+                service: { id: "PJK1HJ8" },
+              },
+            ],
+            more: true,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response("Internal Server Error", { status: 500 });
+    }) as typeof fetch;
+    const db = createMemoryIndexDb();
+    const sync = createPagerdutySyncable({ ensurePagerdutyMcpRunning: async () => {} });
+    const vault = createStubVault({ "pagerduty.api_token": "test-token" });
+    const result = await sync.sync(syncTestContext(db, vault), null);
+    expect(result.itemsUpserted).toBe(1);
+    expect(result.hasMore).toBe(false);
+    const cursor = result.cursor as string;
+    const decoded = Buffer.from(cursor.slice("nimbus-pd1:".length), "base64url").toString("utf8");
+    // Cursor advances past page-1's max updated_at, NOT back to the original since.
+    expect(JSON.parse(decoded)).toEqual({ lastUpdated: "2026-05-10T10:00:00Z" });
   });
 });

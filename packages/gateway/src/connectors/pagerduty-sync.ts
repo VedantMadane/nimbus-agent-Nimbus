@@ -32,7 +32,7 @@ function decodeCursor(raw: string | null): PdCursorV1 | null {
   return { lastUpdated: lu };
 }
 
-function parsePagerdutyIncidents(text: string): unknown[] | null {
+function parsePagerdutyListResponse(text: string): { incidents: unknown[]; more: boolean } | null {
   let root: unknown;
   try {
     root = JSON.parse(text) as unknown;
@@ -40,11 +40,13 @@ function parsePagerdutyIncidents(text: string): unknown[] | null {
     return null;
   }
   const rec = asRecord(root);
-  if (rec === undefined) {
-    return null;
-  }
-  const raw = rec["incidents"];
-  return Array.isArray(raw) ? raw : null;
+  if (rec === undefined) return null;
+  const incidents = rec["incidents"];
+  if (!Array.isArray(incidents)) return null;
+  // PagerDuty's REST v2 list response wraps the array with a sibling
+  // boolean `more`. Absent (or non-boolean) is treated as `false` so the
+  // loop terminates on a malformed response.
+  return { incidents, more: rec["more"] === true };
 }
 
 function pdServiceId(row: Record<string, unknown>): string | undefined {
@@ -114,22 +116,6 @@ export function syncPagerdutyIncidentItems(
   return { upserted, maxUpdated };
 }
 
-function pagerdutyListFailureResult(
-  cursor: string | null,
-  since: string,
-  textLen: number,
-  t0: number,
-): SyncResult {
-  return {
-    cursor: cursor ?? encodeCursor({ lastUpdated: since }),
-    itemsUpserted: 0,
-    itemsDeleted: 0,
-    hasMore: false,
-    durationMs: Math.round(performance.now() - t0),
-    bytesTransferred: textLen,
-  };
-}
-
 export type PagerdutySyncableOptions = {
   ensurePagerdutyMcpRunning: () => Promise<void>;
   /**
@@ -141,6 +127,8 @@ export type PagerdutySyncableOptions = {
 
 export function createPagerdutySyncable(options: PagerdutySyncableOptions): Syncable {
   const initialSyncDepthDays = 30;
+  const maxPagesPerSync = Math.max(1, Math.min(100, options.maxPagesPerSync ?? 20));
+  const PAGE_SIZE = 100;
   return {
     serviceId: SERVICE_ID,
     defaultIntervalMs: 120 * 1000,
@@ -153,50 +141,86 @@ export function createPagerdutySyncable(options: PagerdutySyncableOptions): Sync
         return syncNoopResult(cursor, t0);
       }
       const prev = decodeCursor(cursor);
+      // Single `now` for the whole sync batch — standard atomic batch
+      // semantics. With maxPagesPerSync=20 and the default 2-minute
+      // sync interval, drift is at most seconds; `syncedAt` is the
+      // sync-start timestamp by design. (Reviewer concern #3 noted.)
       const now = Date.now();
       const floorIso = new Date(now - initialSyncDepthDays * 86_400_000).toISOString();
       const since = prev?.lastUpdated ?? floorIso;
 
-      await ctx.rateLimiter.acquire("pagerduty");
-      const u = new URL("https://api.pagerduty.com/incidents");
-      u.searchParams.set("limit", "100");
-      u.searchParams.set("sort_by", "updated_at:asc");
-      u.searchParams.set("since", since);
-      u.searchParams.set("offset", "0");
-      const res = await fetch(u.toString(), {
-        headers: {
-          Accept: "application/vnd.pagerduty+json;version=2",
-          Authorization: `Token token=${token.trim()}`,
-        },
-      });
-      const text = await res.text();
-      if (!res.ok) {
-        ctx.logger.warn(
-          { serviceId: SERVICE_ID, status: res.status },
-          "pagerduty sync: list failed",
+      let pagesFetched = 0;
+      let totalUpserted = 0;
+      let maxUpdated = since;
+      let lastTextLen = 0;
+      let pdHasMore = false;
+
+      while (pagesFetched < maxPagesPerSync) {
+        await ctx.rateLimiter.acquire("pagerduty");
+        const u = new URL("https://api.pagerduty.com/incidents");
+        u.searchParams.set("limit", String(PAGE_SIZE));
+        u.searchParams.set("sort_by", "updated_at:asc");
+        u.searchParams.set("since", since);
+        u.searchParams.set("offset", String(pagesFetched * PAGE_SIZE));
+        const res = await fetch(u.toString(), {
+          headers: {
+            Accept: "application/vnd.pagerduty+json;version=2",
+            Authorization: `Token token=${token.trim()}`,
+          },
+        });
+        const text = await res.text();
+        lastTextLen = text.length;
+        if (!res.ok) {
+          ctx.logger.warn(
+            { serviceId: SERVICE_ID, status: res.status, page: pagesFetched },
+            "pagerduty sync: list failed",
+          );
+          // Preserve progress: cursor reflects pages already ingested.
+          // PD `since` is inclusive (`updated_at >= since`); if the failed
+          // page contained rows sharing the saved timestamp, next sync
+          // re-fetches them and SQLite UPSERT on (service, external_id)
+          // deduplicates idempotently.
+          return {
+            cursor: encodeCursor({ lastUpdated: maxUpdated }),
+            itemsUpserted: totalUpserted,
+            itemsDeleted: 0,
+            hasMore: false,
+            durationMs: Math.round(performance.now() - t0),
+            bytesTransferred: lastTextLen,
+          };
+        }
+        // Single JSON.parse per page — returns both `incidents` and `more`.
+        const parsed = parsePagerdutyListResponse(text);
+        if (parsed === null) {
+          return {
+            cursor: encodeCursor({ lastUpdated: maxUpdated }),
+            itemsUpserted: totalUpserted,
+            itemsDeleted: 0,
+            hasMore: false,
+            durationMs: Math.round(performance.now() - t0),
+            bytesTransferred: lastTextLen,
+          };
+        }
+        const { upserted, maxUpdated: pageMax } = syncPagerdutyIncidentItems(
+          ctx,
+          parsed.incidents,
+          maxUpdated,
+          now,
         );
-        return pagerdutyListFailureResult(cursor, since, text.length, t0);
+        totalUpserted += upserted;
+        maxUpdated = pageMax;
+        pagesFetched += 1;
+        pdHasMore = parsed.more;
+        if (!pdHasMore) break;
       }
-      const incidents = parsePagerdutyIncidents(text);
-      if (incidents === null) {
-        return {
-          cursor: encodeCursor({ lastUpdated: since }),
-          itemsUpserted: 0,
-          itemsDeleted: 0,
-          hasMore: false,
-          durationMs: Math.round(performance.now() - t0),
-          bytesTransferred: text.length,
-        };
-      }
-      const { upserted, maxUpdated } = syncPagerdutyIncidentItems(ctx, incidents, since, now);
 
       return {
         cursor: encodeCursor({ lastUpdated: maxUpdated }),
-        itemsUpserted: upserted,
+        itemsUpserted: totalUpserted,
         itemsDeleted: 0,
-        hasMore: false,
+        hasMore: pagesFetched >= maxPagesPerSync && pdHasMore,
         durationMs: Math.round(performance.now() - t0),
-        bytesTransferred: text.length,
+        bytesTransferred: lastTextLen,
       };
     },
   };
