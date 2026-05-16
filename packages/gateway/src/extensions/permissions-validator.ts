@@ -19,7 +19,8 @@ export interface SandboxPermissions {
   filesystem: FilesystemPermissions;
 }
 
-const HOSTNAME_RE = /^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?:\.(?!-)[A-Za-z0-9-]{1,63})*$/;
+const HOSTNAME_RE =
+  /^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
 
 export function validateAndNormalizePermissions(input: unknown): SandboxPermissions {
   if (Array.isArray(input)) {

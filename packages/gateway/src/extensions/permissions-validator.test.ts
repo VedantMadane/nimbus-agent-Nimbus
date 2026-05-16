@@ -36,6 +36,19 @@ describe("validateAndNormalizePermissions", () => {
     );
   });
 
+  it("rejects trailing-hyphen hostnames per RFC 1123", () => {
+    expect(() => validateAndNormalizePermissions({ network: ["api-.github.com"] })).toThrow(
+      /RFC 1123/i,
+    );
+    expect(() => validateAndNormalizePermissions({ network: ["github.com-"] })).toThrow(
+      /RFC 1123/i,
+    );
+  });
+
+  it("rejects empty-string hostnames", () => {
+    expect(() => validateAndNormalizePermissions({ network: [""] })).toThrow(/RFC 1123/i);
+  });
+
   it("rejects relative paths with ..", () => {
     expect(() => validateAndNormalizePermissions({ filesystem: { read: ["../etc"] } })).toThrow(
       /\.\./,
