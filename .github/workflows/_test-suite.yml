@@ -211,17 +211,19 @@ jobs:
           # user tokens) rather than via curl basic-auth — the basic-auth form
           # matches the `curl-auth-user` gitleaks rule even when the credential
           # is a shell variable, generating a noisy false-positive on every push.
+          # NB: SonarCloud's autoscan/activation endpoint takes `enable` (not
+          # `enabled`); the latter returns HTTP 400 with
+          # `{"msg":"The 'enable' parameter is missing"}`.
           response=$(curl -sS -o /tmp/autoscan-resp.txt -w '%{http_code}' \
             -H "Authorization: Bearer ${SONAR_TOKEN}" \
-            -X POST 'https://sonarcloud.io/api/autoscan/activation?projectKey=asafgolombek_Nimbus&enabled=false')
+            -X POST 'https://sonarcloud.io/api/autoscan/activation?projectKey=asafgolombek_Nimbus&enable=false')
           body=$(cat /tmp/autoscan-resp.txt 2>/dev/null | head -c 500)
           case "$response" in
             200|204)
               echo "Autoscan disabled (HTTP $response)"
               ;;
-            400)
-              # SonarCloud returns 400 when autoscan is already in the requested state.
-              echo "Autoscan already disabled (HTTP 400 — idempotent no-op): $body"
+            401)
+              echo "::warning::SONAR_TOKEN rejected (HTTP 401). Verify the repo secret is current."
               ;;
             403)
               echo "::warning::SONAR_TOKEN lacks 'Administer Project' permission (HTTP 403). Disable Automatic Analysis manually in SonarCloud → Administration → Analysis Method."
