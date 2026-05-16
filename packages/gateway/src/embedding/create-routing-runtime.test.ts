@@ -127,7 +127,9 @@ function makeHarness(opts: { migrateTo: number; setApiKey: boolean }): Harness {
   }
   const vault = new MockVault();
   if (opts.setApiKey) {
-    void vault.set("openai.api_key", "sk-test-12345");
+    // Deliberately not shaped like a real OpenAI key — only the presence matters
+    // to the factory, never the value. Avoids gitleaks `generic-api-key` flags.
+    void vault.set("openai.api_key", "fixture-present");
   }
   const paths: PlatformPaths = {
     configDir: dir,
@@ -191,7 +193,7 @@ describe("tryCreateRoutingEmbeddingRuntime — null-return branches", () => {
 
   test("OPENAI_API_KEY env var trumps the empty vault key", async () => {
     installEmbedderMocks();
-    processEnvSet("OPENAI_API_KEY", "sk-from-env-456");
+    processEnvSet("OPENAI_API_KEY", "env-present");
     const h = makeHarness({ migrateTo: 30, setApiKey: false });
     try {
       const factory = await importFactory();
