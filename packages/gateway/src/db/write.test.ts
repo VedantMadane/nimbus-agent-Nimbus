@@ -32,7 +32,15 @@ describe("dbRun", () => {
 
   test("propagates non-SQLITE_FULL errors verbatim", () => {
     const db = new Database(":memory:");
-    expect(() => dbRun(db, "INSERT INTO does_not_exist (x) VALUES (?)", [1])).toThrow();
+    let caught: unknown;
+    try {
+      dbRun(db, "INSERT INTO does_not_exist (x) VALUES (?)", [1]);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect(caught).not.toBeInstanceOf(DiskFullError);
+    expect((caught as Error).message).toMatch(/no such table/i);
     db.close();
   });
 });
@@ -71,6 +79,8 @@ describe("DiskFullError translation", () => {
     let caught: unknown;
     try {
       const big = "x".repeat(64 * 1024);
+      // dbExec wraps db.exec which has no parameter API; `big` is a fixed local
+      // constant (not user input), so the inline string is safe and necessary.
       for (let i = 0; i < 100; i++) dbExec(db, `INSERT INTO t (n) VALUES ('${big}')`);
     } catch (err) {
       caught = err;
