@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-import { DiskFullError, dbExec, dbRun } from "./write.ts";
+import { DiskFullError, dbExec, dbRun, dbStmtRun } from "./write.ts";
 
 describe("dbRun", () => {
   test("returns Bun's RunResult shape on a normal INSERT", () => {
@@ -86,6 +86,47 @@ describe("DiskFullError translation", () => {
       caught = err;
     }
     expect(caught).toBeInstanceOf(DiskFullError);
+    db.close();
+  });
+});
+
+describe("dbStmtRun", () => {
+  test("returns Bun's Statement RunResult shape on a normal INSERT", () => {
+    const db = new Database(":memory:");
+    db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER)");
+    const stmt = db.prepare("INSERT INTO t (n) VALUES (?)");
+    const result = dbStmtRun(stmt, 42);
+    expect(result.changes).toBe(1);
+    expect(Number(result.lastInsertRowid)).toBe(1);
+    stmt.finalize();
+    db.close();
+  });
+
+  test("forwards multiple positional bind values (BigInt, Float32Array)", () => {
+    const db = new Database(":memory:");
+    db.exec("CREATE TABLE t (rowid INTEGER PRIMARY KEY, blob BLOB)");
+    const stmt = db.prepare("INSERT INTO t (rowid, blob) VALUES (?, ?)");
+    const result = dbStmtRun(stmt, BigInt(7), new Float32Array([1, 2, 3]));
+    expect(result.changes).toBe(1);
+    expect(Number(result.lastInsertRowid)).toBe(7);
+    stmt.finalize();
+    db.close();
+  });
+
+  test("translates SQLITE_FULL into DiskFullError", () => {
+    const db = new Database(":memory:");
+    db.exec("CREATE TABLE t (n BLOB)");
+    db.exec("PRAGMA max_page_count = 4");
+    const stmt = db.prepare("INSERT INTO t (n) VALUES (?)");
+    let caught: unknown;
+    try {
+      const big = new Uint8Array(64 * 1024);
+      for (let i = 0; i < 100; i++) dbStmtRun(stmt, big);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(DiskFullError);
+    stmt.finalize();
     db.close();
   });
 });

@@ -114,3 +114,25 @@ export function dbExec(db: Database, sql: string): void {
     handleWriteError(err);
   }
 }
+
+/**
+ * Execute a prepared statement's `.run(...)` with the same SQLITE_FULL →
+ * DiskFullError translation as `dbRun` / `dbExec`. Variadic positional args
+ * so the wrapper accepts BigInt, Float32Array, and other native bind types
+ * that the embedding hot loop emits.
+ *
+ * Used by the three production prepared-statement write loops:
+ *   - index/migrations/runner.ts:283   (audit-chain backfill)
+ *   - embedding/pipeline.ts:86,89      (vec + chunk inserts)
+ *   - perf/perf-fixture.ts:100         (bench fixture seeding)
+ */
+export function dbStmtRun<S extends { run: (...args: never[]) => unknown }>(
+  stmt: S,
+  ...params: Parameters<S["run"]>
+): ReturnType<S["run"]> {
+  try {
+    return stmt.run(...params) as ReturnType<S["run"]>;
+  } catch (err) {
+    handleWriteError(err);
+  }
+}
