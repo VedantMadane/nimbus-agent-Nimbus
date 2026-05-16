@@ -53,6 +53,12 @@ describe("parseNimbusPagerdutyToml", () => {
     );
   });
 
+  test("throws when severity_p1_aliases is not an array", () => {
+    expect(() =>
+      parseNimbusPagerdutyToml("[pagerduty]\nseverity_p1_aliases = not-an-array\n"),
+    ).toThrow(/expected array/);
+  });
+
   test("lowercases + dedupes severity_p1_aliases", () => {
     const out = parseNimbusPagerdutyToml(
       '[pagerduty]\nseverity_p1_aliases = ["Critical", "critical", "P1"]\n',

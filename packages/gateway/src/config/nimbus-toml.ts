@@ -822,8 +822,17 @@ export function loadNimbusPagerdutyFromPath(tomlPath: string): NimbusPagerdutyTo
   if (!existsSync(tomlPath)) {
     return structuredClone(DEFAULT_NIMBUS_PAGERDUTY_TOML);
   }
+  let raw: string;
   try {
-    const raw = readFileSync(tomlPath, "utf8");
+    raw = readFileSync(tomlPath, "utf8");
+  } catch (err) {
+    process.stderr.write(
+      `nimbus: could not read [pagerduty] config at ${tomlPath}, using defaults: ` +
+        `${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    return structuredClone(DEFAULT_NIMBUS_PAGERDUTY_TOML);
+  }
+  try {
     return parseNimbusPagerdutyToml(raw);
   } catch (err) {
     // Surface validation errors (e.g. max_pages_per_sync out of range) so
