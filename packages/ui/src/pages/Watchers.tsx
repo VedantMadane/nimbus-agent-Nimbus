@@ -145,7 +145,7 @@ interface CreateDialogProps {
   onCreated: () => void;
 }
 
-function CreateWatcherDialog({ onClose, onCreated }: CreateDialogProps) {
+function CreateWatcherDialog({ onClose, onCreated }: Readonly<CreateDialogProps>) {
   const [name, setName] = useState("");
   const [conditionType, setConditionType] = useState<"graph" | "schedule" | "metric">("graph");
   const [conditionJson, setConditionJson] = useState("{}");
@@ -436,7 +436,7 @@ export function Watchers() {
   }
 
   async function handleDelete(w: WatcherSummary) {
-    if (!window.confirm(`Delete watcher "${w.name}"?`)) return;
+    if (!globalThis.confirm(`Delete watcher "${w.name}"?`)) return;
     setActionInFlight(w.id);
     try {
       await createIpcClient().watcherDelete(w.id);

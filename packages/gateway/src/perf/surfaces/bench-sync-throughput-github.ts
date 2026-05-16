@@ -9,12 +9,11 @@
 import { githubHandlers } from "../fixtures/msw-handlers.ts";
 import type { BenchRunOptions } from "../types.ts";
 import {
-  type IpcCallFn,
   runSyncThroughputOnce,
   type SyncThroughputRunOptions,
 } from "./bench-sync-throughput-shared.ts";
 
-export type { IpcCallFn };
+export type { IpcCallFn } from "./bench-sync-throughput-shared.ts";
 export type SyncThroughputGithubRunOptions = SyncThroughputRunOptions;
 
 export function runSyncThroughputGithubOnce(

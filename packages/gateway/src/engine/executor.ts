@@ -244,9 +244,11 @@ export class ToolExecutor {
 
   async execute(action: PlannedAction): Promise<ActionResult> {
     const gateResult = await this.gate(action);
-    if (gateResult !== "proceed") return gateResult;
-    const result = await this.connectors.dispatch(action);
-    return { status: "ok", result };
+    if (gateResult === "proceed") {
+      const result = await this.connectors.dispatch(action);
+      return { status: "ok", result };
+    }
+    return gateResult;
   }
 }
 

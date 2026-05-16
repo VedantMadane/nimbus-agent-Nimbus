@@ -109,7 +109,7 @@ describe("Marketplace page", () => {
     stubExtensionList([EXT_1]);
     extensionRemoveMock.mockResolvedValue({ ok: true });
     callMock.mockResolvedValueOnce({ extensions: [EXT_1] }).mockResolvedValue({ extensions: [] });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.spyOn(globalThis, "confirm").mockReturnValue(true);
     renderPage();
     await waitFor(() => expect(screen.getByText("nimbus-git")).toBeInTheDocument());
     await userEvent.click(screen.getByRole("button", { name: /remove extension nimbus-git/i }));

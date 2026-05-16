@@ -12,12 +12,11 @@
 import { driveHandlers } from "../fixtures/msw-handlers.ts";
 import type { BenchRunOptions } from "../types.ts";
 import {
-  type IpcCallFn,
   runSyncThroughputOnce,
   type SyncThroughputRunOptions,
 } from "./bench-sync-throughput-shared.ts";
 
-export type { IpcCallFn };
+export type { IpcCallFn } from "./bench-sync-throughput-shared.ts";
 export type SyncThroughputDriveRunOptions = SyncThroughputRunOptions;
 
 export function runSyncThroughputDriveOnce(

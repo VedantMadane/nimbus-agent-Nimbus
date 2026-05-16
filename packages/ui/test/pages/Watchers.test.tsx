@@ -173,7 +173,7 @@ describe("Watchers page — list", () => {
     stubWatcherList([WATCHER_1]);
     watcherDeleteMock.mockResolvedValue({ ok: true });
     callMock.mockResolvedValueOnce({ watchers: [WATCHER_1] }).mockResolvedValue({ watchers: [] });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.spyOn(globalThis, "confirm").mockReturnValue(true);
     renderPage();
     await waitFor(() => expect(screen.getByText("PR opened")).toBeInTheDocument());
     await userEvent.click(screen.getByRole("button", { name: /delete watcher PR opened/i }));
