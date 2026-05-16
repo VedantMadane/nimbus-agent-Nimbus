@@ -12,7 +12,7 @@
  */
 
 import { Database } from "bun:sqlite";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -23,6 +23,14 @@ import { createLazyEmbeddingRuntime } from "./lazy-scheduler.ts";
 import type { Embedder } from "./types.ts";
 
 const MODEL_MOD = resolve(import.meta.dir, "model.ts");
+
+// Capture the real ./model.ts up-front so afterAll can re-mock with the
+// real exports — Bun's mock.module is not cleared by mock.restore(), so
+// without this our stub would leak into later test files.
+const realModelMod = await import(MODEL_MOD);
+afterAll(() => {
+  mock.module(MODEL_MOD, () => realModelMod);
+});
 
 function vecAvailable(): boolean {
   const d = new Database(":memory:");

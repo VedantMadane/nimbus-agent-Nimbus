@@ -17,7 +17,7 @@
  */
 
 import { Database } from "bun:sqlite";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -30,10 +30,17 @@ import { MockVault } from "../vault/mock.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import type { Embedder } from "./types.ts";
 
-// Absolute module IDs so mock.module matches the bare-relative imports used
-// inside create-routing-runtime.ts ("./model.ts", "./openai-embedder.ts").
+// Absolute module ID so mock.module matches the bare-relative import used
+// inside create-routing-runtime.ts ("./model.ts"). We only mock model.ts
+// (the heavy MiniLM weights loader); openai-embedder.ts is lightweight (a
+// fetch wrapper) so we let it run for real and intercept globalThis.fetch
+// instead. This avoids mock.module leaking the openai stub into the sibling
+// openai-embedder.test.ts file when both run in the same Bun process.
 const MODEL_MOD = resolve(import.meta.dir, "model.ts");
-const OPENAI_MOD = resolve(import.meta.dir, "openai-embedder.ts");
+
+// Capture the real ./model.ts up-front so afterAll can re-mock with the
+// real exports — Bun's mock.module is not cleared by mock.restore().
+const realModelMod = await import(MODEL_MOD);
 
 function vecAvailable(): boolean {
   const d = new Database(":memory:");
@@ -60,7 +67,7 @@ function fakeEmbedder(model: string, dims: number): Embedder {
   };
 }
 
-function installEmbedderMocks(opts?: { throwOnLocal?: boolean; throwOnOpenai?: boolean }): void {
+function installEmbedderMocks(opts?: { throwOnLocal?: boolean }): void {
   mock.module(MODEL_MOD, () => ({
     LOCAL_EMBEDDING_MODEL_ID: "all-MiniLM-L6-v2",
     MINIMUM_MODEL_VERSION: "1.0.0",
@@ -71,14 +78,37 @@ function installEmbedderMocks(opts?: { throwOnLocal?: boolean; throwOnOpenai?: b
       return fakeEmbedder("local:all-MiniLM-L6-v2", 384);
     },
   }));
-  mock.module(OPENAI_MOD, () => ({
-    async createOpenAIEmbedder(): Promise<Embedder> {
-      if (opts?.throwOnOpenai === true) {
-        throw new Error("synthetic openai embedder failure");
-      }
-      return fakeEmbedder("openai:text-embedding-3-small", 1536);
-    },
-  }));
+}
+
+// The real createOpenAIEmbedder runs lazily — its returned wrapper makes a
+// fetch() call only on .embed(). We stub globalThis.fetch to return a
+// well-formed 1536-dim response so runtime.embedQueryDual works without
+// hitting the real OpenAI API.
+const REAL_FETCH = globalThis.fetch;
+function installOpenaiFetchStub(): void {
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    const url =
+      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (!url.includes("api.openai.com/v1/embeddings")) {
+      throw new Error(`unexpected fetch in routing-runtime test: ${url}`);
+    }
+    // Parse the input array length to return matching number of embeddings.
+    const body =
+      typeof init?.body === "string"
+        ? (JSON.parse(init.body) as { input: string[] })
+        : { input: [] };
+    const data = body.input.map((_, i) => ({
+      index: i,
+      embedding: Array.from({ length: 1536 }, () => 0.001),
+    }));
+    return new Response(JSON.stringify({ data }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+}
+function restoreFetch(): void {
+  globalThis.fetch = REAL_FETCH;
 }
 
 type Harness = {
@@ -131,6 +161,12 @@ async function importFactory(): Promise<
 }
 
 const silentLogger = pino({ level: "silent" });
+
+// Restore the real ./model.ts module after every test in this file, so later
+// test files see the real exports rather than our in-test fake.
+afterAll(() => {
+  mock.module(MODEL_MOD, () => realModelMod);
+});
 
 describe("tryCreateRoutingEmbeddingRuntime — null-return branches", () => {
   beforeEach(() => {
@@ -194,8 +230,10 @@ describe("tryCreateRoutingEmbeddingRuntime — null-return branches", () => {
     }
   });
 
-  test("returns null when the openai embedder throws during init", async () => {
-    installEmbedderMocks({ throwOnOpenai: true });
+  test("returns null when local embedder init failure happens after API key resolves", async () => {
+    // Distinct from the previous test: this one confirms the catch wraps both
+    // embedder constructions (line 56-65) — even when only one of the two throws.
+    installEmbedderMocks({ throwOnLocal: true });
     const h = makeHarness({ migrateTo: 30, setApiKey: true });
     try {
       const factory = await importFactory();
@@ -287,9 +325,11 @@ describe.skipIf(!VEC_AVAILABLE)(
     beforeEach(() => {
       mock.restore();
       installEmbedderMocks();
+      installOpenaiFetchStub();
     });
     afterEach(() => {
       mock.restore();
+      restoreFetch();
     });
 
     test("returns a non-null runtime when key + embedders + vec all line up", async () => {
