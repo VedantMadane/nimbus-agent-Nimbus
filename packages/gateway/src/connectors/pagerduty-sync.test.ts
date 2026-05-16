@@ -399,6 +399,8 @@ describeWithFetchRestore("pagerduty-sync", () => {
     const vault = createStubVault({ "pagerduty.api_token": "test-token" });
     const result = await sync.sync(syncTestContext(db, vault), null);
     expect(calls.length).toBe(3);
+    // Load-bearing: ascending sort is what makes cap-aware cursor advance correct.
+    expect(new URL(calls[0] as string).searchParams.get("sort_by")).toBe("updated_at:asc");
     expect(new URL(calls[1] as string).searchParams.get("offset")).toBe("100");
     expect(new URL(calls[2] as string).searchParams.get("offset")).toBe("200");
     expect(result.itemsUpserted).toBe(3);
