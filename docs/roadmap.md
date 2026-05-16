@@ -405,11 +405,17 @@ These items resolve deferred decisions from Phase 3.
 
 #### Security audit follow-ups (B1)
 
-Items deferred from the Phase 4 internal security audit (B1, 2026-04-25; summary in [`docs/SECURITY.md`](./SECURITY.md#security-audits)). The High, Medium, and Low PRs (`#112`, `#113`, commit `806453a`) closed all 78 unique findings; these three remain open. S6-F1 (Updater production wiring) gates the headless `v0.1.0` tag. The two Tauri-specific items (S4-F6, S4-F8) gate the future `desktop-v0.1.0` tag — see [§ Phase 13 → Desktop Release Vehicle](#desktop-release-vehicle).
+Items deferred from the Phase 4 internal security audit (B1, 2026-04-25; summary in [`docs/SECURITY.md`](./SECURITY.md#security-audits)). The High, Medium, and Low PRs (`#112`, `#113`, commit `806453a`) closed all 78 unique findings; these three remain open. S6-F1 (Updater production wiring) shipped in PR #<NN> — the `Updater` state machine is now instantiated in gateway startup, so `nimbus update --check` and the startup `updater.updateAvailable` notification run against a live state object. Full end-to-end auto-update awaits six follow-ups tracked separately (see below). The two Tauri-specific items (S4-F6, S4-F8) gate the future `desktop-v0.1.0` tag — see [§ Phase 13 → Desktop Release Vehicle](#desktop-release-vehicle).
 
 - [ ] **Tauri-native file picker for `data.import` (S4-F6)** — replace the renderer-supplied `path` string with a Rust-side native dialog so the gateway never trusts a caller-controlled filesystem path; folds into the same UI-rebuild PR as the existing `extension.install` path-validation work (S4-F5 / S7-F7). **Gates `desktop-v0.1.0`, not `v0.1.0`.**
 - [ ] **Profile-switch global broadcast refactor (S4-F8)** — Rust-side window-registry refactor so `profile.switched` events fan out through a registered subscriber list instead of walking the live Tauri window list on each notification; same UI-rebuild PR as S4-F6. **Gates `desktop-v0.1.0`, not `v0.1.0`.**
-- [ ] **Updater production wiring (S6-F1)** — instantiate the `Updater` state machine in gateway startup so `nimbus update --check` and `updater.updateAvailable` run against a live state object; lands when GA prerequisites (signing certs, manifest server) are signed off. **Gates `v0.1.0`.**
+- [x] **Updater production wiring (S6-F1)** (PR #<NN>) — the `Updater` state machine is now instantiated in gateway startup via `packages/gateway/src/updater/factory.ts` and attached to the IPC server via `setUpdater`. `nimbus update --check` and `updater.checkNow` IPC now return live state instead of `ERR_UPDATER_NOT_CONFIGURED`; with `[updater].check_on_startup = true` (default), the gateway emits `updater.updateAvailable` on startup if a newer version is published at the configured manifest URL. Six follow-ups remain before end-to-end auto-update is usable in production:
+  - [ ] Publish `latest.json` from `release.yml` so the default manifest URL resolves to a real envelope (today: 404)
+  - [ ] Linux `invokeInstaller` — POSIX binary swap + restart helper
+  - [ ] macOS + Windows `invokeInstaller` — gated on signing certs (Phase 13 entry)
+  - [ ] `recordUpdateEvent` audit-log integration — wire `system.update.{start,verified,installed,failed}` rows
+  - [ ] `Updater.getStatus()` to expose cached `CheckNowResult` so a late-connecting client (e.g., Tauri Updates panel) can read the startup-check result without re-fetching
+  - [ ] Track the gateway as a `release-please` component so `packages/gateway/package.json` + `packages/gateway/src/version.ts` (`GATEWAY_VERSION` constant) are auto-bumped on release. Today both are hand-edited; the wiring PR collapses two hand-edit sites into one, but the manual step still exists.
 
 ##### Polish items from B1 follow-up review
 
