@@ -1,9 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { Server } from "bun";
 import type { Logger } from "pino";
 import { DEFAULT_NIMBUS_UPDATER_TOML } from "../../../src/config/nimbus-toml.ts";
 import { dispatchUpdaterRpc } from "../../../src/ipc/updater-rpc.ts";
+import { expectRpcError } from "../../../src/ipc/updater-rpc-test-helpers.ts";
 import { createUpdaterFromConfig } from "../../../src/updater/factory.ts";
+
+// `ReturnType<typeof Bun.serve>` avoids the "Generic type 'Server<WebSocketData>'
+// requires 1 type argument" warning that the strict LSP config emits on a bare
+// `Server` import from "bun".
+type BunHttpServer = ReturnType<typeof Bun.serve>;
 
 const noopLogger = {
   warn: () => {},
@@ -12,7 +17,7 @@ const noopLogger = {
   debug: () => {},
 } as unknown as Logger;
 
-let server: Server | undefined;
+let server: BunHttpServer | undefined;
 
 beforeEach(() => {
   server = undefined;
@@ -106,8 +111,14 @@ describe("S6-F1: Updater wiring — factory + dispatch end-to-end", () => {
     // The dispatcher path mirrors `assemble.ts`: when factory returns
     // undefined, `setUpdater` is never called and `ctx.options.updater`
     // stays undefined, so the dispatcher bails with the expected error.
-    await expect(
+    // Use the established `expectRpcError` helper (same as air-gap.test.ts)
+    // instead of `expect().rejects.toMatchObject` — the helper resolves the
+    // promise itself, avoiding the LSP "await has no effect" diagnostic on
+    // matchers that don't return Promises in all type-resolver configs.
+    await expectRpcError(
       dispatchUpdaterRpc("updater.checkNow", {}, { updater: undefined }),
-    ).rejects.toMatchObject({ rpcCode: -32602 });
+      -32602,
+      /ERR_UPDATER_NOT_CONFIGURED/,
+    );
   });
 });
