@@ -1,7 +1,8 @@
 /// <reference types="bun-types" />
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -16,10 +17,20 @@ const IS_WIN = process.platform === "win32";
 
 // Resolve absolute paths for system tools to avoid PATH-based hijacking (Sonar S4036).
 // where.exe lives at its fixed Windows system path; which at its fixed POSIX path.
+// gpg's POSIX location varies: /usr/bin/gpg on Linux, /opt/homebrew/bin/gpg on
+// macOS arm64, /usr/local/bin/gpg on macOS Intel. SHA256SUMS is generated
+// in-process via node:crypto so no shell sha256sum binary is needed.
 const WHERE_CMD = IS_WIN ? String.raw`C:\Windows\System32\where.exe` : "/usr/bin/which";
 const BASH_BIN = IS_WIN ? "bash" : "/bin/bash";
-const SHA256SUM_BIN = IS_WIN ? "sha256sum" : "/usr/bin/sha256sum";
-const GPG_BIN = IS_WIN ? "gpg" : "/usr/bin/gpg";
+function resolveBin(candidates: readonly string[]): string {
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  return candidates[0] ?? "";
+}
+const GPG_BIN = IS_WIN
+  ? "gpg"
+  : resolveBin(["/usr/bin/gpg", "/opt/homebrew/bin/gpg", "/usr/local/bin/gpg"]);
 
 // Resolve pwsh once at load time; store the absolute path so run() never hits PATH.
 // Skip entirely if pwsh (PowerShell 7+) is not installed — nimbus-verify.ps1 targets
@@ -77,8 +88,12 @@ beforeEach(() => {
   fingerprint = genRes.stdout.trim();
 
   writeFileSync(join(cwd, "hello.bin"), "hello world", "utf8");
-  const sha = spawnSync(SHA256SUM_BIN, ["hello.bin"], { cwd, encoding: "utf8" });
-  writeFileSync(join(cwd, "SHA256SUMS"), sha.stdout, "utf8");
+  // SHA256SUMS format mirrors `sha256sum filename`: "<64-hex-lower>  filename\n".
+  // Computed in-process so the test does not depend on coreutils being on PATH
+  // (macOS ships shasum, not sha256sum, and Windows has neither without MSYS2).
+  const helloBytes = readFileSync(join(cwd, "hello.bin"));
+  const hashHex = createHash("sha256").update(helloBytes).digest("hex");
+  writeFileSync(join(cwd, "SHA256SUMS"), `${hashHex}  hello.bin\n`, "utf8");
   spawnSync(
     GPG_BIN,
     [
