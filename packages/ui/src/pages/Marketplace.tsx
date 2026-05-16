@@ -12,7 +12,7 @@ interface ExtensionRowProps {
   onRemove: (ext: ExtensionSummary) => void;
 }
 
-function ExtensionRow({ ext, disabled, onToggle, onRemove }: ExtensionRowProps) {
+function ExtensionRow({ ext, disabled, onToggle, onRemove }: Readonly<ExtensionRowProps>) {
   return (
     <tr>
       <td className="py-2 px-3 font-mono text-sm">{ext.id}</td>
@@ -77,7 +77,7 @@ export function Marketplace() {
   }
 
   async function handleRemove(ext: ExtensionSummary) {
-    if (!window.confirm(`Remove extension "${ext.id}"?`)) return;
+    if (!globalThis.confirm(`Remove extension "${ext.id}"?`)) return;
     setActionInFlight(ext.id);
     try {
       await createIpcClient().extensionRemove(ext.id);

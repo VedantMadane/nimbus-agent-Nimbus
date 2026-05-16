@@ -58,7 +58,7 @@ export function checkSpawnInvariant(files: readonly FileEntry[]): Violation[] {
 // with a known suffix (e.g. `\`${s}.oauth\``).
 // Files in the allow-list are exempt. Test files are exempt (handled by iterateSourceFiles).
 function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return s.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 }
 
 function buildVaultKeyRegex(): RegExp {
@@ -114,8 +114,11 @@ const DB_RUN_EXEC_RE = /\b(?:this\.|ctx\.)?db\.(?:run|exec)\s*\(/;
 // or `name(...) {` / `name(...) =`. Split into two simpler patterns so each
 // alternation has bounded complexity (closes ReDoS warning vs. the previous
 // single combined regex).
-const FN_DECL_RE = /(?:function|async\s+function)\s+([A-Za-z_$][\w$]*)/;
-const FN_CALL_RE = /([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*[:{=]/;
+// Bounded quantifiers on the identifier and parameter list make ReDoS
+// structurally impossible — a pathological minified line cannot cause
+// super-linear backtracking.
+const FN_DECL_RE = /(?:function|async\s+function)\s+([A-Za-z_$][\w$]{0,127})/;
+const FN_CALL_RE = /([A-Za-z_$][\w$]{0,127})\s{0,8}\([^)]{0,500}\)\s{0,8}[:{=]/;
 
 function findEnclosingFunction(lines: readonly string[], from: number): string {
   for (let j = from; j >= Math.max(0, from - 30); j--) {

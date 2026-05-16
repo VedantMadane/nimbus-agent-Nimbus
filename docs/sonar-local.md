@@ -67,7 +67,18 @@ If you need to upgrade beyond these thresholds (for example, to align Sonar's co
 
 | Secret | Purpose |
 |---|---|
-| `SONAR_TOKEN` | SonarCloud user token with **Execute Analysis** permission on `asafgolombek_Nimbus`. The scan step is conditional on this being set, so absence silently no-ops rather than failing CI. |
+| `SONAR_TOKEN` | SonarCloud user token on `asafgolombek_Nimbus`. Needs at minimum **Execute Analysis**; needs **Administer Project** to allow CI to keep Automatic Analysis disabled (see below). The scan step is conditional on this being set, so absence silently no-ops rather than failing CI. |
+
+### Automatic Analysis must stay disabled
+
+SonarCloud refuses to accept CI-driven analysis when **Automatic Analysis** is *also* enabled on the project — the scan exits 3 with `You are running CI analysis while Automatic Analysis is enabled. Please consider disabling one or the other.`. This repo's source of truth is the CI scan (it carries the `sonar.qualitygate.wait=true` gate, the rewritten UI LCOV paths, and the per-PR diff context), so autoscan must stay off.
+
+`_test-suite.yml` includes a pre-scan step that calls `POST /api/autoscan/activation?projectKey=asafgolombek_Nimbus&enabled=false` on every run. The call is idempotent (200/204 on first toggle, 400 on every subsequent run) and runs with the existing `SONAR_TOKEN`. The step is **fail-open**:
+
+- If the token has **Administer Project**: autoscan is forced off on every run; you never have to think about this again.
+- If the token only has **Execute Analysis**: the API call returns 403 and the step logs a warning. You must then disable autoscan **once, manually** in **SonarCloud → Project → Administration → Analysis Method → "GitHub Actions"**. After that the scan keeps working with the lower-scoped token.
+
+The fail-open shape is deliberate. If we hard-failed on 403, fork PRs and contributors with a read-only token would be blocked by a setup task that has nothing to do with their change. With fail-open, the scan step below surfaces the original "Automatic Analysis enabled" error with a clearer remediation path the first time, and silently succeeds once the operator has flipped the toggle.
 
 ## Local analysis — SonarLint (recommended)
 

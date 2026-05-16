@@ -600,16 +600,18 @@ The local HTTP API and `@nimbus-dev/client` (Phase 3.5) unlock Nimbus as a data 
   names (`"Critical"`, `"SEV-1"`) pass through verbatim; a future
   `[pagerduty].severity_strategy` config knob can map them to preflight's P1 filter if
   user demand emerges.
-- [ ] **PagerDuty sync pagination** — follow `has_more` on `GET /incidents` and walk pages
-  until exhausted (or until a `[pagerduty].max_pages_per_sync` cap is hit). Today the sync
-  fetches the first 50 incidents updated since the cursor and drops the tail. DORA accuracy
-  for high-volume orgs depends on this. No new credentials.
-- [ ] **`[pagerduty].severity_strategy` config knob** — let teams map non-`"P1"` priority
-  names (`"Critical"`, `"SEV-1"`) to preflight's P1 filter; emit a `gap` note in
-  `deploy.preflight` when the connector sees `urgency: "high"` incidents with no
-  `priority.name`, so operators can self-diagnose silent-zero preflight results. Bundles
-  the alias-map and urgency-gap-warning Gemini-CLI suggested separately in the
-  enrichment review §2.2.
+- [x] **PagerDuty sync pagination** (2026-05-16, Phase 5 T4 wrap-up) — `pagerduty-sync.ts`
+  now walks pages with `sort_by=updated_at:asc` and `limit=100`, honoring `parsed.more`
+  and capping at `[pagerduty].max_pages_per_sync` (default 20, range 1..100). On cap-hit
+  the syncable returns `hasMore: true` so the scheduler re-queues; partial-failure cursors
+  preserve progress from pages already ingested. No new credentials.
+- [x] **`[pagerduty].severity_p1_aliases` config knob** (2026-05-16, Phase 5 T4 wrap-up) —
+  preflight's `selectActiveP1Incidents` now matches `LOWER(severity) IN (?, ?, ...)` over
+  the union of `"p1"` plus org-declared aliases (e.g. `"Critical"`, `"SEV-1"`). Aliases are
+  lowercased + deduped at parse time. New `PreflightGap` variant
+  `"pagerduty_urgency_without_priority"` fires when the strict filter yields zero matches
+  but high-urgency-without-priority incidents exist on the configured services, so operators
+  can self-diagnose silent-zero preflight results. Query-time evaluation — no re-index needed.
 
 #### Semantic Layer Enhancements
 

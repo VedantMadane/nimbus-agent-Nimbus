@@ -103,7 +103,7 @@ describe("Workflows page — list", () => {
     callMock
       .mockResolvedValueOnce({ workflows: [WORKFLOW_1] })
       .mockResolvedValue({ workflows: [] });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.spyOn(globalThis, "confirm").mockReturnValue(true);
     renderPage();
     await waitFor(() => expect(screen.getByText("Deploy")).toBeInTheDocument());
     await userEvent.click(screen.getByRole("button", { name: /delete workflow Deploy/i }));

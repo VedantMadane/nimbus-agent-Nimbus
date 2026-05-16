@@ -63,7 +63,7 @@ const MAX_SYNC_FAILURE_MSG = 2048;
 function syncFailureUserMessage(err: unknown): string {
   let raw: string;
   if (err instanceof Error) {
-    raw = err.message.trim() !== "" ? err.message : err.name;
+    raw = err.message.trim() === "" ? err.name : err.message;
   } else if (typeof err === "string") {
     raw = err;
   } else {

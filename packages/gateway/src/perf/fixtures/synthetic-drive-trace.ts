@@ -48,7 +48,7 @@ function lcg(seed: number): () => number {
 
 export function driveTracePages(tier: CorpusTier): DrivePage[] {
   const total = DRIVE_TIER_COUNTS[tier];
-  const rand = lcg(0xd17e_aaaa);
+  const rand = lcg(0xd17eaaaa);
   const baseDate = new Date("2026-01-01T00:00:00Z").getTime();
   const files: DriveFile[] = [];
   for (let i = 0; i < total; i += 1) {
