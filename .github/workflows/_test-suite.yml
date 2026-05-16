@@ -187,6 +187,50 @@ jobs:
           use_oidc: true
           files: coverage/lcov.info,packages/ui/coverage/lcov.info
 
+      - name: Disable SonarCloud Automatic Analysis (idempotent)
+        # SonarCloud rejects CI analysis when Automatic Analysis is also enabled
+        # on the project ("You are running CI analysis while Automatic Analysis
+        # is enabled"). We run CI analysis (this workflow) as the source of
+        # truth, so autoscan must stay off. This step asks SonarCloud to
+        # disable it on every run — the call is idempotent server-side, so the
+        # second+ invocations are no-ops.
+        #
+        # Fail-open: a SONAR_TOKEN scoped only to "Execute Analysis" will get
+        # HTTP 403 here. Rather than fail the build silently in a confusing
+        # way, we log a warning and proceed; the scan step below will surface
+        # the original "Automatic Analysis enabled" error with its clearer
+        # remediation path (disable in the SonarCloud UI — see
+        # docs/sonar-local.md).
+        if: runner.os == 'Linux' && env.SONAR_TOKEN != ''
+        shell: bash
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          set +e
+          # Authorization passed via a Bearer header (SonarCloud-supported for
+          # user tokens) rather than via curl basic-auth — the basic-auth form
+          # matches the `curl-auth-user` gitleaks rule even when the credential
+          # is a shell variable, generating a noisy false-positive on every push.
+          response=$(curl -sS -o /tmp/autoscan-resp.txt -w '%{http_code}' \
+            -H "Authorization: Bearer ${SONAR_TOKEN}" \
+            -X POST 'https://sonarcloud.io/api/autoscan/activation?projectKey=asafgolombek_Nimbus&enabled=false')
+          body=$(cat /tmp/autoscan-resp.txt 2>/dev/null | head -c 500)
+          case "$response" in
+            200|204)
+              echo "Autoscan disabled (HTTP $response)"
+              ;;
+            400)
+              # SonarCloud returns 400 when autoscan is already in the requested state.
+              echo "Autoscan already disabled (HTTP 400 — idempotent no-op): $body"
+              ;;
+            403)
+              echo "::warning::SONAR_TOKEN lacks 'Administer Project' permission (HTTP 403). Disable Automatic Analysis manually in SonarCloud → Administration → Analysis Method."
+              ;;
+            *)
+              echo "::warning::Unexpected response from autoscan/activation: HTTP $response. Body: $body"
+              ;;
+          esac
+
       - name: SonarQube Cloud analysis
         # SonarCloud rebranded to SonarQube Cloud; sonarcloud-github-action is
         # deprecated and delegates to sonarqube-scan-action. We invoke the new
