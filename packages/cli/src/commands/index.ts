@@ -17,6 +17,7 @@ export { runExpertCli } from "./expert.ts";
 export { runExtension } from "./extension.ts";
 export { printHelp } from "./help.ts";
 export { runImpactCli } from "./impact.ts";
+export { runIndexCmd } from "./index-cmd.ts";
 export { runLan } from "./lan.ts";
 export { runMetricsCli } from "./metrics.ts";
 export { runPeople } from "./people.ts";

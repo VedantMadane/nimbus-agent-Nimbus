@@ -20,6 +20,8 @@ Usage:
   nimbus expert <topic>     Rank team members with the most context on a topic or file
   nimbus impact <file-or-PR-url>   Reverse-dependency blast radius across services / pipelines / dashboards
                                    (--depth is accepted but reserved for future recursive traversal)
+  nimbus index reembed --model <id> [--item-type <key>] [--service <name>] [--limit N] [--batch-size N] [--dry-run] [--yes] [--json]
+                            Selective re-embedding to a target model; required --yes for non-dry runs
   nimbus catchup [--since 3d] [--json] [--service <id>]   Personalised retrospective digest weighted by your involvement
   nimbus metrics dora --service <id> [--since 30d] [--json]   DORA four-key metrics for a configured service
   nimbus deploy preflight --service <id> --target-ref <ref> [--mode warn|block|off] [--json]   Pre-deploy index check
