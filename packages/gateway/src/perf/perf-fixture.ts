@@ -11,6 +11,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { dbExec, dbRun } from "../db/write.ts";
 import type { CorpusTier } from "./types.ts";
 
 export const FIXTURE_TIER_SIZES = {
@@ -95,19 +96,19 @@ export async function buildSyntheticIndex(
   const rows = FIXTURE_TIER_SIZES[tier];
   const db = new Database(path);
   try {
-    db.exec(FIXTURE_SCHEMA_SQL);
+    dbExec(db, FIXTURE_SCHEMA_SQL);
     const rng = makeRng(FIXTURE_SEED);
     const ins = db.prepare(
       `INSERT INTO item (id, service, type, external_id, title, body_preview, url, modified_at, synced_at, pinned)
        VALUES (?, 'github', 'pr', ?, ?, '', '', ?, ?, 0)`,
     );
     const now = FIXTURE_TIMESTAMP;
-    db.run("BEGIN");
+    dbRun(db, "BEGIN");
     for (let i = 0; i < rows; i += 1) {
       const t = Math.floor(rng() * 1_000_000);
       ins.run(`gh:${i}`, String(i), `Synthetic PR ${i}`, now - t, now - t);
     }
-    db.run("COMMIT");
+    dbRun(db, "COMMIT");
     // Finalize the prepared statement before closing the DB. On Windows,
     // un-finalized statements keep the file handle open even after db.close(),
     // causing EBUSY when tests attempt to rmSync the temp directory.

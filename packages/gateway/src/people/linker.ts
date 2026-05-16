@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 
+import { dbRun } from "../db/write.ts";
 import { NIMBUS_PERSON_NAMESPACE_UUID, uuidV5 } from "./person-id.ts";
 import {
   deletePersonById,
@@ -405,7 +406,7 @@ export function mergePeople(db: Database, personIdA: string, personIdB: string):
     discordUserId: a.discordUserId ?? b.discordUserId,
     linked,
   });
-  db.run("UPDATE item SET author_id = ? WHERE author_id = ?", [personIdA, personIdB]);
+  dbRun(db, "UPDATE item SET author_id = ? WHERE author_id = ?", [personIdA, personIdB]);
   deletePersonById(db, personIdB);
   return personIdA;
 }

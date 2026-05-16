@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { dbRun } from "../db/write.ts";
 import { LlmRouter, type LlmRouterConfig } from "./router.ts";
 import type { LlmModelInfo, LlmProvider, PullProgressChunk } from "./types.ts";
 
@@ -103,7 +104,8 @@ export class LlmRegistry {
     modelName: string,
   ): Promise<void> {
     if (this.db === undefined) return;
-    this.db.run(
+    dbRun(
+      this.db,
       `INSERT INTO llm_task_defaults (task_type, provider, model_name, updated_at)
        VALUES (?, ?, ?, ?)
        ON CONFLICT(task_type) DO UPDATE SET
@@ -131,7 +133,8 @@ export class LlmRegistry {
     const now = Date.now();
     for (const m of models) {
       try {
-        this.db.run(
+        dbRun(
+          this.db,
           `INSERT INTO llm_models (provider, model_name, parameter_count, context_window, quantization, vram_estimate_mb, last_seen_at)
            VALUES (?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(provider, model_name) DO UPDATE SET

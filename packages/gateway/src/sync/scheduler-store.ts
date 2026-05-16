@@ -1,5 +1,7 @@
 import type { Database } from "bun:sqlite";
 
+import { dbRun } from "../db/write.ts";
+
 export type PersistedSchedulerStatus = "ok" | "backoff" | "error";
 
 export type SchedulerStateRow = {
@@ -50,7 +52,8 @@ export function upsertSchedulerRegistration(
 ): void {
   const existing = loadSchedulerState(db, serviceId);
   if (existing === null) {
-    db.run(
+    dbRun(
+      db,
       `INSERT INTO scheduler_state (service_id, cursor, interval_ms, last_sync_at, next_sync_at, status, error_msg, consecutive_failures, paused)
        VALUES (?, NULL, ?, NULL, ?, 'ok', NULL, 0, 0)`,
       [serviceId, intervalMs, now],
@@ -76,7 +79,8 @@ export function updateSchedulerState(
     paused: boolean;
   },
 ): void {
-  db.run(
+  dbRun(
+    db,
     `UPDATE scheduler_state SET
        cursor = ?,
        interval_ms = ?,
@@ -102,18 +106,21 @@ export function updateSchedulerState(
 }
 
 export function setNextSyncAt(db: Database, serviceId: string, nextSyncAt: number | null): void {
-  db.run(`UPDATE scheduler_state SET next_sync_at = ? WHERE service_id = ?`, [
+  dbRun(db, `UPDATE scheduler_state SET next_sync_at = ? WHERE service_id = ?`, [
     nextSyncAt,
     serviceId,
   ]);
 }
 
 export function setPaused(db: Database, serviceId: string, paused: boolean): void {
-  db.run(`UPDATE scheduler_state SET paused = ? WHERE service_id = ?`, [paused ? 1 : 0, serviceId]);
+  dbRun(db, `UPDATE scheduler_state SET paused = ? WHERE service_id = ?`, [
+    paused ? 1 : 0,
+    serviceId,
+  ]);
 }
 
 export function setIntervalMs(db: Database, serviceId: string, intervalMs: number): void {
-  db.run(`UPDATE scheduler_state SET interval_ms = ? WHERE service_id = ?`, [
+  dbRun(db, `UPDATE scheduler_state SET interval_ms = ? WHERE service_id = ?`, [
     intervalMs,
     serviceId,
   ]);
@@ -197,11 +204,11 @@ export function listAllSchedulerStates(db: Database): SchedulerStateRow[] {
 }
 
 export function clearSchedulerCursor(db: Database, serviceId: string): void {
-  db.run(`UPDATE scheduler_state SET cursor = NULL WHERE service_id = ?`, [serviceId]);
+  dbRun(db, `UPDATE scheduler_state SET cursor = NULL WHERE service_id = ?`, [serviceId]);
 }
 
 export function deleteSchedulerStateRow(db: Database, serviceId: string): void {
-  db.run(`DELETE FROM scheduler_state WHERE service_id = ?`, [serviceId]);
+  dbRun(db, `DELETE FROM scheduler_state WHERE service_id = ?`, [serviceId]);
 }
 
 export function insertSyncTelemetry(
@@ -217,7 +224,8 @@ export function insertSyncTelemetry(
     errorMsg: string | null;
   },
 ): void {
-  db.run(
+  dbRun(
+    db,
     `INSERT INTO sync_telemetry (
        service, started_at, duration_ms, items_upserted, items_deleted, bytes_transferred, had_more, error_msg
      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,

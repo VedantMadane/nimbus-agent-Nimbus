@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 
+import { dbRun } from "../db/write.ts";
 import { readIndexedUserVersion } from "../index/migrations/runner.ts";
 import { ensureSqliteVecForConnection } from "../index/sqlite-vec-load.ts";
 
@@ -59,7 +60,8 @@ export class SessionMemoryStore {
     // so multi-turn replay works. Insert into session_memory with vec_rowid=0
     // as a "no vector" sentinel; semantic recall() will skip those rows.
     if (!hasVec) {
-      this.db.run(
+      dbRun(
+        this.db,
         `INSERT INTO session_memory (session_id, chunk_text, vec_rowid, role, created_at)
          VALUES (?, ?, 0, ?, ?)`,
         [chunk.sessionId, chunk.text, chunk.role, now],
@@ -71,11 +73,12 @@ export class SessionMemoryStore {
         .query(`SELECT COALESCE(MAX(rowid), 0) AS m FROM vec_items_384`)
         .get() as { m: number | bigint };
       const rowid = Number(maxRow.m) + 1;
-      this.db.run(`INSERT INTO vec_items_384(rowid, embedding) VALUES (?, vec_f32(?))`, [
+      dbRun(this.db, `INSERT INTO vec_items_384(rowid, embedding) VALUES (?, vec_f32(?))`, [
         BigInt(rowid),
         new Float32Array(vec),
       ]);
-      this.db.run(
+      dbRun(
+        this.db,
         `INSERT INTO session_memory (session_id, chunk_text, vec_rowid, role, created_at)
          VALUES (?, ?, ?, ?, ?)`,
         [chunk.sessionId, chunk.text, rowid, chunk.role, now],
@@ -170,7 +173,7 @@ export class SessionMemoryStore {
       .query(`SELECT id FROM session_memory WHERE created_at < ?`)
       .all(cutoff) as { id: number }[];
     for (const r of rows) {
-      this.db.run(`DELETE FROM session_memory WHERE id = ?`, [r.id]);
+      dbRun(this.db, `DELETE FROM session_memory WHERE id = ?`, [r.id]);
     }
     return rows.length;
   }
@@ -179,7 +182,7 @@ export class SessionMemoryStore {
     if (readIndexedUserVersion(this.db) < 10) {
       return;
     }
-    this.db.run(`DELETE FROM session_memory WHERE session_id = ?`, [sessionId]);
+    dbRun(this.db, `DELETE FROM session_memory WHERE session_id = ?`, [sessionId]);
   }
 
   listSessions(): Array<{ sessionId: string; lastWriteAt: number; chunkCount: number }> {

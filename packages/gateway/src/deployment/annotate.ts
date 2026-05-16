@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { appendAuditEntry } from "../db/audit-chain.ts";
+import { dbRun } from "../db/write.ts";
 import { computeDeploymentExternalId } from "./external-id.ts";
 import type {
   DeploymentAnnotateInput,
@@ -169,7 +170,8 @@ export function annotateDeployment(
       run_id: input.run_id ?? null,
       job_id: input.job_id ?? null,
     });
-    db.run(
+    dbRun(
+      db,
       `INSERT INTO item (id, service, type, external_id, title, body_preview, url, canonical_url, modified_at, author_id, metadata, synced_at, pinned)
        VALUES (?, ?, 'deployment', ?, ?, '', ?, ?, ?, NULL, ?, ?, 0)
        ON CONFLICT(service, external_id) DO UPDATE SET
@@ -191,7 +193,8 @@ export function annotateDeployment(
         nowMs,
       ],
     );
-    db.run(
+    dbRun(
+      db,
       `INSERT INTO deployment_items
          (id, provider, nimbus_service_id, environment, sha, ref, started_at_ms, finished_at_ms, conclusion, workflow_url, ci_run_external_id, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

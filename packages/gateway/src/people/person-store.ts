@@ -192,7 +192,8 @@ export function insertPerson(
   },
 ): void {
   const meta = JSON.stringify(row.metadata);
-  db.run(
+  dbRun(
+    db,
     `INSERT INTO person (
       id, display_name, canonical_email, github_login, gitlab_login, slack_handle,
       linear_member_id, jira_account_id, notion_user_id, bitbucket_uuid, microsoft_user_id, discord_user_id,
@@ -332,5 +333,5 @@ export function countItemsByAuthor(db: Database, personId: string): number {
 }
 
 export function deletePersonById(db: Database, id: string): void {
-  db.run("DELETE FROM person WHERE id = ?", [id]);
+  dbRun(db, "DELETE FROM person WHERE id = ?", [id]);
 }

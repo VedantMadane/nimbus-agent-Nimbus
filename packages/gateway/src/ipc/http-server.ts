@@ -7,6 +7,7 @@ import { Database } from "bun:sqlite";
 import { resolve } from "node:path";
 import { loadNimbusServiceConfigsFromConfigDir } from "../config/nimbus-toml.ts";
 import { getAllConnectorHealth } from "../connectors/health.ts";
+import { dbRun } from "../db/write.ts";
 import { buildItemListSql, parseRelativeSinceToWindowMs } from "../index/item-list-query.ts";
 import { HttpWriteRateLimiter } from "./http-rate-limit.ts";
 import { dispatchWriteRoute, WRITE_ROUTE_ALLOWLIST } from "./http-write-routes.ts";
@@ -313,7 +314,7 @@ export function startReadOnlyHttpServer(
   opts: ReadOnlyHttpServerOptions = {},
 ): ReadOnlyHttpServerHandle {
   const db = new Database(dbPath, { readonly: true, create: false });
-  db.run("PRAGMA query_only = ON");
+  dbRun(db, "PRAGMA query_only = ON");
 
   // Second handle is opened ONLY when the caller wires the write surface.
   // The read-only handle above remains the default — every GET still runs
