@@ -1,0 +1,45 @@
+---
+title: Bitbucket
+description: Index Bitbucket pull requests and read repository metadata, issues, and Pipelines runs.
+---
+
+The Bitbucket connector indexes pull requests into the local SQLite index and exposes read tools across repositories, PRs, issues, and Pipelines runs. Authentication is via your Bitbucket username plus an [app password](https://bitbucket.org/account/settings/app-passwords/).
+
+---
+
+## What's indexed
+
+- **Service id:** `bitbucket`
+- **Item types:** `pr`
+
+## Authenticate
+
+```bash
+nimbus connector auth bitbucket
+```
+
+Stored in the Vault as `bitbucket.username` and `bitbucket.app_password` and injected at spawn as `BITBUCKET_USERNAME` / `BITBUCKET_APP_PASSWORD`. The MCP server uses HTTP Basic auth against `api.bitbucket.org/2.0`.
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `bitbucket_issue_list` | List issues for a repository (issue tracker must be enabled). |
+| `bitbucket_pipeline_get` | Get a single pipeline run by UUID. |
+| `bitbucket_pipeline_list` | List Pipelines runs for a repository. |
+| `bitbucket_pr_get` | Get a single pull request by numeric id. |
+| `bitbucket_pr_list` | List pull requests for a repository. |
+| `bitbucket_repo_list` | List repositories where the authenticated user is a member. |
+
+## Write tools (HITL-gated)
+
+Every tool below requires interactive consent through the Gateway HITL gate before it executes.
+
+| Tool | Purpose |
+|---|---|
+| `bitbucket_pr_merge` | Merge a pull request. |
+
+## See also
+
+- [Connectors overview](/connectors/overview/)
+- [HITL and safety](/user-guide/hitl-and-safety/)

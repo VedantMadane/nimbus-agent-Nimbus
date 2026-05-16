@@ -1,0 +1,45 @@
+---
+title: Gmail
+description: Index Gmail messages and threads, and send/draft mail through HITL-gated write tools.
+---
+
+The Gmail connector indexes message metadata into the local SQLite index and exposes read tools for labels, messages, and threads, plus three HITL-gated write tools for drafting and sending mail.
+
+---
+
+## What's indexed
+
+- **Service id:** `gmail`
+- **Item types:** `email`
+
+## Authenticate
+
+```bash
+nimbus connector auth gmail
+```
+
+OAuth (Google). The Gateway resolves a short-lived access token per service via the per-service Google OAuth flow and injects it into the connector spawn as `GOOGLE_OAUTH_ACCESS_TOKEN`. Tokens are never logged and never reach the LLM context.
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `gmail_label_list` | List all Gmail labels. |
+| `gmail_message_list` | List Gmail message ids (metadata). Supports a Gmail search `q` (same syntax as the Gmail UI). |
+| `gmail_message_read` | Read a single Gmail message (`format`: `minimal` \| `metadata` \| `full` \| `raw`). |
+| `gmail_thread_read` | Read a Gmail thread and its messages. |
+
+## Write tools (HITL-gated)
+
+Every tool below requires interactive consent through the Gateway HITL gate before it executes.
+
+| Tool | Purpose |
+|---|---|
+| `gmail_draft_create` | Create a Gmail draft. |
+| `gmail_draft_send` | Send an existing Gmail draft by id. |
+| `gmail_message_send` | Send a new Gmail message (not a draft). |
+
+## See also
+
+- [Connectors overview](/connectors/overview/)
+- [HITL and safety](/user-guide/hitl-and-safety/)

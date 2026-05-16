@@ -1,0 +1,41 @@
+---
+title: Datadog
+description: Index Datadog monitors and read incident metadata. Read-only.
+---
+
+The Datadog connector indexes monitor definitions into the local SQLite index and exposes read tools for monitors and incidents. Read-only — there are no write tools today.
+
+---
+
+## What's indexed
+
+- **Service id:** `datadog`
+- **Item types:** `monitor`
+
+## Authenticate
+
+```bash
+nimbus connector auth datadog
+```
+
+Stored in the Vault as `datadog.api_key`, `datadog.app_key`, and `datadog.site` and injected at spawn as `DD_API_KEY`, `DD_APP_KEY`, `DD_SITE`. The MCP server uses the `DD-API-KEY` and `DD-APPLICATION-KEY` headers.
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `datadog_incident_list` | List incidents (Incidents v2 API). |
+| `datadog_monitor_list` | List monitors. |
+
+## Write tools (HITL-gated)
+
+_No write tools — this connector is read-only._
+
+## Platform notes
+
+- **`DD_SITE` selects the regional API host.** Defaults to `datadoghq.com`. Set it to `datadoghq.eu`, `us3.datadoghq.com`, etc. for non-US regions. The sync handler reads the site from the Vault; the MCP server reads it from the env var.
+
+## See also
+
+- [Connectors overview](/connectors/overview/)
+- [HITL and safety](/user-guide/hitl-and-safety/)

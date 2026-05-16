@@ -1,0 +1,52 @@
+---
+title: GitHub
+description: Index GitHub PRs, issues, and CI runs and act on PRs, issues, branches, and tags via personal access token.
+---
+
+The GitHub connector is the canonical first-party connector. It indexes pull requests and issues into the local SQLite index and exposes a wide read surface across repositories, PRs, issues, and Actions runs, plus a HITL-gated write surface for the operations on-call engineers reach for most: merging PRs, creating issues, deleting branches.
+
+---
+
+## What's indexed
+
+- **Service id:** `github`
+- **Item types:** `pr`, `issue`
+
+## Authenticate
+
+```bash
+nimbus connector auth github
+```
+
+Stored in the Vault as `github.pat` and injected at spawn as `GITHUB_PAT`. Use a [fine-grained personal access token](https://github.com/settings/personal-access-tokens) scoped to the repositories you want indexed.
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `github_ci_run_get` | Get a single workflow run including jobs URL reference. |
+| `github_ci_runs` | List GitHub Actions workflow runs for a repository. |
+| `github_issue_get` | Get a single issue by number. |
+| `github_issue_list` | List issues for a repository. |
+| `github_pr_get` | Get a single pull request by number. |
+| `github_pr_list` | List pull requests for a repository. |
+| `github_repo_get` | Get repository metadata (owner/repo). |
+| `github_repo_list` | List repositories the authenticated user owns or collaborates on. |
+
+## Write tools (HITL-gated)
+
+Every tool below requires interactive consent through the Gateway HITL gate before it executes.
+
+| Tool | Purpose |
+|---|---|
+| `github_branch_delete` | Delete a branch by ref name. |
+| `github_issue_create` | Create a new issue in a repository. |
+| `github_pr_close` | Close a pull request without merging. |
+| `github_pr_merge` | Merge a pull request. |
+| `github_tag_create` | Create a lightweight tag pointing at a commit SHA. |
+
+## See also
+
+- [Connectors overview](/connectors/overview/)
+- [GitHub Actions connector](/connectors/github-actions/) — separate connector for deeper Actions read surface
+- [HITL and safety](/user-guide/hitl-and-safety/)

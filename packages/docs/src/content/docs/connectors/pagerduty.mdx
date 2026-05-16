@@ -1,0 +1,52 @@
+---
+title: PagerDuty
+description: Index PagerDuty incidents (with metadata for DORA MTTR) and act on incidents via HITL-gated write tools.
+---
+
+The PagerDuty connector indexes incidents into the local SQLite index — including the metadata fields used by DORA MTTR calculations — and exposes read tools for incidents plus three HITL-gated write tools for acknowledging, escalating, and resolving.
+
+---
+
+## What's indexed
+
+- **Service id:** `pagerduty`
+- **Item types:** `incident`
+- **DORA-relevant metadata** (written into `metadata` on every incident upsert):
+  - `opened_at_ms` — parsed from `created_at`; the X axis for MTTR
+  - `pagerduty_service_id` — from `service.id`; lets DORA group incidents per service
+  - `severity` — from `priority.name`; used for severity-aware filtering
+
+## Authenticate
+
+```bash
+nimbus connector auth pagerduty
+```
+
+Stored in the Vault as `pagerduty.api_token` and injected at spawn as `PAGERDUTY_API_TOKEN`. The MCP server uses the `Authorization: Token token=...` header.
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `pd_incident_get` | Get a single incident by id. |
+| `pd_incident_list` | List PagerDuty incidents (open and recently resolved). |
+
+## Write tools (HITL-gated)
+
+Every tool below requires interactive consent through the Gateway HITL gate before it executes.
+
+| Tool | Purpose |
+|---|---|
+| `pd_incident_acknowledge` | Acknowledge an incident. |
+| `pd_incident_escalate` | Escalate an incident. |
+| `pd_incident_resolve` | Resolve an incident. |
+
+## Platform notes
+
+- **Sync watermark.** The cursor is the `updated_at` watermark (`{ lastUpdated }`); initial sync depth is 30 days; the API call uses `sort_by=updated_at`.
+- The API host is hardcoded to `https://api.pagerduty.com` (no EU/region knob today).
+
+## See also
+
+- [Connectors overview](/connectors/overview/)
+- [HITL and safety](/user-guide/hitl-and-safety/)

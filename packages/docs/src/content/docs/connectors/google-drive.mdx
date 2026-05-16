@@ -1,0 +1,46 @@
+---
+title: Google Drive
+description: Index Drive files and folders, download content, and create / move / rename / trash files via HITL-gated write tools.
+---
+
+The Google Drive connector indexes file and folder metadata into the local SQLite index and exposes read tools for listing, searching, and downloading files, plus four HITL-gated write tools for create / move / rename / trash.
+
+---
+
+## What's indexed
+
+- **Service id:** `google_drive`
+- **Item types:** `file`, `folder`
+
+## Authenticate
+
+```bash
+nimbus connector auth google-drive
+```
+
+OAuth (Google). The Gateway resolves a short-lived access token per service via the per-service Google OAuth flow and injects it into the connector spawn as `GOOGLE_OAUTH_ACCESS_TOKEN`.
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `gdrive_file_download` | Download file bytes (base64) or text (utf-8 for `text/*`). Google Docs export to plain text; Sheets to CSV. Capped by `maxBytes` (default 256 KiB, max 16 MiB). |
+| `gdrive_file_list` | List Drive files (metadata only). Supports pagination via `pageToken`. |
+| `gdrive_file_metadata` | Get metadata for a single Drive file or folder (owners, parents, links, mimeType, description). |
+| `gdrive_file_search` | Full-text search over Drive (`fullText contains`). Non-trashed files only. |
+
+## Write tools (HITL-gated)
+
+Every tool below requires interactive consent through the Gateway HITL gate before it executes.
+
+| Tool | Purpose |
+|---|---|
+| `gdrive_file_create` | Create a Drive file. Optional text `content` uses multipart upload. |
+| `gdrive_file_move` | Move a file or folder to another parent folder. |
+| `gdrive_file_rename` | Rename a Drive file or folder. |
+| `gdrive_file_trash` | Move a Drive file or folder to trash (recoverable). |
+
+## See also
+
+- [Connectors overview](/connectors/overview/)
+- [HITL and safety](/user-guide/hitl-and-safety/)

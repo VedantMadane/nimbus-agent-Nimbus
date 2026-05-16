@@ -1,0 +1,53 @@
+---
+title: Infrastructure as Code (Terraform / OpenTofu / Pulumi)
+description: Run terraform / pulumi / cloudformation plans and applies in a working directory. Opt-in.
+---
+
+The IaC connector exposes a small set of CLI-driven tools for `terraform`, OpenTofu, Pulumi, and AWS CloudFormation against a caller-supplied working directory. Reads (`plan`, `preview`) are no-HITL; every state-mutating tool (`apply`, `destroy`, `up`, `deploy`) is HITL-gated. Opt-in.
+
+---
+
+## What's indexed
+
+- **Service id:** `iac`
+- **Item types:** `sync_heartbeat`
+
+The IaC connector does not scan repositories. The sync emits a heartbeat with indexed AWS Lambda counts (consumed by `nimbus status --drift`); all other operation is on-demand against a `workingDirectory` you pass at call time.
+
+## Authenticate
+
+```bash
+# Opt in
+nimbus vault set iac.enabled 1
+```
+
+The connector inherits the ambient process environment, so cloud credentials come from your usual `terraform` / `pulumi` / `aws` setup (`AWS_PROFILE`, `~/.aws/credentials`, `gcloud auth`, etc.). Without `iac.enabled = "1"` in the Vault, the syncable returns a no-op.
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `iac_pulumi_preview` | Run `pulumi preview` in a stack directory. |
+| `iac_terraform_plan` | Run `terraform plan` in a directory. |
+
+## Write tools (HITL-gated)
+
+Every tool below requires interactive consent through the Gateway HITL gate before it executes.
+
+| Tool | Purpose |
+|---|---|
+| `iac_cloudformation_deploy` | Deploy a CloudFormation stack via AWS CLI. |
+| `iac_pulumi_up` | Run `pulumi up`. |
+| `iac_terraform_apply` | Run `terraform apply`. |
+| `iac_terraform_destroy` | Run `terraform destroy`. |
+
+## Platform notes
+
+- Requires the relevant CLI on `PATH`: **`terraform`** (or **`tofu`**) for terraform tools, **`pulumi`** for pulumi tools, **`aws`** for `cloudformation_deploy`.
+- All operations take a `workingDirectory` argument and execute there with the caller's ambient cloud credentials.
+
+## See also
+
+- [AWS connector](/connectors/aws/), [GCP connector](/connectors/gcp/), [Azure connector](/connectors/azure/) — for cloud credential setup
+- [Connectors overview](/connectors/overview/)
+- [HITL and safety](/user-guide/hitl-and-safety/)

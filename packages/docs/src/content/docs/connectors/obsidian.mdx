@@ -1,0 +1,47 @@
+---
+title: Obsidian
+description: Index local Obsidian vaults — notes, frontmatter tags, and wikilink graph. Filesystem-only, no network.
+---
+
+The Obsidian connector indexes notes from local Obsidian vaults into the local SQLite index, including frontmatter tags and wikilink graph edges. It exposes read tools for listing, reading, and substring-searching notes across all configured vaults, plus one HITL-gated write tool for appending to today's daily note.
+
+This is a **filesystem-only** connector — no network call, no remote credential. Vault roots come from `[[filesystem.roots]]` in your `nimbus.toml`.
+
+---
+
+## What's indexed
+
+- **Service id:** `obsidian`
+- **Item types:** `obsidian_note`
+- **Graph:** wikilink edges are also written to `graph_entity` / `graph_relation` for cross-note traversal.
+
+## Authenticate
+
+No credential. The Gateway discovers vaults by walking each `[[filesystem.roots]]` path for a `.obsidian/` marker directory and exposes the discovered vault list to the MCP server as `OBSIDIAN_VAULT_PATHS_JSON` (a JSON array of absolute paths).
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `obsidian_get` | Read a single Obsidian note by id, or by `(vault, path)` pair. |
+| `obsidian_list` | List Obsidian notes (optionally filtered by vault id, vault path, or frontmatter tag). |
+| `obsidian_search` | Substring-match against note title and body across all configured vaults. |
+
+## Write tools (HITL-gated)
+
+Every tool below requires interactive consent through the Gateway HITL gate before it executes.
+
+| Tool | Purpose |
+|---|---|
+| `obsidian_append_to_daily_note` | Append text to today's daily note. Creates the file if it does not exist. **Always appends — never overwrites.** Adds a leading newline when the existing file does not end in one. |
+
+## Platform notes
+
+- **Local-only.** Vault roots come from `[[filesystem.roots]]` in `nimbus.toml`. Vaults are auto-discovered by walking each root for a `.obsidian/` marker.
+- All paths are validated by `assertWithinVault` against directory traversal — `..` segments and absolute paths outside the vault root are rejected.
+- The sync also writes to the `obsidian_notes` table and the graph tables (`graph_entity` / `graph_relation`) so wikilink follows work in agent searches.
+
+## See also
+
+- [Connectors overview](/connectors/overview/)
+- [HITL and safety](/user-guide/hitl-and-safety/)

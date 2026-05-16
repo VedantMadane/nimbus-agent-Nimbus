@@ -1,0 +1,48 @@
+---
+title: Linear
+description: Index Linear issues and act on issues + comments via HITL-gated write tools.
+---
+
+The Linear connector indexes issues into the local SQLite index and exposes read tools for issues, projects, cycles, members, and roadmap initiatives, plus three HITL-gated write tools for creating issues, updating issues, and adding comments.
+
+---
+
+## What's indexed
+
+- **Service id:** `linear`
+- **Item types:** `issue`
+
+## Authenticate
+
+```bash
+nimbus connector auth linear
+```
+
+Stored in the Vault as `linear.api_key` and injected at spawn as `LINEAR_API_KEY`. Generate a personal API key at [linear.app/settings/api](https://linear.app/settings/api).
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `linear_cycle_list` | List Linear cycles for a team. |
+| `linear_issue_get` | Get a single Linear issue by UUID id. |
+| `linear_issue_list` | List Linear issues with optional filters (team id, state name, assignee id). |
+| `linear_member_list` | List users in the workspace. |
+| `linear_project_get` | Get a Linear project by id. |
+| `linear_project_list` | List Linear projects. |
+| `linear_roadmap_list` | List Linear initiatives (roadmap). |
+
+## Write tools (HITL-gated)
+
+Every tool below requires interactive consent through the Gateway HITL gate before it executes.
+
+| Tool | Purpose |
+|---|---|
+| `linear_comment_create` | Add a comment to a Linear issue. |
+| `linear_issue_create` | Create a Linear issue (requires `teamId` and `title`). |
+| `linear_issue_update` | Update a Linear issue by id. |
+
+## See also
+
+- [Connectors overview](/connectors/overview/)
+- [HITL and safety](/user-guide/hitl-and-safety/)

@@ -1,0 +1,40 @@
+---
+title: Google Photos
+description: Index Google Photos albums and media item metadata. Read-only.
+---
+
+The Google Photos connector indexes album and media-item metadata into the local SQLite index and exposes read tools for listing and searching photos. Read-only — there are no write tools.
+
+---
+
+## What's indexed
+
+- **Service id:** `google_photos`
+- **Item types:** `photo`
+
+## Authenticate
+
+```bash
+nimbus connector auth google-photos
+```
+
+OAuth (Google). The Gateway resolves a short-lived access token per service via the per-service Google OAuth flow and injects it into the connector spawn as `GOOGLE_OAUTH_ACCESS_TOKEN`.
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `gphotos_album_get` | Get a single album by id (title, mediaItemsCount, coverPhotoBaseUrl). |
+| `gphotos_album_list` | List Google Photos albums (metadata). Supports pagination. |
+| `gphotos_media_get` | Get a single media item by id. |
+| `gphotos_media_list` | List media items (metadata + `baseUrl` / `productUrl` only). Optional `albumId` scopes to one album. |
+| `gphotos_media_search` | Search media items. Optional album filter; supports pagination. |
+
+## Write tools (HITL-gated)
+
+_No write tools — this connector is read-only._
+
+## See also
+
+- [Connectors overview](/connectors/overview/)
+- [HITL and safety](/user-guide/hitl-and-safety/)

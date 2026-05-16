@@ -1,0 +1,46 @@
+---
+title: Discord
+description: Index Discord channel messages from a bot you control. Opt-in — disabled by default.
+---
+
+The Discord connector indexes channel messages and threads from servers your bot is a member of into the local SQLite index. Read-only by design. Discord is an **opt-in** connector — the Gateway sync stays a no-op until you explicitly flip the vault switch.
+
+---
+
+## What's indexed
+
+- **Service id:** `discord`
+- **Item types:** `message`
+
+## Authenticate
+
+```bash
+# Opt in first
+nimbus vault set discord.enabled 1
+nimbus vault set discord.bot_token <your-bot-token>
+nimbus connector sync discord
+```
+
+Stored in the Vault as `discord.bot_token` and `discord.enabled` (must equal `"1"`) and injected at spawn as `DISCORD_BOT_TOKEN`. The MCP server authenticates against the Discord REST API as the bot. Without **both** the `enabled=1` flag and a non-empty `bot_token`, the Gateway syncable returns a no-op on every cycle.
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `discord_channel_list` | List channels in a guild (id, type, name). |
+| `discord_channel_messages` | List recent messages in a channel (newest first). Optional `after` snowflake for incremental fetch. |
+| `discord_guild_list` | List guilds the bot is a member of. |
+| `discord_thread_list` | List active threads in a guild (includes public threads the bot can see). |
+
+## Write tools (HITL-gated)
+
+_No write tools — this connector is read-only._
+
+## Platform notes
+
+- **Opt-in.** The Gateway sync is gated on `discord.enabled == "1"` AND a non-empty `discord.bot_token` in the Vault. Without both, the syncable returns a no-op on every cycle and no Discord data is ever indexed.
+
+## See also
+
+- [Connectors overview](/connectors/overview/)
+- [HITL and safety](/user-guide/hitl-and-safety/)

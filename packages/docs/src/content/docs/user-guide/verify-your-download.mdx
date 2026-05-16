@@ -72,7 +72,7 @@ curl -fsSL https://github.com/nimbus-agent/Nimbus/releases/latest/download/nimbu
 chmod +x nimbus-verify.sh
 
 # Verify the latest release artefacts
-./nimbus-verify.sh --version 0.1.0
+./nimbus-verify.sh --version 0.2.0
 ```
 
 **Windows (PowerShell):**
@@ -82,7 +82,7 @@ Invoke-WebRequest `
   -Uri "https://github.com/nimbus-agent/Nimbus/releases/latest/download/nimbus-verify.ps1" `
   -OutFile "nimbus-verify.ps1"
 
-.\nimbus-verify.ps1 -Version 0.1.0
+.\nimbus-verify.ps1 -Version 0.2.0
 ```
 
 The helper script:
@@ -202,10 +202,10 @@ gpg --verify Nimbus.AppImage.asc Nimbus.AppImage
 
 ## macOS and Windows note
 
-v0.1.0 ships **without** platform-native code-signing (no notarised macOS
-`.pkg`, no Authenticode-signed Windows installer). This is an explicit project
-decision deferred to a later point release — see `docs/SECURITY.md` in the
-repository for the full rationale.
+v0.1.0+ releases ship **without** platform-native code-signing (no notarised
+macOS `.pkg`, no Authenticode-signed Windows installer). This is an explicit
+project decision deferred to a later point release — see `docs/SECURITY.md`
+in the repository for the full rationale.
 
 The GPG-signed `SHA256SUMS.asc` manifest is the cross-platform integrity
 proof for all platforms. When you first run the Nimbus binary on macOS,

@@ -1,0 +1,41 @@
+---
+title: New Relic
+description: Index APM applications and read alert violations. Read-only. US region only today.
+---
+
+The New Relic connector indexes APM applications into the local SQLite index and exposes read tools for applications and alert violations. Read-only — there are no write tools.
+
+---
+
+## What's indexed
+
+- **Service id:** `newrelic`
+- **Item types:** `application`
+
+## Authenticate
+
+```bash
+nimbus connector auth newrelic
+```
+
+Stored in the Vault as `newrelic.api_key` and injected at spawn as `NEW_RELIC_API_KEY`. The MCP server uses the `X-Api-Key` header.
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `newrelic_alert_violations` | List recent alert violations. |
+| `newrelic_application_list` | List APM applications. |
+
+## Write tools (HITL-gated)
+
+_No write tools — this connector is read-only._
+
+## Platform notes
+
+- The API host is hardcoded to `api.newrelic.com` (US region only). EU region (`api.eu.newrelic.com`) is not configurable through the current connector.
+
+## See also
+
+- [Connectors overview](/connectors/overview/)
+- [HITL and safety](/user-guide/hitl-and-safety/)

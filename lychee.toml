@@ -14,6 +14,10 @@ exclude = [
   "127\\.0\\.0\\.1",
   # GitHub Releases anchors that are page-internal
   "github\\.com/.*/releases/tag",
+  # release-please CHANGELOG compare links — the higher tag is only created
+  # by the release job AFTER the release PR merges, so the link 404s while
+  # the PR is open. Resolves automatically post-merge.
+  "github\\.com/nimbus-agent/Nimbus/compare/v",
   # External hosts that block scripted user-agents or rate-limit aggressively
   # from GitHub-hosted runner egress. Verified live in browsers; the failures
   # are infrastructure noise, not broken links.

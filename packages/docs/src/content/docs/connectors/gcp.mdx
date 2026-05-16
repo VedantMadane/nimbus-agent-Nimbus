@@ -1,0 +1,46 @@
+---
+title: Google Cloud Platform
+description: Index GCP project metadata and act on Cloud Run + GKE through gcloud Application Default Credentials.
+---
+
+The GCP connector indexes project metadata into the local SQLite index and exposes a small read + HITL-gated write surface for Cloud Run and GKE. The MCP server shells out to the `gcloud` CLI using Application Default Credentials.
+
+---
+
+## What's indexed
+
+- **Service id:** `gcp`
+- **Item types:** `project`
+
+## Authenticate
+
+```bash
+nimbus connector auth gcp
+```
+
+Stored in the Vault as `gcp.credentials_json_path` and `gcp.project_id`. The credentials JSON path is exported into the connector spawn as `GOOGLE_APPLICATION_CREDENTIALS`, which `gcloud` (and any Google client library) picks up as ADC.
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `gcp_cloud_run_service_list` | List Cloud Run services in a region. |
+
+## Write tools (HITL-gated)
+
+Every tool below requires interactive consent through the Gateway HITL gate before it executes.
+
+| Tool | Purpose |
+|---|---|
+| `gcp_cloud_run_deploy` | Deploy a container image to Cloud Run. |
+| `gcp_gke_workload_restart` | Restart a GKE deployment rollout via `kubectl` (uses current cluster credentials). |
+
+## Platform notes
+
+- Requires the **`gcloud` CLI** on `PATH` — the MCP server invokes it via `Bun.spawn(["gcloud", ...])`.
+- `gcp_gke_workload_restart` additionally requires **`kubectl`** on `PATH` and a configured cluster context.
+
+## See also
+
+- [Connectors overview](/connectors/overview/)
+- [HITL and safety](/user-guide/hitl-and-safety/)

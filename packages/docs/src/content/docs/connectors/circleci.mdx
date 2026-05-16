@@ -1,0 +1,45 @@
+---
+title: CircleCI
+description: Index CircleCI pipelines and read workflow + job + artefact metadata across your projects.
+---
+
+The CircleCI connector indexes pipeline runs into the local SQLite index and exposes read tools across pipelines, workflows, jobs, and artefacts. Authentication is via a personal API token.
+
+---
+
+## What's indexed
+
+- **Service id:** `circleci`
+- **Item types:** `ci_run`
+
+## Authenticate
+
+```bash
+nimbus connector auth circleci
+```
+
+Stored in the Vault as `circleci.api_token` and injected at spawn as `CIRCLECI_API_TOKEN`. The MCP server uses the `Circle-Token` header against `circleci.com/api/v2`.
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `circleci_job_artifacts` | List artifact metadata for a job number under a project. |
+| `circleci_job_list` | List jobs for a workflow. |
+| `circleci_pipeline_get` | Get a pipeline by UUID. |
+| `circleci_pipeline_list` | List pipelines for a CircleCI project. |
+| `circleci_workflow_list` | List workflows for a pipeline. |
+
+## Write tools (HITL-gated)
+
+Every tool below requires interactive consent through the Gateway HITL gate before it executes.
+
+| Tool | Purpose |
+|---|---|
+| `circleci_job_cancel` | Cancel a running job by project slug and job number. |
+| `circleci_pipeline_trigger` | Trigger a new pipeline on a branch (or tag). |
+
+## See also
+
+- [Connectors overview](/connectors/overview/)
+- [HITL and safety](/user-guide/hitl-and-safety/)

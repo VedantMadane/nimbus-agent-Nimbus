@@ -14,8 +14,7 @@ import { runAsk } from "./engine/run-ask.ts";
 import { emergencyGatewayLog } from "./platform/gateway-log-file.ts";
 import { removeGatewayStateFile, writeGatewayStateFile } from "./platform/gateway-state-file.ts";
 import { createPlatformServices } from "./platform/index.ts";
-
-const GATEWAY_VERSION = "0.1.0";
+import { GATEWAY_VERSION } from "./version.ts";
 
 async function main(): Promise<void> {
   // Plain stdout writes (not pino) so the CLI's progress tail surfaces them

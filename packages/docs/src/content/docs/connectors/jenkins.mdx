@@ -1,0 +1,45 @@
+---
+title: Jenkins
+description: Index Jenkins builds and trigger / abort builds with HITL-gated write tools.
+---
+
+The Jenkins connector indexes build metadata into the local SQLite index and exposes read tools for jobs and builds, plus two HITL-gated write tools for triggering and aborting builds.
+
+---
+
+## What's indexed
+
+- **Service id:** `jenkins`
+- **Item types:** `ci_run`
+
+## Authenticate
+
+```bash
+nimbus connector auth jenkins
+```
+
+Stored in the Vault as `jenkins.base_url`, `jenkins.username`, and `jenkins.api_token`. The MCP server uses HTTP Basic auth and fetches a CSRF crumb for write operations.
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `jenkins_build_get` | Get a single build by job name and build number. |
+| `jenkins_build_list` | List recent builds for a job. |
+| `jenkins_build_log_tail` | Fetch console text for a build (full log; tail client-side). |
+| `jenkins_job_get` | Get Jenkins job metadata by full name. |
+| `jenkins_job_list` | List Jenkins jobs (nested folders, limited depth). |
+
+## Write tools (HITL-gated)
+
+Every tool below requires interactive consent through the Gateway HITL gate before it executes.
+
+| Tool | Purpose |
+|---|---|
+| `jenkins_build_abort` | Abort/stop a running build. |
+| `jenkins_build_trigger` | Trigger a new build for a job. |
+
+## See also
+
+- [Connectors overview](/connectors/overview/)
+- [HITL and safety](/user-guide/hitl-and-safety/)

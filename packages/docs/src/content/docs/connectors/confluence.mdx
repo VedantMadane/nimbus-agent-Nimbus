@@ -1,0 +1,51 @@
+---
+title: Confluence
+description: Index Confluence pages and blog posts and read + write content across spaces. Cloud only.
+---
+
+The Confluence connector indexes pages into the local SQLite index and exposes read tools across pages, blog posts, comments, and spaces, plus a small set of HITL-gated write tools for creating and updating content. Confluence Cloud only.
+
+---
+
+## What's indexed
+
+- **Service id:** `confluence`
+- **Item types:** `page`
+
+## Authenticate
+
+```bash
+nimbus connector auth confluence
+```
+
+Stored in the Vault as `confluence.base_url`, `confluence.email`, and `confluence.api_token` and injected at spawn as `CONFLUENCE_BASE_URL`, `CONFLUENCE_EMAIL`, `CONFLUENCE_API_TOKEN`. The MCP server uses Atlassian Basic auth (email + API token). Generate an API token at [id.atlassian.com → Security → API tokens](https://id.atlassian.com/manage-profile/security/api-tokens).
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `confluence_blogpost_get` | Get a blog post by id (`GET /content/{id}`). |
+| `confluence_blogpost_list` | List blog posts in a space (`GET /content?type=blogpost`). |
+| `confluence_comment_list` | List footer comments on a page (`GET /content/{id}/child/comment`). |
+| `confluence_page_get` | Get a Confluence page with `body.storage` (`GET /content/{id}`). |
+| `confluence_page_list` | List pages in a space (`GET /content?type=page`). |
+| `confluence_space_list` | List Confluence spaces (`GET /space`). |
+
+## Write tools (HITL-gated)
+
+Every tool below requires interactive consent through the Gateway HITL gate before it executes.
+
+| Tool | Purpose |
+|---|---|
+| `confluence_comment_add` | Add a footer comment to a page. |
+| `confluence_page_create` | Create a page in a space (optional `parentPageId`). |
+| `confluence_page_update` | Update page body and bump version (pass current version + title). |
+
+## Platform notes
+
+- **Confluence Cloud only.** The base URL must be the `*.atlassian.net` site root; the connector appends `/wiki` automatically.
+
+## See also
+
+- [Connectors overview](/connectors/overview/)
+- [HITL and safety](/user-guide/hitl-and-safety/)

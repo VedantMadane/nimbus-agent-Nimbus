@@ -1,0 +1,55 @@
+---
+title: GitLab
+description: Index GitLab merge requests, issues, and CI pipelines. Works against gitlab.com or self-hosted.
+---
+
+The GitLab connector indexes merge requests, issues, and CI pipeline runs into the local SQLite index and exposes a wide read surface across projects, MRs, issues, pipelines, and job traces, plus three HITL-gated write tools.
+
+---
+
+## What's indexed
+
+- **Service id:** `gitlab`
+- **Item types:** `pr`, `issue`, `ci_run`
+
+## Authenticate
+
+```bash
+nimbus connector auth gitlab
+```
+
+Stored in the Vault as `gitlab.pat` (and optionally `gitlab.api_base_url` for self-hosted instances) and injected at spawn as `GITLAB_PAT` / `GITLAB_API_BASE_URL`. The MCP server uses the `PRIVATE-TOKEN` header.
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `gitlab_issue_get` | Get a single issue by IID. |
+| `gitlab_issue_list` | List issues for a project. |
+| `gitlab_job_log_tail` | Download job trace text, optionally keeping only the last N characters. |
+| `gitlab_job_trace` | Download plain-text trace for a CI job (by job id). |
+| `gitlab_mr_get` | Get a single merge request by IID. |
+| `gitlab_mr_list` | List merge requests for a project. |
+| `gitlab_pipeline_get` | Get a single pipeline by id. |
+| `gitlab_pipeline_jobs_get` | List jobs for a CI pipeline (by pipeline id). |
+| `gitlab_pipeline_list` | List CI pipelines for a project. |
+| `gitlab_project_list` | List projects visible to the authenticated user (membership). |
+
+## Write tools (HITL-gated)
+
+Every tool below requires interactive consent through the Gateway HITL gate before it executes.
+
+| Tool | Purpose |
+|---|---|
+| `gitlab_mr_merge` | Merge a merge request. |
+| `gitlab_pipeline_cancel` | Cancel a pipeline. |
+| `gitlab_pipeline_retry` | Retry failed jobs in a pipeline. |
+
+## Platform notes
+
+- For **self-hosted GitLab**, set `gitlab.api_base_url` in the Vault (e.g. `https://gitlab.example.com/api/v4`). Defaults to `https://gitlab.com/api/v4`.
+
+## See also
+
+- [Connectors overview](/connectors/overview/)
+- [HITL and safety](/user-guide/hitl-and-safety/)

@@ -1,0 +1,41 @@
+---
+title: Sentry
+description: Index Sentry projects and read unresolved issues + releases. Read-only.
+---
+
+The Sentry connector indexes project metadata into the local SQLite index and exposes read tools for unresolved issues and releases. Read-only — there are no write tools.
+
+---
+
+## What's indexed
+
+- **Service id:** `sentry`
+- **Item types:** `project`
+
+## Authenticate
+
+```bash
+nimbus connector auth sentry
+```
+
+Stored in the Vault as `sentry.url`, `sentry.org_slug`, and `sentry.auth_token` and injected at spawn as `SENTRY_URL`, `SENTRY_ORG_SLUG`, `SENTRY_AUTH_TOKEN`. The MCP server uses Bearer auth.
+
+## Read tools (no HITL)
+
+| Tool | Purpose |
+|---|---|
+| `sentry_issue_list` | List unresolved issues for a project. |
+| `sentry_release_list` | List releases for a project. |
+
+## Write tools (HITL-gated)
+
+_No write tools — this connector is read-only._
+
+## Platform notes
+
+- **`SENTRY_URL` is optional** and defaults to `https://sentry.io`. Set it for self-hosted Sentry instances.
+
+## See also
+
+- [Connectors overview](/connectors/overview/)
+- [HITL and safety](/user-guide/hitl-and-safety/)
