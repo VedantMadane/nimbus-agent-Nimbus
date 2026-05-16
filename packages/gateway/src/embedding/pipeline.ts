@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
 
+import { dbRun, dbStmtRun } from "../db/write.ts";
 import { type ChunkOptions, chunkText, itemTextForEmbedding } from "./chunker.ts";
 import { SUPPORTED_EMBEDDING_DIMS } from "./routing.ts";
 import type { Embedder, EmbeddingPipeline, IndexedItem } from "./types.ts";
@@ -76,7 +77,10 @@ export class SqliteEmbeddingPipeline implements EmbeddingPipeline {
     const itemId = item.id;
 
     this.db.transaction(() => {
-      this.db.run(`DELETE FROM embedding_chunk WHERE item_id = ? AND model = ?`, [itemId, model]);
+      dbRun(this.db, `DELETE FROM embedding_chunk WHERE item_id = ? AND model = ?`, [
+        itemId,
+        model,
+      ]);
 
       const maxRow = this.db
         .query(`SELECT COALESCE(MAX(rowid), 0) AS m FROM ${this.vecTable}`)
@@ -99,14 +103,14 @@ export class SqliteEmbeddingPipeline implements EmbeddingPipeline {
         }
         const rowid = nextRowid;
         nextRowid += 1;
-        insertVec.run(BigInt(rowid), new Float32Array(vec));
-        insertChunk.run(itemId, i, text, rowid, model, dims, now);
+        dbStmtRun(insertVec, BigInt(rowid), new Float32Array(vec));
+        dbStmtRun(insertChunk, itemId, i, text, rowid, model, dims, now);
       }
     })();
   }
 
   async deleteItemEmbeddings(itemId: string): Promise<void> {
-    this.db.run(`DELETE FROM embedding_chunk WHERE item_id = ?`, [itemId]);
+    dbRun(this.db, `DELETE FROM embedding_chunk WHERE item_id = ?`, [itemId]);
   }
 
   async backfillAll(onProgress?: (done: number, total: number) => void): Promise<void> {

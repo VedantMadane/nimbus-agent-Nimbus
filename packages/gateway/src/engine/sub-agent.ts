@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { dbRun } from "../db/write.ts";
 import type { SubTaskExecuteResult, SubTaskType } from "./coordinator.ts";
 
 export type SubAgentRunOptions = {
@@ -14,7 +15,8 @@ export type SubAgentRunResult = SubTaskExecuteResult;
 
 function tryPersistStart(db: Database, opts: SubAgentRunOptions, now: number): number | undefined {
   try {
-    const stmt = db.run(
+    const stmt = dbRun(
+      db,
       `INSERT INTO sub_task_results
        (session_id, parent_id, task_index, task_type, status, started_at, created_at)
        VALUES (?, ?, ?, ?, 'running', ?, ?)`,
@@ -29,7 +31,8 @@ function tryPersistStart(db: Database, opts: SubAgentRunOptions, now: number): n
 
 function tryPersistDone(db: Database, rowId: number, result: SubAgentRunResult): void {
   try {
-    db.run(
+    dbRun(
+      db,
       `UPDATE sub_task_results
        SET status = 'done', result_json = ?, model_used = ?, tokens_in = ?, tokens_out = ?, completed_at = ?
        WHERE id = ?`,
@@ -49,7 +52,8 @@ function tryPersistDone(db: Database, rowId: number, result: SubAgentRunResult):
 
 function tryPersistError(db: Database, rowId: number, e: unknown): void {
   try {
-    db.run(
+    dbRun(
+      db,
       `UPDATE sub_task_results SET status = 'error', error_text = ?, completed_at = ? WHERE id = ?`,
       [e instanceof Error ? e.message : String(e), Date.now(), rowId],
     );

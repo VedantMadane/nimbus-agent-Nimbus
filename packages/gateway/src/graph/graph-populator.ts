@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 
+import { dbRun } from "../db/write.ts";
 import { readIndexedUserVersion } from "../index/migrations/runner.ts";
 import {
   isItemLinkedGraphType,
@@ -26,7 +27,7 @@ function repoPathFromMetadata(meta: Record<string, unknown>): string | undefined
 }
 
 function clearRelationsTouchingEntity(db: Database, entityId: string): void {
-  db.run("DELETE FROM graph_relation WHERE from_id = ? OR to_id = ?", [entityId, entityId]);
+  dbRun(db, "DELETE FROM graph_relation WHERE from_id = ? OR to_id = ?", [entityId, entityId]);
 }
 
 function personDisplayName(db: Database, personId: string): string | null {

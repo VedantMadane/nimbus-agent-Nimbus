@@ -11,7 +11,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { dbExec, dbRun } from "../db/write.ts";
+import { dbExec, dbRun, dbStmtRun } from "../db/write.ts";
 import type { CorpusTier } from "./types.ts";
 
 export const FIXTURE_TIER_SIZES = {
@@ -106,7 +106,7 @@ export async function buildSyntheticIndex(
     dbRun(db, "BEGIN");
     for (let i = 0; i < rows; i += 1) {
       const t = Math.floor(rng() * 1_000_000);
-      ins.run(`gh:${i}`, String(i), `Synthetic PR ${i}`, now - t, now - t);
+      dbStmtRun(ins, `gh:${i}`, String(i), `Synthetic PR ${i}`, now - t, now - t);
     }
     dbRun(db, "COMMIT");
     // Finalize the prepared statement before closing the DB. On Windows,

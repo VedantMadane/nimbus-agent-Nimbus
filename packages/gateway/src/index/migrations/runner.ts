@@ -15,7 +15,7 @@ import {
 import { join } from "node:path";
 import { CONNECTOR_REMOVE_INTENT_V15_SQL } from "../../connectors/remove-intent.ts";
 import { computeAuditRowHash } from "../../db/audit-chain.ts";
-import { dbExec, dbRun } from "../../db/write.ts";
+import { dbExec, dbRun, dbStmtRun } from "../../db/write.ts";
 import { API_ENDPOINT_V25_SCHEMA_SQL } from "../api-endpoint-v25-sql.ts";
 import { AUDIT_CHAIN_V18_SCHEMA_SQL } from "../audit-chain-v18-sql.ts";
 import { AUDIT_SESSION_V24_SCHEMA_SQL } from "../audit-session-v24-sql.ts";
@@ -293,7 +293,7 @@ function backfillAuditChain(db: Database): void {
       actionJson: r.action_json,
       timestamp: r.timestamp,
     });
-    update.run(row, prev, r.id);
+    dbStmtRun(update, row, prev, r.id);
     prev = row;
   }
 }
