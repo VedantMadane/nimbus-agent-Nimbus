@@ -220,6 +220,103 @@ nimbus expert --json src/billing/retry.ts
 
 ---
 
+## CI/CD
+
+DORA metrics, pre-deploy checks, and post-deploy annotation — answered from the local index without an external API call. All three commands target a stable `<service-id>` you choose (e.g. `payment-service`); the underlying repo URNs (`<provider>:<owner>/<repo>`) and PagerDuty service ids are configured per-service in `[metrics.dora.<service-id>]` / `[ci.service.<service-id>]` blocks in `nimbus.toml`.
+
+### `nimbus metrics dora`
+
+Compute the four DORA metrics — deployment frequency, lead time for changes, change failure rate, MTTR — for a service over a chosen window. Answered entirely from indexed deployments, PRs, and incidents.
+
+```bash
+nimbus metrics dora --service payment-service
+nimbus metrics dora --service payment-service --since 30d --json
+```
+
+**Options:**
+
+| Flag | Description |
+|---|---|
+| `--service <id>` | Service id (the table key in `[metrics.dora.<id>]`) (required) |
+| `--since <duration>` | Window — `<n>d` or `<n>h`, e.g. `30d`, `24h` (default: `30d`) |
+| `--json` | Machine-readable JSON output |
+
+Read-only; no HITL.
+
+---
+
+### `nimbus deploy preflight`
+
+Pre-deploy index check: counts active P1 incidents, failing CI on the target ref, and open PR conflicts. Useful as a deploy-gate step in CI.
+
+```bash
+nimbus deploy preflight --service payment-service --target-ref main
+nimbus deploy preflight --service payment-service --target-ref release/v2.14 --mode block --json
+```
+
+**Options:**
+
+| Flag | Description |
+|---|---|
+| `--service <id>` | Service id (required) |
+| `--target-ref <ref>` | Git ref being deployed (required) |
+| `--mode <warn\|block\|off>` | `warn` (default) — print findings, exit 0. `block` — exit 1 when any finding triggers the gate. `off` — skip checks |
+| `--json` | Machine-readable JSON output |
+
+**Exit codes:** `0` = ok (or `warn` mode with findings); `1` = `block` mode triggered or usage error; `2` = infrastructure failure (gateway not running, IPC error, malformed envelope).
+
+A first-party GitHub Action wraps `GET /v1/preflight/deploy` for use directly in workflows — see [`packages/github-actions/preflight-query/`](../packages/github-actions/preflight-query/).
+
+Read-only; no HITL.
+
+---
+
+### `nimbus deploy annotate`
+
+Record a deployment event in the local index after a deploy completes. The Gateway upserts a `deployment` item and writes one audit entry. Used by CI to feed DORA metrics.
+
+```bash
+nimbus deploy annotate \
+  --service payment-service \
+  --sha 4a3f9c2 \
+  --target-ref main \
+  --env production \
+  --status success \
+  --started-at 1715812800000 \
+  --finished-at 1715813100000 \
+  --provider github-actions \
+  --run-id 12345
+```
+
+**Options:**
+
+| Flag | Description |
+|---|---|
+| `--service <id>` | Service id — 1..64 chars matching `[a-z0-9][a-z0-9._-]*` (required) |
+| `--sha <sha>` | Deployed commit SHA — 7..64 lowercase hex chars (required) |
+| `--target-ref <ref>` | Git ref deployed (required) |
+| `--env <env>` | Environment (`production`, `staging`, …) — 1..32 chars matching `[a-z0-9][a-z0-9._-]*` (required) |
+| `--status <s>` | One of `success`, `failure`, `cancelled`, `in_progress` (required) |
+| `--started-at <ms>` | Deploy start time, unix milliseconds (required) |
+| `--finished-at <ms>` | Deploy end time, unix milliseconds (optional) |
+| `--provider <name>` | One of `github-actions`, `gitlab`, `jenkins`, `circleci`, `bitbucket`, `other` (default: `other`) |
+| `--workflow-url <url>` | Optional pointer to the CI run URL |
+| `--run-id <id>` | CI run identifier |
+| `--job-id <id>` | CI job identifier within the run |
+| `--json` | Machine-readable JSON output |
+
+**HTTP write surface:** internally this routes through `POST /v1/deployments` on the local HTTP API, which is the **only** write route the HTTP server accepts (invariant `I13`). Bearer auth, an 8 KiB body cap, and per-token rate limiting all apply; every rejection is recorded as a `deployment.annotation_rejected` audit row.
+
+**Required vault key:**
+
+| Key | Purpose |
+|---|---|
+| `http_api.deployment_token` | Bearer token sent with every `POST /v1/deployments`. Set with `nimbus vault set http_api.deployment_token <token>`. Without it the HTTP write surface returns 503 (`write_surface_disabled`). |
+
+A first-party GitHub Action wraps the endpoint for use directly in workflows — see [`packages/github-actions/annotate-action/`](../packages/github-actions/annotate-action/).
+
+---
+
 ## Interactive Sessions
 
 ### `nimbus tui`
