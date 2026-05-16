@@ -13,14 +13,15 @@ T6 PR 4 closes Phase 5 Core item 5 ("B1 hardening + semantic layer prep"). Every
 
 A new structural invariant **I14** ("All SQLite write paths route through `dbRun` / `dbExec`") locks this in with the triple defense the project requires: production wiring (`db/write.ts`), docs entry (`SECURITY-INVARIANTS.md`), and enforcement (static-audit binary `D12` + runtime test in `security-invariants.test.ts`).
 
-The migration is mechanical — 94 `db.run` + 66 `db.exec` = **160 single-line prefix edits across 28 production files** plus the wrapper signature widening — but it lands last in T6 specifically because it touches every package, and rebasing T6 PR 1/2/3 against it would be expensive.
+The migration is mechanical — 94 `db.run` + 66 `db.exec` + 3 prepared-statement writes = **163 single-line prefix edits across 28 production files** plus the wrapper signature widening (a new `dbStmtRun` helper for the prepared-statement sites) — but it lands last in T6 specifically because it touches every package, and rebasing T6 PR 1/2/3 against it would be expensive.
 
 ## Section 1 — Scope (locked)
 
 ### In scope
 
 - Wrapper signature change in `packages/gateway/src/db/write.ts`: `dbRun` returns Bun's `RunResult` (`ReturnType<Database["run"]>` — `{ changes: number; lastInsertRowid: number | bigint }`) instead of `void`. `dbExec` stays `void`. Translation logic in `handleWriteError` unchanged.
-- Migration of every direct `db.run(` / `db.exec(` (including `this.db.` variants) in production code under `packages/gateway/src/` outside the wrapper itself. Total: **94 `db.run` + 66 `db.exec` = 160 sites across 28 files** as of 2026-05-16 (94-entry `docs/structure-audit/db-run-census.json` covers `db.run`; the 66 `db.exec` are 65 inside `index/migrations/runner.ts` + 1 in `perf/perf-fixture.ts`).
+- New helper `dbStmtRun(stmt, ...params)` in `db/write.ts` wraps `Statement.run(...)` with the same `handleWriteError` translation, so prepared-statement writes in hot loops keep their per-iteration prepare-avoidance perf characteristic while gaining `DiskFullError` propagation. Three production sites migrate to it (§3).
+- Migration of every direct `db.run(` / `db.exec(` (including `this.db.` variants) in production code under `packages/gateway/src/` outside the wrapper itself. Total: **94 `db.run` + 66 `db.exec` + 3 prepared-statement `.run()` = 163 sites across 28 files** as of 2026-05-16 (94-entry `docs/structure-audit/db-run-census.json` covers `db.run`; the 66 `db.exec` are 65 inside `index/migrations/runner.ts` + 1 in `perf/perf-fixture.ts`; the 3 prepared-statement writes are listed in §3).
 - Static-audit rule `D12` in `scripts/structure-audit/check-nimbus-invariants.ts` graduates from census (always exit 0) to binary (exits 1 on hit outside allow-list). `bun run audit:invariants` becomes the CI gate.
 - New invariant **I14** in `docs/SECURITY-INVARIANTS.md` + matching row in `CLAUDE.md`.
 - Runtime assertions in `packages/gateway/src/security-invariants.test.ts` covering import-site presence, three representative spot-checks, and the allow-list constant.
@@ -33,7 +34,9 @@ The migration is mechanical — 94 `db.run` + 66 `db.exec` = **160 single-line p
 - `packages/cli/src/` — zero `db.run` / `db.exec` hits; the CLI never opens the database directly.
 - `packages/mcp-connectors/*` — connectors have no DB access by design.
 - `packages/sdk/`, `packages/client/`, `packages/ui/`, `packages/vscode-extension/` — none touch SQLite directly.
-- Refactoring `db.transaction(() => { ... })()` shells — those are structural BEGIN/COMMIT wrappers, not write calls; the migration touches only the inner `db.run` / `db.exec` invocations.
+- Refactoring `db.transaction(() => { ... })()` shells — those are structural BEGIN/COMMIT wrappers, not write calls; the migration touches only the inner `db.run` / `db.exec` invocations. Implicit-COMMIT-time `SQLITE_FULL` is a known small gap (§11.2) — deferred to a follow-up.
+- Named-parameter (`{ $id: ... }`) bindings in `dbRun` — no production site uses object-form params (verified via grep, 2026-05-16); positional `unknown[]` matches every call shape in the codebase. Adding object-form support is YAGNI for this PR.
+- Read-path prepared statements (`db.prepare(...).get()` / `.all()` / `.values()` / `.iterate()`) — reads cannot hit `SQLITE_FULL`; `dbStmtRun` covers writes only.
 - Any new behaviour beyond the wrapper change. Pure mechanical refactor.
 - `WRITE_ROUTE_ALLOWLIST` (invariant I13) — unchanged; HTTP write surface is orthogonal to the SQL-write surface.
 - Retention / pruning policies for any of the affected tables.
@@ -67,13 +70,37 @@ export function dbRun(
 }
 
 export function dbExec(db: Database, sql: string): void { ... }   // unchanged
+
+// New: prepared-statement write wrapper. Variadic to match Bun's `Statement.run`.
+export function dbStmtRun<S extends { run: (...args: unknown[]) => unknown }>(
+  stmt: S,
+  ...params: Parameters<S["run"]>
+): ReturnType<S["run"]> {
+  try {
+    return stmt.run(...params) as ReturnType<S["run"]>;
+  } catch (err) {
+    handleWriteError(err);
+  }
+}
 ```
 
-`handleWriteError` already declares `never` so TypeScript accepts the missing return in the `catch` branch. No other helpers are added.
+`handleWriteError` already declares `never` so TypeScript accepts the missing return in the `catch` branch. `dbStmtRun` is the third (and final) helper.
 
 ### Why mirror `Database["run"]`
 
 Nine production sites today use `const r = db.run(...)` and read `r.changes` or `r.lastInsertRowid` (e.g. `setWatcherEnabled` at `automation/watcher-store.ts:80`, `tryPersistStart` at `engine/sub-agent.ts:17`, `pruneConnectorHealthHistory` at `connectors/health.ts:352`, `repair.ts:102` row-count checks). Returning Bun's native shape keeps the migration mechanical — a pure prefix edit — and avoids forking a Nimbus-owned type that re-derives the same fields.
+
+### Why `dbStmtRun` exists (and is not just inline `dbRun`)
+
+Three production sites use `db.prepare(...).run(...)` inside hot loops:
+
+- `index/migrations/runner.ts:283` — `backfillAuditChain` UPDATE re-run per audit-log row (one-shot during V18 migration; thousands of rows on existing installs).
+- `embedding/pipeline.ts:86,89` — `insertVec` and `insertChunk` re-run per chunk during embedding ingestion (every indexed item; latency-sensitive).
+- `perf/perf-fixture.ts:100` — bench-fixture INSERT re-run per synthetic item (1k+ per call for the medium tier).
+
+Converting these to `dbRun(db, sql, params)` would force `bun:sqlite` to prepare-and-finalize the statement on every iteration — a measurable regression for ingestion latency and migration time. `dbStmtRun` preserves the prepared-statement performance while making `SQLITE_FULL` translation universal for prepared writes.
+
+The variadic generic signature mirrors `Statement.run`'s native shape (which accepts positional bind values, including `Float32Array` / `BigInt`, not arrays) — required because `pipeline.ts:102` calls `insertVec.run(BigInt(rowid), new Float32Array(vec))` with mixed-type positional args.
 
 ## Section 3 — Migrated files (production hit-list)
 
@@ -97,6 +124,17 @@ The full list from `docs/structure-audit/db-run-census.json` (`db.run` hits) plu
 | deployment | `deployment/annotate.ts` | 1+ |
 | platform | `platform/assemble.ts` | 1 |
 | perf | `perf/perf-fixture.ts` | 2 + 1 |
+
+### Prepared-statement writes (migrate to `dbStmtRun`)
+
+| File | Line | Statement | Loop context |
+| --- | --- | --- | --- |
+| `index/migrations/runner.ts` | 283 | `db.prepare(\`UPDATE audit_log SET row_hash = ?, prev_hash = ? WHERE id = ?\`)` | `backfillAuditChain` per-row in V18 migration |
+| `embedding/pipeline.ts` | 86 | `db.prepare(\`INSERT INTO ${vecTable}(rowid, embedding) VALUES (?, vec_f32(?))\`)` | inside `db.transaction()` per-chunk loop |
+| `embedding/pipeline.ts` | 89 | `db.prepare(\`INSERT INTO embedding_chunk ...\`)` | inside `db.transaction()` per-chunk loop |
+| `perf/perf-fixture.ts` | 100 | `db.prepare(\`INSERT INTO item ...\`)` | per-synthetic-item loop in `buildSyntheticIndex` |
+
+The call form changes from `stmt.run(...)` → `dbStmtRun(stmt, ...)`. The `db.prepare(...)` declaration line itself is unchanged.
 
 The implementation plan will enumerate the exact per-site edits; this design locks the scope.
 
@@ -132,6 +170,10 @@ The edit per site is purely textual. Three forms cover everything:
 // db.exec variant (no parameters)
 -  db.exec(INITIAL_SCHEMA_SQL);
 +  dbExec(db, INITIAL_SCHEMA_SQL);
+
+// Form 4 — prepared-statement write (variadic positional args)
+-  insertVec.run(BigInt(rowid), new Float32Array(vec));
++  dbStmtRun(insertVec, BigInt(rowid), new Float32Array(vec));
 ```
 
 `this.db.run(...)` → `dbRun(this.db, ...)`. Equivalent prefix transformation.
@@ -196,6 +238,7 @@ Three deltas to the test suite:
 
 - Existing SQLITE_FULL translation tests stay (already cover the wrapper-level behavior).
 - Add one test asserting `dbRun` returns `{ changes, lastInsertRowid }` for a normal INSERT (validates the signature widening).
+- Add one test asserting `dbStmtRun` translates SQLITE_FULL → `DiskFullError` for a prepared INSERT, and returns Bun's `RunResult` shape on success.
 
 ### `packages/gateway/test/integration/db/disk-full-propagation.test.ts` (new)
 
@@ -208,7 +251,7 @@ describe("disk-full propagation through migrated stores", () => {
   it("automation: setWatcherEnabled throws DiskFullError when disk is full (also validates return-value path)", ...);
   it("connectors: appendHistory throws DiskFullError when disk is full", ...);
   it("engine: tryPersistStart throws DiskFullError when disk is full (validates lastInsertRowid path)", ...);
-  it("embedding: pipeline upsert throws DiskFullError when disk is full", ...);
+  it("embedding: pipeline upsert (via dbStmtRun on the prepared insertVec / insertChunk) throws DiskFullError when disk is full", ...);
   it("index: upsertIndexedItem throws DiskFullError when disk is full", ...);
   it("audit: appendAuditEntry throws DiskFullError when disk is full (load-bearing — audit chain must not silently break)", ...);
 });
@@ -263,10 +306,12 @@ Roadmap edit (`docs/roadmap.md`) lands as a final commit on the branch just befo
 
 ### Risks
 
-1. **Hidden non-mechanical wrinkle.** A `db.run` call site might have an unusual type annotation (`as any`, surrounding `Promise.resolve` shape) that fails to typecheck after the change. Mitigation: per-commit `bun run typecheck` keeps the iteration loop short.
-2. **`db.exec` inside migration runner regresses BEGIN/COMMIT semantics.** Unlikely — `dbExec` is a pure delegation to `db.exec` with an exception translator. Mitigation: existing `runner-v*.test.ts` integration suite already exercises every migration end-to-end.
-3. **Static-rule regex over-matches.** The regex `\b(?:this\.)?db\.(?:run|exec)\s*\(` could match irrelevant identifiers like `mydb.run(` if a user code created a local `db` variable that isn't a Database. Mitigation: the audit already runs only on `packages/gateway/src/` and the existing regex pattern has been stable across D10/D11; comment-stripping is reused.
-4. **`audit-chain.ts` migration changes BLAKE3 chain semantics.** No — `dbRun` is a pass-through; the INSERT shape and parameters are unchanged. The chain construction in `computeAuditRowHash` and the surrounding read-prev/compute-hash logic are untouched.
+1. **Hidden non-mechanical wrinkle.** A `db.run` call site might have an unusual type annotation (`as any`, surrounding `Promise.resolve` shape) that fails to typecheck after the change. Mitigation: per-commit `bun run typecheck` keeps the iteration loop short. The variadic `dbStmtRun` generic also needs care for sites where `Statement.run`'s parameter shape is intentionally narrowed by an upstream type assertion — file-by-file editing is the response.
+2. **Known small gap: implicit-COMMIT `SQLITE_FULL` inside `db.transaction(...)()`.** SQLite typically detects `SQLITE_FULL` at the individual statement level (page-write time), and the per-statement `dbRun` / `dbExec` wrappers cover that path. But the implicit `COMMIT` that fires when the transaction callback returns is not routed through any wrapper — if SQLite defers a page write to COMMIT (rare; primarily WAL-mode journal-checkpoint contention), the raw error escapes `db.transaction(() => { ... })()` without setting `_diskSpaceWarning`. Quantified gap: ~50 transaction call sites across the gateway. Mitigation: deferred to a follow-up "transaction-level disk-full" PR that introduces `runInTransaction(db, fn)` wrapping `db.transaction(fn)()` in a try/catch. Acceptable for this PR because (a) per-statement detection covers the common case, (b) adding the wrapper would balloon the mechanical edit scope, and (c) the existing `db/health.ts` disk-space poller catches the global state independently.
+3. **`db.exec` inside migration runner regresses BEGIN/COMMIT semantics.** Unlikely — `dbExec` is a pure delegation to `db.exec` with an exception translator. Mitigation: existing `runner-v*.test.ts` integration suite already exercises every migration end-to-end.
+4. **Static-rule regex over-matches.** The regex `\b(?:this\.)?db\.(?:run|exec)\s*\(` could match irrelevant identifiers like `mydb.run(` if a user code created a local `db` variable that isn't a Database. Mitigation: the audit already runs only on `packages/gateway/src/` and the existing regex pattern has been stable across D10/D11; comment-stripping is reused.
+5. **Static rule does not catch prepared-statement writes (`stmt.run(...)` where `stmt` is `db.prepare(...)`).** The D12 binary regex only flags `db.run(` / `db.exec(` — a future contributor who adds a new prepared-statement write outside `dbStmtRun` will not trip the gate. Mitigation: documented as a known limitation. The three current sites are explicitly migrated; the disk-full propagation test on `embedding/pipeline.ts` exercises `dbStmtRun` end-to-end so any reversion fails the integration suite. A future audit pass can add an AST-level lint if regressions appear.
+6. **`audit-chain.ts` migration changes BLAKE3 chain semantics.** No — `dbRun` is a pass-through; the INSERT shape and parameters are unchanged. The chain construction in `computeAuditRowHash` and the surrounding read-prev/compute-hash logic are untouched.
 
 ### Rollback
 
@@ -280,6 +325,17 @@ Each commit is independent; revert any one without losing the others. The static
 4. PR opened against `main`. Reviewed via `gh pr` or `/ultrareview` where useful. Merged after green CI.
 5. `docs/roadmap.md` updated as in §8.
 
+## Section 13 — Review disposition (`2026-05-16-phase-5-t6-pr4-typed-db-run-design-review.md`)
+
+| Review § | Item | Disposition | Where in this spec |
+| -------- | ---- | ----------- | ------------------ |
+| 1 | Object-form (named-parameter) bindings in `dbRun` | **DEFER** | §1 "Out of scope" — verified via `grep db\.run\s*\([^,)]+,\s*\{` against `packages/gateway/src/` (2026-05-16): zero production call sites use object-form params. Positional `unknown[]` matches every existing shape. Adding object-form support is YAGNI; future need can extend the signature in a follow-up. |
+| 2 | `db.prepare(...).run()` bypasses `dbRun` | **FIX** | §1 in-scope adds `dbStmtRun(stmt, ...params)`; §2 specifies the variadic generic shape; §3 lists the three production prepared-write sites (`runner.ts:283`, `pipeline.ts:86`/`89`, `perf-fixture.ts:100`); §4 adds Form 4 for the call-site shape; §7 adds wrapper test + extends the embedding propagation test to exercise `dbStmtRun`; §11 risk 5 documents the static rule's reach limitation. |
+| 3 | Implicit-COMMIT `SQLITE_FULL` inside `db.transaction(...)()` | **DEFER** | §11 risk 2 documents this as a known small gap with rationale (page-write `SQLITE_FULL` is the common case and is covered per-statement; COMMIT-time failures are rare and would already have surfaced as per-statement errors). Tracked for a follow-up "transaction-level disk-full" PR that introduces `runInTransaction(db, fn)`. |
+| 4 | Result-type-shift in callbacks | **NO ACTION** | Already covered in §4 "Tactic" — file-by-file editing is the response. Confirmation only. |
+
+**Net effect on this spec:** one wrapper added (`dbStmtRun`), three prepared-statement sites added to §3, one new form in §4, one new wrapper test + one extended propagation test in §7, two new entries in §11 risks (one for COMMIT-time gap, one for the static-rule reach limitation), plus this §13 disposition table. Total site count moves from 160 → 163.
+
 ## See also
 
 - [T6 sequencing spec](./2026-05-14-phase-5-t6-design.md) §2 PR 4 — parent scope lock-in.
@@ -287,3 +343,4 @@ Each commit is independent; revert any one without losing the others. The static
 - [`docs/structure-audit/db-run-census.json`](../../structure-audit/db-run-census.json) — 94-entry baseline (2026-05-16).
 - [`packages/gateway/src/db/write.ts`](../../../packages/gateway/src/db/write.ts) — wrapper destination.
 - [`scripts/structure-audit/check-nimbus-invariants.ts`](../../../scripts/structure-audit/check-nimbus-invariants.ts) — static-audit script that gets the D12 binary mode.
+- [`2026-05-16-phase-5-t6-pr4-typed-db-run-design-review.md`](./2026-05-16-phase-5-t6-pr4-typed-db-run-design-review.md) — review feedback dispositioned in §13.
