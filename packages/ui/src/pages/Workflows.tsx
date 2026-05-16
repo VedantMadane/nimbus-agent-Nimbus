@@ -41,7 +41,7 @@ function stepsFromJson(json: string): StepDraft[] {
       return {
         id: newStepId(),
         tool: typeof step.tool === "string" ? step.tool : "",
-        paramsJson: step.params !== undefined ? JSON.stringify(step.params, null, 2) : "{}",
+        paramsJson: step.params === undefined ? "{}" : JSON.stringify(step.params, null, 2),
       };
     });
   } catch {
@@ -142,7 +142,7 @@ interface SaveDialogProps {
   onSaved: () => void;
 }
 
-function SaveWorkflowDialog({ initial, onClose, onSaved }: SaveDialogProps) {
+function SaveWorkflowDialog({ initial, onClose, onSaved }: Readonly<SaveDialogProps>) {
   const [name, setName] = useState(initial?.name ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
   const [steps, setSteps] = useState<StepDraft[]>(() => stepsFromJson(initial?.steps_json ?? "[]"));
@@ -336,7 +336,7 @@ export function Workflows() {
   }
 
   async function handleDelete(w: WorkflowSummary) {
-    if (!window.confirm(`Delete workflow "${w.name}"?`)) return;
+    if (!globalThis.confirm(`Delete workflow "${w.name}"?`)) return;
     setActionInFlight(w.name);
     try {
       await createIpcClient().workflowDelete(w.name);
@@ -413,7 +413,7 @@ export function Workflows() {
 
       {showSave !== null && (
         <SaveWorkflowDialog
-          {...(showSave !== "new" ? { initial: showSave } : {})}
+          {...(showSave === "new" ? {} : { initial: showSave })}
           onClose={() => setShowSave(null)}
           onSaved={() => {
             setShowSave(null);

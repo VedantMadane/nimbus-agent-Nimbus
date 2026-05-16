@@ -30,7 +30,8 @@ const _CTRL_CHARS = (() => {
   for (let cp = 0x7f; cp <= 0x9f; cp++) chars += String.fromCodePoint(cp);
   return chars;
 })();
-const CTRL_RE = new RegExp(`[${_CTRL_CHARS.replaceAll(/[\\\]^-]/g, String.raw`\$&`)}]`, "g");
+const _ESCAPED_CTRL_CHARS = _CTRL_CHARS.replaceAll(/[\\\]^-]/g, String.raw`\$&`);
+const CTRL_RE = new RegExp(`[${_ESCAPED_CTRL_CHARS}]`, "g");
 
 /**
  * Strip C0/C1 control characters from registry-fetched strings before

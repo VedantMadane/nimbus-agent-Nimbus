@@ -1033,7 +1033,6 @@ async function runConnectorLifecycle(sub: string, tail: string[]): Promise<void>
   }
   if (sub === "resume") {
     await runConnectorResume(service);
-    return;
   }
 }
 

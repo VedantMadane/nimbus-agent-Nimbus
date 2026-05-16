@@ -13,6 +13,14 @@ on:
         description: Build headless bundle and Linux installers after tests (Ubuntu only)
         type: boolean
         default: false
+    secrets:
+      SONAR_TOKEN:
+        description: |
+          SonarQube Cloud token for the optional SonarQube analysis step
+          (Linux-only, gated on the token being non-empty). When omitted the
+          analysis step is silently skipped — useful for forks and contributor
+          PRs that legitimately have no token access.
+        required: false
 
 permissions:
   contents: read
@@ -36,6 +44,16 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # Full history is required so the SonarCloud scan further down can
+          # resolve the PR base ref and compute "new code" correctly. With the
+          # default shallow checkout, Sonar logs
+          # `Could not find ref: main in refs/heads, refs/remotes/upstream or
+          # refs/remotes/origin` and falls back to treating every changed file
+          # as new — which flips `new_coverage` to ~0% and surfaces every
+          # legacy hotspot as unreviewed-new, failing the Quality Gate
+          # spuriously. Only the `test` job checkout needs this; `coverage-
+          # gates` and `client-node-compat` do not invoke the scanner.
+          fetch-depth: 0
 
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci
@@ -110,7 +128,73 @@ jobs:
       - name: Unit tests (with coverage) — Linux
         if: runner.os == 'Linux'
         shell: bash
-        run: bash scripts/ci/run-with-optional-dbus.sh bun test packages/gateway packages/cli packages/sdk packages/client packages/mcp-connectors scripts --coverage --coverage-reporter=lcov --reporter=junit --reporter-outfile=junit-reports/junit-unit.xml
+        # Bun's `--coverage --coverage-reporter=lcov` only writes
+        # `coverage/lcov.info` when `bun test` is invoked from inside a
+        # workspace package (the directory containing the `package.json` that
+        # Bun resolves the test files against). When invoked from the repo
+        # root with `packages/<pkg>` as a path argument, the tests run but no
+        # lcov is emitted — Codecov logs `not_found_files: coverage/lcov.info`
+        # and SonarCloud sees ~0% coverage on every non-UI file.
+        #
+        # Workaround: run `bun test --coverage` from inside each package,
+        # then merge the per-package lcov shards into a single
+        # `coverage/lcov.info` at repo root, rewriting `SF:` paths to be
+        # repo-root-relative (mirrors the rewrite the UI step does for
+        # Vitest output a few steps below).
+        run: |
+          set -eo pipefail
+          rm -rf coverage
+          mkdir -p coverage junit-reports
+          : > coverage/lcov.info
+
+          run_pkg () {
+            local pkg="$1"
+            local safe_name="${pkg//\//-}"
+            # Skip packages with no test files — `bun test` exits 1 with
+            # "No tests found!" which would fail the step under
+            # `set -eo pipefail`. Several mcp-connectors are scaffold-only
+            # today and have no co-located *.test.ts yet.
+            if [ -z "$(find "${pkg}" -path "${pkg}/node_modules" -prune -o \( -name '*.test.ts' -o -name '*.test.tsx' -o -name '*.spec.ts' -o -name '*.spec.tsx' \) -print -quit)" ]; then
+              echo "::notice::Skipping ${pkg} — no test files."
+              return 0
+            fi
+            echo "::group::Tests + coverage — ${pkg}"
+            (
+              cd "${pkg}"
+              bash "${GITHUB_WORKSPACE}/scripts/ci/run-with-optional-dbus.sh" \
+                bun test \
+                --coverage \
+                --coverage-reporter=lcov \
+                --reporter=junit \
+                --reporter-outfile="${GITHUB_WORKSPACE}/junit-reports/junit-unit-${safe_name}.xml"
+            )
+            if [ -f "${pkg}/coverage/lcov.info" ]; then
+              # Bun writes `SF:src/…` relative to its CWD; prepend the
+              # package path so SonarCloud and Codecov resolve the file from
+              # the repo root.
+              sed "s|^SF:|SF:${pkg}/|" "${pkg}/coverage/lcov.info" >> coverage/lcov.info
+            fi
+            echo "::endgroup::"
+          }
+
+          for pkg in packages/gateway packages/cli packages/sdk packages/client; do
+            run_pkg "${pkg}"
+          done
+
+          for pkg in packages/mcp-connectors/*; do
+            if [ -f "${pkg}/package.json" ]; then
+              run_pkg "${pkg}"
+            fi
+          done
+
+          # `scripts/` is not a workspace package (no package.json). Its tests
+          # ran without coverage attribution before this fix and still do —
+          # the structure-audit/regen-slo helpers covered there don't appear
+          # in any per-subsystem coverage gate, so omitting them from
+          # `coverage/lcov.info` matches the prior project-wide behaviour.
+          bun test scripts \
+            --reporter=junit \
+            --reporter-outfile=junit-reports/junit-unit-scripts.xml
         env:
           CI: "true"
 
@@ -178,6 +262,52 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           use_oidc: true
           files: coverage/lcov.info,packages/ui/coverage/lcov.info
+
+      - name: Disable SonarCloud Automatic Analysis (idempotent)
+        # SonarCloud rejects CI analysis when Automatic Analysis is also enabled
+        # on the project ("You are running CI analysis while Automatic Analysis
+        # is enabled"). We run CI analysis (this workflow) as the source of
+        # truth, so autoscan must stay off. This step asks SonarCloud to
+        # disable it on every run — the call is idempotent server-side, so the
+        # second+ invocations are no-ops.
+        #
+        # Fail-open: a SONAR_TOKEN scoped only to "Execute Analysis" will get
+        # HTTP 403 here. Rather than fail the build silently in a confusing
+        # way, we log a warning and proceed; the scan step below will surface
+        # the original "Automatic Analysis enabled" error with its clearer
+        # remediation path (disable in the SonarCloud UI — see
+        # docs/sonar-local.md).
+        if: runner.os == 'Linux' && env.SONAR_TOKEN != ''
+        shell: bash
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          set +e
+          # Authorization passed via a Bearer header (SonarCloud-supported for
+          # user tokens) rather than via curl basic-auth — the basic-auth form
+          # matches the `curl-auth-user` gitleaks rule even when the credential
+          # is a shell variable, generating a noisy false-positive on every push.
+          # NB: SonarCloud's autoscan/activation endpoint takes `enable` (not
+          # `enabled`); the latter returns HTTP 400 with
+          # `{"msg":"The 'enable' parameter is missing"}`.
+          response=$(curl -sS -o /tmp/autoscan-resp.txt -w '%{http_code}' \
+            -H "Authorization: Bearer ${SONAR_TOKEN}" \
+            -X POST 'https://sonarcloud.io/api/autoscan/activation?projectKey=asafgolombek_Nimbus&enable=false')
+          body=$(cat /tmp/autoscan-resp.txt 2>/dev/null | head -c 500)
+          case "$response" in
+            200|204)
+              echo "Autoscan disabled (HTTP $response)"
+              ;;
+            401)
+              echo "::warning::SONAR_TOKEN rejected (HTTP 401). Verify the repo secret is current."
+              ;;
+            403)
+              echo "::warning::SONAR_TOKEN lacks 'Administer Project' permission (HTTP 403). Disable Automatic Analysis manually in SonarCloud → Administration → Analysis Method."
+              ;;
+            *)
+              echo "::warning::Unexpected response from autoscan/activation: HTTP $response. Body: $body"
+              ;;
+          esac
 
       - name: SonarQube Cloud analysis
         # SonarCloud rebranded to SonarQube Cloud; sonarcloud-github-action is

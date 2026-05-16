@@ -137,19 +137,19 @@ export async function decryptVaultManifest(
   }
   const { passphrase, seed } = key;
   let dek: Uint8Array;
-  if (passphrase !== undefined) {
+  if (passphrase === undefined) {
+    if (seed === undefined) {
+      throw new Error("decryptVaultManifest: either passphrase or seed must be provided");
+    }
+    const kek = kdf(seed, fromB64(blob.wraps.seed.salt), blob.kdf);
+    dek = aesGcmDecrypt(kek, fromB64(blob.wraps.seed.iv), fromB64(blob.wraps.seed.wrapped));
+  } else {
     const kek = kdf(passphrase, fromB64(blob.wraps.passphrase.salt), blob.kdf);
     dek = aesGcmDecrypt(
       kek,
       fromB64(blob.wraps.passphrase.iv),
       fromB64(blob.wraps.passphrase.wrapped),
     );
-  } else {
-    if (seed === undefined) {
-      throw new Error("decryptVaultManifest: either passphrase or seed must be provided");
-    }
-    const kek = kdf(seed, fromB64(blob.wraps.seed.salt), blob.kdf);
-    dek = aesGcmDecrypt(kek, fromB64(blob.wraps.seed.iv), fromB64(blob.wraps.seed.wrapped));
   }
   const plaintext = aesGcmDecrypt(dek, fromB64(blob.iv), fromB64(blob.ciphertext));
   return new TextDecoder().decode(plaintext);

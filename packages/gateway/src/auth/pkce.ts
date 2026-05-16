@@ -225,7 +225,7 @@ async function postForm(
   if (!res.ok) {
     const hint = oauthTokenEndpointErrorSummary(parsed);
     throw new Error(
-      hint !== undefined ? `Token exchange failed (${hint})` : "Token exchange failed",
+      hint === undefined ? "Token exchange failed" : `Token exchange failed (${hint})`,
     );
   }
   return parsed;

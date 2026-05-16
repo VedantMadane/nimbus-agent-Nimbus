@@ -170,7 +170,7 @@ function makeNotifyCtx(
     openUrl: async () => {},
     syncScheduler: sched,
     connectorMesh: undefined,
-    notify: (m, p) => notifications.push({ method: m, params: p as Record<string, unknown> }),
+    notify: (m, p) => notifications.push({ method: m, params: p }),
   };
 }
 

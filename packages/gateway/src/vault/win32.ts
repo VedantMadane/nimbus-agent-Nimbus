@@ -130,8 +130,8 @@ function loadOrCreateEntropy(vaultDir: string): Buffer {
     // hijack this call.
     if (process.platform === "win32") {
       try {
-        const winDir = process.env["SystemRoot"] ?? process.env["windir"] ?? "C:\\Windows";
-        const attribExe = `${winDir}\\System32\\attrib.exe`;
+        const winDir = process.env["SystemRoot"] ?? process.env["windir"] ?? String.raw`C:\Windows`;
+        const attribExe = String.raw`${winDir}\System32\attrib.exe`;
         spawnSync(attribExe, ["+H", "+S", path], { windowsHide: true });
       } catch {
         /* best effort — entropy still works without the attribute */
