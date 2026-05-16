@@ -32,6 +32,14 @@ export type ServiceConfig = {
    * `["prod"]` when omitted.
    */
   readonly deployEnvironments: readonly string[];
+  /**
+   * Lowercased, deduplicated priority-name aliases that preflight treats as
+   * P1. Sourced org-wide from `[pagerduty].severity_p1_aliases` and copied
+   * onto every materialized ServiceConfig at load time. Empty default
+   * preserves the pre-existing strict `severity = 'P1'` filter behavior.
+   * Phase 5 T4 wrap-up.
+   */
+  readonly severityP1Aliases: readonly string[];
 };
 
 /** Back-compat alias. New code should import `ServiceConfig`. */

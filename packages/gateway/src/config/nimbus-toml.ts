@@ -954,6 +954,7 @@ function materializeServiceConfigs(
       incidentWindowMinutes: windowMins,
       excludePrLabels,
       deployEnvironments,
+      severityP1Aliases: [], // attached by loadNimbusServiceConfigsFromConfigDir
     });
   }
   return out;

@@ -126,6 +126,7 @@ function cfg(overrides: Partial<ServiceConfig> = {}): ServiceConfig {
     incidentWindowMinutes: 60,
     excludePrLabels: ["revert"],
     deployEnvironments: ["prod"],
+    severityP1Aliases: [],
     ...overrides,
   };
 }
