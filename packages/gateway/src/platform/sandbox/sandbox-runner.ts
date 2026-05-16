@@ -1,4 +1,5 @@
 import type { ChildProcess, SpawnOptions } from "node:child_process";
+import { platform } from "node:os";
 import type { ExtensionManifest } from "../../extensions/manifest.ts";
 
 export interface SandboxSpawnOptions {
@@ -25,21 +26,16 @@ export interface SandboxRunner {
   degradedReason(): string | null;
 }
 
-export function createSandboxRunner(): SandboxRunner {
-  switch (process.platform) {
-    case "linux": {
-      const { createLinuxSandboxRunner } = require("./linux") as typeof import("./linux.ts");
-      return createLinuxSandboxRunner();
-    }
-    case "darwin": {
-      const { createDarwinSandboxRunner } = require("./darwin") as typeof import("./darwin.ts");
-      return createDarwinSandboxRunner();
-    }
-    case "win32": {
-      const { createWin32SandboxRunner } = require("./win32") as typeof import("./win32.ts");
-      return createWin32SandboxRunner();
-    }
+export async function createSandboxRunner(): Promise<SandboxRunner> {
+  const p = platform();
+  switch (p) {
+    case "linux":
+      return (await import("./linux.ts")).createLinuxSandboxRunner();
+    case "darwin":
+      return (await import("./darwin.ts")).createDarwinSandboxRunner();
+    case "win32":
+      return (await import("./win32.ts")).createWin32SandboxRunner();
     default:
-      throw new Error(`Unsupported platform for sandbox: ${process.platform}`);
+      throw new Error(`Unsupported platform for sandbox: ${p}`);
   }
 }
