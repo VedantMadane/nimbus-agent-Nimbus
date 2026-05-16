@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { blake3 } from "@noble/hashes/blake3.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
+import { dbRun } from "./write.ts";
 
 /** Genesis hash used for the first audit row. 64 hex zeros. */
 export const GENESIS_HASH = "0".repeat(64);
@@ -57,7 +58,8 @@ export function appendAuditEntry(db: Database, fields: AppendAuditEntryFields): 
     actionJson: fields.actionJson,
     timestamp: fields.timestamp,
   });
-  db.run(
+  dbRun(
+    db,
     `INSERT INTO audit_log (action_type, hitl_status, action_json, timestamp, row_hash, prev_hash, session_id)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [

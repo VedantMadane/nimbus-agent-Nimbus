@@ -14,6 +14,7 @@
  */
 
 import type { Database } from "bun:sqlite";
+import { dbRun } from "./write.ts";
 
 export type FindingStatus = "ok" | "fail";
 
@@ -79,7 +80,7 @@ function checkFts5Consistency(db: Database): VerifyFinding {
   }
   try {
     // S5-F1 — magic SQL: structurally a write, semantically a read on item_fts.
-    db.run("INSERT INTO item_fts(item_fts) VALUES('integrity-check')");
+    dbRun(db, "INSERT INTO item_fts(item_fts) VALUES('integrity-check')");
     return { label, status: "ok" };
   } catch (err) {
     return {
@@ -209,7 +210,7 @@ type FkViolation = {
 function checkForeignKeyIntegrity(db: Database): VerifyFinding {
   const label = "foreign_key_integrity";
   try {
-    db.run("PRAGMA foreign_keys = ON");
+    dbRun(db, "PRAGMA foreign_keys = ON");
     const rows = db.query("PRAGMA foreign_key_check").all() as FkViolation[];
 
     if (rows.length === 0) {
