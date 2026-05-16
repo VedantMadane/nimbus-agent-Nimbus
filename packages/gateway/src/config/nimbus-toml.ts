@@ -1057,7 +1057,15 @@ export function loadNimbusServiceConfigsFromConfigDir(
   const raw = readFileSync(tomlPath, "utf8");
   const dora = parseNimbusDoraToml(raw);
   const ci = parseNimbusCiServiceToml(raw);
-  const merged: Map<string, ServiceConfig> = new Map(dora);
+  // Phase 5 T4 wrap-up: read [pagerduty].severity_p1_aliases once and
+  // attach to every materialized ServiceConfig. The aliases array is
+  // already lowercased + deduped by parseNimbusPagerdutyToml.
+  const pagerdutyCfg = parseNimbusPagerdutyToml(raw);
+  const aliases = pagerdutyCfg.severityP1Aliases;
+  const merged: Map<string, ServiceConfig> = new Map();
+  for (const [id, cfg] of dora.entries()) {
+    merged.set(id, { ...cfg, severityP1Aliases: aliases });
+  }
   for (const [id, cfg] of ci.entries()) {
     if (merged.has(id)) {
       process.stderr.write(
@@ -1065,7 +1073,7 @@ export function loadNimbusServiceConfigsFromConfigDir(
           `using [ci.service.${id}].\n`,
       );
     }
-    merged.set(id, cfg);
+    merged.set(id, { ...cfg, severityP1Aliases: aliases });
   }
   return merged;
 }
