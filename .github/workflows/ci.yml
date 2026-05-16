@@ -60,6 +60,10 @@ jobs:
     with:
       runner: ubuntu-24.04
       run-packaging: true
+    secrets:
+      # Optional; the reusable workflow silently skips the SonarQube step
+      # when this is unset (e.g. on fork PRs).
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     permissions:
       contents: read
       checks: write
@@ -222,6 +226,10 @@ jobs:
     with:
       runner: ${{ matrix.os }}
       run-packaging: ${{ matrix.os == 'ubuntu-24.04' }}
+    secrets:
+      # Optional; the reusable workflow silently skips the SonarQube step
+      # when this is unset.
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     permissions:
       contents: read
       id-token: write
