@@ -138,6 +138,7 @@ const SYSCALL_NR: Record<string, number> = {
   pselect6: 270,
   ppoll: 271,
   epoll_pwait: 281,
+  epoll_wait: 232,
   epoll_create1: 291,
   epoll_ctl: 233,
   accept4: 288,
@@ -179,6 +180,13 @@ const SYSCALL_NR: Record<string, number> = {
   process_vm_readv: 310,
   process_vm_writev: 311,
   uname: 63,
+  // glibc 2.34+ uses clone3 for pthread_create
+  clone3: 435,
+  // io_uring is blocked — it can bypass seccomp policy on kernel 5.1+
+  // and connectors have no legitimate use for it
+  io_uring_setup: 425,
+  io_uring_enter: 426,
+  io_uring_register: 427,
 };
 
 export const SYS_ALLOW: readonly string[] = Object.freeze([
@@ -229,8 +237,10 @@ export const SYS_ALLOW: readonly string[] = Object.freeze([
   "getppid",
   "getrandom",
   "clone",
+  "clone3",
   "fork",
   "vfork",
+  "epoll_wait",
   "execve",
   "execveat",
   "wait4",
@@ -343,6 +353,11 @@ export const SYS_BLOCK_EPERM: readonly string[] = Object.freeze([
   "get_mempolicy",
   "userfaultfd",
   "perf_event_open",
+  // io_uring can bypass seccomp policy on kernel 5.1+ — connectors have
+  // no legitimate use for it
+  "io_uring_setup",
+  "io_uring_enter",
+  "io_uring_register",
 ]);
 
 export const SYS_KILL_DEFAULT = true;
