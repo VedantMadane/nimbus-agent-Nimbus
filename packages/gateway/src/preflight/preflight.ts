@@ -14,7 +14,12 @@ import type { Database } from "bun:sqlite";
 import type { ParsedDoraRepoUrn, ServiceConfig } from "../metrics/dora-config.ts";
 import { providerServiceColumns } from "../metrics/dora-config.ts";
 
-export type PreflightGap = null | "no_pagerduty_mapping" | "no_repos" | "unknown_mergeable_state";
+export type PreflightGap =
+  | null
+  | "no_pagerduty_mapping"
+  | "no_repos"
+  | "unknown_mergeable_state"
+  | "pagerduty_urgency_without_priority";
 
 export type IncidentFinding = {
   readonly id: string;
@@ -151,7 +156,29 @@ function selectActiveP1Incidents(
       url: r.url,
     };
   });
-  return { count: countRow.c, findings, gap: null };
+  // Phase 5 T4 wrap-up: urgency-gap probe. When the strict + aliased
+  // severity filter yields zero matches AND services are configured, check
+  // whether high-urgency-without-priority incidents exist. They indicate
+  // either a missing severity_p1_aliases entry or a PagerDuty priority
+  // setup quirk — surface as a diagnostic gap. Probe is gated on count===0
+  // so any org with at least one active P1-equivalent skips it.
+  let gap: PreflightGap = null;
+  if (countRow.c === 0) {
+    const probeRow = db
+      .query(
+        `SELECT COUNT(*) as c FROM item
+         WHERE service = 'pagerduty'
+           AND type = 'incident'
+           AND json_extract(metadata, '$.pagerduty_service_id') IN (${pdPlaceholders})
+           AND json_extract(metadata, '$.status') IN ('triggered', 'acknowledged')
+           AND json_extract(metadata, '$.urgency') = 'high'
+           AND (json_extract(metadata, '$.severity') IS NULL
+                OR json_extract(metadata, '$.severity') = '')`,
+      )
+      .get(...cfg.pagerdutyServices) as { c: number };
+    if (probeRow.c > 0) gap = "pagerduty_urgency_without_priority";
+  }
+  return { count: countRow.c, findings, gap };
 }
 
 function selectFailingCiRuns(
