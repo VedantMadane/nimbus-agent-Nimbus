@@ -192,8 +192,22 @@ The seccomp filter is built using `libseccomp`-equivalent helpers (we ship a Typ
   4. Install iptables (and `ip6tables`) rules inside the new netns: default-drop `OUTPUT`; accept TCP to each resolved address on port 443 (HTTPS); accept established/related; accept DNS (UDP 53 + TCP 53) to `127.0.0.53` and the resolvers declared in `/etc/resolv.conf`.
   5. Drop `CAP_NET_ADMIN` from the effective + inheritable + permitted sets via `prctl(PR_CAPBSET_DROP)` + `cap_set_proc`.
   6. `execv` the supplied argv — which is `bwrap --share-net ... <cmd> <args>`. Bwrap inherits the helper-created netns (because `--share-net` means "do not create a new netns") and layers its own user/pid/uts/ipc isolation on top.
-- DNS handling: rules permit DNS queries to the system resolver, which means the connector can resolve any hostname — but it can only `connect()` to the IPs allowed by the iptables rules. Future hostname-resolution-IP-change is handled by periodic re-resolve in a follow-up; PR 1's helper resolves once at exec-time, and connectors handle DNS-rotation by retrying on connection failure.
+- DNS handling: rules permit DNS queries to the system resolver, which means the connector can resolve any hostname — but it can only `connect()` to the IPs allowed by the iptables rules. PR 1's helper resolves the allow-list once at exec-time. Periodic re-resolve and Gateway-side auto-restart-on-stale-rules are out of scope for PR 1 (§11). The locked PR 1 recovery strategy is: connector retries on `ECONNREFUSED`/`ETIMEDOUT` for an allowed host; if the retry fails too, the connector surfaces a typed `SandboxStaleRulesError` to the Gateway, which logs it under `sandbox.stale_rules_count` in `nimbus diag --json` so operators can see the problem accumulating before adding the auto-restart in a follow-up. The connector's existing health-state machine handles the user-visible degradation (`error` / `rate_limited` states).
 - IPv6: parallel rule installation via `ip6tables`.
+
+**Helper hardening (locked in spec, exact implementation in the plan):**
+
+- **Input validation.** Every `--allow <host>` argument is validated against RFC 1123 hostname grammar before any kernel syscall; rejection causes the helper to exit with a non-zero status before `unshare(CLONE_NEWNET)` is called. No metacharacter, no IP literal, no length > 253 — the validator is the single trust boundary between Gateway-supplied input and kernel state.
+- **Host-namespace invariant.** Once the helper has called `unshare(CLONE_NEWNET)`, it MUST NOT use any syscall that could affect the host's network namespace. The `setns(2)` / `unshare(2)` family is forbidden post-unshare and is also blocked by the helper's own seccomp filter (installed after the unshare and before iptables setup). The capability drop in step 5 of the enforce-and-exec operation closes the path entirely. Documented as a comment in `main.c` and enforced by a unit test that uses `strace` to assert no `setns`/`unshare` calls fire post-step-2.
+- **Build-pipeline mandate.** The release build runs `cppcheck --enable=all --error-exitcode=1` and `clang-tidy` with the security-focused checks on every PR that touches `src-native/sandbox-helper/`. The plan locks the exact `clang-tidy` check list and whether to add a libFuzzer harness for the `--allow` argument parser.
+- **`cap_net_admin` vs `cap_net_raw`.** The plan decides whether the helper needs `cap_net_raw` (for ICMP / raw sockets when configuring iptables `--reject-with`) in addition to `cap_net_admin`. Most modern iptables flows only need `cap_net_admin`; the plan confirms by running the helper under `strace` and recording the exact `socket(AF_NETLINK, ...)` and `socket(AF_INET, SOCK_RAW, ...)` calls.
+
+**Linux installer dependency.** `bwrap` (package `bubblewrap`) is a hard runtime dependency of the Linux build:
+
+- `.deb` `control` file lists `bubblewrap` in `Depends:`. Refusing to install if not present.
+- `.rpm` spec lists `Requires: bubblewrap`.
+- Tarball install instructions (`docs/install/linux-tarball.md`) check `command -v bwrap` and print a per-distro `apt install bubblewrap` / `dnf install bubblewrap` line with a clear `WILL NOT START WITHOUT BUBBLEWRAP` banner if missing.
+- Gateway startup probe still fails loud if `bwrap` is somehow missing post-install (e.g., user manually `apt remove`d it after the fact).
 
 ### macOS — `packages/gateway/src/platform/sandbox/darwin.ts`
 
@@ -258,7 +272,23 @@ PR 1 accepts the asymmetry:
 | macOS (`sandbox-exec`) | Per-host | `connect()` to `a.com` or `b.com` succeeds; to anything else, `EPERM` | sandbox-exec policy denies all network |
 | Windows | All-or-nothing | `internetClient` granted; full network available | no `internetClient`; no network |
 
-`isFullyActive()` returns `false` on Windows when `permissions.network` is non-empty (because per-host is not enforced). The structured-log warning at Gateway startup names the asymmetry. Reported under `sandbox.platform_capabilities` in `nimbus diag --json`. Windows-side WFP per-host filtering is a tracked follow-up; the contract tests on Windows assert the listed host succeeds + filesystem denies work, but the negative network probe is **skipped on Windows** with an explicit `test.skip("Windows: per-host network filtering not enforced in PR 1", ...)`.
+`isFullyActive()` returns `false` on Windows when `permissions.network` is non-empty (because per-host is not enforced). The structured-log warning at Gateway startup names the asymmetry.
+
+The asymmetry is surfaced on three operator-visible surfaces, so users notice it without having to read the spec:
+
+1. **`nimbus diag --json`** — `sandbox.platform_capabilities` carries `{ network: "per_host" | "all_or_nothing" | "none", reason: string }`.
+2. **`nimbus extension info <id>`** — for each installed extension, prints `Network isolation: per-host` (Linux/macOS happy path) or `Network isolation: Degraded — all-or-nothing (Windows / Linux helper fallback)` with a link to `docs/sandbox.md#platform-asymmetry`.
+3. **Structured log line** at Gateway startup naming each affected connector.
+
+Windows-side WFP per-host filtering is a tracked follow-up (§11); the contract tests on Windows assert the listed host succeeds + filesystem denies work, but the negative network probe is **skipped on Windows** with an explicit reason string that points at the docs:
+
+```typescript
+test.skip(
+  process.platform === "win32",
+  "Windows: per-host network filtering is degraded to all-or-nothing in T2 PR 1; " +
+  "see docs/sandbox.md#platform-asymmetry. WFP per-host filtering is the tracked follow-up.",
+);
+```
 
 **Cleanup (per §2 row 2):**
 
@@ -370,7 +400,8 @@ This section is the **only intentional placeholder** in this spec. It will be fi
 1. `sandbox-exec -p '<minimal profile>' bun -e 'console.log(await fetch("https://api.github.com/zen").then(r => r.status))'` — expects `200`.
 2. `sandbox-exec -p '<minimal profile>' bun -e 'console.log(await fetch("http://192.0.2.1").catch(e => e.code))'` — expects `EPERM` or `ECONNREFUSED`.
 3. `sandbox-exec -p '<minimal profile>' bun -e 'console.log(await Bun.file("/etc/passwd").text().catch(e => e.code))'` — expects `EACCES`.
-4. Repeat on macOS 14 (Sonoma) + macOS 15 (Sequoia) in the existing CI matrix `_test-suite.yml`.
+4. **macOS 15 (Sequoia) entitlement probe.** Run probe 1 from a Gateway binary that has *no* "Full Disk Access" or "App Management" entitlement granted in System Settings → Privacy & Security. macOS 15 tightened privacy controls — `sandbox-exec` is allowed but the *spawning* binary may need entitlements to manage child sandboxes if the children touch user-data paths. If probe 1 still returns `200` without entitlements, no entitlement work is needed in PR 1. If it fails with a `TCC`-related error, the spike fails the macOS 15 leg and PR 1 falls back to `EndpointSecurity`. The CI runner's binary is unsigned by default — the test reproduces the unprivileged case directly.
+5. Repeat probes 1–3 on macOS 14 (Sonoma) + macOS 15 (Sequoia) in the existing CI matrix `_test-suite.yml`; probe 4 is macOS-15-only.
 
 If all three probes pass on both OS versions: lock `sandbox-exec`; fill in §4 darwin spike-pass branch as the implementation; remove the spike-fail branch.
 
@@ -415,6 +446,10 @@ The full out-of-scope list from T2 spec §2 PR 1 carries forward. Items reiterat
 - **Pre-T2 extension auto-removal** — hard-disable retains the install record so user can `nimbus extension reinstall <id>`; auto-removal is not in scope.
 - **Migration of `permissions: string[]` array-form entries to object-form by content** — array-form normalizes to default-deny; the existing array entries (`"read-files"`, `"trash"`) are dropped (they were never load-bearing security defenses — the HITL gate is).
 - **Sandboxing of `terraform` / `pulumi` subprocesses spawned by the `iac-cli` connector** — they inherit the connector's sandbox; finer-grained per-tool scopes are out of T2.
+- **Periodic DNS re-resolve inside `nimbus-sandbox-helper`** — PR 1 resolves the allow-list once at exec time and counts stale-rule errors under `sandbox.stale_rules_count` so we can size the follow-up; the periodic re-resolve daemon is a tracked follow-up.
+- **Gateway auto-restart of an extension's sandbox on stale rules** — would need a new IPC pathway from connector to Gateway (and a HITL-free restart path) — meaningful scope; deferred until the stale-rules counter shows the problem is real.
+- **Pre-upgrade pre-flight check that lists pre-T2 extensions that will be hard-disabled** — the post-upgrade list is available via `nimbus extension list --filter needs-reinstall`. A *pre*-upgrade preview would need to ship in the old Gateway version's release pipeline (the old Gateway doesn't know about T2 yet) — significant out-of-band work. Deferred; documented in the v0.1.1 release notes that pre-T2 extensions will be hard-disabled on first start after upgrade.
+- **Profile-per-runtime seccomp filters** (stricter profile for Python extensions vs. Bun extensions) — current single-profile approach is the PR 1 compromise; per-runtime profiles are a tracked Phase 6+ direction.
 
 ## Section 12 — Exit criteria
 
@@ -426,19 +461,45 @@ PR 1 is mergeable when **all** the following are true:
 4. All four spawn sites under `connectors/lazy-mesh/` route through `sandboxRunner.spawn`.
 5. All 30 first-party connector `nimbus.extension.json` files declare a `permissions` object with the right `network` (or `filesystem`) entries.
 6. Pre-T2 extensions without `permissions.*` are hard-disabled at registry-load with the §1 error message; `nimbus extension list` flags them `[needs-reinstall]`; `nimbus diag --json` reports `extensions.disabled_pre_t2` count.
-7. `nimbus-sandbox-helper` binary builds on Linux; Linux installer scripts (`.deb`, `.rpm`, tarball) apply `setcap cap_net_admin+ep`.
-8. I15 triple wired: production sites (§7), `docs/SECURITY-INVARIANTS.md` §I15 row + section, `security-invariants.test.ts` assertions, extended `D10` rule in `check-nimbus-invariants.ts`.
-9. `runSandboxContractTests(manifestPath)` exported from `@nimbus-dev/sdk/testing`; 30 connector test files call it; all pass on the 3-OS CI matrix (Windows negative-network probe skipped with explicit reason).
-10. New coverage gate `test:coverage:sandbox` ≥ 80 % green; `test:coverage:extensions` ≥ 85 % stays green.
-11. `bun run audit:invariants` passes (D10 extension catches the deliberate-violation test fixture).
-12. `bun run test:ci` green on the 3-OS push matrix.
-13. `docs/SECURITY-INVARIANTS.md` updated (§I15 row + section); `docs/architecture.md` "Extension Registry" section updated with the new manifest schema; `CLAUDE.md` line 10 + `GEMINI.md` updated with T2 PR 1 ✅ entry; `docs/roadmap.md` T2 PR 1 sub-checkbox flipped; `.claude/commands/nimbus-security-invariants.md` updated with I15.
-14. `.claude/commands/nimbus-commands.md` updated with the new `test:coverage:sandbox` row.
+7. `nimbus-sandbox-helper` binary builds on Linux; Linux installer scripts (`.deb`, `.rpm`, tarball) apply `setcap cap_net_admin+ep`. `.deb` `Depends:` + `.rpm` `Requires:` declare `bubblewrap`; tarball install instructions check for `bwrap` and print a per-distro install hint if missing.
+8. Helper hardening locked: `--allow` hostname validator rejects malformed input before any kernel syscall; post-`unshare` seccomp filter forbids `setns` / `unshare` family; release build runs `cppcheck` + `clang-tidy`. (The `cap_net_admin` vs `cap_net_raw` decision and the optional libFuzzer harness are recorded in the implementation plan.)
+9. `nimbus extension info <id>` prints `Network isolation:` per-extension with the `Degraded — all-or-nothing` label on Windows and on Linux when the helper is unavailable; existing `sandbox.platform_capabilities` field in `nimbus diag --json` carries the same data.
+10. I15 triple wired: production sites (§7), `docs/SECURITY-INVARIANTS.md` §I15 row + section, `security-invariants.test.ts` assertions, extended `D10` rule in `check-nimbus-invariants.ts`.
+11. `runSandboxContractTests(manifestPath)` exported from `@nimbus-dev/sdk/testing`; 30 connector test files call it; all pass on the 3-OS CI matrix (Windows negative-network probe skipped with the docs-linked reason).
+12. New coverage gate `test:coverage:sandbox` ≥ 80 % green; `test:coverage:extensions` ≥ 85 % stays green.
+13. `bun run audit:invariants` passes (D10 extension catches the deliberate-violation test fixture).
+14. `bun run test:ci` green on the 3-OS push matrix.
+15. `docs/SECURITY-INVARIANTS.md` updated (§I15 row + section); `docs/architecture.md` "Extension Registry" section updated with the new manifest schema + the platform-asymmetry table; new `docs/sandbox.md` covers the per-OS network policy + platform-asymmetry anchor referenced by the contract-test skip reason; `CLAUDE.md` line 10 + `GEMINI.md` updated with T2 PR 1 ✅ entry; `docs/roadmap.md` T2 PR 1 sub-checkbox flipped; `.claude/commands/nimbus-security-invariants.md` updated with I15.
+16. `.claude/commands/nimbus-commands.md` updated with the new `test:coverage:sandbox` row.
 
-## Section 13 — See also
+## Section 13 — Review disposition (2026-05-16)
+
+Source: [`./2026-05-16-phase-5-t2-pr1-sandbox-design-review.md`](./2026-05-16-phase-5-t2-pr1-sandbox-design-review.md).
+
+| Review § | Item | Disposition | Rationale & where in this spec |
+| -------- | ---- | ----------- | ------------------------------ |
+| 1 | `nimbus-sandbox-helper` security surface (4 sub-points) | **FIX 3, DEFER 1** | Hostname-input validation, host-namespace invariant (no `setns`/`unshare` post-step-2), and the release-build static-analysis mandate (`cppcheck` + `clang-tidy`) are spec-level invariants — folded into §4 Linux "Helper hardening" block. `cap_net_admin` vs `cap_net_raw` and the optional libFuzzer harness are implementation details: deferred to the per-PR implementation plan, where the exact iptables ops can be `strace`'d to confirm which caps are actually needed. |
+| 2 | DNS resolution / IP-based filtering staleness | **FIX (lock strategy) + DEFER (auto-restart)** | Real concern (CDN-fronted hosts can rotate IPs mid-session). Strategy locked in §4 Linux DNS handling: PR 1 helper resolves once at exec; connector retries on `ECONNREFUSED`; failed retries surface a typed `SandboxStaleRulesError` and bump `sandbox.stale_rules_count` in `nimbus diag --json`. Two follow-up shapes (periodic re-resolve daemon inside the helper; Gateway-side auto-restart-on-stale-rules) are tracked in §11 out-of-scope — both deferred because the counter will tell us if the problem is real before we build the response. |
+| 3 | Windows all-or-nothing label visible to users | **FIX** | Spec already named `nimbus diag --json` as the surface. Extended in §4 Windows asymmetry to *three* surfaces: diag, `nimbus extension info <id>`, and a Gateway-startup structured-log line. Cheap, consistent with how other degraded-mode posture is surfaced. |
+| 4 | Pre-flight check for pre-T2 extensions | **FIX post-upgrade; DEFER pre-upgrade** | Post-upgrade list is `nimbus extension list --filter needs-reinstall` — already follows from §1's `[needs-reinstall]` flag. Pre-*upgrade* preview would need the old Gateway version's release pipeline to know about T2, which is a meaningful release-pipeline change. Documented in §11 out-of-scope; release notes for the T2-enabled Gateway version will spell out the breaking change so users see it before upgrading. |
+| 5 | Profile-per-runtime seccomp filters | **DEFER + NOTE** | Reviewer accepts the current single-profile shape as PR-1-appropriate. Added to §11 out-of-scope so the future direction is recorded; per-runtime profiles become a Phase 6+ direction tied to extension-runtime diversity (Python, etc.). |
+| 6 | macOS 15 entitlement test in the spike | **FIX** | Folded into §9 as a 4th spike probe (run from an unsigned Gateway binary with no Full Disk Access / App Management entitlements granted; reproduces the unprivileged case directly). If probe 4 fails on macOS 15, the spike fails the macOS 15 leg and PR 1 falls back to `EndpointSecurity` per the existing spike-fail branch. |
+| 7 | `bubblewrap` as Linux installer hard dependency | **FIX** | Folded into §4 Linux "Linux installer dependency" block + §12 exit criterion 7. `.deb` `Depends:` + `.rpm` `Requires:` + tarball install instructions all check, plus the existing fail-loud Gateway startup probe stays as the safety net. |
+| 8 | Contract-test `test.skip` reason → docs link | **FIX** | One-line update to the example `test.skip` block in §4 Windows asymmetry. Reason string now references `docs/sandbox.md#platform-asymmetry` (a new docs page added in §12 exit criterion 15). |
+
+**Net effect on this spec:**
+
+- Six FIX items folded inline (§4 Linux helper hardening, §4 Linux DNS strategy, §4 Linux bubblewrap dep, §4 Windows three surfaces, §4 Windows skip-reason docs link, §9 macOS 15 entitlement probe).
+- Three new tracked out-of-scope bullets in §11 (periodic DNS re-resolve, Gateway auto-restart on stale rules, pre-upgrade pre-flight check, profile-per-runtime seccomp).
+- Two new exit criteria in §12 (criterion 8 — helper hardening checklist; criterion 9 — `nimbus extension info` surface).
+- One new docs deliverable in §12 criterion 15 (`docs/sandbox.md` with the `#platform-asymmetry` anchor referenced by the contract-test skip reason).
+- Nothing changes about the 6 locked design decisions in §2, the I15 triple wiring, or the PR scope boundary.
+
+## Section 14 — See also
 
 - [`./2026-05-16-phase-5-t2-design.md`](./2026-05-16-phase-5-t2-design.md) §2 PR 1 — parent sequencing scope this spec refines.
 - [`./2026-05-16-phase-5-t2-design-review.md`](./2026-05-16-phase-5-t2-design-review.md) — review feedback rolled into the parent T2 spec at rev 2, including the macOS sandbox-exec viability + Windows AppContainer lifecycle items that this spec resolves.
+- [`./2026-05-16-phase-5-t2-pr1-sandbox-design-review.md`](./2026-05-16-phase-5-t2-pr1-sandbox-design-review.md) — review of this spec, disposition recorded in §13 above.
 - [`../../SECURITY-INVARIANTS.md`](../../SECURITY-INVARIANTS.md) — I1 (current); I15 (new in this PR).
 - [`../../../.claude/commands/nimbus-security-invariants.md`](../../../.claude/commands/nimbus-security-invariants.md) — the invariant triple rule that I15 must satisfy.
 - [`../../../.claude/commands/nimbus-connector-authoring.md`](../../../.claude/commands/nimbus-connector-authoring.md) — first-party connector pattern; the 30-connector manifest migration follows this skill's authoring checklist.
