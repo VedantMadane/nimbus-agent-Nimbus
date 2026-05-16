@@ -213,13 +213,13 @@ nimbus impact <file-or-PR-url>    # IPC: agents.impact; emits agents.impact.brie
 ```bash
 nimbus metrics dora --service <id> [--since 30d] [--json]   # four DORA metrics from the local index
 nimbus deploy preflight --service <id> --target-ref <ref> [--mode warn|block|off] [--json]   # pre-deploy index check
-nimbus deploy annotate --service <id> --sha <sha> --target-ref <ref> --env <env> --status <success|failure|rolled_back> --started-at <ms> [--finished-at <ms>] [--provider <github|gitlab|...>] [--run-id <id>] [--json]   # POST a deployment event to the local HTTP write surface
+nimbus deploy annotate --service <id> --sha <sha> --target-ref <ref> --env <env> --status <success|failure|cancelled|in_progress> --started-at <ms> [--finished-at <ms>] [--provider <github-actions|gitlab|jenkins|circleci|bitbucket|other>] [--workflow-url <url>] [--run-id <id>] [--job-id <id>] [--json]   # POST a deployment event to the local HTTP write surface
 ```
 
 **Vault keys for the HTTP write surface:**
 
 ```
-http_api.deployment_token   # Bearer token required for POST /v1/deployments; set via `nimbus vault set http_api.deployment_token <token>` (CLI-only). Without it, the HTTP write surface refuses all POSTs with 401.
+http_api.deployment_token   # Bearer token required for POST /v1/deployments; set via `nimbus vault set http_api.deployment_token <token>` (CLI-only). Without it, the HTTP write surface refuses all POSTs with 503 (write_surface_disabled).
 ```
 
 ### Phase 5 T6 — Forensic + hybrid embedding
