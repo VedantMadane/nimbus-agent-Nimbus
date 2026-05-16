@@ -138,7 +138,7 @@ Models (v1):
   Xenova/all-MiniLM-L6-v2        (384-dim; local, no key required)
 
 Exit codes:
-  0  run completed (any number of skips); operator re-runs to retry skipped items
+  0  run completed (skips are reported but non-fatal); operator re-runs to retry skipped items
   1  fatal abort (vault key missing, unknown model, auth failure, gateway down)
 `);
 }
