@@ -749,6 +749,100 @@ export function loadNimbusUserFromConfigDir(configDir: string): NimbusUserToml {
 }
 
 // ---------------------------------------------------------------------------
+// [pagerduty] — Top-level PagerDuty connector + preflight knobs
+// (Phase 5 T4 wrap-up).
+// ---------------------------------------------------------------------------
+
+export type NimbusPagerdutyToml = {
+  /** Hard cap on pages walked per `pagerduty-sync.ts` invocation. 1..100. */
+  maxPagesPerSync: number;
+  /**
+   * Priority names that preflight should treat as equivalent to "P1".
+   * Stored lowercased + deduplicated. Empty by default (preflight matches
+   * the verbatim "P1" string only, identical to pre-existing behavior).
+   */
+  severityP1Aliases: readonly string[];
+};
+
+export const DEFAULT_NIMBUS_PAGERDUTY_TOML: NimbusPagerdutyToml = {
+  maxPagesPerSync: 20,
+  severityP1Aliases: [],
+};
+
+function parseNimbusPagerdutySection(source: string): Partial<NimbusPagerdutyToml> {
+  const lines = source.split(/\r?\n/);
+  let inSection = false;
+  const out: { maxPagesPerSync?: number; severityP1Aliases?: readonly string[] } = {};
+  for (const line of lines) {
+    const trimmed = stripComment(line).trim();
+    if (trimmed === "") continue;
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      inSection = trimmed === "[pagerduty]";
+      continue;
+    }
+    if (!inSection) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const valRaw = trimmed.slice(eq + 1).trim();
+    if (key === "max_pages_per_sync") {
+      const n = parseIntDec(valRaw);
+      if (n === undefined || n < 1 || n > 100) {
+        throw new Error(
+          `[pagerduty].max_pages_per_sync must be an integer in 1..100, got '${valRaw}'`,
+        );
+      }
+      out.maxPagesPerSync = n;
+    } else if (key === "severity_p1_aliases") {
+      // Reuse parseStringArray (defined later in this file) — already drops empty entries.
+      const raw = parseStringArray(valRaw);
+      const seen = new Set<string>();
+      const collected: string[] = [];
+      for (const v of raw) {
+        const lower = v.trim().toLowerCase();
+        if (lower === "") continue;
+        if (seen.has(lower)) continue;
+        seen.add(lower);
+        collected.push(lower);
+      }
+      out.severityP1Aliases = collected;
+    }
+  }
+  return out;
+}
+
+export function parseNimbusPagerdutyToml(
+  raw: string,
+  defaults: NimbusPagerdutyToml = DEFAULT_NIMBUS_PAGERDUTY_TOML,
+): NimbusPagerdutyToml {
+  return { ...defaults, ...parseNimbusPagerdutySection(raw) };
+}
+
+export function loadNimbusPagerdutyFromPath(tomlPath: string): NimbusPagerdutyToml {
+  if (!existsSync(tomlPath)) {
+    return structuredClone(DEFAULT_NIMBUS_PAGERDUTY_TOML);
+  }
+  try {
+    const raw = readFileSync(tomlPath, "utf8");
+    return parseNimbusPagerdutyToml(raw);
+  } catch (err) {
+    // Surface validation errors (e.g. max_pages_per_sync out of range) so
+    // operators don't silently fall back to defaults. Matches the
+    // ci.service / metrics.dora conflict-warning pattern used elsewhere in
+    // this file (see loadNimbusServiceConfigsFromConfigDir).
+    process.stderr.write(
+      `nimbus: [pagerduty] config in ${tomlPath} rejected, using defaults: ` +
+        `${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    return structuredClone(DEFAULT_NIMBUS_PAGERDUTY_TOML);
+  }
+}
+
+export function loadNimbusPagerdutyFromConfigDir(configDir: string): NimbusPagerdutyToml {
+  return loadNimbusPagerdutyFromPath(join(configDir, "nimbus.toml"));
+}
+
+// ---------------------------------------------------------------------------
 // [metrics.dora.<service-id>] — DORA service map (Phase 5 T4 PR 2)
 // ---------------------------------------------------------------------------
 
