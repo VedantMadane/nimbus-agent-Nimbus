@@ -71,6 +71,18 @@ describe("envelope encryption", () => {
     };
     await expect(decryptVaultManifest(tampered, { passphrase: PASSPHRASE })).rejects.toThrow();
   });
+
+  test("rejects when neither passphrase nor seed is provided", async () => {
+    const blob = await encryptVaultManifest({
+      plaintext: PLAINTEXT,
+      passphrase: PASSPHRASE,
+      seed: SEED,
+      kdfParams: FAST_KDF,
+    });
+    await expect(decryptVaultManifest(blob, {})).rejects.toThrow(
+      /either passphrase or seed must be provided/i,
+    );
+  });
 });
 
 describe("decryptVaultManifest — KDF allowlist (S2-F10)", () => {
