@@ -43,10 +43,27 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <linux/audit.h>
 #include <linux/filter.h>
 #include <linux/seccomp.h>
 
 #define MAX_HOSTS 32
+
+/*
+ * Free every non-NULL entry in resolved[0 .. n_allowed-1] and zero the slot.
+ * Centralizes the freeaddrinfo cleanup so that the per-IP iteration loop in
+ * mode_enforce_and_exec has a single, audited release path on both the error
+ * (return 5) and success (post-loop) branches. Idempotent — safe to call
+ * twice, since each cleared slot becomes NULL on first release.
+ */
+static void free_all_resolved(struct addrinfo **resolved, int n_allowed) {
+    for (int j = 0; j < n_allowed; j++) {
+        if (resolved[j]) {
+            freeaddrinfo(resolved[j]);
+            resolved[j] = NULL;
+        }
+    }
+}
 
 /*
  * RFC 1123 hostname validator. Semantically mirrors the TypeScript
@@ -163,23 +180,42 @@ static int mode_check_caps(void) {
  *   setns   = 308
  *   unshare = 272
  *
- * The filter does not include an arch check: cross-arch builds of this
- * helper are not supported in PR 1; the Linux x86_64 CI matrix is the
- * sole intended runner. aarch64 support is tracked as a follow-up.
+ * The filter's *first* instruction is an architecture check: the BPF program
+ * loads seccomp_data.arch (offset 4) and refuses to run on anything other
+ * than AUDIT_ARCH_X86_64 by returning SECCOMP_RET_KILL_PROCESS. This is the
+ * safer default because the 308 / 272 syscall numbers above are only correct
+ * on x86_64; on a different arch they would name unrelated syscalls and the
+ * filter would silently allow setns/unshare while denying something benign.
+ * aarch64 support is tracked as a follow-up — add another JEQ branch with
+ * the aarch64 syscall numbers before the kill, do not loosen the kill.
  *
  * Returns 0 on success, -1 on failure.
  */
 static int install_post_unshare_seccomp(void) {
-    /* Offset into struct seccomp_data (uapi/linux/seccomp.h):
+    /* Offsets into struct seccomp_data (uapi/linux/seccomp.h):
      *   nr      = 0  (s32)
+     *   arch    = 4  (u32)
      *
-     * BPF program (5 instructions):
-     *   1. load nr (offset 0)
-     *   2. if nr == 308 -> KILL_PROCESS
-     *   3. if nr == 272 -> KILL_PROCESS
-     *   4. (otherwise fall through to) ALLOW
+     * BPF program (9 instructions, PC-indexed below):
+     *   [0] load arch (offset 4)                         A := arch
+     *   [1] if A == AUDIT_ARCH_X86_64 jt=1 jf=0          skip [2] on match
+     *   [2] KILL_PROCESS                                 (arch mismatch)
+     *   [3] load nr (offset 0)                           A := nr
+     *   [4] if A == 308 (setns)      jt=0 jf=1           fall through to [5] on match
+     *   [5] KILL_PROCESS                                 (setns blocked)
+     *   [6] if A == 272 (unshare)    jt=0 jf=1           fall through to [7] on match
+     *   [7] KILL_PROCESS                                 (unshare blocked)
+     *   [8] ALLOW                                        default
      */
     struct sock_filter filter[] = {
+        /* arch = seccomp_data.arch (offset 4) */
+        BPF_STMT(BPF_LD | BPF_W | BPF_ABS, 4),
+
+        /* if arch == AUDIT_ARCH_X86_64 (0xC000003E), skip the kill (jt=1);
+         * else fall through (jf=0) to KILL_PROCESS. */
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_X86_64, 1, 0),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
+
         /* nr = seccomp_data.nr (offset 0) */
         BPF_STMT(BPF_LD | BPF_W | BPF_ABS, 0),
 
@@ -346,27 +382,33 @@ static int mode_enforce_and_exec(int argc, char **argv) {
 
     /* Step 3: bring loopback up and install the iptables/ip6tables ruleset.
      * The helper still holds CAP_NET_ADMIN in this netns; CAP_NET_ADMIN is
-     * dropped immediately after the rules are installed. */
-    if (run_cmd("ip link set lo up") != 0) return 5;
+     * dropped immediately after the rules are installed.
+     *
+     * Every `return 5` from here through the per-IP loop below must release
+     * resolved[] via free_all_resolved(); the addrinfo chains were allocated
+     * in step 1 and are not freed until after the per-IP loop finishes. */
+    if (run_cmd("ip link set lo up") != 0) { free_all_resolved(resolved, n_allowed); return 5; }
 
     /* Default-DROP OUTPUT on both v4 and v6 — nothing leaves the netns
      * unless explicitly allowed below. */
-    if (run_cmd("iptables -P OUTPUT DROP") != 0) return 5;
-    if (run_cmd("ip6tables -P OUTPUT DROP") != 0) return 5;
+    if (run_cmd("iptables -P OUTPUT DROP") != 0) { free_all_resolved(resolved, n_allowed); return 5; }
+    if (run_cmd("ip6tables -P OUTPUT DROP") != 0) { free_all_resolved(resolved, n_allowed); return 5; }
 
     /* Accept ESTABLISHED,RELATED so return traffic on already-accepted
      * connections is not silently dropped. */
-    if (run_cmd("iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT") != 0) return 5;
-    if (run_cmd("ip6tables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT") != 0) return 5;
+    if (run_cmd("iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT") != 0) { free_all_resolved(resolved, n_allowed); return 5; }
+    if (run_cmd("ip6tables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT") != 0) { free_all_resolved(resolved, n_allowed); return 5; }
 
     /* Accept DNS on UDP and TCP port 53 so the connector can resolve
      * additional hostnames inside its own DNS cycle. */
-    if (run_cmd("iptables -A OUTPUT -p udp --dport 53 -j ACCEPT") != 0) return 5;
-    if (run_cmd("iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT") != 0) return 5;
-    if (run_cmd("ip6tables -A OUTPUT -p udp --dport 53 -j ACCEPT") != 0) return 5;
-    if (run_cmd("ip6tables -A OUTPUT -p tcp --dport 53 -j ACCEPT") != 0) return 5;
+    if (run_cmd("iptables -A OUTPUT -p udp --dport 53 -j ACCEPT") != 0) { free_all_resolved(resolved, n_allowed); return 5; }
+    if (run_cmd("iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT") != 0) { free_all_resolved(resolved, n_allowed); return 5; }
+    if (run_cmd("ip6tables -A OUTPUT -p udp --dport 53 -j ACCEPT") != 0) { free_all_resolved(resolved, n_allowed); return 5; }
+    if (run_cmd("ip6tables -A OUTPUT -p tcp --dport 53 -j ACCEPT") != 0) { free_all_resolved(resolved, n_allowed); return 5; }
 
-    /* Per-host TCP/443 ACCEPT rules — one per resolved A / AAAA record. */
+    /* Per-host TCP/443 ACCEPT rules — one per resolved A / AAAA record.
+     * Every early `return 5` inside this loop must release resolved[]; use
+     * free_all_resolved() so the cleanup is centralized and audited. */
     for (int k = 0; k < n_allowed; k++) {
         for (struct addrinfo *ai = resolved[k]; ai != NULL; ai = ai->ai_next) {
             char ipstr[INET6_ADDRSTRLEN];
@@ -374,26 +416,31 @@ static int mode_enforce_and_exec(int argc, char **argv) {
                 void *addr_ptr = &((struct sockaddr_in *)ai->ai_addr)->sin_addr;
                 if (inet_ntop(AF_INET, addr_ptr, ipstr, sizeof(ipstr)) == NULL) {
                     fprintf(stderr, "inet_ntop(AF_INET) failed: %s\n", strerror(errno));
+                    free_all_resolved(resolved, n_allowed);
                     return 5;
                 }
-                if (run_cmd("iptables -A OUTPUT -d %s -p tcp --dport 443 -j ACCEPT", ipstr) != 0) return 5;
+                if (run_cmd("iptables -A OUTPUT -d %s -p tcp --dport 443 -j ACCEPT", ipstr) != 0) {
+                    free_all_resolved(resolved, n_allowed);
+                    return 5;
+                }
             } else if (ai->ai_family == AF_INET6) {
                 void *addr_ptr = &((struct sockaddr_in6 *)ai->ai_addr)->sin6_addr;
                 if (inet_ntop(AF_INET6, addr_ptr, ipstr, sizeof(ipstr)) == NULL) {
                     fprintf(stderr, "inet_ntop(AF_INET6) failed: %s\n", strerror(errno));
+                    free_all_resolved(resolved, n_allowed);
                     return 5;
                 }
-                if (run_cmd("ip6tables -A OUTPUT -d %s -p tcp --dport 443 -j ACCEPT", ipstr) != 0) return 5;
+                if (run_cmd("ip6tables -A OUTPUT -d %s -p tcp --dport 443 -j ACCEPT", ipstr) != 0) {
+                    free_all_resolved(resolved, n_allowed);
+                    return 5;
+                }
             }
             /* silently skip families we don't handle (e.g. AF_UNIX from a
              * misconfigured nss module) — the default-DROP catches them. */
         }
     }
     /* Free DNS results — we no longer need them past this point. */
-    for (int k = 0; k < n_allowed; k++) {
-        freeaddrinfo(resolved[k]);
-        resolved[k] = NULL;
-    }
+    free_all_resolved(resolved, n_allowed);
 
     /* Step 4: drop all capabilities. Past this point the helper (and the
      * to-be-execed bwrap/connector chain) cannot call CAP_NET_ADMIN-gated
