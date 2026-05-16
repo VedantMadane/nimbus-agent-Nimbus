@@ -1,10 +1,19 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { runIndexedSchemaMigrations } from "../index/migrations/runner.ts";
-import { tryLoadSqliteVec } from "../index/sqlite-vec-load.ts";
+import { isVecLoaded, tryLoadSqliteVec } from "../index/sqlite-vec-load.ts";
 import { SqliteEmbeddingPipeline } from "./pipeline.ts";
 import { RoutingEmbeddingPipeline } from "./routing-pipeline.ts";
 import type { Embedder } from "./types.ts";
+
+function vecAvailable(): boolean {
+  const db = new Database(":memory:");
+  tryLoadSqliteVec(db);
+  const ok = isVecLoaded(db);
+  db.close();
+  return ok;
+}
+const VEC_AVAILABLE = vecAvailable();
 
 function stubEmbedder(model: string, dims: number): Embedder {
   return {
@@ -18,9 +27,7 @@ function stubEmbedder(model: string, dims: number): Embedder {
 
 function freshDb(): Database {
   const db = new Database(":memory:");
-  if (!tryLoadSqliteVec(db)) {
-    throw new Error("sqlite-vec required");
-  }
+  tryLoadSqliteVec(db);
   runIndexedSchemaMigrations(db, 30);
   return db;
 }
@@ -36,7 +43,7 @@ function insertItem(db: Database, id: string, service: string, type: string): vo
 }
 
 describe("RoutingEmbeddingPipeline", () => {
-  test("prose-heavy items route to the OpenAI inner pipeline", async () => {
+  test.skipIf(!VEC_AVAILABLE)("prose-heavy items route to the OpenAI inner pipeline", async () => {
     const db = freshDb();
     insertItem(db, "e1", "slack", "message");
     const local = new SqliteEmbeddingPipeline({
@@ -62,7 +69,7 @@ describe("RoutingEmbeddingPipeline", () => {
     expect(dims.every((r) => r.dims === 1536)).toBe(true);
   });
 
-  test("non-prose items route to the local inner pipeline", async () => {
+  test.skipIf(!VEC_AVAILABLE)("non-prose items route to the local inner pipeline", async () => {
     const db = freshDb();
     insertItem(db, "e2", "github", "git_commit");
     const local = new SqliteEmbeddingPipeline({
@@ -88,7 +95,7 @@ describe("RoutingEmbeddingPipeline", () => {
     expect(dims.every((r) => r.dims === 384)).toBe(true);
   });
 
-  test("backfillAll uses disjoint scopes", async () => {
+  test.skipIf(!VEC_AVAILABLE)("backfillAll uses disjoint scopes", async () => {
     const db = freshDb();
     insertItem(db, "e1", "slack", "message");
     insertItem(db, "e2", "github", "git_commit");
@@ -117,7 +124,7 @@ describe("RoutingEmbeddingPipeline", () => {
     expect(dimByItem.get("obsidian:e3")).toBe(1536);
   });
 
-  test("deleteItemEmbeddings removes chunks AND fans out via dim-aware triggers", async () => {
+  test.skipIf(!VEC_AVAILABLE)("deleteItemEmbeddings removes chunks AND fans out via dim-aware triggers", async () => {
     const db = freshDb();
     insertItem(db, "e1", "slack", "message");
     const local = new SqliteEmbeddingPipeline({

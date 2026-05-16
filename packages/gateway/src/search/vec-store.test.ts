@@ -1,20 +1,27 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { runIndexedSchemaMigrations } from "../index/migrations/runner.ts";
-import { tryLoadSqliteVec } from "../index/sqlite-vec-load.ts";
+import { isVecLoaded, tryLoadSqliteVec } from "../index/sqlite-vec-load.ts";
 import { vectorSearchChunks } from "./vec-store.ts";
+
+function vecAvailable(): boolean {
+  const db = new Database(":memory:");
+  tryLoadSqliteVec(db);
+  const ok = isVecLoaded(db);
+  db.close();
+  return ok;
+}
+const VEC_AVAILABLE = vecAvailable();
 
 function freshDb(): Database {
   const db = new Database(":memory:");
-  if (!tryLoadSqliteVec(db)) {
-    throw new Error("sqlite-vec required");
-  }
+  tryLoadSqliteVec(db);
   runIndexedSchemaMigrations(db, 30);
   return db;
 }
 
 describe("vectorSearchChunks — dim awareness", () => {
-  test("rejects unsupported query embedding dimensions", () => {
+  test.skipIf(!VEC_AVAILABLE)("rejects unsupported query embedding dimensions", () => {
     const db = freshDb();
     expect(() =>
       vectorSearchChunks(db, {
@@ -25,7 +32,7 @@ describe("vectorSearchChunks — dim awareness", () => {
     ).toThrow(/unsupported query embedding dim/);
   });
 
-  test("queries vec_items_1536 when given a 1536-dim embedding", () => {
+  test.skipIf(!VEC_AVAILABLE)("queries vec_items_1536 when given a 1536-dim embedding", () => {
     const db = freshDb();
     db.run(
       `INSERT INTO item (id, service, type, external_id, title, body_preview,

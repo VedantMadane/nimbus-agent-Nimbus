@@ -1,14 +1,21 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { runIndexedSchemaMigrations } from "../index/migrations/runner.ts";
-import { tryLoadSqliteVec } from "../index/sqlite-vec-load.ts";
+import { isVecLoaded, tryLoadSqliteVec } from "../index/sqlite-vec-load.ts";
 import { vectorSearchChunksDual } from "./dual-search.ts";
+
+function vecAvailable(): boolean {
+  const db = new Database(":memory:");
+  tryLoadSqliteVec(db);
+  const ok = isVecLoaded(db);
+  db.close();
+  return ok;
+}
+const VEC_AVAILABLE = vecAvailable();
 
 function freshDb(): Database {
   const db = new Database(":memory:");
-  if (!tryLoadSqliteVec(db)) {
-    throw new Error("sqlite-vec required");
-  }
+  tryLoadSqliteVec(db);
   runIndexedSchemaMigrations(db, 30);
   return db;
 }
@@ -47,7 +54,7 @@ function seed(db: Database) {
 }
 
 describe("vectorSearchChunksDual", () => {
-  test("with both vectors, returns hits from both tables", () => {
+  test.skipIf(!VEC_AVAILABLE)("with both vectors, returns hits from both tables", () => {
     const db = freshDb();
     seed(db);
     const v384 = new Float32Array(384);
@@ -66,7 +73,7 @@ describe("vectorSearchChunksDual", () => {
     expect(ids.has("s:b")).toBe(true);
   });
 
-  test("with only the 384 vector, returns only vec_items_384 hits", () => {
+  test.skipIf(!VEC_AVAILABLE)("with only the 384 vector, returns only vec_items_384 hits", () => {
     const db = freshDb();
     seed(db);
     const v384 = new Float32Array(384);
@@ -80,7 +87,7 @@ describe("vectorSearchChunksDual", () => {
     expect(hits[0]?.itemId).toBe("s:a");
   });
 
-  test("merge orders by distance ascending, truncates to limit", () => {
+  test.skipIf(!VEC_AVAILABLE)("merge orders by distance ascending, truncates to limit", () => {
     const db = freshDb();
     seed(db);
     const v384 = new Float32Array(384);
@@ -97,7 +104,7 @@ describe("vectorSearchChunksDual", () => {
     expect(hits.length).toBe(1);
   });
 
-  test("missing model id with present vector skips that side", () => {
+  test.skipIf(!VEC_AVAILABLE)("missing model id with present vector skips that side", () => {
     const db = freshDb();
     seed(db);
     const v1536 = new Float32Array(1536);
