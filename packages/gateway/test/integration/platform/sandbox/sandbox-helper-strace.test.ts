@@ -11,18 +11,12 @@ describe.skipIf(process.platform !== "linux")(
       if (!existsSync(helperPath)) {
         return; // skip if not built in this environment
       }
+      // Intentionally NO `-f`: we trace the helper process itself, not its
+      // forked /bin/sh children (which exec iptables/ip6tables). The helper's
+      // own syscalls are the invariant — children get their own audit chain.
       const result = spawnSync(
         "strace",
-        [
-          "-f",
-          "-e",
-          "trace=setns,unshare",
-          helperPath,
-          "--allow",
-          "example.com",
-          "--",
-          "/bin/true",
-        ],
+        ["-e", "trace=setns,unshare", helperPath, "--allow", "example.com", "--", "/bin/true"],
         { encoding: "utf8" },
       );
       const unshareLines = (result.stderr.match(/unshare\(/g) || []).length;
