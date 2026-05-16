@@ -124,37 +124,45 @@ describe("RoutingEmbeddingPipeline", () => {
     expect(dimByItem.get("obsidian:e3")).toBe(1536);
   });
 
-  test.skipIf(!VEC_AVAILABLE)("deleteItemEmbeddings removes chunks AND fans out via dim-aware triggers", async () => {
-    const db = freshDb();
-    insertItem(db, "e1", "slack", "message");
-    const local = new SqliteEmbeddingPipeline({
-      db,
-      embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384),
-    });
-    const openai = new SqliteEmbeddingPipeline({
-      db,
-      embedder: stubEmbedder("openai:text-embedding-3-small", 1536),
-    });
-    const router = new RoutingEmbeddingPipeline(db, local, openai);
-    await router.embedItem({
-      id: "slack:e1",
-      service: "slack",
-      type: "message",
-      title: "hello",
-      body_preview: "world",
-    });
-    const before = (db.query(`SELECT count(*) AS c FROM vec_items_1536`).get() as { c: number }).c;
-    expect(before).toBeGreaterThan(0);
+  test.skipIf(!VEC_AVAILABLE)(
+    "deleteItemEmbeddings removes chunks AND fans out via dim-aware triggers",
+    async () => {
+      const db = freshDb();
+      insertItem(db, "e1", "slack", "message");
+      const local = new SqliteEmbeddingPipeline({
+        db,
+        embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384),
+      });
+      const openai = new SqliteEmbeddingPipeline({
+        db,
+        embedder: stubEmbedder("openai:text-embedding-3-small", 1536),
+      });
+      const router = new RoutingEmbeddingPipeline(db, local, openai);
+      await router.embedItem({
+        id: "slack:e1",
+        service: "slack",
+        type: "message",
+        title: "hello",
+        body_preview: "world",
+      });
+      const before = (db.query(`SELECT count(*) AS c FROM vec_items_1536`).get() as { c: number })
+        .c;
+      expect(before).toBeGreaterThan(0);
 
-    await router.deleteItemEmbeddings("slack:e1");
+      await router.deleteItemEmbeddings("slack:e1");
 
-    expect(
-      (
-        db.query(`SELECT count(*) AS c FROM embedding_chunk WHERE item_id = ?`).get("slack:e1") as {
-          c: number;
-        }
-      ).c,
-    ).toBe(0);
-    expect((db.query(`SELECT count(*) AS c FROM vec_items_1536`).get() as { c: number }).c).toBe(0);
-  });
+      expect(
+        (
+          db
+            .query(`SELECT count(*) AS c FROM embedding_chunk WHERE item_id = ?`)
+            .get("slack:e1") as {
+            c: number;
+          }
+        ).c,
+      ).toBe(0);
+      expect((db.query(`SELECT count(*) AS c FROM vec_items_1536`).get() as { c: number }).c).toBe(
+        0,
+      );
+    },
+  );
 });
