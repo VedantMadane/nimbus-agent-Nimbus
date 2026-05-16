@@ -253,6 +253,7 @@ export async function seedPaymentServiceFixture(
     incidentWindowMinutes: 60,
     excludePrLabels: ["revert"],
     deployEnvironments: ["prod"],
+    severityP1Aliases: [],
   };
   return { config };
 }

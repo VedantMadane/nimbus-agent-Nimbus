@@ -13,6 +13,14 @@ on:
         description: Build headless bundle and Linux installers after tests (Ubuntu only)
         type: boolean
         default: false
+    secrets:
+      SONAR_TOKEN:
+        description: |
+          SonarQube Cloud token for the optional SonarQube analysis step
+          (Linux-only, gated on the token being non-empty). When omitted the
+          analysis step is silently skipped — useful for forks and contributor
+          PRs that legitimately have no token access.
+        required: false
 
 permissions:
   contents: read

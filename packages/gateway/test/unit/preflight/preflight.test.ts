@@ -12,19 +12,21 @@ function seedIncident(
   id: string,
   opts: {
     status: "triggered" | "acknowledged" | "resolved";
-    severity: string;
+    severity?: string;
+    urgency?: string;
     pagerdutyServiceId: string;
     openedAtMs: number;
     title?: string;
     url?: string;
   },
 ) {
-  const meta = {
+  const meta: Record<string, unknown> = {
     status: opts.status,
-    severity: opts.severity,
     pagerduty_service_id: opts.pagerdutyServiceId,
     opened_at_ms: opts.openedAtMs,
   };
+  if (opts.severity !== undefined) meta.severity = opts.severity;
+  if (opts.urgency !== undefined) meta.urgency = opts.urgency;
   db.run(
     `INSERT INTO item (id, service, type, external_id, title, body_preview, url, canonical_url,
                        modified_at, author_id, metadata, synced_at, pinned)
@@ -126,6 +128,7 @@ function cfg(overrides: Partial<ServiceConfig> = {}): ServiceConfig {
     incidentWindowMinutes: 60,
     excludePrLabels: ["revert"],
     deployEnvironments: ["prod"],
+    severityP1Aliases: [],
     ...overrides,
   };
 }
@@ -252,6 +255,120 @@ describe("computeDeployPreflight: active_p1_incidents check", () => {
     expect(out.checks.active_p1_incidents.findings.length).toBe(5);
     // Most-recent first → first finding is the most recently opened (smallest age).
     expect(out.checks.active_p1_incidents.findings[0]?.id).toBe("pagerduty:inc_0");
+  });
+
+  it('alias "critical" counts toward P1 and preserves raw severity in finding', () => {
+    seedIncident(db, "pagerduty:inc_crit", {
+      status: "triggered",
+      severity: "Critical",
+      pagerdutyServiceId: "P12ABCD",
+      openedAtMs: now - 60_000,
+    });
+    const out = computeDeployPreflight(
+      db,
+      cfg({ severityP1Aliases: ["critical"] }),
+      "main",
+      now,
+      10,
+    );
+    expect(out.checks.active_p1_incidents.count).toBe(1);
+    expect(out.checks.active_p1_incidents.findings[0]?.severity).toBe("Critical");
+  });
+
+  it("alias match is case-insensitive on both sides", () => {
+    seedIncident(db, "pagerduty:inc_upper", {
+      status: "triggered",
+      severity: "CRITICAL",
+      pagerdutyServiceId: "P12ABCD",
+      openedAtMs: now - 60_000,
+    });
+    seedIncident(db, "pagerduty:inc_p1", {
+      status: "triggered",
+      severity: "P1",
+      pagerdutyServiceId: "P12ABCD",
+      openedAtMs: now - 120_000,
+    });
+    const out = computeDeployPreflight(
+      db,
+      cfg({ severityP1Aliases: ["critical"] }),
+      "main",
+      now,
+      10,
+    );
+    expect(out.checks.active_p1_incidents.count).toBe(2);
+  });
+
+  it("empty severityP1Aliases preserves verbatim P1 behavior", () => {
+    seedIncident(db, "pagerduty:inc_p1", {
+      status: "triggered",
+      severity: "P1",
+      pagerdutyServiceId: "P12ABCD",
+      openedAtMs: now - 60_000,
+    });
+    seedIncident(db, "pagerduty:inc_crit", {
+      status: "triggered",
+      severity: "Critical",
+      pagerdutyServiceId: "P12ABCD",
+      openedAtMs: now - 120_000,
+    });
+    // No aliases configured → only the verbatim "P1" row matches.
+    const out = computeDeployPreflight(db, cfg(), "main", now, 10);
+    expect(out.checks.active_p1_incidents.count).toBe(1);
+    expect(out.checks.active_p1_incidents.findings[0]?.id).toBe("pagerduty:inc_p1");
+  });
+
+  it('emits gap="pagerduty_urgency_without_priority" when count===0 and high-urgency incidents lack priority', () => {
+    seedIncident(db, "pagerduty:no_pri", {
+      status: "triggered",
+      urgency: "high",
+      pagerdutyServiceId: "P12ABCD",
+      openedAtMs: now - 60_000,
+    });
+    const out = computeDeployPreflight(db, cfg(), "main", now, 10);
+    expect(out.checks.active_p1_incidents.count).toBe(0);
+    expect(out.checks.active_p1_incidents.gap).toBe("pagerduty_urgency_without_priority");
+  });
+
+  it("urgency-gap is suppressed when count > 0", () => {
+    seedIncident(db, "pagerduty:has_p1", {
+      status: "triggered",
+      severity: "P1",
+      pagerdutyServiceId: "P12ABCD",
+      openedAtMs: now - 60_000,
+    });
+    seedIncident(db, "pagerduty:no_pri", {
+      status: "triggered",
+      urgency: "high",
+      pagerdutyServiceId: "P12ABCD",
+      openedAtMs: now - 30_000,
+    });
+    const out = computeDeployPreflight(db, cfg(), "main", now, 10);
+    expect(out.checks.active_p1_incidents.count).toBe(1);
+    expect(out.checks.active_p1_incidents.gap).toBeNull();
+  });
+
+  it("urgency-gap defers to no_pagerduty_mapping when no services configured", () => {
+    seedIncident(db, "pagerduty:no_pri", {
+      status: "triggered",
+      urgency: "high",
+      pagerdutyServiceId: "P12ABCD",
+      openedAtMs: now - 60_000,
+    });
+    const out = computeDeployPreflight(db, cfg({ pagerdutyServices: [] }), "main", now, 10);
+    expect(out.checks.active_p1_incidents.count).toBe(0);
+    expect(out.checks.active_p1_incidents.gap).toBe("no_pagerduty_mapping");
+  });
+
+  it("urgency-gap requires status in (triggered, acknowledged) — resolved high-urgency does not trigger", () => {
+    seedIncident(db, "pagerduty:resolved_high", {
+      status: "resolved",
+      urgency: "high",
+      pagerdutyServiceId: "P12ABCD",
+      openedAtMs: now - 60_000,
+    });
+    const out = computeDeployPreflight(db, cfg(), "main", now, 10);
+    expect(out.checks.active_p1_incidents.count).toBe(0);
+    expect(out.checks.active_p1_incidents.gap).toBeNull();
   });
 });
 
