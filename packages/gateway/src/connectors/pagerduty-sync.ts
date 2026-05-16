@@ -132,6 +132,11 @@ function pagerdutyListFailureResult(
 
 export type PagerdutySyncableOptions = {
   ensurePagerdutyMcpRunning: () => Promise<void>;
+  /**
+   * Hard cap on pages walked per sync invocation. Default 20. Range 1..100
+   * enforced by config parser; not re-validated here.
+   */
+  maxPagesPerSync?: number;
 };
 
 export function createPagerdutySyncable(options: PagerdutySyncableOptions): Syncable {
@@ -154,9 +159,10 @@ export function createPagerdutySyncable(options: PagerdutySyncableOptions): Sync
 
       await ctx.rateLimiter.acquire("pagerduty");
       const u = new URL("https://api.pagerduty.com/incidents");
-      u.searchParams.set("limit", "50");
-      u.searchParams.set("sort_by", "updated_at");
+      u.searchParams.set("limit", "100");
+      u.searchParams.set("sort_by", "updated_at:asc");
       u.searchParams.set("since", since);
+      u.searchParams.set("offset", "0");
       const res = await fetch(u.toString(), {
         headers: {
           Accept: "application/vnd.pagerduty+json;version=2",
