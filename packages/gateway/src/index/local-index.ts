@@ -9,6 +9,7 @@ import {
   type QueryLatencyKind,
   recordSlowQuery,
 } from "../db/latency-ring-buffer.ts";
+import { dbRun } from "../db/write.ts";
 import {
   compositeSearchScore,
   normalizeHigherIsBetter,
@@ -296,7 +297,7 @@ export class LocalIndex {
   static ensureSchema(db: Database, backup?: MigrationBackupOptions): void {
     runIndexedSchemaMigrations(db, LocalIndex.SCHEMA_VERSION, backup);
     ensureSqliteVecForConnection(db, readIndexedUserVersion(db));
-    db.run("PRAGMA foreign_keys = ON");
+    dbRun(db, "PRAGMA foreign_keys = ON");
   }
 
   constructor(
@@ -446,7 +447,8 @@ export class LocalIndex {
       .run(depth, serviceId);
     if (rows.changes === 0) {
       // Row doesn't exist yet — insert with this depth.
-      this.db.run(
+      dbRun(
+        this.db,
         `INSERT INTO sync_state (connector_id, last_sync_at, next_sync_token, depth) VALUES (?, NULL, NULL, ?)`,
         [serviceId, depth],
       );
@@ -479,7 +481,7 @@ export class LocalIndex {
       const n = countItemsForService(this.db, serviceId);
       deleteAllItemsForService(this.db, serviceId);
       deleteSchedulerStateRow(this.db, serviceId);
-      this.db.run("DELETE FROM sync_state WHERE connector_id = ?", [serviceId]);
+      dbRun(this.db, "DELETE FROM sync_state WHERE connector_id = ?", [serviceId]);
       prunePeopleAfterServiceRemoval(this.db, serviceId);
       return n;
     })();
@@ -755,7 +757,8 @@ export class LocalIndex {
 
   recordSync(connectorId: string, token: string): void {
     const now = Date.now();
-    this.db.run(
+    dbRun(
+      this.db,
       `INSERT INTO sync_state (connector_id, last_sync_at, next_sync_token)
        VALUES (?, ?, ?)
        ON CONFLICT(connector_id) DO UPDATE SET
@@ -830,7 +833,8 @@ export class LocalIndex {
 
   setAuditVerifiedThroughId(id: number): void {
     const v = Math.max(0, Math.floor(id));
-    this.db.run(
+    dbRun(
+      this.db,
       `INSERT INTO _meta (key, value) VALUES ('audit_verified_through_id', ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       [String(v)],
@@ -860,7 +864,8 @@ export class LocalIndex {
     if (!ALLOWED_META_KEYS.has(key)) {
       throw new Error(`db.setMeta: key '${key}' is not in the whitelist`);
     }
-    this.db.run(
+    dbRun(
+      this.db,
       `INSERT INTO _meta (key, value) VALUES (?, ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       [key, value],
@@ -885,7 +890,8 @@ export class LocalIndex {
     // host_ip / host_port / display_name / paired_at while preserving the
     // existing `write_allowed` grant — re-pairing must not re-elevate
     // permission grants the user previously revoked.
-    this.db.run(
+    dbRun(
+      this.db,
       `INSERT INTO lan_peers (peer_id, peer_pubkey, direction, host_ip, host_port, display_name, write_allowed, paired_at)
        VALUES (?, ?, ?, ?, ?, ?, 0, ?)
        ON CONFLICT(peer_pubkey) DO UPDATE SET
@@ -907,21 +913,23 @@ export class LocalIndex {
   }
 
   public grantLanWrite(peerId: string): void {
-    this.db.run(
+    dbRun(
+      this.db,
       `UPDATE lan_peers SET write_allowed = 1 WHERE peer_id = ? AND direction = 'inbound'`,
       [peerId],
     );
   }
 
   public revokeLanWrite(peerId: string): void {
-    this.db.run(
+    dbRun(
+      this.db,
       `UPDATE lan_peers SET write_allowed = 0 WHERE peer_id = ? AND direction = 'inbound'`,
       [peerId],
     );
   }
 
   public removeLanPeer(peerId: string): void {
-    this.db.run(`DELETE FROM lan_peers WHERE peer_id = ?`, [peerId]);
+    dbRun(this.db, `DELETE FROM lan_peers WHERE peer_id = ?`, [peerId]);
   }
 
   public getLanPeerByPubkey(pubkey: Uint8Array): LanPeerRow | undefined {
@@ -935,7 +943,7 @@ export class LocalIndex {
    */
   close(): void {
     try {
-      this.db.run("PRAGMA wal_checkpoint(TRUNCATE)");
+      dbRun(this.db, "PRAGMA wal_checkpoint(TRUNCATE)");
     } catch {
       /* ignore */
     }

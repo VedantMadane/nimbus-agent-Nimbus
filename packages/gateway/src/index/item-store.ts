@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { NimbusItem } from "@nimbus-dev/sdk";
 
+import { dbRun } from "../db/write.ts";
 import { syncGraphFromIndexedItem } from "../graph/graph-populator.ts";
 import { deleteGraphEntitiesForItemKeys } from "../graph/relationship-graph.ts";
 import type { SyncContext } from "../sync/types.ts";
@@ -68,7 +69,8 @@ export function upsertIndexedItem(
     throw new Error(`metadata for item "${id}" exceeds 64 KB limit`);
   }
   const preview = clipPreview(row.bodyPreview ?? row.title);
-  db.run(
+  dbRun(
+    db,
     `INSERT INTO item (
       id, service, type, external_id, title, body_preview, url, canonical_url,
       modified_at, author_id, metadata, synced_at, pinned
@@ -166,7 +168,7 @@ export function deleteItemByPrimaryKey(db: Database, primaryKey: string): void {
   if (row?.id !== undefined) {
     deleteGraphEntitiesForItemKeys(db, [row.id]);
   }
-  db.run("DELETE FROM item WHERE id = ?", [primaryKey]);
+  dbRun(db, "DELETE FROM item WHERE id = ?", [primaryKey]);
 }
 
 export function deleteItemByServiceExternal(
@@ -185,5 +187,5 @@ export function deleteAllItemsForService(db: Database, service: string): void {
       keys.map((k) => k.id),
     );
   }
-  db.run("DELETE FROM item WHERE service = ?", [service]);
+  dbRun(db, "DELETE FROM item WHERE service = ?", [service]);
 }
