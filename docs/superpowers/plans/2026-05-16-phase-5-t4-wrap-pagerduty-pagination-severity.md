@@ -139,6 +139,28 @@ describe("loadNimbusPagerdutyFromPath", () => {
     const out = loadNimbusPagerdutyFromPath(p);
     expect(out.maxPagesPerSync).toBe(7);
   });
+
+  test("falls back to defaults AND writes a stderr warning on validation error", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-pd-toml-bad-"));
+    const p = join(dir, "nimbus.toml");
+    writeFileSync(p, '[pagerduty]\nmax_pages_per_sync = 0\n', "utf8");
+    const captured: string[] = [];
+    const orig = process.stderr.write.bind(process.stderr);
+    // Type assertion: process.stderr.write is overloaded; we shim the
+    // chunk-as-first-arg form, which is what nimbus-toml.ts uses.
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      captured.push(typeof chunk === "string" ? chunk : chunk.toString());
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const out = loadNimbusPagerdutyFromPath(p);
+      expect(out).toEqual(DEFAULT_NIMBUS_PAGERDUTY_TOML);
+    } finally {
+      process.stderr.write = orig;
+    }
+    expect(captured.join("")).toContain("[pagerduty] config");
+    expect(captured.join("")).toContain("max_pages_per_sync");
+  });
 });
 
 describe("loadNimbusPagerdutyFromConfigDir", () => {
@@ -246,7 +268,15 @@ export function loadNimbusPagerdutyFromPath(tomlPath: string): NimbusPagerdutyTo
   try {
     const raw = readFileSync(tomlPath, "utf8");
     return parseNimbusPagerdutyToml(raw);
-  } catch {
+  } catch (err) {
+    // Surface validation errors (e.g. max_pages_per_sync out of range) so
+    // operators don't silently fall back to defaults. Matches the
+    // ci.service / metrics.dora conflict-warning pattern used elsewhere in
+    // this file (see loadNimbusServiceConfigsFromConfigDir).
+    process.stderr.write(
+      `nimbus: [pagerduty] config in ${tomlPath} rejected, using defaults: ` +
+        `${err instanceof Error ? err.message : String(err)}\n`,
+    );
     return structuredClone(DEFAULT_NIMBUS_PAGERDUTY_TOML);
   }
 }
@@ -1297,9 +1327,53 @@ bun test packages/gateway/src/connectors/pagerduty-sync.test.ts
 
 Expected: FAIL on all three new tests — the current sync fetches once and returns.
 
-- [ ] **Step 4: Rewrite `createPagerdutySyncable`'s `sync` body**
+- [ ] **Step 4: Refactor the private parse helper to return `{ incidents, more }` in one pass**
 
-In `packages/gateway/src/connectors/pagerduty-sync.ts`, replace the entire `createPagerdutySyncable` function (lines 135-195) with this version:
+In `packages/gateway/src/connectors/pagerduty-sync.ts`, find the existing private helper `parsePagerdutyIncidents` (around lines 35-48):
+
+```typescript
+function parsePagerdutyIncidents(text: string): unknown[] | null {
+  let root: unknown;
+  try {
+    root = JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+  const rec = asRecord(root);
+  if (rec === undefined) {
+    return null;
+  }
+  const raw = rec["incidents"];
+  return Array.isArray(raw) ? raw : null;
+}
+```
+
+Replace with a unified parser that returns both `incidents` and `more` in a single JSON parse:
+
+```typescript
+function parsePagerdutyListResponse(
+  text: string,
+): { incidents: unknown[]; more: boolean } | null {
+  let root: unknown;
+  try {
+    root = JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+  const rec = asRecord(root);
+  if (rec === undefined) return null;
+  const incidents = rec["incidents"];
+  if (!Array.isArray(incidents)) return null;
+  // PagerDuty's REST v2 list response wraps the array with a sibling
+  // boolean `more`. Absent (or non-boolean) is treated as `false` so the
+  // loop terminates on a malformed response.
+  return { incidents, more: rec["more"] === true };
+}
+```
+
+- [ ] **Step 5: Rewrite `createPagerdutySyncable`'s `sync` body**
+
+In the same file, replace the entire `createPagerdutySyncable` function (lines 135-195) with this version:
 
 ```typescript
 export function createPagerdutySyncable(options: PagerdutySyncableOptions): Syncable {
@@ -1318,6 +1392,10 @@ export function createPagerdutySyncable(options: PagerdutySyncableOptions): Sync
         return syncNoopResult(cursor, t0);
       }
       const prev = decodeCursor(cursor);
+      // Single `now` for the whole sync batch — standard atomic batch
+      // semantics. With maxPagesPerSync=20 and the default 2-minute
+      // sync interval, drift is at most seconds; `syncedAt` is the
+      // sync-start timestamp by design. (Reviewer concern #3 noted.)
       const now = Date.now();
       const floorIso = new Date(now - initialSyncDepthDays * 86_400_000).toISOString();
       const since = prev?.lastUpdated ?? floorIso;
@@ -1349,6 +1427,10 @@ export function createPagerdutySyncable(options: PagerdutySyncableOptions): Sync
             "pagerduty sync: list failed",
           );
           // Preserve progress: cursor reflects pages already ingested.
+          // PD `since` is inclusive (`updated_at >= since`); if the failed
+          // page contained rows sharing the saved timestamp, next sync
+          // re-fetches them and SQLite UPSERT on (service, external_id)
+          // deduplicates idempotently.
           return {
             cursor: encodeCursor({ lastUpdated: maxUpdated }),
             itemsUpserted: totalUpserted,
@@ -1358,8 +1440,9 @@ export function createPagerdutySyncable(options: PagerdutySyncableOptions): Sync
             bytesTransferred: lastTextLen,
           };
         }
-        const incidents = parsePagerdutyIncidents(text);
-        if (incidents === null) {
+        // Single JSON.parse per page — returns both `incidents` and `more`.
+        const parsed = parsePagerdutyListResponse(text);
+        if (parsed === null) {
           return {
             cursor: encodeCursor({ lastUpdated: maxUpdated }),
             itemsUpserted: totalUpserted,
@@ -1371,16 +1454,14 @@ export function createPagerdutySyncable(options: PagerdutySyncableOptions): Sync
         }
         const { upserted, maxUpdated: pageMax } = syncPagerdutyIncidentItems(
           ctx,
-          incidents,
+          parsed.incidents,
           maxUpdated,
           now,
         );
         totalUpserted += upserted;
         maxUpdated = pageMax;
         pagesFetched += 1;
-        // PD's response wraps the array with a sibling `more: boolean`.
-        const parsed = JSON.parse(text) as { more?: boolean };
-        pdHasMore = parsed.more === true;
+        pdHasMore = parsed.more;
         if (!pdHasMore) break;
       }
 
@@ -1397,9 +1478,9 @@ export function createPagerdutySyncable(options: PagerdutySyncableOptions): Sync
 }
 ```
 
-The existing `pagerdutyListFailureResult` helper at lines 115-129 is no longer used by the rewritten sync — it's safe to delete it. Find the function definition and remove it.
+The existing `pagerdutyListFailureResult` helper at lines 115-129 is no longer used by the rewritten sync — delete it. Find the function definition and remove it.
 
-- [ ] **Step 5: Run the tests, verify they pass**
+- [ ] **Step 6: Run the tests, verify they pass**
 
 ```
 bun test packages/gateway/src/connectors/pagerduty-sync.test.ts
@@ -1407,7 +1488,7 @@ bun test packages/gateway/src/connectors/pagerduty-sync.test.ts
 
 Expected: PASS — all three new tests green, all pre-existing tests still green.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add packages/gateway/src/connectors/pagerduty-sync.ts packages/gateway/src/connectors/pagerduty-sync.test.ts
@@ -1416,8 +1497,10 @@ git commit -m "feat(pagerduty): walk all incident pages per sync
 Phase 5 T4 wrap-up Phase B. Replaces the single-fetch sync body with a
 bounded loop that follows PD's parsed.more flag, advances offset by
 pagesFetched * 100, and reports SyncResult.hasMore=true on cap-hit so
-the scheduler re-queues. Three new tests: walks-until-more=false,
-respects maxPagesPerSync cap, partial-failure preserves cursor."
+the scheduler re-queues. Parse helper refactored to return both
+incidents+more in one JSON.parse pass. Three new tests: walks-until-
+more=false, respects maxPagesPerSync cap, partial-failure preserves
+cursor."
 ```
 
 ---
@@ -1726,3 +1809,45 @@ After writing this plan, I verified:
 **Type consistency:** `severityP1Aliases` (field on `ServiceConfig`), `severityP1Aliases` (Task 2 default + Task 3 threading + Task 4 SQL consumer), `maxPagesPerSync` (option key throughout Tasks 7, 8, 9) — names match end-to-end.
 
 **Known minor risk:** Task 2's typecheck step is the broadest — it surfaces fixtures across multiple test directories. The plan lists the likely sites but tells the engineer to use `grep` to find the actual set; this is intentional because the test fixtures are mechanical fillers, not load-bearing logic.
+
+---
+
+## Review responses
+
+Disposition of the five points raised in [2026-05-16-phase-5-t4-wrap-pagerduty-pagination-severity-review.md](./2026-05-16-phase-5-t4-wrap-pagerduty-pagination-severity-review.md):
+
+| # | Point | Disposition | Action in plan |
+|---|---|---|---|
+| 1 | Double JSON parse in Task 8 | **FIX** | Task 8 step 4 refactors private `parsePagerdutyIncidents` → `parsePagerdutyListResponse` returning `{ incidents, more }`; step 5's loop uses the single-parse helper |
+| 2 | Cursor staging UPSERT reliance | **FIX** (clarifying comment) | Added inline code comment in the partial-failure return path of Task 8 step 5 noting PD's inclusive `since` + SQLite UPSERT idempotency |
+| 3 | Stale `now` timestamp drift | **DOCUMENT** (no behavior change) | Added inline code comment in Task 8 step 5 explaining the batch-atomic `synced_at` semantic is intentional; drift is bounded to seconds at default settings |
+| 4 | SQL IN clause Set usage | **ACKNOWLEDGE** (positive feedback) | No action — reviewer commended the existing design |
+| 5 | Silent validation-error fallback | **FIX** | Task 1 step 3 `loadNimbusPagerdutyFromPath` now writes a stderr warning before returning defaults; Task 1 step 1 adds a test asserting the warning fires |
+
+### 1. Double JSON parse — FIX
+
+The reviewer is right: `parsePagerdutyIncidents(text)` was followed by a second `JSON.parse(text)` to extract `more`. Refactored to a single helper `parsePagerdutyListResponse` that returns both fields in one pass. The helper is private (not exported, no external callers verified via grep), so the rename + signature change is safe. Net effect: one `JSON.parse` per page instead of two, simpler code, and a typed return value that documents the response shape.
+
+### 2. Cursor staging UPSERT reliance — FIX as comment
+
+The reviewer asks for explicit acknowledgment that PD's inclusive `since` + SQLite UPSERT semantics make cross-page failure idempotent. The spec already documents this in `§Part 1`; the plan now folds a single-sentence inline code comment into the partial-failure return path so a future maintainer reading the sync body sees it in context. No behavior change.
+
+### 3. Stale `now` timestamp drift — DOCUMENT as comment
+
+The reviewer is correct that `now` is captured once and could drift across pages, but the impact analysis shows this is the intended batch-atomic `synced_at` semantic, not a bug:
+
+- `syncPagerdutyIncidentItems` uses `now` for two fields: `syncedAt` (always) and `modifiedAt` (only as the fallback when `updated_at`/`created_at` are unparseable). Using a single sync-start timestamp for `synced_at` across an entire batch is standard practice — it lets `WHERE synced_at >= ?` queries identify whole sync windows cleanly.
+- Preflight's `incidentWindowMinutes` is evaluated against `opened_at_ms` (derived from PD's `created_at`), not `synced_at`. Drift in `now` does not affect it.
+- At default settings (20 pages × ~100ms per fetch + rate-limiter tokens), drift is bounded to a few seconds. The configured maximum (100 pages) could in theory push this to tens of seconds, but `synced_at` is not a clock-accuracy field.
+
+Added an inline comment explaining this near the `const now = Date.now()` line so future maintainers don't second-guess it.
+
+### 4. Set-based IN clause — ACKNOWLEDGE
+
+Reviewer commended the `new Set(["p1", ...aliases])` pattern + the `cfg.pagerdutyServices.length === 0` guard against empty-IN SQL errors. Already in the plan as-is. No action.
+
+### 5. Silent validation-error fallback — FIX
+
+Real concern. `loadNimbusPagerdutyFromPath` catches every error and returns defaults, which means a misconfigured `max_pages_per_sync = 0` would silently fall back to 20 with no operator-visible signal. Added a `process.stderr.write` warning in the catch block matching the existing `[ci.service.<id>] / [metrics.dora.<id>]` conflict-warning pattern in the same file (line 959). Also added a test in Task 1 step 1 that captures `process.stderr.write` and asserts the warning contains `"[pagerduty] config"` + `"max_pages_per_sync"`, so a future refactor can't silently strip the warning.
+
+Net: one real efficiency fix, two clarifying comments, one substantive defensive add (stderr warning + test), one acknowledgement.
