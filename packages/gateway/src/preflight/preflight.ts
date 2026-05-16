@@ -107,17 +107,23 @@ function selectActiveP1Incidents(
   if (cfg.pagerdutyServices.length === 0) {
     return { count: 0, findings: [], gap: "no_pagerduty_mapping" };
   }
-  const placeholders = cfg.pagerdutyServices.map(() => "?").join(",");
+  // Build the canonical set from the configured aliases (already lowercased
+  // by the bootstrap) unioned with "p1". The Set step is belt-and-braces
+  // against a user-supplied "P1" overlap.
+  const severityMatches = Array.from(new Set(["p1", ...cfg.severityP1Aliases]));
+  const sevPlaceholders = severityMatches.map(() => "?").join(",");
+  const pdPlaceholders = cfg.pagerdutyServices.map(() => "?").join(",");
   const where = `
     service = 'pagerduty'
     AND type = 'incident'
-    AND json_extract(metadata, '$.pagerduty_service_id') IN (${placeholders})
+    AND json_extract(metadata, '$.pagerduty_service_id') IN (${pdPlaceholders})
     AND json_extract(metadata, '$.status') IN ('triggered', 'acknowledged')
-    AND json_extract(metadata, '$.severity') = 'P1'
+    AND LOWER(json_extract(metadata, '$.severity')) IN (${sevPlaceholders})
   `;
+  const countParams = [...cfg.pagerdutyServices, ...severityMatches];
   const countRow = db
     .query(`SELECT COUNT(*) as c FROM item WHERE ${where}`)
-    .get(...cfg.pagerdutyServices) as { c: number };
+    .get(...countParams) as { c: number };
   const rows = db
     .query(
       `SELECT id, title, url, metadata
@@ -126,7 +132,7 @@ function selectActiveP1Incidents(
        ORDER BY json_extract(metadata, '$.opened_at_ms') DESC
        LIMIT ?`,
     )
-    .all(...cfg.pagerdutyServices, maxFindings) as {
+    .all(...countParams, maxFindings) as {
     id: string;
     title: string;
     url: string | null;

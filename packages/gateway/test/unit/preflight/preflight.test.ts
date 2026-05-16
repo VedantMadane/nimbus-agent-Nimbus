@@ -254,6 +254,66 @@ describe("computeDeployPreflight: active_p1_incidents check", () => {
     // Most-recent first → first finding is the most recently opened (smallest age).
     expect(out.checks.active_p1_incidents.findings[0]?.id).toBe("pagerduty:inc_0");
   });
+
+  it('alias "critical" counts toward P1 and preserves raw severity in finding', () => {
+    seedIncident(db, "pagerduty:inc_crit", {
+      status: "triggered",
+      severity: "Critical",
+      pagerdutyServiceId: "P12ABCD",
+      openedAtMs: now - 60_000,
+    });
+    const out = computeDeployPreflight(
+      db,
+      cfg({ severityP1Aliases: ["critical"] }),
+      "main",
+      now,
+      10,
+    );
+    expect(out.checks.active_p1_incidents.count).toBe(1);
+    expect(out.checks.active_p1_incidents.findings[0]?.severity).toBe("Critical");
+  });
+
+  it("alias match is case-insensitive on both sides", () => {
+    seedIncident(db, "pagerduty:inc_upper", {
+      status: "triggered",
+      severity: "CRITICAL",
+      pagerdutyServiceId: "P12ABCD",
+      openedAtMs: now - 60_000,
+    });
+    seedIncident(db, "pagerduty:inc_p1", {
+      status: "triggered",
+      severity: "P1",
+      pagerdutyServiceId: "P12ABCD",
+      openedAtMs: now - 120_000,
+    });
+    const out = computeDeployPreflight(
+      db,
+      cfg({ severityP1Aliases: ["critical"] }),
+      "main",
+      now,
+      10,
+    );
+    expect(out.checks.active_p1_incidents.count).toBe(2);
+  });
+
+  it("empty severityP1Aliases preserves verbatim P1 behavior", () => {
+    seedIncident(db, "pagerduty:inc_p1", {
+      status: "triggered",
+      severity: "P1",
+      pagerdutyServiceId: "P12ABCD",
+      openedAtMs: now - 60_000,
+    });
+    seedIncident(db, "pagerduty:inc_crit", {
+      status: "triggered",
+      severity: "Critical",
+      pagerdutyServiceId: "P12ABCD",
+      openedAtMs: now - 120_000,
+    });
+    // No aliases configured → only the verbatim "P1" row matches.
+    const out = computeDeployPreflight(db, cfg(), "main", now, 10);
+    expect(out.checks.active_p1_incidents.count).toBe(1);
+    expect(out.checks.active_p1_incidents.findings[0]?.id).toBe("pagerduty:inc_p1");
+  });
 });
 
 describe("computeDeployPreflight: failing_ci_runs check", () => {
