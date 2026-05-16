@@ -11,6 +11,7 @@ import {
   loadNimbusAutomationFromConfigDir,
   loadNimbusEmbeddingFromPath,
   loadNimbusLlmPartialFromPath,
+  loadNimbusUpdaterFromConfigDir,
   resolveNimbusTomlForProfile,
 } from "../config/nimbus-toml.ts";
 import { loadNimbusSessionFromPath } from "../config/session-toml.ts";
@@ -48,8 +49,11 @@ import { ProviderRateLimiter } from "../sync/rate-limiter.ts";
 import { SyncScheduler } from "../sync/scheduler.ts";
 import type { SyncContext } from "../sync/types.ts";
 import { startTelemetryFlushScheduler } from "../telemetry/flush-scheduler.ts";
+import { createUpdaterFromConfig } from "../updater/factory.ts";
+import { redactUrlUserinfo } from "../updater/updater.ts";
 import { createNimbusVault } from "../vault/factory.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
+import { GATEWAY_VERSION } from "../version.ts";
 import { AnomalyDetectorStub } from "../watcher/anomaly-detector.ts";
 import { registerConnectorMeshSyncables } from "./assemble-sync-registrations.ts";
 import { openUrlInDefaultBrowser } from "./browser.ts";
@@ -361,7 +365,7 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   const ipcOpts: Parameters<typeof createIpcServer>[0] = {
     listenPath: paths.socketPath,
     vault,
-    version: "0.1.0",
+    version: GATEWAY_VERSION,
     localIndex,
     dataDir: paths.dataDir,
     configDir: paths.configDir,
@@ -380,12 +384,46 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   }
 
   collectSidecarsFromEnv(db, paths, sidecarStops);
+
+  const ipc = createIpcServer(ipcOpts);
+
+  // Updater wiring (S6-F1). Uses GATEWAY_VERSION (Task 1) so future bumps
+  // don't skew across the three consumers. Skips wiring when [updater].enabled
+  // is false or when the host arch isn't in the supported release set; the
+  // dispatcher returns ERR_UPDATER_NOT_CONFIGURED for `updater.*` calls in
+  // that case, which is the correct signal.
+  const updaterCfg = loadNimbusUpdaterFromConfigDir(paths.configDir);
+  const updater = createUpdaterFromConfig({
+    updaterCfg,
+    currentVersion: GATEWAY_VERSION,
+    emit: (name, payload) => ipc.broadcast(name, payload ?? {}),
+    logger: syncLogger,
+  });
+  if (updater !== undefined) {
+    ipc.setUpdater(updater);
+    if (updaterCfg.checkOnStartup) {
+      // Non-blocking. `Updater.checkNow()` redacts userinfo into private
+      // `lastError` but re-throws the un-redacted original — logging
+      // `err.message` directly would leak credentials embedded in the
+      // configured manifest URL into the gateway log file. The
+      // `redactUrlUserinfo` import above is mandatory for this call site.
+      void updater
+        .checkNow()
+        .catch((err: unknown) =>
+          syncLogger.warn(
+            { err: redactUrlUserinfo(err instanceof Error ? err.message : String(err)) },
+            "updater startup check failed",
+          ),
+        );
+    }
+  }
+
   const gatewayAssemblyMs = Math.max(0, Math.round(performance.now() - assemblyStartedMs));
   const telemetryStop = startTelemetryFlushScheduler({
     dataDir: paths.dataDir,
     activeTomlPath,
     getDatabase: () => db,
-    gatewayVersion: "0.1.0",
+    gatewayVersion: GATEWAY_VERSION,
     logger: syncLogger,
     coldStartMs: gatewayAssemblyMs,
   });
@@ -393,7 +431,7 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
 
   return {
     vault,
-    ipc: createIpcServer(ipcOpts),
+    ipc,
     paths,
     localIndex,
     connectorMesh,

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, unlinkSync } from "node:fs";
 import type net from "node:net";
 import { platform } from "node:os";
-
+import type { Updater } from "../../updater/updater.ts";
 import type { AgentInvokeHandler } from "../agent-invoke.ts";
 import { ConsentCoordinatorImpl } from "../consent.ts";
 import { createStreamRegistry } from "../engine-ask-stream.ts";
@@ -203,6 +203,12 @@ export function createIpcServer(options: CreateIpcServerOptions): IPCServer {
     },
     setWorkflowRunHandler(handler: WorkflowRunHandler | undefined): void {
       workflowRunHandler = handler;
+    },
+    setUpdater(updater: Updater): void {
+      options.updater = updater;
+    },
+    broadcast(method: string, params: Record<string, unknown>): void {
+      broadcastNotification(method, params);
     },
     async start(): Promise<void> {
       if (platform() === "win32") {
