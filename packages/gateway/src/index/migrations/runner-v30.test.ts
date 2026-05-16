@@ -11,6 +11,14 @@ describe("V30 migration — vec_items_1536 + dim-aware triggers", () => {
     expect(row.user_version).toBe(30);
   });
 
+  test("V30 no-vec fallback does not throw on bun:sqlite (regression: macOS rejected db.exec(''))", () => {
+    // This test deliberately skips loading sqlite-vec to force the no-vec
+    // branch. Bun on macOS rejects db.exec("") with "SQL string mustn't be
+    // blank"; the runner must guard against empty SQL.
+    const db = new Database(":memory:");
+    expect(() => runIndexedSchemaMigrations(db, 30)).not.toThrow();
+  });
+
   test("V30 records an applied row in _schema_migrations", () => {
     const db = new Database(":memory:");
     runIndexedSchemaMigrations(db, 30);

@@ -399,8 +399,14 @@ function migrateIndexedV28ToV29(db: Database, now: number): void {
 
 function migrateIndexedV29ToV30(db: Database, now: number): void {
   const hasVec = vecTableExists(db);
+  const sql = hasVec ? VEC_ITEMS_1536_V30_SCHEMA_SQL : VEC_ITEMS_1536_V30_NO_VEC_SQL;
   db.transaction(() => {
-    db.exec(hasVec ? VEC_ITEMS_1536_V30_SCHEMA_SQL : VEC_ITEMS_1536_V30_NO_VEC_SQL);
+    // Bun's bun:sqlite on macOS throws "SQL string mustn't be blank" for an
+    // empty `db.exec("")`; Windows/Linux tolerate it. The no-vec fallback is
+    // intentionally empty (records the migration row only).
+    if (sql.trim().length > 0) {
+      db.exec(sql);
+    }
     db.exec("PRAGMA user_version = 30");
     recordMigration(
       db,
