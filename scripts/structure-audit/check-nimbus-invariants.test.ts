@@ -4,6 +4,9 @@ import {
   checkSpawnInvariant,
   checkVaultKeyAllowList,
   collectDbRunCensus,
+  DB_RUN_EXEC_ALLOW_LIST,
+  type FileEntry,
+  findDirectDbRunExec,
   VAULT_KEY_ALLOW_LIST,
 } from "./check-nimbus-invariants.ts";
 
@@ -138,7 +141,7 @@ describe("D11 — manifest-derived VAULT_KEY_RE", () => {
   });
 });
 
-describe("D12 — collectDbRunCensus", () => {
+describe("D12 — collectDbRunCensus (diagnostic census, allowList = [])", () => {
   test("collects db.run() outside db/write.ts", () => {
     const census = collectDbRunCensus([
       {
@@ -156,13 +159,82 @@ describe("D12 — collectDbRunCensus", () => {
     ]);
   });
 
-  test("ignores db.run() inside db/write.ts (the wrapper)", () => {
+  test("also collects db.run() inside db/write.ts (census uses allowList = [])", () => {
+    // The census is an exhaustive snapshot — it intentionally includes the
+    // wrapper itself (allowList = []) so the output reflects all call sites.
+    // Use findDirectDbRunExec (with the default allow-list) for the binary gate.
     const census = collectDbRunCensus([
       {
         relPath: "packages/gateway/src/db/write.ts",
         contents: "db.run('SELECT 1');",
       },
     ]);
-    expect(census).toHaveLength(0);
+    expect(census).toHaveLength(1);
+  });
+});
+
+describe("D12 — direct db.run / db.exec outside allow-list", () => {
+  test("flags a synthetic file with a bare db.run call", () => {
+    const files: FileEntry[] = [
+      {
+        relPath: "packages/gateway/src/synthetic.ts",
+        contents: "function w(db: Database) { db.run('UPDATE t SET n = 1'); }",
+      },
+    ];
+    const hits = findDirectDbRunExec(files);
+    expect(hits.length).toBe(1);
+    expect(hits[0]?.file).toBe("packages/gateway/src/synthetic.ts");
+  });
+
+  test("flags a synthetic file with this.db.exec", () => {
+    const files: FileEntry[] = [
+      {
+        relPath: "packages/gateway/src/synthetic.ts",
+        contents: "class S { run() { this.db.exec('CREATE TABLE t (n INT)'); } }",
+      },
+    ];
+    const hits = findDirectDbRunExec(files);
+    expect(hits.length).toBe(1);
+  });
+
+  test("flags a synthetic file with ctx.db.run", () => {
+    const files: FileEntry[] = [
+      {
+        relPath: "packages/gateway/src/synthetic.ts",
+        contents: "function h(ctx: SyncCtx) { ctx.db.run('UPDATE t SET n = 1'); }",
+      },
+    ];
+    const hits = findDirectDbRunExec(files);
+    expect(hits.length).toBe(1);
+  });
+
+  test("does NOT flag dbRun / dbExec / dbStmtRun calls", () => {
+    const files: FileEntry[] = [
+      {
+        relPath: "packages/gateway/src/synthetic.ts",
+        contents: `
+          dbRun(db, "UPDATE t SET n = 1");
+          dbExec(db, "PRAGMA query_only = ON");
+          dbStmtRun(stmt, 1, 2, 3);
+        `,
+      },
+    ];
+    const hits = findDirectDbRunExec(files);
+    expect(hits.length).toBe(0);
+  });
+
+  test("does NOT flag calls in the allow-listed wrapper file", () => {
+    const files: FileEntry[] = [
+      {
+        relPath: "packages/gateway/src/db/write.ts",
+        contents: "function dbRun(db: Database, sql: string) { db.run(sql); }",
+      },
+    ];
+    const hits = findDirectDbRunExec(files);
+    expect(hits.length).toBe(0);
+  });
+
+  test("DB_RUN_EXEC_ALLOW_LIST contains exactly the wrapper file", () => {
+    expect([...DB_RUN_EXEC_ALLOW_LIST]).toEqual(["packages/gateway/src/db/write.ts"]);
   });
 });

@@ -15,6 +15,7 @@ import {
 import { join } from "node:path";
 import { CONNECTOR_REMOVE_INTENT_V15_SQL } from "../../connectors/remove-intent.ts";
 import { computeAuditRowHash } from "../../db/audit-chain.ts";
+import { dbExec, dbRun, dbStmtRun } from "../../db/write.ts";
 import { API_ENDPOINT_V25_SCHEMA_SQL } from "../api-endpoint-v25-sql.ts";
 import { AUDIT_CHAIN_V18_SCHEMA_SQL } from "../audit-chain-v18-sql.ts";
 import { AUDIT_SESSION_V24_SCHEMA_SQL } from "../audit-session-v24-sql.ts";
@@ -87,7 +88,8 @@ export function readIndexedUserVersion(db: Database): number {
 }
 
 function recordMigration(db: Database, version: number, description: string, now: number): void {
-  db.run(
+  dbRun(
+    db,
     `INSERT OR IGNORE INTO _schema_migrations (version, description, applied_at) VALUES (?, ?, ?)`,
     [version, description, now],
   );
@@ -101,25 +103,25 @@ type IndexedSchemaStep = {
 
 function migrateIndexedV0ToV1(db: Database, now: number): void {
   db.transaction(() => {
-    db.exec(INITIAL_SCHEMA_SQL);
-    db.exec("PRAGMA user_version = 1");
+    dbExec(db, INITIAL_SCHEMA_SQL);
+    dbExec(db, "PRAGMA user_version = 1");
     recordMigration(db, 1, "initial filesystem schema", now);
   })();
 }
 
 function migrateIndexedV1ToV2(db: Database, now: number): void {
   db.transaction(() => {
-    db.exec(SCHEDULER_V2_MIGRATION_SQL);
-    db.exec("PRAGMA user_version = 2");
+    dbExec(db, SCHEDULER_V2_MIGRATION_SQL);
+    dbExec(db, "PRAGMA user_version = 2");
     recordMigration(db, 2, "scheduler_state + sync_telemetry", now);
   })();
 }
 
 function migrateIndexedV2ToV3(db: Database, now: number): void {
   db.transaction(() => {
-    db.exec(UNIFIED_ITEM_V3_SCHEMA_SQL);
-    db.exec(UNIFIED_ITEM_V3_MIGRATE_FROM_LEGACY_SQL);
-    db.exec("PRAGMA user_version = 3");
+    dbExec(db, UNIFIED_ITEM_V3_SCHEMA_SQL);
+    dbExec(db, UNIFIED_ITEM_V3_MIGRATE_FROM_LEGACY_SQL);
+    dbExec(db, "PRAGMA user_version = 3");
     recordMigration(db, 3, "unified item + item_fts + person", now);
   })();
 }
@@ -127,12 +129,13 @@ function migrateIndexedV2ToV3(db: Database, now: number): void {
 function migrateIndexedV3ToV4(db: Database, now: number): void {
   db.transaction(() => {
     if (!personTableHasLinkedColumn(db)) {
-      db.exec(PERSON_LINKED_V4_ALTER_SQL.trim());
+      dbExec(db, PERSON_LINKED_V4_ALTER_SQL.trim());
     }
-    db.run(
+    dbRun(
+      db,
       `UPDATE person SET linked = 0 WHERE canonical_email IS NULL OR trim(canonical_email) = ''`,
     );
-    db.exec("PRAGMA user_version = 4");
+    dbExec(db, "PRAGMA user_version = 4");
     recordMigration(db, 4, "person.linked column", now);
   })();
 }
@@ -140,9 +143,9 @@ function migrateIndexedV3ToV4(db: Database, now: number): void {
 function migrateIndexedV4ToV5(db: Database, now: number): void {
   db.transaction(() => {
     if (!personTableHasColumn(db, "bitbucket_uuid")) {
-      db.exec(PERSON_HANDLES_V5_ALTER_SQL.trim());
+      dbExec(db, PERSON_HANDLES_V5_ALTER_SQL.trim());
     }
-    db.exec("PRAGMA user_version = 5");
+    dbExec(db, "PRAGMA user_version = 5");
     recordMigration(db, 5, "person bitbucket_uuid + microsoft_user_id + discord_user_id", now);
   })();
 }
@@ -150,8 +153,8 @@ function migrateIndexedV4ToV5(db: Database, now: number): void {
 function migrateIndexedV5ToV6(db: Database, now: number): void {
   const vecLoaded = tryLoadSqliteVec(db);
   db.transaction(() => {
-    db.exec(vecLoaded ? EMBEDDING_V6_MIGRATION_SQL : EMBEDDING_V6_NO_VEC_MIGRATION_SQL);
-    db.exec("PRAGMA user_version = 6");
+    dbExec(db, vecLoaded ? EMBEDDING_V6_MIGRATION_SQL : EMBEDDING_V6_NO_VEC_MIGRATION_SQL);
+    dbExec(db, "PRAGMA user_version = 6");
     recordMigration(
       db,
       6,
@@ -163,24 +166,24 @@ function migrateIndexedV5ToV6(db: Database, now: number): void {
 
 function migrateIndexedV6ToV7(db: Database, now: number): void {
   db.transaction(() => {
-    db.exec(GRAPH_V7_MIGRATION_SQL);
-    db.exec("PRAGMA user_version = 7");
+    dbExec(db, GRAPH_V7_MIGRATION_SQL);
+    dbExec(db, "PRAGMA user_version = 7");
     recordMigration(db, 7, "graph_entity + graph_relation", now);
   })();
 }
 
 function migrateIndexedV7ToV8(db: Database, now: number): void {
   db.transaction(() => {
-    db.exec(WATCHER_V8_MIGRATION_SQL);
-    db.exec("PRAGMA user_version = 8");
+    dbExec(db, WATCHER_V8_MIGRATION_SQL);
+    dbExec(db, "PRAGMA user_version = 8");
     recordMigration(db, 8, "watcher + watcher_event", now);
   })();
 }
 
 function migrateIndexedV8ToV9(db: Database, now: number): void {
   db.transaction(() => {
-    db.exec(WORKFLOW_V9_MIGRATION_SQL);
-    db.exec("PRAGMA user_version = 9");
+    dbExec(db, WORKFLOW_V9_MIGRATION_SQL);
+    dbExec(db, "PRAGMA user_version = 9");
     recordMigration(db, 9, "workflow tables", now);
   })();
 }
@@ -195,50 +198,51 @@ function vecTableExists(db: Database): boolean {
 function migrateIndexedV9ToV10(db: Database, now: number): void {
   const hasVec = vecTableExists(db);
   db.transaction(() => {
-    db.exec(
+    dbExec(
+      db,
       hasVec ? EXTENSION_SESSION_V10_MIGRATION_SQL : EXTENSION_SESSION_V10_NO_VEC_MIGRATION_SQL,
     );
-    db.exec("PRAGMA user_version = 10");
+    dbExec(db, "PRAGMA user_version = 10");
     recordMigration(db, 10, "extension + session_memory", now);
   })();
 }
 
 function migrateIndexedV10ToV11(db: Database, now: number): void {
   db.transaction(() => {
-    db.exec(USER_MCP_V11_MIGRATION_SQL);
-    db.exec("PRAGMA user_version = 11");
+    dbExec(db, USER_MCP_V11_MIGRATION_SQL);
+    dbExec(db, "PRAGMA user_version = 11");
     recordMigration(db, 11, "user_mcp_connector", now);
   })();
 }
 
 function migrateIndexedV11ToV12(db: Database, now: number): void {
   db.transaction(() => {
-    db.exec(GRAPH_RELATION_TYPES_V12_SQL);
-    db.exec("PRAGMA user_version = 12");
+    dbExec(db, GRAPH_RELATION_TYPES_V12_SQL);
+    dbExec(db, "PRAGMA user_version = 12");
     recordMigration(db, 12, "graph_relation_type filesystem edges", now);
   })();
 }
 
 function migrateIndexedV12ToV13(db: Database, now: number): void {
   db.transaction(() => {
-    db.exec(CONNECTOR_HEALTH_V13_SQL);
-    db.exec("PRAGMA user_version = 13");
+    dbExec(db, CONNECTOR_HEALTH_V13_SQL);
+    dbExec(db, "PRAGMA user_version = 13");
     recordMigration(db, 13, "connector health state + history", now);
   })();
 }
 
 function migrateIndexedV13ToV14(db: Database, now: number): void {
   db.transaction(() => {
-    db.exec(QUERY_LATENCY_V14_SQL);
-    db.exec("PRAGMA user_version = 14");
+    dbExec(db, QUERY_LATENCY_V14_SQL);
+    dbExec(db, "PRAGMA user_version = 14");
     recordMigration(db, 14, "query_latency_log + slow_query_log", now);
   })();
 }
 
 function migrateIndexedV14ToV15(db: Database, now: number): void {
   db.transaction(() => {
-    db.exec(CONNECTOR_REMOVE_INTENT_V15_SQL);
-    db.exec("PRAGMA user_version = 15");
+    dbExec(db, CONNECTOR_REMOVE_INTENT_V15_SQL);
+    dbExec(db, "PRAGMA user_version = 15");
     recordMigration(db, 15, "connector_remove_intent (crash-safe removal WAL)", now);
   })();
 }
@@ -250,19 +254,19 @@ function llmModelsSyncStateHasContextWindowColumn(db: Database): boolean {
 
 function migrateIndexedV15ToV16(db: Database, now: number): void {
   db.transaction(() => {
-    db.exec(LLM_MODELS_V16_SQL);
+    dbExec(db, LLM_MODELS_V16_SQL);
     if (!llmModelsSyncStateHasContextWindowColumn(db)) {
-      db.exec(LLM_CONTEXT_WINDOW_V16_ALTER_SQL.trim());
+      dbExec(db, LLM_CONTEXT_WINDOW_V16_ALTER_SQL.trim());
     }
-    db.exec("PRAGMA user_version = 16");
+    dbExec(db, "PRAGMA user_version = 16");
     recordMigration(db, 16, "llm_models table + sync_state.context_window_tokens", now);
   })();
 }
 
 function migrateIndexedV16ToV17(db: Database, now: number): void {
   db.transaction(() => {
-    db.exec(SUB_TASK_RESULTS_V17_SQL);
-    db.exec("PRAGMA user_version = 17");
+    dbExec(db, SUB_TASK_RESULTS_V17_SQL);
+    dbExec(db, "PRAGMA user_version = 17");
     recordMigration(db, 17, "sub_task_results (multi-agent sub-task persistence)", now);
   })();
 }
@@ -289,56 +293,56 @@ function backfillAuditChain(db: Database): void {
       actionJson: r.action_json,
       timestamp: r.timestamp,
     });
-    update.run(row, prev, r.id);
+    dbStmtRun(update, row, prev, r.id);
     prev = row;
   }
 }
 
 function migrateIndexedV17ToV18(db: Database, now: number): void {
   db.transaction(() => {
-    db.exec(AUDIT_CHAIN_V18_SCHEMA_SQL);
+    dbExec(db, AUDIT_CHAIN_V18_SCHEMA_SQL);
     backfillAuditChain(db);
-    db.exec("PRAGMA user_version = 18");
+    dbExec(db, "PRAGMA user_version = 18");
     recordMigration(db, 18, "audit_log BLAKE3 chain (row_hash + prev_hash) + _meta", now);
   })();
 }
 
 function migrateIndexedV18ToV19(db: Database, now: number): void {
   db.transaction(() => {
-    db.exec(LAN_PEERS_V19_SQL);
-    db.exec("PRAGMA user_version = 19");
+    dbExec(db, LAN_PEERS_V19_SQL);
+    dbExec(db, "PRAGMA user_version = 19");
     recordMigration(db, 19, "lan_peers (LAN remote-access peer registry)", now);
   })();
 }
 
 function migrateIndexedV19ToV20(db: Database, now: number): void {
   db.transaction(() => {
-    db.exec(LLM_TASK_DEFAULTS_V20_SQL);
-    db.exec("PRAGMA user_version = 20");
+    dbExec(db, LLM_TASK_DEFAULTS_V20_SQL);
+    dbExec(db, "PRAGMA user_version = 20");
     recordMigration(db, 20, "llm_task_defaults (per-task-type LLM model defaults)", now);
   })();
 }
 
 function migrateIndexedV20ToV21(db: Database, now: number): void {
   db.transaction(() => {
-    db.exec(CONNECTOR_DEPTH_V21_SQL);
-    db.exec("PRAGMA user_version = 21");
+    dbExec(db, CONNECTOR_DEPTH_V21_SQL);
+    dbExec(db, "PRAGMA user_version = 21");
     recordMigration(db, 21, "sync_state.depth (per-connector reindex depth)", now);
   })();
 }
 
 function migrateIndexedV21ToV22(db: Database, now: number): void {
   db.transaction(() => {
-    db.exec(WATCHER_GRAPH_V22_SQL);
-    db.exec("PRAGMA user_version = 22");
+    dbExec(db, WATCHER_GRAPH_V22_SQL);
+    dbExec(db, "PRAGMA user_version = 22");
     recordMigration(db, 22, "watcher.graph_predicate_json (graph-aware conditions)", now);
   })();
 }
 
 function migrateIndexedV22ToV23(db: Database, now: number): void {
   db.transaction(() => {
-    db.exec(WORKFLOW_RUN_COLUMNS_V23_SQL);
-    db.exec("PRAGMA user_version = 23");
+    dbExec(db, WORKFLOW_RUN_COLUMNS_V23_SQL);
+    dbExec(db, "PRAGMA user_version = 23");
     recordMigration(
       db,
       23,
@@ -350,49 +354,49 @@ function migrateIndexedV22ToV23(db: Database, now: number): void {
 
 function migrateIndexedV23ToV24(db: Database, now: number): void {
   db.transaction(() => {
-    db.exec(AUDIT_SESSION_V24_SCHEMA_SQL);
-    db.exec("PRAGMA user_version = 24");
+    dbExec(db, AUDIT_SESSION_V24_SCHEMA_SQL);
+    dbExec(db, "PRAGMA user_version = 24");
     recordMigration(db, 24, "audit_log.session_id (transcript rehydration support)", now);
   })();
 }
 
 function migrateIndexedV24ToV25(db: Database, now: number): void {
   db.transaction(() => {
-    db.exec(API_ENDPOINT_V25_SCHEMA_SQL);
-    db.exec("PRAGMA user_version = 25");
+    dbExec(db, API_ENDPOINT_V25_SCHEMA_SQL);
+    dbExec(db, "PRAGMA user_version = 25");
     recordMigration(db, 25, "api_endpoint shadow table (Wave A PR 1)", now);
   })();
 }
 
 function migrateIndexedV25ToV26(db: Database, now: number): void {
   db.transaction(() => {
-    db.exec(OBSIDIAN_NOTES_V26_SCHEMA_SQL);
-    db.exec(OBSIDIAN_NOTES_V26_SEED_SQL);
-    db.exec("PRAGMA user_version = 26");
+    dbExec(db, OBSIDIAN_NOTES_V26_SCHEMA_SQL);
+    dbExec(db, OBSIDIAN_NOTES_V26_SEED_SQL);
+    dbExec(db, "PRAGMA user_version = 26");
     recordMigration(db, 26, "obsidian_notes shadow table (Wave A PR 2)", now);
   })();
 }
 
 function migrateIndexedV26ToV27(db: Database, now: number): void {
   db.transaction(() => {
-    db.exec(PR_COMMIT_RELATION_V27_SEED_SQL);
-    db.exec("PRAGMA user_version = 27");
+    dbExec(db, PR_COMMIT_RELATION_V27_SEED_SQL);
+    dbExec(db, "PRAGMA user_version = 27");
     recordMigration(db, 27, "merged_as graph_relation_type (DORA Lead Time, T4 PR 2)", now);
   })();
 }
 
 function migrateIndexedV27ToV28(db: Database, now: number): void {
   db.transaction(() => {
-    db.exec(DEPLOYMENT_V28_SCHEMA_SQL);
-    db.exec("PRAGMA user_version = 28");
+    dbExec(db, DEPLOYMENT_V28_SCHEMA_SQL);
+    dbExec(db, "PRAGMA user_version = 28");
     recordMigration(db, 28, "deployment_items shadow table (T4 PR 3b)", now);
   })();
 }
 
 function migrateIndexedV28ToV29(db: Database, now: number): void {
   db.transaction(() => {
-    db.exec(TOOL_CALL_LOG_V29_SCHEMA_SQL);
-    db.exec("PRAGMA user_version = 29");
+    dbExec(db, TOOL_CALL_LOG_V29_SCHEMA_SQL);
+    dbExec(db, "PRAGMA user_version = 29");
     recordMigration(db, 29, "tool_call_log audit table (T6 PR 2)", now);
   })();
 }
@@ -405,9 +409,9 @@ function migrateIndexedV29ToV30(db: Database, now: number): void {
     // empty `db.exec("")`; Windows/Linux tolerate it. The no-vec fallback is
     // intentionally empty (records the migration row only).
     if (sql.trim().length > 0) {
-      db.exec(sql);
+      dbExec(db, sql);
     }
-    db.exec("PRAGMA user_version = 30");
+    dbExec(db, "PRAGMA user_version = 30");
     recordMigration(
       db,
       30,
@@ -572,7 +576,7 @@ function writePreMigrationBackup(
 
   // VACUUM INTO creates a defragmented, WAL-checkpointed copy without locking
   // the source for longer than a read transaction.
-  db.run(`VACUUM INTO ?`, [tmpPath]);
+  dbRun(db, `VACUUM INTO ?`, [tmpPath]);
   try {
     chmodSync(tmpPath, 0o600);
   } catch {
@@ -679,7 +683,7 @@ export function runIndexedSchemaMigrations(
   targetVersion: number,
   backupOptions?: MigrationBackupOptions,
 ): void {
-  db.exec(MIGRATIONS_LEDGER_SQL);
+  dbExec(db, MIGRATIONS_LEDGER_SQL);
   backfillMigrationsLedger(db);
 
   let ver = readIndexedUserVersion(db);

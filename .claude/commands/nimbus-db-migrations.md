@@ -80,12 +80,18 @@ If a column rename is truly necessary: add the new column, backfill it, and **le
 Migrations that backfill existing rows must process in batches to avoid locking the DB for extended periods:
 
 ```typescript
+import { dbRun } from "../../db/write.ts";
+
 const BATCH = 1000;
 let offset = 0;
 while (true) {
   const rows = db.query("SELECT id FROM table LIMIT ? OFFSET ?").all(BATCH, offset);
   if (rows.length === 0) break;
-  db.transaction(() => { /* update rows */ })();
+  db.transaction(() => {
+    for (const row of rows) {
+      dbRun(db, "UPDATE table SET col = ? WHERE id = ?", [value, row.id]);
+    }
+  })();
   offset += BATCH;
 }
 ```
@@ -114,6 +120,7 @@ When adding a new table, always include:
 - Appropriate indexes for the expected query patterns.
 - A `CHECK` constraint on any enum-like column.
 - An entry in the schema reference in `docs/architecture.md` under "Local Database Schema".
+- All write statements (`INSERT` / `UPDATE` / `DELETE` / `CREATE TABLE` / `CREATE INDEX`) go through `dbRun` / `dbExec` / `dbStmtRun` from `db/write.ts` (invariant `I14`). Direct `db.run(` / `db.exec(` outside the wrapper fails `bun run audit:invariants`.
 
 ## Virtual Table Caution
 
@@ -138,4 +145,5 @@ When deleting rows from a source table that has an FTS5 shadow:
 - [ ] New tables include primary key, `created_at INTEGER NOT NULL`, query-pattern indexes, and `CHECK` constraints on enum columns.
 - [ ] FTS5 row deletes use targeted `DELETE FROM items_fts WHERE rowid = ?` — never the `'rebuild'` command.
 - [ ] Schema reference in `docs/architecture.md` updated for any new table.
+- [ ] All write statements go through `dbRun` / `dbExec` / `dbStmtRun` from `db/write.ts` — no direct `db.run(` / `db.exec(` (invariant `I14`; `bun run audit:invariants` fails on violations).
 - [ ] Integration tests covering the migration are green; `packages/gateway/src/db/` line coverage stays ≥ 85%.

@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 
+import { dbRun } from "../db/write.ts";
 import { readIndexedUserVersion } from "../index/migrations/runner.ts";
 
 export type ExtensionRow = {
@@ -29,7 +30,7 @@ export function touchExtensionVerifiedAt(db: Database, id: string, ts: number): 
   if (readIndexedUserVersion(db) < 10) {
     return;
   }
-  db.run(`UPDATE extension SET last_verified_at = ? WHERE id = ?`, [ts, id]);
+  dbRun(db, `UPDATE extension SET last_verified_at = ? WHERE id = ?`, [ts, id]);
 }
 
 export function insertExtensionRow(
@@ -40,7 +41,8 @@ export function insertExtensionRow(
     throw new Error("Extension registry requires schema v10+");
   }
   const enabled = row.enabled ?? 1;
-  db.run(
+  dbRun(
+    db,
     `INSERT INTO extension (id, version, install_path, manifest_hash, entry_hash, enabled, installed_at, last_verified_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
@@ -60,7 +62,7 @@ export function setExtensionEnabled(db: Database, id: string, enabled: boolean):
   if (readIndexedUserVersion(db) < 10) {
     return false;
   }
-  const r = db.run(`UPDATE extension SET enabled = ? WHERE id = ?`, [enabled ? 1 : 0, id]);
+  const r = dbRun(db, `UPDATE extension SET enabled = ? WHERE id = ?`, [enabled ? 1 : 0, id]);
   return r.changes > 0;
 }
 
@@ -82,6 +84,6 @@ export function deleteExtensionById(db: Database, id: string): string | null {
   if (path === null) {
     return null;
   }
-  db.run(`DELETE FROM extension WHERE id = ?`, [id]);
+  dbRun(db, `DELETE FROM extension WHERE id = ?`, [id]);
   return path;
 }

@@ -25,6 +25,7 @@ import {
   writeSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import { dbRun } from "./write.ts";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -78,7 +79,7 @@ export function takeSnapshot(db: Database, dataDir: string): string {
   const gzPath = join(dir, `nimbus-${String(timestamp)}.db.gz`);
   const gzPartial = join(dir, `nimbus-${String(timestamp)}-${uniq}.db.gz.partial`);
 
-  db.run(`VACUUM INTO ?`, [tmpPath]);
+  dbRun(db, `VACUUM INTO ?`, [tmpPath]);
   try {
     chmodSync(tmpPath, 0o600);
   } catch {

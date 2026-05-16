@@ -1,4 +1,6 @@
 import type { Database } from "bun:sqlite";
+
+import { dbRun } from "../db/write.ts";
 import type { SqliteEmbeddingPipeline } from "./pipeline.ts";
 import { isProseHeavy, PROSE_HEAVY_TYPES } from "./routing.ts";
 import type { EmbeddingPipeline, IndexedItem } from "./types.ts";
@@ -24,7 +26,7 @@ export class RoutingEmbeddingPipeline implements EmbeddingPipeline {
   async deleteItemEmbeddings(itemId: string): Promise<void> {
     // The dim-aware delete triggers on `embedding_chunk` (V30) fan out to
     // vec_items_384 / vec_items_1536 automatically; one delete is enough.
-    this.db.run(`DELETE FROM embedding_chunk WHERE item_id = ?`, [itemId]);
+    dbRun(this.db, `DELETE FROM embedding_chunk WHERE item_id = ?`, [itemId]);
   }
 
   async backfillAll(onProgress?: (done: number, total: number) => void): Promise<void> {

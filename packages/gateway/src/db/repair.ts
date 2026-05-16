@@ -14,6 +14,7 @@
 
 import type { Database } from "bun:sqlite";
 import { verifyIndex } from "./verify.ts";
+import { dbRun } from "./write.ts";
 
 export type RepairAction =
   | "vec_orphan_delete"
@@ -58,7 +59,8 @@ function repairVecOrphans(db: Database): RepairOutcome {
       for (let i = 0; i < ids.length; i += BATCH) {
         const slice = ids.slice(i, i + BATCH);
         const placeholders = slice.map(() => "?").join(",");
-        db.run(
+        dbRun(
+          db,
           `DELETE FROM vec_items_384 WHERE rowid IN (${placeholders})`,
           slice as Parameters<Database["run"]>[1],
         );
@@ -66,7 +68,7 @@ function repairVecOrphans(db: Database): RepairOutcome {
     })();
 
     // Reset scheduler cursors for all connectors to trigger a full resync
-    db.run(`UPDATE scheduler_state SET cursor = NULL`);
+    dbRun(db, `UPDATE scheduler_state SET cursor = NULL`);
 
     return {
       action,
@@ -85,7 +87,7 @@ function repairVecOrphans(db: Database): RepairOutcome {
 function repairFts5(db: Database): RepairOutcome {
   const action: RepairAction = "fts5_rebuild";
   try {
-    db.run("INSERT INTO item_fts(item_fts) VALUES('rebuild')");
+    dbRun(db, "INSERT INTO item_fts(item_fts) VALUES('rebuild')");
     return { action, status: "applied", detail: "item_fts rebuilt" };
   } catch (err) {
     return {
@@ -99,7 +101,8 @@ function repairFts5(db: Database): RepairOutcome {
 function repairOrphanedSyncTokens(db: Database): RepairOutcome {
   const action: RepairAction = "orphaned_sync_tokens_delete";
   try {
-    const result = db.run(
+    const result = dbRun(
+      db,
       `DELETE FROM sync_state
        WHERE connector_id NOT IN (SELECT service_id FROM scheduler_state)`,
     );
@@ -133,7 +136,7 @@ function isUnsafeSqlIdentifier(id: string): boolean {
 function repairForeignKeys(db: Database): RepairOutcome {
   const action: RepairAction = "foreign_key_cascade_delete";
   try {
-    db.run("PRAGMA foreign_keys = ON");
+    dbRun(db, "PRAGMA foreign_keys = ON");
     const violations = db.query("PRAGMA foreign_key_check").all() as Array<{
       table: string;
       rowid: number;
@@ -165,7 +168,8 @@ function repairForeignKeys(db: Database): RepairOutcome {
         for (let i = 0; i < rowids.length; i += BATCH) {
           const slice = rowids.slice(i, i + BATCH);
           const placeholders = slice.map(() => "?").join(",");
-          const res = db.run(
+          const res = dbRun(
+            db,
             `DELETE FROM ${escapeIdentifier(table)} WHERE rowid IN (${placeholders})`,
             slice as Parameters<Database["run"]>[1],
           );
@@ -192,7 +196,8 @@ function repairForeignKeys(db: Database): RepairOutcome {
 
 function writeAuditEntry(db: Database, report: RepairReport): void {
   try {
-    db.run(
+    dbRun(
+      db,
       `INSERT INTO audit_log (action_type, hitl_status, action_json, timestamp)
        VALUES ('db.repair', 'not_required', ?, ?)`,
       [JSON.stringify(report), Date.now()],

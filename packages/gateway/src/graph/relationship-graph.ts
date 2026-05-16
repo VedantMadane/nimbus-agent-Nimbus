@@ -1,6 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 
+import { dbRun } from "../db/write.ts";
+
 const ITEM_LINKED_ENTITY_TYPES = [
   "pr",
   "issue",
@@ -56,7 +58,8 @@ export function upsertGraphEntity(
   const id = deterministicGraphEntityId(row.type, row.externalId);
   const meta =
     row.metadata === undefined || row.metadata === null ? null : JSON.stringify(row.metadata);
-  db.run(
+  dbRun(
+    db,
     `INSERT INTO graph_entity (id, type, external_id, label, service, metadata)
      VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT (type, external_id) DO UPDATE SET
@@ -76,7 +79,8 @@ export function upsertGraphRelation(
   createdAt: number,
   weight = 1,
 ): void {
-  db.run(
+  dbRun(
+    db,
     `INSERT INTO graph_relation (from_id, to_id, type, weight, created_at)
      VALUES (?, ?, ?, ?, ?)
      ON CONFLICT (from_id, to_id, type) DO UPDATE SET
@@ -94,7 +98,8 @@ export function deleteGraphEntitiesForItemKeys(db: Database, itemPrimaryKeys: st
   const placeholders = itemPrimaryKeys.map(() => "?").join(",");
   const types = [...ITEM_LINKED_ENTITY_TYPES];
   const typePlaceholders = types.map(() => "?").join(",");
-  db.run(
+  dbRun(
+    db,
     `DELETE FROM graph_entity
      WHERE external_id IN (${placeholders})
        AND type IN (${typePlaceholders})`,

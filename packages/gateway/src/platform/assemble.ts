@@ -33,6 +33,7 @@ import {
 import { createOpenapiIndexerSyncable } from "../connectors/openapi-indexer-sync.ts";
 import { listUserMcpConnectors } from "../connectors/user-mcp-store.ts";
 import { startLatencyFlushScheduler } from "../db/latency-ring-buffer.ts";
+import { dbRun } from "../db/write.ts";
 import { createEmbeddingRuntime } from "../embedding/create-embedding-runtime.ts";
 import { verifyExtensionsBestEffort } from "../extensions/verify-extensions.ts";
 import {
@@ -101,7 +102,7 @@ function openGatewaySqlite(dataDir: string, sidecarStops: Array<() => void>): Da
   LocalIndex.ensureSchema(db, { backupDir: join(dataDir, "backups"), dbPath });
   const stopLatency = startLatencyFlushScheduler(db);
   sidecarStops.push(() => stopLatency.stop());
-  db.run("PRAGMA busy_timeout = 8000");
+  dbRun(db, "PRAGMA busy_timeout = 8000");
   return db;
 }
 

@@ -5,8 +5,9 @@
 //   --rule spawn        D10: connectors/ spawn must use extensionProcessEnv() (binary, exits non-zero on hits)
 //   --rule vault-key    D11: vault-key construction must be in the allow-list (binary, exits non-zero on hits)
 //   --rule db-run       D12: census of db.run() outside db/write.ts (always exit 0; writes JSON)
-//   --binary-only       runs spawn + vault-key only (CI mode)
-//   (no flag)           runs everything; binary-violation exit code on D10/D11
+//   --rule db-run-exec  D12: binary gate — db.run/db.exec outside allow-list (exits non-zero on hits)
+//   --binary-only       runs spawn + vault-key + db-run-exec (CI mode)
+//   (no flag)           runs everything; binary-violation exit code on D10/D11/D12
 
 import { CONNECTOR_VAULT_SECRET_KEYS } from "../../packages/gateway/src/connectors/connector-secrets-manifest.ts";
 import { auditOutputPath, iterateSourceFiles, stripComments } from "./lib.ts";
@@ -106,7 +107,9 @@ export type DbRunHit = {
   snippet: string;
 };
 
-const DB_RUN_RE = /\bdb\.run\s*\(/;
+export const DB_RUN_EXEC_ALLOW_LIST: readonly string[] = ["packages/gateway/src/db/write.ts"];
+
+const DB_RUN_EXEC_RE = /\b(?:this\.|ctx\.)?db\.(?:run|exec)\s*\(/;
 // Best-effort enclosing-function detection: nearest preceding `function name(`
 // or `name(...) {` / `name(...) =`. Split into two simpler patterns so each
 // alternation has bounded complexity (closes ReDoS warning vs. the previous
@@ -128,33 +131,45 @@ function findEnclosingFunction(lines: readonly string[], from: number): string {
   return "<top-level>";
 }
 
-export function collectDbRunCensus(files: readonly FileEntry[]): DbRunHit[] {
+export function findDirectDbRunExec(
+  files: readonly FileEntry[],
+  allowList: readonly string[] = DB_RUN_EXEC_ALLOW_LIST,
+): DbRunHit[] {
   const out: DbRunHit[] = [];
   for (const f of files) {
-    if (f.relPath === "packages/gateway/src/db/write.ts") continue;
-    const lines = f.contents.split("\n");
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i] as string;
-      if (!DB_RUN_RE.test(line)) continue;
+    if (allowList.includes(f.relPath)) continue;
+    // Strip comments so inline references (e.g. `// empty \`db.exec("")\``) do
+    // not trigger the heuristic. Newlines are preserved so line numbers stay
+    // correct. The original lines are kept for the enclosing-function scan.
+    const strippedLines = stripComments(f.contents).split("\n");
+    const originalLines = f.contents.split("\n");
+    for (let i = 0; i < strippedLines.length; i++) {
+      const line = strippedLines[i] as string;
+      if (!DB_RUN_EXEC_RE.test(line)) continue;
       out.push({
         file: f.relPath,
         line: i + 1,
-        function: findEnclosingFunction(lines, i),
-        snippet: line.trim(),
+        function: findEnclosingFunction(originalLines, i),
+        snippet: (originalLines[i] as string).trim(),
       });
     }
   }
   return out;
 }
 
-type Mode = "spawn" | "vault-key" | "db-run" | "binary-only" | "all";
+/** @deprecated kept for backwards compatibility — diagnostic census mode. */
+export function collectDbRunCensus(files: readonly FileEntry[]): DbRunHit[] {
+  return findDirectDbRunExec(files, []);
+}
+
+type Mode = "spawn" | "vault-key" | "db-run" | "db-run-exec" | "binary-only" | "all";
 
 function parseArgs(argv: readonly string[]): Mode {
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--rule") {
       const r = argv[++i];
-      if (r === "spawn" || r === "vault-key" || r === "db-run") return r;
+      if (r === "spawn" || r === "vault-key" || r === "db-run" || r === "db-run-exec") return r;
       console.error(`unknown rule: ${r}`);
       process.exit(2);
     }
@@ -191,6 +206,15 @@ async function run(): Promise<void> {
     for (const e of v) {
       console.error(
         `::error file=${e.file},line=${e.line}::D11 vault-key constructed outside allow-list: ${e.snippet}`,
+      );
+    }
+    if (v.length > 0) exit = 1;
+  }
+  if (mode === "db-run-exec" || mode === "binary-only" || mode === "all") {
+    const v = findDirectDbRunExec(files);
+    for (const e of v) {
+      console.error(
+        `::error file=${e.file},line=${e.line}::D12 direct db.run/db.exec outside allow-list: ${e.snippet}`,
       );
     }
     if (v.length > 0) exit = 1;

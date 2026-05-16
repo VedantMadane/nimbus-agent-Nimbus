@@ -1,4 +1,6 @@
 import type { Database } from "bun:sqlite";
+
+import { dbRun } from "../db/write.ts";
 import { readIndexedUserVersion } from "../index/migrations/runner";
 
 export interface WorkflowRunHistoryRow {
@@ -76,7 +78,8 @@ export function listWorkflowRuns(
 
 export function pruneWorkflowRuns(db: Database, workflowId: string, keep: number): number {
   if (readIndexedUserVersion(db) < WORKFLOW_RUN_SCHEMA_VERSION) return 0;
-  const res = db.run(
+  const res = dbRun(
+    db,
     `DELETE FROM workflow_run
      WHERE workflow_id = ?
        AND id NOT IN (

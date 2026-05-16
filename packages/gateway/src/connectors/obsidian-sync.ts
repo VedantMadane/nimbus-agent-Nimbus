@@ -1,8 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { closeSync, fstatSync, openSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
-
 import type { NimbusFilesystemRootToml } from "../config/filesystem-toml.ts";
+import { dbRun } from "../db/write.ts";
 import { upsertIndexedItem } from "../index/item-store.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 
@@ -85,7 +85,8 @@ function upsertNote(
     },
     syncedAt,
   });
-  db.run(
+  dbRun(
+    db,
     `INSERT INTO obsidian_notes (
       id, vault_id, vault_name, path, title, frontmatter_json, tags_json, wikilinks_json, daily_note_date, last_modified, created_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -128,16 +129,19 @@ function deleteNotesAbsentFromVault(
     if (keepIds.has(row.id)) {
       continue;
     }
-    db.run("DELETE FROM item WHERE id = ?", [row.id]);
-    db.run("DELETE FROM obsidian_notes WHERE id = ?", [row.id]);
+    dbRun(db, "DELETE FROM item WHERE id = ?", [row.id]);
+    dbRun(db, "DELETE FROM obsidian_notes WHERE id = ?", [row.id]);
     // Cascade: also drop graph relations pointing at the deleted note.
-    db.run(
+    dbRun(
+      db,
       `DELETE FROM graph_relation
        WHERE from_id IN (SELECT id FROM graph_entity WHERE type = 'obsidian_note' AND external_id = ?)
           OR to_id   IN (SELECT id FROM graph_entity WHERE type = 'obsidian_note' AND external_id = ?)`,
       [row.id, row.id],
     );
-    db.run("DELETE FROM graph_entity WHERE type = 'obsidian_note' AND external_id = ?", [row.id]);
+    dbRun(db, "DELETE FROM graph_entity WHERE type = 'obsidian_note' AND external_id = ?", [
+      row.id,
+    ]);
     deleted++;
   }
   return deleted;

@@ -185,6 +185,18 @@ Companion files:
 
 ---
 
+## I14 — All SQLite write paths route through `dbRun` / `dbExec` / `dbStmtRun`
+
+**Defense:** `dbRun`, `dbExec`, and `dbStmtRun` in `packages/gateway/src/db/write.ts` are the only production paths that invoke `bun:sqlite`'s `Database.run` / `Database.exec` / `Statement.run`. The wrappers translate `SQLITE_FULL` (extended error code 13) into the typed `DiskFullError` and set the `_diskSpaceWarning` flag, so a full disk surfaces as a typed exception rather than a swallowed write.
+
+**Wired at:** `packages/gateway/src/db/write.ts` (`dbRun`, `dbExec`, `dbStmtRun`). Enforced statically by D12 in `scripts/structure-audit/check-nimbus-invariants.ts` — exits 1 on any direct `db.run(` / `db.exec(` outside `DB_RUN_EXEC_ALLOW_LIST` (one entry: the wrapper file itself).
+
+**Anti-pattern:** direct `db.run(` / `db.exec(` / prepared-statement `stmt.run(` in any production file under `packages/gateway/src/` outside `db/write.ts`. Reverting to direct calls means SQLITE_FULL is swallowed silently and the audit chain, sync state, and embeddings can end up half-written without surfacing a typed error to the gateway.
+
+**How to comply:** every new SQL write uses `dbRun(db, sql, params?)`, `dbExec(db, sql)`, or `dbStmtRun(stmt, ...params)`. `bun run audit:invariants` fails fast on regressions; the runtime test in `security-invariants.test.ts` spot-checks three representative subsystems and the allow-list constant.
+
+---
+
 ## How a new invariant is added
 
 1. The defense ships with at least one production caller — never an orphan helper function.
