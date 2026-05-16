@@ -127,9 +127,18 @@ describeWithFetchRestore("pagerduty-sync", () => {
         status: "triggered",
         service: { id: "PJK1HJ8" },
       },
+      {
+        id: "PT_EMPTY_URG",
+        title: "Empty urgency string",
+        created_at: "2026-05-10T18:30:21Z",
+        updated_at: "2026-05-10T18:30:21Z",
+        status: "triggered",
+        urgency: "",
+        service: { id: "PJK1HJ8" },
+      },
     ]);
-    const meta = readIncidentMetadata(db, "PT_NO_URG");
-    expect(meta.urgency).toBeUndefined();
+    expect(readIncidentMetadata(db, "PT_NO_URG").urgency).toBeUndefined();
+    expect(readIncidentMetadata(db, "PT_EMPTY_URG").urgency).toBeUndefined();
   });
 
   test("omits severity when priority is null", async () => {
