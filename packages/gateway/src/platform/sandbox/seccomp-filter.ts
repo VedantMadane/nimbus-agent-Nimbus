@@ -371,6 +371,8 @@ const BPF_JMP = 0x05,
   BPF_K = 0x00;
 const BPF_RET = 0x06;
 const SECCOMP_DATA_NR_OFFSET = 0;
+const SECCOMP_DATA_ARCH_OFFSET = 4;
+const AUDIT_ARCH_X86_64 = 0xc000003e;
 const SECCOMP_RET_ALLOW = 0x7fff0000;
 const SECCOMP_RET_ERRNO_EPERM = 0x00050001; // ERRNO | 1 (EPERM)
 const SECCOMP_RET_KILL_PROCESS = 0x80000000;
@@ -401,15 +403,27 @@ function emit(filters: SockFilter[]): Buffer {
 
 /**
  * Build the cBPF program. Layout:
+ *   LD A, [SECCOMP_DATA.arch]
+ *   JEQ A == AUDIT_ARCH_X86_64, jt=continue, jf=KILL_PROCESS
  *   LD A, [SECCOMP_DATA.nr]
  *   for each allowed syscall:
  *     JEQ A == nr, return ALLOW
  *   for each block-EPERM syscall:
  *     JEQ A == nr, return ERRNO(EPERM)
  *   default: return KILL_PROCESS
+ *
+ * The arch guard is the first decision: if the kernel reports a non-x86_64
+ * arch (e.g., a 32-bit syscall on an x86_64 host, or a future ARM64 build),
+ * the syscall-number table is meaningless and we kill the process rather
+ * than risk allowing the wrong syscall.
  */
 export function buildDefaultSeccompFilter(): Buffer {
   const program: SockFilter[] = [];
+  // Arch check (must be first).
+  program.push(instr(BPF_LD | BPF_W | BPF_ABS, 0, 0, SECCOMP_DATA_ARCH_OFFSET));
+  // JEQ AUDIT_ARCH_X86_64, jt=1 (skip the kill below), jf=0 (fall through to kill)
+  program.push(instr(BPF_JMP | BPF_JEQ | BPF_K, 1, 0, AUDIT_ARCH_X86_64));
+  program.push(instr(BPF_RET | BPF_K, 0, 0, SECCOMP_RET_KILL_PROCESS));
   // Load A = SECCOMP_DATA.nr
   program.push(instr(BPF_LD | BPF_W | BPF_ABS, 0, 0, SECCOMP_DATA_NR_OFFSET));
 
