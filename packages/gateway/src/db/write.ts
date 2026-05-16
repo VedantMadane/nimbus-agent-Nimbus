@@ -92,13 +92,12 @@ function handleWriteError(err: unknown): never {
  * Execute a single parameterised SQL statement.
  * Converts SQLITE_FULL into `DiskFullError`.
  */
-export function dbRun(db: Database, sql: string, params?: unknown[]): void {
+export function dbRun(db: Database, sql: string, params?: unknown[]): ReturnType<Database["run"]> {
   try {
     if (params !== undefined && params.length > 0) {
-      db.run(sql, params as Parameters<Database["run"]>[1]);
-    } else {
-      db.run(sql);
+      return db.run(sql, params as Parameters<Database["run"]>[1]);
     }
+    return db.run(sql);
   } catch (err) {
     handleWriteError(err);
   }
