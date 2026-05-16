@@ -44,6 +44,16 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # Full history is required so the SonarCloud scan further down can
+          # resolve the PR base ref and compute "new code" correctly. With the
+          # default shallow checkout, Sonar logs
+          # `Could not find ref: main in refs/heads, refs/remotes/upstream or
+          # refs/remotes/origin` and falls back to treating every changed file
+          # as new — which flips `new_coverage` to ~0% and surfaces every
+          # legacy hotspot as unreviewed-new, failing the Quality Gate
+          # spuriously. Only the `test` job checkout needs this; `coverage-
+          # gates` and `client-node-compat` do not invoke the scanner.
+          fetch-depth: 0
 
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/setup-nimbus-ci
