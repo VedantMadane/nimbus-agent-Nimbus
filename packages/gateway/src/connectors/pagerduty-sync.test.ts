@@ -19,6 +19,7 @@ type IncidentMetadata = {
   opened_at_ms?: number;
   pagerduty_service_id?: string;
   severity?: string;
+  urgency?: string;
 };
 
 function readIncidentMetadata(db: Database, externalId: string): IncidentMetadata {
@@ -98,6 +99,37 @@ describeWithFetchRestore("pagerduty-sync", () => {
     expect(meta.severity).toBe("P1");
     expect(meta.status).toBe("triggered");
     expect(meta.incidentId).toBe("PT4KHLK");
+  });
+
+  test("writes urgency when present", async () => {
+    const db = await runOneSync([
+      {
+        id: "PT_URGENT",
+        title: "Urgent but no priority",
+        created_at: "2026-05-10T18:30:21Z",
+        updated_at: "2026-05-10T18:30:21Z",
+        status: "triggered",
+        urgency: "high",
+        service: { id: "PJK1HJ8" },
+      },
+    ]);
+    const meta = readIncidentMetadata(db, "PT_URGENT");
+    expect(meta.urgency).toBe("high");
+  });
+
+  test("omits urgency when absent or empty", async () => {
+    const db = await runOneSync([
+      {
+        id: "PT_NO_URG",
+        title: "No urgency field",
+        created_at: "2026-05-10T18:30:21Z",
+        updated_at: "2026-05-10T18:30:21Z",
+        status: "triggered",
+        service: { id: "PJK1HJ8" },
+      },
+    ]);
+    const meta = readIncidentMetadata(db, "PT_NO_URG");
+    expect(meta.urgency).toBeUndefined();
   });
 
   test("omits severity when priority is null", async () => {

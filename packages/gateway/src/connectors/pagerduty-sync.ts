@@ -92,6 +92,8 @@ export function syncPagerdutyIncidentItems(
     if (Number.isFinite(openedAtMs)) metadata["opened_at_ms"] = openedAtMs;
     if (serviceId !== undefined && serviceId !== "") metadata["pagerduty_service_id"] = serviceId;
     if (severity !== undefined && severity !== "") metadata["severity"] = severity;
+    const urgency = stringField(row, "urgency");
+    if (urgency !== undefined && urgency !== "") metadata["urgency"] = urgency;
 
     upsertIndexedItemForSync(ctx, {
       service: SERVICE_ID,
