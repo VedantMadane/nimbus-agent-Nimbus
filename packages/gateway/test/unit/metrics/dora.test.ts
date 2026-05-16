@@ -104,6 +104,7 @@ function cfg(overrides: Partial<DoraServiceConfig> = {}): DoraServiceConfig {
     incidentWindowMinutes: 60,
     excludePrLabels: ["revert"],
     deployEnvironments: ["prod"],
+    severityP1Aliases: [],
     ...overrides,
   };
 }

@@ -31,6 +31,7 @@ function cfg(): DoraServiceConfig {
     incidentWindowMinutes: 60,
     excludePrLabels: [],
     deployEnvironments: ["prod"],
+    severityP1Aliases: [],
   };
 }
 
