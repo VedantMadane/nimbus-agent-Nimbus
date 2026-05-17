@@ -39,6 +39,17 @@ export const EXCLUSIONS: readonly ExclusionPattern[] = Object.freeze([
   { kind: "exact", path: "packages/gateway/src/platform/sandbox/darwin.ts" },
   { kind: "exact", path: "packages/gateway/src/platform/sandbox/win32.ts" },
   { kind: "exact", path: "packages/gateway/src/platform/sandbox/orphan-reap.ts" },
+  // Sandbox dispatcher — same per-OS shape; only one of the three switch
+  // arms executes per CI run, so a single Ubuntu lcov tops out near
+  // 50–55%. Matches the platform/index.ts pattern (also a per-OS
+  // dispatcher) — but unlike platform/index.ts which mocks os.platform()
+  // in its test, this dispatcher uses async `await import(...)` and
+  // mocking module imports across async boundaries is fragile in bun.
+  { kind: "exact", path: "packages/gateway/src/platform/sandbox/sandbox-runner.ts" },
+  // Pure re-export module — `export type { ... }` + `export { fn } from "./..."`
+  // produces no executable code in TypeScript erasure. Bun's V8 coverage
+  // emits no lcov entries for this file.
+  { kind: "exact", path: "packages/gateway/src/platform/sandbox/index.ts" },
 
   // Subprocess entry-point scripts — top-level `await main()` makes them
   // structurally untestable in-process (same shape as github-actions main.ts).
