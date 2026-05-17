@@ -38,29 +38,32 @@ The exclusion registry is the single source of truth — `sonar-project.properti
 
 ## The Ratchet
 
-`docs/structure-audit/coverage-baseline.json` lists every non-exempt source file currently below 80%, with its current line coverage as the temporary ceiling:
+`docs/structure-audit/coverage-baseline.json` lists every non-exempt source file currently below 80%, with its current line coverage percentage as a watermark:
 
 ```json
 {
   "version": 1,
   "generated_at": "2026-05-17T...",
   "files": {
-    "packages/gateway/src/connectors/slack-sync.ts": { "min_lines": 4.35 },
-    "packages/gateway/src/connectors/lazy-mesh/credential-orchestration.ts": { "min_lines": 4.44 },
-    "...": "..."
+    "packages/gateway/src/connectors/slack-sync.ts":                              { "min_coverage_pct": 4.35 },
+    "packages/gateway/src/connectors/lazy-mesh/credential-orchestration.ts":      { "min_coverage_pct": 4.44 }
   }
 }
 ```
 
-CI rules:
+The field name is `min_coverage_pct` (percent, range 0–100), not `min_lines`. Percentage is robust to refactors that add/remove lines without changing the logical coverage proportion.
+
+CI rules — **monotonically rising watermark**, exit at 80%:
 
 1. **Files not in the baseline must be ≥80%** (the floor).
-2. **Files in the baseline must be ≥ their listed `min_lines`** (must not regress; can improve).
-3. **When a baseline file reaches 80%, it must be removed from the baseline in the same PR** (`scripts/coverage-floor/check.ts --update-baseline` produces the diff).
-4. **Removal-only updates** (a baseline file gets removed because its coverage now exceeds 80%) require **no other change** to the baseline — every other file's `min_lines` is unchanged.
-5. **A PR may not raise any `min_lines`.** The baseline is monotonically decreasing.
+2. **Files in the baseline must be ≥ their `min_coverage_pct`** (must not regress).
+3. **If a baseline file's actual coverage is *higher* than its recorded `min_coverage_pct`, the baseline entry must be updated upward in the same PR.** Partial improvements are locked in immediately — they can't silently regress later. `bun scripts/coverage-floor/check.ts --update-baseline` produces the diff for the PR author.
+4. **When a baseline file's actual coverage reaches ≥80%, it must be *removed* from the baseline in the same PR** (the file is now subject to the full floor).
+5. **A PR may never lower any `min_coverage_pct` value.** Watermarks are monotonically non-decreasing; the only way out is removal at 80%.
 
-The ratchet means the gate flips on at Phase 0 merge without breaking CI immediately, and locks in progress one file at a time.
+The "update upward in the same PR" rule is what makes partial progress sticky. Without it, a PR that takes a file from 40% to 70% would leave the baseline at 40%, and a later PR could regress back to 41% without tripping the gate — the gap the original rule 5 left open.
+
+The ratchet means the gate flips on at Phase 0 merge without breaking CI immediately, and locks in every gain one file at a time.
 
 ## Enforcement
 
@@ -71,12 +74,28 @@ bun run test:coverage      # produces coverage/lcov.info (root) + packages/ui/co
 bun scripts/coverage-floor/check.ts --baseline docs/structure-audit/coverage-baseline.json
 ```
 
-Exit code 1 on:
-- Any non-exempt, non-baseline source file below 80%.
-- Any baseline file below its recorded `min_lines`.
-- Baseline file count increased (only decreases allowed).
+`check.ts` walks `packages/*/src/**/*.ts(x)` independently of the lcov report. Bun's V8-based coverage only emits entries for source files imported by at least one test, so a brand-new untested source file is *invisible* in lcov — it would silently escape the floor. The walker treats any non-exempt source file missing from lcov as **0% covered**: either the file goes into the baseline at 0% (blocked from regression and required to climb to 80% in subsequent PRs), or the PR author writes a test in the same diff.
 
-The gate is **PR-blocking on Ubuntu (`pr-quality` job)** and runs on the full 3-OS matrix on push to `main`.
+Exit code 1 on:
+- Any non-exempt, non-baseline source file below 80% in lcov.
+- Any non-exempt source file in `packages/*/src/**` that is **not present** in any lcov report and not in the baseline.
+- Any baseline file below its recorded `min_coverage_pct`.
+- Any baseline file whose actual coverage exceeds its recorded `min_coverage_pct` without a same-PR update raising the watermark (the monotonic-rise enforcement).
+- Any baseline file whose actual coverage is ≥80% without removal from the baseline in the same PR.
+
+The gate is **PR-blocking on Ubuntu (`pr-quality` job)** and runs on the full 3-OS matrix on push to `main`. Note: PR-gate runs Ubuntu-only, so files with inline `process.platform === "win32"` branches will show the win32 branch as uncovered. See "Inline OS Branches" below.
+
+## Inline OS Branches
+
+The project's PAL convention (`nimbus-architecture.md`) already mandates that OS-specific logic lives in `packages/gateway/src/platform/{win32,darwin,linux}.ts` and is accessed via `PlatformServices`. Inline `if (process.platform === "win32")` checks in business logic are an architectural anti-pattern — they should be refactored to a PAL method during this coverage program when encountered.
+
+For unavoidable inline branches (e.g. third-party library compatibility shims that can't reasonably move to the PAL), two coping strategies:
+
+1. **Preferred: baseline absorption.** The file enters the coverage baseline at its actual Ubuntu coverage. Push-to-main runs the 3-OS matrix; future work (out of scope for this design) can extend `check.ts` to merge lcov reports across the matrix so the win32 branch counts as covered on a Windows runner.
+
+2. **Comment-based ignore.** Bun's V8 coverage does NOT natively support `/* c8 ignore next */` or `/* istanbul ignore next */` markers. Until upstream support lands, inline ignores are not an option — option 1 is the only path. `docs/contributors/coverage.md` documents this and points at the open Bun issue if/when it changes.
+
+The PAL refactor path is encouraged in the PR description for any file where inline branches are the reason for a baseline entry.
 
 ## Test Harnesses (Phase 2 + 3 backbone)
 
@@ -159,7 +178,7 @@ All remaining gateway files in the 50–80% range: `voice/tts.ts`, `voice/wake-w
 
 | PR | Package | Notes |
 |---|---|---|
-| 5A | `packages/cli` | Needs CLI-invocation harness (subprocess via `Bun.spawn` against a mock Gateway). |
+| 5A | `packages/cli` | **In-process CLI harness** — import each command function directly with a mocked `NimbusClient` from `@nimbus-dev/client`. Subprocess-based testing (`Bun.spawn`) does NOT propagate coverage from the child process to the parent's lcov (Bun's V8 coverage instruments the test runner's process only — confirmed by PR #326's github-actions e2e regression). The pattern set by PR #326's `setOutput` extraction applies here: command files should export their handler function so it can be invoked in-process. Existing subprocess e2e tests remain for integration coverage of stdin/stdout wiring, but they don't count toward the floor. |
 | 5B | `packages/ui` | Vitest + Testing Library. Per-file 80% on `src/{pages,components,hooks,store}/**`. Excludes routing scaffolds (`App.tsx`) which require E2E. |
 | 5C | `packages/vscode-extension` | Uses `vscode-shim`. Per-file 80% on `src/{chat,connection,hitl,status-bar}/**`. |
 
