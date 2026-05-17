@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { appendFileSync } from "node:fs";
 import { type AnnotateResult, renderSummary } from "./render.ts";
 
@@ -97,7 +98,7 @@ function setOutput(name: string, value: string): void {
   // cannot be escaped by adversarial output content.
   let delim: string;
   do {
-    delim = `EOF_${Math.random().toString(36).slice(2)}`;
+    delim = `EOF_${randomUUID().replaceAll("-", "")}`;
   } while (value.includes(delim));
   appendFileSync(outFile, `${name}<<${delim}\n${value}\n${delim}\n`);
 }
