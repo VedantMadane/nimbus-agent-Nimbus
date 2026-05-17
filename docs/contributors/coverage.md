@@ -1,0 +1,104 @@
+# Coverage Floor — Contributor Guide
+
+This project enforces a **per-file 80% line-coverage floor** for every bun-tested workspace package (gateway, cli, sdk, client, mcp-connectors). A CI gate fails any PR that introduces a non-exempt source file below 80% or regresses a baselined file below its recorded watermark.
+
+Design: [`docs/superpowers/specs/2026-05-17-coverage-floor-design.md`](../superpowers/specs/2026-05-17-coverage-floor-design.md).
+
+## Phase 0 scope
+
+Phase 0 covers the bun-tested packages only:
+
+- `packages/gateway`
+- `packages/cli`
+- `packages/sdk`
+- `packages/client`
+- `packages/mcp-connectors/*`
+
+UI (`packages/ui`) and the VS Code extension (`packages/vscode-extension`) use Vitest, which emits its own `coverage/lcov.info`. Those lcov files are not yet merged into the gate's input; the existing Vitest `>=80% lines / >=75% branches` thresholds keep that surface honest. A future phase can extend the floor to UI by merging the Vitest lcov into `coverage/lcov.info` before the gate runs.
+
+`packages/docs` has no tests; it is out of scope by construction.
+
+## How the gate works
+
+CI runs `bun run audit:coverage-floor` after the unit-test step in `_test-suite.yml`. The script:
+
+1. Reads `coverage/lcov.info` (the merged workspace lcov produced by the per-package merge earlier in the same CI step).
+2. Walks the bun-tested package source trees independently of the lcov — a source file absent from lcov is treated as 0% covered (Bun's V8 coverage only emits entries for imported files, so untested files would otherwise be invisible).
+3. Filters out exempt paths (see [`scripts/coverage-floor/exclusions.ts`](../../scripts/coverage-floor/exclusions.ts)).
+4. Compares actual coverage against the ratcheting baseline at [`docs/structure-audit/coverage-baseline.json`](../structure-audit/coverage-baseline.json).
+5. Exits non-zero on any violation, surfacing each as a `::error file=...::` annotation so it appears inline on the PR diff.
+
+## Violation kinds and how to fix them
+
+### `below_floor` — new file is below 80%
+
+A non-baseline source file came in below 80%. Add tests until the file reaches >=80%.
+
+### `missing_from_lcov` — file has no coverage data
+
+The file exists in one of the in-scope package source trees but no test imports it. Either:
+
+- Write a test for it (preferred); or
+- Add it to the baseline at 0% (`bun run audit:coverage-floor:update-baseline` — only valid if you also commit to climbing the watermark in subsequent PRs).
+
+### `regression` — baseline file dropped
+
+Your changes lowered a baseline file's coverage. Two options:
+
+1. Restore the lost coverage by adding/restoring tests in this PR; OR
+2. Identify the deleted code that produced the apparent regression (e.g., a dead function was removed and its tests with it); in that case the regression is real but expected. Discuss with reviewers before pushing forward — the ratchet exists to catch silent regressions, so legitimate drops need a paper trail.
+
+The script never auto-lowers a baseline. Watermarks are monotonically non-decreasing.
+
+### `must_raise` — baseline file improved; baseline must follow
+
+Your changes raised a baseline file's coverage above its recorded watermark. The baseline file must be updated in the same PR — otherwise a later PR could regress back to (old_baseline + 1)% without tripping the gate. Run:
+
+```bash
+bun run audit:coverage-floor:update-baseline
+```
+
+…then commit the updated `docs/structure-audit/coverage-baseline.json`.
+
+### `must_remove` — baseline file reached 80%
+
+A baselined file now meets the full floor. The baseline entry must be removed in the same PR. Same fix as `must_raise`:
+
+```bash
+bun run audit:coverage-floor:update-baseline
+```
+
+The script raises must-raise entries and drops must-remove entries in one pass.
+
+## OS-specific code
+
+The PR gate runs on Ubuntu only. Files with inline `process.platform === "win32"` branches will show the `win32` arm as uncovered.
+
+**Preferred:** refactor OS-specific logic into `packages/gateway/src/platform/{win32,darwin,linux}.ts` per `nimbus-architecture.md`. Those files are exempt from the floor by construction.
+
+**Fallback:** add the file to the baseline at its current Ubuntu coverage. Future work (out of scope for the foundation PR) can extend `check.ts` to merge per-OS lcov from the 3-OS push matrix so the cross-OS branch counts as covered.
+
+Comment-based ignores (`/* c8 ignore next */`, `/* istanbul ignore next */`) are **not** supported. Bun's V8 coverage doesn't recognize these markers.
+
+## Requesting an exclusion
+
+If a file is structurally untestable in a single CI run (top-level side effects, OS-specific bindings, code-generation outputs), open a PR that:
+
+1. Adds the path to [`scripts/coverage-floor/exclusions.ts`](../../scripts/coverage-floor/exclusions.ts) with a comment explaining why.
+2. Mirrors the same path in `sonar-project.properties`' `sonar.coverage.exclusions` (drift between the two is caught by `audit:exclusion-parity`).
+3. Removes the path's entry from [`docs/structure-audit/coverage-baseline.json`](../structure-audit/coverage-baseline.json) if it had one.
+
+Exclusions are a last resort — prefer testability refactors (extract pure helpers to a sibling file, as PR #326 did for `setOutput`).
+
+## Running the gate locally
+
+```bash
+bun run audit:coverage-floor:build-lcov            # per-package bun test + lcov merge (reproduces CI input; ~70s)
+bun run audit:coverage-floor                       # the gate
+bun run audit:coverage-floor:update-baseline       # raise + remove diffs
+bun run audit:exclusion-parity                     # sonar drift check
+```
+
+The full CI parity command is `bun run test:ci`.
+
+Note: the root `bun run test:coverage` script does not produce `coverage/lcov.info` — it omits `--coverage-reporter=lcov` and Bun only emits lcov when invoked from inside a workspace package. `audit:coverage-floor:build-lcov` is the canonical local entry point.
