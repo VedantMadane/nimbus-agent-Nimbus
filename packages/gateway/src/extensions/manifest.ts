@@ -46,6 +46,27 @@ export type ExtensionManifest = {
 };
 
 export function parseExtensionManifestJson(text: string): ExtensionManifest {
+  return parseExtensionManifestForRegistry(text).manifest;
+}
+
+/**
+ * Registry-load variant of {@link parseExtensionManifestJson}. Returns the
+ * resolved manifest plus an `isPreT2Legacy` flag that is `true` iff the raw
+ * `permissions` field used the legacy `string[]` form. T2 PR 1 (2026-05-16)
+ * hard-disables pre-T2 extensions at registry-load time — once the manifest
+ * has been normalized by `validateAndNormalizePermissions`, the array form
+ * is indistinguishable from an explicit default-deny object form, so the
+ * detection has to happen at this parse boundary. See
+ * `extensions/hard-disable.ts` for the wiring site and the §1 deviation in
+ * `docs/superpowers/specs/2026-05-16-phase-5-t2-pr1-sandbox-design.md`.
+ */
+export type RegistryParseResult = {
+  manifest: ExtensionManifest;
+  /** True iff the raw `permissions` field was the legacy `string[]` form. */
+  isPreT2Legacy: boolean;
+};
+
+export function parseExtensionManifestForRegistry(text: string): RegistryParseResult {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text) as unknown;
@@ -64,6 +85,10 @@ export function parseExtensionManifestJson(text: string): ExtensionManifest {
   const name = typeof o["name"] === "string" ? o["name"].trim() : undefined;
   const entry =
     typeof o["entry"] === "string" ? o["entry"].trim().replaceAll("\\", "/") : undefined;
+  // Pre-T2 detection MUST happen on the raw JSON value, before
+  // `validateAndNormalizePermissions` collapses the legacy array form to
+  // default-deny. After normalization the two cases are indistinguishable.
+  const isPreT2Legacy = Array.isArray(o["permissions"]);
   // Manifests without an explicit `permissions` field are treated as the
   // legacy default-deny shape — `validateAndNormalizePermissions(undefined)`
   // is not called directly because the validator only accepts arrays or
@@ -72,10 +97,13 @@ export function parseExtensionManifestJson(text: string): ExtensionManifest {
     o["permissions"] === undefined ? {} : o["permissions"],
   );
   return {
-    id,
-    version,
-    ...(name !== undefined && name !== "" ? { name } : {}),
-    ...(entry !== undefined && entry !== "" ? { entry } : {}),
-    permissions,
+    manifest: {
+      id,
+      version,
+      ...(name !== undefined && name !== "" ? { name } : {}),
+      ...(entry !== undefined && entry !== "" ? { entry } : {}),
+      permissions,
+    },
+    isPreT2Legacy,
   };
 }

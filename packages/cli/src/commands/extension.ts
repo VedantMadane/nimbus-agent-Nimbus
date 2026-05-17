@@ -9,13 +9,78 @@ function hasFlag(args: string[], flag: string): boolean {
   return args.includes(flag);
 }
 
-function stripFlags(args: string[]): string[] {
-  return args.filter((a) => a !== "--yes" && a !== "-y");
+function takeFlagValue(args: string[], flag: string): string | undefined {
+  const i = args.indexOf(flag);
+  if (i < 0 || i + 1 >= args.length) return undefined;
+  return args[i + 1];
 }
 
-async function runExtensionList(client: IPCClient): Promise<void> {
-  const out = await client.call<{ extensions: unknown }>("extension.list", {});
-  console.log(JSON.stringify(out, undefined, 2));
+function stripFlags(args: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--yes" || a === "-y" || a === "--json") continue;
+    if (a === "--filter") {
+      // skip flag + value
+      i += 1;
+      continue;
+    }
+    out.push(a as string);
+  }
+  return out;
+}
+
+type ExtensionListEntry = {
+  id: string;
+  version: string;
+  enabled?: number;
+  needs_reinstall?: boolean;
+  disabled_reason?: string;
+};
+
+async function runExtensionList(client: IPCClient, args: string[]): Promise<void> {
+  const filter = takeFlagValue(args, "--filter");
+  const json = hasFlag(args, "--json");
+  const params: Record<string, unknown> = {};
+  if (filter !== undefined) params["filter"] = filter;
+  const out = await client.call<{ extensions: ExtensionListEntry[] }>("extension.list", params);
+  if (json) {
+    console.log(JSON.stringify(out, undefined, 2));
+    return;
+  }
+  const rows = out.extensions;
+  if (rows.length === 0) {
+    console.log("(no extensions installed)");
+    return;
+  }
+  for (const r of rows) {
+    const suffix = r.needs_reinstall === true ? " [needs-reinstall]" : "";
+    const enabled = r.enabled === 0 ? " (disabled)" : "";
+    console.log(`${r.id}@${r.version}${enabled}${suffix}`);
+  }
+}
+
+async function runExtensionInfo(client: IPCClient, rest: string[], args: string[]): Promise<void> {
+  const id = rest[0]?.trim() ?? "";
+  if (id === "") {
+    throw new Error("Usage: nimbus extension info <id> [--json]");
+  }
+  const out = await client.call<{
+    extension: ExtensionListEntry;
+    message?: string;
+  }>("extension.info", { id });
+  if (hasFlag(args, "--json")) {
+    console.log(JSON.stringify(out, undefined, 2));
+    return;
+  }
+  const e = out.extension;
+  console.log(`Extension: ${e.id}`);
+  console.log(`Version:   ${e.version}`);
+  console.log(`Enabled:   ${e.enabled === 1 ? "yes" : "no"}`);
+  if (e.needs_reinstall === true && out.message !== undefined) {
+    console.log("");
+    console.log(out.message);
+  }
 }
 
 async function runExtensionInstall(
@@ -111,7 +176,12 @@ export async function runExtension(args: string[]): Promise<void> {
   await client.connect();
   try {
     if (sub === "list" || sub === "") {
-      await runExtensionList(client);
+      await runExtensionList(client, args);
+      return;
+    }
+
+    if (sub === "info") {
+      await runExtensionInfo(client, rest, args);
       return;
     }
 
@@ -136,7 +206,7 @@ export async function runExtension(args: string[]): Promise<void> {
     }
 
     throw new Error(
-      "Usage: nimbus extension list | install <path> [--yes] | enable <id> | disable <id> | remove <id> [--yes]",
+      "Usage: nimbus extension list [--filter needs-reinstall] [--json] | info <id> [--json] | install <path> [--yes] | enable <id> | disable <id> | remove <id> [--yes]",
     );
   } finally {
     await client.disconnect();
