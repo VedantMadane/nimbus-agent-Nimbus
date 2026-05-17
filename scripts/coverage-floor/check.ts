@@ -74,9 +74,11 @@ export function evaluateCheck(input: EvaluateInput): EvaluateResult {
 export function computeUpdatedBaseline(
   baseline: Baseline,
   actual: ReadonlyMap<string, number>,
+  sourceFiles: ReadonlyArray<string>,
   generatedAt: string,
 ): Baseline {
   const next = new Map<string, number>();
+  // Pass 1: existing baseline entries — apply ratchet rules.
   for (const [path, minPct] of baseline.files) {
     const actualPct = actual.get(path) ?? 0;
     if (actualPct >= FLOOR_PCT) continue; // must-remove
@@ -85,6 +87,19 @@ export function computeUpdatedBaseline(
     } else {
       next.set(path, minPct); // stable or regression (keep old watermark)
     }
+  }
+  // Pass 2: seed new entries for non-exempt source files not already in
+  // baseline that are below the floor. Files missing from lcov entirely
+  // are recorded at 0 so the first run's missing_from_lcov violations get
+  // baselined too — Phase 0's design assumes the seeded baseline accepts
+  // current state so CI goes green on merge.
+  for (const path of sourceFiles) {
+    if (isExempt(path)) continue;
+    if (next.has(path)) continue;
+    if (baseline.files.has(path)) continue;
+    const actualPct = actual.get(path) ?? 0;
+    if (actualPct >= FLOOR_PCT) continue;
+    next.set(path, actualPct);
   }
   return { version: 1, generated_at: generatedAt, files: next };
 }
@@ -180,7 +195,7 @@ async function main(): Promise<void> {
   const sourceFiles = await discoverSourceFiles();
 
   if (updateMode) {
-    const next = computeUpdatedBaseline(baseline, actual, new Date().toISOString());
+    const next = computeUpdatedBaseline(baseline, actual, sourceFiles, new Date().toISOString());
     await Bun.write(absBaseline, serializeBaseline(next));
     console.log(
       `coverage-floor: updated baseline at ${baselinePath} (${next.files.size} entries; was ${baseline.files.size})`,

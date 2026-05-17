@@ -189,7 +189,7 @@ describe("computeUpdatedBaseline (--update-baseline mode)", () => {
       ["stable.ts", 50],
       ["regress.ts", 30],
     ]);
-    const updated = computeUpdatedBaseline(baseline, actual, "new-timestamp");
+    const updated = computeUpdatedBaseline(baseline, actual, [], "new-timestamp");
     expect(updated.files.get("raise.ts")).toBe(70);
     expect(updated.files.has("remove.ts")).toBe(false);
     expect(updated.files.get("stable.ts")).toBe(50);
@@ -197,5 +197,61 @@ describe("computeUpdatedBaseline (--update-baseline mode)", () => {
     // reported by evaluateCheck and the PR must fix the regression in code.
     expect(updated.files.get("regress.ts")).toBe(50);
     expect(updated.generated_at).toBe("new-timestamp");
+  });
+
+  test("seeds new non-exempt below-floor files from sourceFiles", async () => {
+    const { computeUpdatedBaseline } = await import("./check.ts");
+    const baseline = {
+      version: 1 as const,
+      generated_at: "old",
+      files: new Map<string, number>(),
+    };
+    const actual = new Map<string, number>([
+      ["packages/gateway/src/foo.ts", 35],
+      ["packages/gateway/src/bar.ts", 90], // passes floor → not seeded
+    ]);
+    const sourceFiles = [
+      "packages/gateway/src/foo.ts",
+      "packages/gateway/src/bar.ts",
+      "packages/gateway/src/baz.ts", // not in actual → seeded at 0
+    ];
+    const updated = computeUpdatedBaseline(baseline, actual, sourceFiles, "new");
+    expect(updated.files.get("packages/gateway/src/foo.ts")).toBe(35);
+    expect(updated.files.has("packages/gateway/src/bar.ts")).toBe(false);
+    expect(updated.files.get("packages/gateway/src/baz.ts")).toBe(0);
+  });
+
+  test("skips exempt files during seeding", async () => {
+    const { computeUpdatedBaseline } = await import("./check.ts");
+    const baseline = {
+      version: 1 as const,
+      generated_at: "old",
+      files: new Map<string, number>(),
+    };
+    const actual = new Map<string, number>([
+      ["packages/gateway/src/vault/win32.ts", 5], // exempt
+      ["packages/gateway/src/perf/bench-cli.ts", 0], // exempt
+    ]);
+    const sourceFiles = [
+      "packages/gateway/src/vault/win32.ts",
+      "packages/gateway/src/perf/bench-cli.ts",
+    ];
+    const updated = computeUpdatedBaseline(baseline, actual, sourceFiles, "new");
+    expect(updated.files.size).toBe(0);
+  });
+
+  test("does not duplicate an already-baselined entry during seeding", async () => {
+    const { computeUpdatedBaseline } = await import("./check.ts");
+    const baseline = {
+      version: 1 as const,
+      generated_at: "old",
+      files: new Map([["a.ts", 40]]),
+    };
+    const actual = new Map<string, number>([["a.ts", 50]]); // must-raise
+    const sourceFiles = ["a.ts"];
+    const updated = computeUpdatedBaseline(baseline, actual, sourceFiles, "new");
+    // Should be raised to 50 by pass 1, not re-added at 50 by pass 2.
+    expect(updated.files.get("a.ts")).toBe(50);
+    expect(updated.files.size).toBe(1);
   });
 });
