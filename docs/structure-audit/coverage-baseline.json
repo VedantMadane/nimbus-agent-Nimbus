@@ -272,14 +272,8 @@
     "packages/gateway/src/connectors/lazy-mesh/phase3-config.ts": {
       "min_coverage_pct": 65.22
     },
-    "packages/gateway/src/connectors/lazy-mesh/slot.ts": {
-      "min_coverage_pct": 0
-    },
     "packages/gateway/src/connectors/lazy-mesh/tool-map.ts": {
       "min_coverage_pct": 73.91
-    },
-    "packages/gateway/src/connectors/lazy-mesh/user-mcp.ts": {
-      "min_coverage_pct": 69.49
     },
     "packages/gateway/src/connectors/newrelic-sync.ts": {
       "min_coverage_pct": 30.26
@@ -338,9 +332,6 @@
     "packages/gateway/src/engine/router.ts": {
       "min_coverage_pct": 5.99
     },
-    "packages/gateway/src/index.ts": {
-      "min_coverage_pct": 0
-    },
     "packages/gateway/src/index/item-list-query.ts": {
       "min_coverage_pct": 69.64
     },
@@ -391,9 +382,6 @@
     },
     "packages/gateway/src/ipc/server/inline-handlers.ts": {
       "min_coverage_pct": 51.13
-    },
-    "packages/gateway/src/ipc/server/options.ts": {
-      "min_coverage_pct": 0
     },
     "packages/gateway/src/ipc/server/server.ts": {
       "min_coverage_pct": 75.57

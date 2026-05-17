@@ -45,6 +45,17 @@ export const EXCLUSIONS: readonly ExclusionPattern[] = Object.freeze([
   // Invoked via `process.execPath <script>` from production code only.
   { kind: "exact", path: "packages/gateway/src/platform/sandbox/sandbox-wrapper.ts" },
   { kind: "exact", path: "packages/sdk/src/testing/sandbox-probe.ts" },
+  // Gateway entry point — top-level `await main()` makes in-process testing
+  // impossible (same exemption rationale as github-actions/*/src/main.ts).
+  // Helpers like `emitSandboxPostureBannerIfDegraded` would need to be
+  // extracted to a sibling to test, which is out of scope for this batch.
+  { kind: "exact", path: "packages/gateway/src/index.ts" },
+
+  // Type-only files whose runtime emit is empty after TypeScript erasure.
+  // These don't match the `**/*types*.ts` basename regex below but follow
+  // the same exemption rationale — zero executable statements.
+  { kind: "exact", path: "packages/gateway/src/connectors/lazy-mesh/slot.ts" },
+  { kind: "exact", path: "packages/gateway/src/ipc/server/options.ts" },
 
   // Reference benches — run via `nimbus bench` interactive protocol, not bun test.
   { kind: "dirPrefix", prefix: "packages/gateway/src/perf/" },
