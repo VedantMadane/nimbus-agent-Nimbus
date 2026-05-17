@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
 import { appendFileSync } from "node:fs";
+import { setOutput } from "./output.ts";
 import {
   decideExitCode,
   type Envelope,
@@ -116,34 +116,6 @@ function getIntInput(name: string, fallback: number): number {
   return Number.isInteger(n) ? n : fallback;
 }
 
-// Hardcoded allowlist of output names this Action declares in action.yml.
-// Any other name is rejected — guards against an attacker-controlled call
-// site smuggling a new output key into GITHUB_OUTPUT.
-const ALLOWED_OUTPUT_NAMES: ReadonlySet<string> = new Set([
-  "verdict",
-  "incident-count",
-  "failing-ci-count",
-  "merge-conflict-count",
-  "result-json",
-]);
-
-function setOutput(name: string, value: string): void {
-  if (!ALLOWED_OUTPUT_NAMES.has(name)) {
-    throw new Error(`refusing to set unknown output: ${name}`);
-  }
-  const outFile = process.env.GITHUB_OUTPUT;
-  if (outFile === undefined) return;
-  // Loop until the random delimiter is collision-free with the (possibly
-  // tainted) value, matching @actions/core's prepareKeyValueMessage. The
-  // collision probability is astronomically low, but the loop turns a
-  // dataflow risk into a structural guarantee that the heredoc parser
-  // cannot be escaped by adversarial output content.
-  let delim: string;
-  do {
-    delim = `EOF_${randomUUID().replaceAll("-", "")}`;
-  } while (value.includes(delim));
-  appendFileSync(outFile, `${name}<<${delim}\n${value}\n${delim}\n`);
-}
 
 // Cap on bytes written to GITHUB_STEP_SUMMARY per Action run. GitHub's
 // own limit is 1 MiB; this is a tighter bound that also serves as a DoS
