@@ -56,7 +56,10 @@ class PreT2DisabledRegistry {
   }
 
   list(): readonly string[] {
-    return [...this.ids].sort();
+    // Locale-aware compare for stable, alphabetically-correct ordering
+    // when the registry contains non-ASCII extension ids. The default
+    // String#sort callback compares by UTF-16 code units (Sonar S6913).
+    return [...this.ids].sort((a, b) => a.localeCompare(b));
   }
 
   count(): number {
