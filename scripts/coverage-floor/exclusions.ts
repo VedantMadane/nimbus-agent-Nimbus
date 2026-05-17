@@ -30,6 +30,22 @@ export const EXCLUSIONS: readonly ExclusionPattern[] = Object.freeze([
   { kind: "exact", path: "packages/gateway/src/platform/linux.ts" },
   { kind: "exact", path: "packages/gateway/src/platform/browser.ts" },
 
+  // Extension sandbox PAL (T2 PR 1) — same per-OS shape as the vault/platform
+  // PAL above. Exported helpers (decideNetworkMode, buildBwrapArgv,
+  // generateSbplProfile, profileNameFor, capabilitiesForManifest) are pure
+  // and tested via the colocated `*.test.ts` files; the per-OS impls
+  // themselves cannot all run on Ubuntu CI.
+  { kind: "exact", path: "packages/gateway/src/platform/sandbox/linux.ts" },
+  { kind: "exact", path: "packages/gateway/src/platform/sandbox/darwin.ts" },
+  { kind: "exact", path: "packages/gateway/src/platform/sandbox/win32.ts" },
+  { kind: "exact", path: "packages/gateway/src/platform/sandbox/orphan-reap.ts" },
+
+  // Subprocess entry-point scripts — top-level `await main()` makes them
+  // structurally untestable in-process (same shape as github-actions main.ts).
+  // Invoked via `process.execPath <script>` from production code only.
+  { kind: "exact", path: "packages/gateway/src/platform/sandbox/sandbox-wrapper.ts" },
+  { kind: "exact", path: "packages/sdk/src/testing/sandbox-probe.ts" },
+
   // Reference benches — run via `nimbus bench` interactive protocol, not bun test.
   { kind: "dirPrefix", prefix: "packages/gateway/src/perf/" },
 
