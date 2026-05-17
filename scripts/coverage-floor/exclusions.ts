@@ -71,6 +71,13 @@ export const EXCLUSIONS: readonly ExclusionPattern[] = Object.freeze([
   // Reference benches — run via `nimbus bench` interactive protocol, not bun test.
   { kind: "dirPrefix", prefix: "packages/gateway/src/perf/" },
 
+  // C-language helper binary (T2 PR 1 sandbox). Not in the TS source
+  // walker by extension, so this dirPrefix entry is purely to satisfy
+  // the directional parity check against the Sonar coverage exclusion
+  // for the same path. Real C coverage measurement happens via cppcheck
+  // in the linux-sandbox-helper-setup CI step, not lcov.
+  { kind: "dirPrefix", prefix: "packages/gateway/src-native/" },
+
   // SQL migration constants — one big template string per file, no executable JS.
   { kind: "pathRegex", re: /^packages\/gateway\/src\/index\/[^/]+-v\d+-sql\.ts$/ },
 
