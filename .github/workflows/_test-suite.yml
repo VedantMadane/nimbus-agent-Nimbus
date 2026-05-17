@@ -248,6 +248,37 @@ jobs:
             sed -i 's|^SF:src/|SF:packages/ui/src/|' packages/ui/coverage/lcov.info
           fi
 
+      - name: Coverage floor — per-file 80% gate
+        if: runner.os == 'Linux'
+        # The PR gate is Ubuntu-only (matches the pre-existing pr-quality
+        # pattern). The 3-OS push matrix still runs `bun test --coverage`
+        # on all three OSes, but the floor gate only runs on Linux because
+        # platform-specific files (vault/{win32,darwin,linux}.ts) are
+        # exempt from the registry — running the gate on Windows/macOS
+        # would not change its verdict.
+        shell: bash
+        run: bun run audit:coverage-floor
+
+      - name: Coverage floor — exclusion parity (sonar <-> registry)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: bun run audit:exclusion-parity
+
+      - name: Upload merged coverage/lcov.info as artifact
+        # Published so contributors can download CI's lcov to reseed
+        # docs/structure-audit/coverage-baseline.json on a CI-equivalent
+        # input (the per-file gate is platform-sensitive: local Windows /
+        # macOS lcov can differ from CI Linux lcov by tens of percent on
+        # OS-specific files). See docs/contributors/coverage.md "Updating
+        # the baseline".
+        if: runner.os == 'Linux' && always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: coverage-lcov-merged
+          path: coverage/lcov.info
+          retention-days: 7
+          if-no-files-found: error
+
       - name: Upload coverage to Codecov
         # Supplementary reporting only — coverage threshold is enforced by the
         # `bun test --coverage-threshold-lines=…` invocation in the gate steps,
