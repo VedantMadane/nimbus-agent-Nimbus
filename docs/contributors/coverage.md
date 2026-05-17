@@ -90,6 +90,32 @@ If a file is structurally untestable in a single CI run (top-level side effects,
 
 Exclusions are a last resort — prefer testability refactors (extract pure helpers to a sibling file, as PR #326 did for `setOutput`).
 
+## Updating the baseline (cross-platform note)
+
+The seeded baseline is **Linux-platform-specific**. CI runs the gate on Ubuntu, and Bun's V8 coverage exercises different code paths on different OSes — a Windows-only `vault/win32.ts` branch is uncovered on Linux, and vice versa. A local `bun run audit:coverage-floor:update-baseline` on macOS or Windows will produce a baseline that disagrees with CI by tens of percent on platform-specific files.
+
+**Canonical workflow:** push your PR, let CI run, then:
+
+```bash
+# 1. Find the latest run on your branch
+gh run list --branch <your-branch> --limit 1
+
+# 2. Download the merged coverage lcov from that run
+gh run download <run-id> --name coverage-lcov-merged --dir coverage
+
+# 3. Regenerate the baseline against CI's lcov
+bun run audit:coverage-floor:update-baseline
+
+# 4. Commit + push
+git add docs/structure-audit/coverage-baseline.json
+git commit -m "chore(coverage-floor): refresh baseline from CI lcov"
+git push
+```
+
+The `coverage-lcov-merged` artifact is published by every Linux CI run (retention 7 days) for exactly this purpose.
+
+If you don't have CI access (e.g. you're working offline), `bun run audit:coverage-floor:build-lcov` produces a local lcov that's approximately correct; expect to refine the baseline via CI on push.
+
 ## Running the gate locally
 
 ```bash
