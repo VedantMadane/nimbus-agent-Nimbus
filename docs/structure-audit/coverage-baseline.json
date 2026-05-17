@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-05-17T09:17:48.895Z",
+  "generated_at": "2026-05-17T13:44:22.995Z",
   "files": {
     "packages/cli/src/commands/ask.ts": {
       "min_coverage_pct": 4.76
@@ -37,9 +37,6 @@
     },
     "packages/cli/src/commands/expert.ts": {
       "min_coverage_pct": 39.53
-    },
-    "packages/cli/src/commands/extension.ts": {
-      "min_coverage_pct": 5.04
     },
     "packages/cli/src/commands/help.ts": {
       "min_coverage_pct": 0
@@ -150,7 +147,7 @@
       "min_coverage_pct": 9.09
     },
     "packages/cli/src/paths.ts": {
-      "min_coverage_pct": 22.86
+      "min_coverage_pct": 46.48
     },
     "packages/cli/src/tui/App.tsx": {
       "min_coverage_pct": 57.6
@@ -192,7 +189,7 @@
       "min_coverage_pct": 65.1
     },
     "packages/gateway/src/auth/slack-access-token.ts": {
-      "min_coverage_pct": 16
+      "min_coverage_pct": 30.77
     },
     "packages/gateway/src/config.ts": {
       "min_coverage_pct": 69.89
@@ -267,19 +264,10 @@
       "min_coverage_pct": 4.44
     },
     "packages/gateway/src/connectors/lazy-mesh/mesh.ts": {
-      "min_coverage_pct": 34.04
-    },
-    "packages/gateway/src/connectors/lazy-mesh/phase3-config.ts": {
-      "min_coverage_pct": 65.22
-    },
-    "packages/gateway/src/connectors/lazy-mesh/slot.ts": {
-      "min_coverage_pct": 0
+      "min_coverage_pct": 60.83
     },
     "packages/gateway/src/connectors/lazy-mesh/tool-map.ts": {
       "min_coverage_pct": 73.91
-    },
-    "packages/gateway/src/connectors/lazy-mesh/user-mcp.ts": {
-      "min_coverage_pct": 69.49
     },
     "packages/gateway/src/connectors/newrelic-sync.ts": {
       "min_coverage_pct": 30.26
@@ -303,7 +291,7 @@
       "min_coverage_pct": 5.26
     },
     "packages/gateway/src/db/backups-list.ts": {
-      "min_coverage_pct": 8.33
+      "min_coverage_pct": 40.91
     },
     "packages/gateway/src/db/query-guard-worker.ts": {
       "min_coverage_pct": 0
@@ -312,7 +300,7 @@
       "min_coverage_pct": 34.76
     },
     "packages/gateway/src/db/snapshot.ts": {
-      "min_coverage_pct": 10.05
+      "min_coverage_pct": 47.37
     },
     "packages/gateway/src/db/verify.ts": {
       "min_coverage_pct": 61.68
@@ -338,20 +326,14 @@
     "packages/gateway/src/engine/router.ts": {
       "min_coverage_pct": 5.99
     },
-    "packages/gateway/src/index.ts": {
-      "min_coverage_pct": 0
-    },
     "packages/gateway/src/index/item-list-query.ts": {
-      "min_coverage_pct": 69.64
+      "min_coverage_pct": 75
     },
     "packages/gateway/src/index/ranked-item.ts": {
       "min_coverage_pct": 0
     },
     "packages/gateway/src/ipc/agent-invoke.ts": {
       "min_coverage_pct": 0
-    },
-    "packages/gateway/src/ipc/automation-rpc.ts": {
-      "min_coverage_pct": 61.36
     },
     "packages/gateway/src/ipc/connector-rpc-handlers/auth.ts": {
       "min_coverage_pct": 6.28
@@ -374,9 +356,6 @@
     "packages/gateway/src/ipc/connector-rpc.ts": {
       "min_coverage_pct": 68.29
     },
-    "packages/gateway/src/ipc/diagnostics-rpc.ts": {
-      "min_coverage_pct": 33.75
-    },
     "packages/gateway/src/ipc/http-server.ts": {
       "min_coverage_pct": 65.12
     },
@@ -384,16 +363,10 @@
       "min_coverage_pct": 79.38
     },
     "packages/gateway/src/ipc/people-rpc.ts": {
-      "min_coverage_pct": 51.85
-    },
-    "packages/gateway/src/ipc/server/dispatchers.ts": {
-      "min_coverage_pct": 45.67
+      "min_coverage_pct": 57.04
     },
     "packages/gateway/src/ipc/server/inline-handlers.ts": {
-      "min_coverage_pct": 51.13
-    },
-    "packages/gateway/src/ipc/server/options.ts": {
-      "min_coverage_pct": 0
+      "min_coverage_pct": 51.5
     },
     "packages/gateway/src/ipc/server/server.ts": {
       "min_coverage_pct": 75.57
