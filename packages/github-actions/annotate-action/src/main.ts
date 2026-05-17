@@ -76,7 +76,6 @@ function getIntInput(name: string, fallback: number): number {
   return Number.isInteger(n) ? n : fallback;
 }
 
-
 // Cap on bytes written to GITHUB_STEP_SUMMARY per Action run. GitHub's
 // own limit is 1 MiB; this is a tighter bound that also serves as a DoS
 // guard against an adversarial Gateway returning a multi-gigabyte body.
