@@ -154,7 +154,7 @@ function printViolations(violations: ReadonlyArray<Violation>): void {
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const updateMode = args.includes("--update-baseline");
-  const baselinePathArg = args.find((a, i) => args[i - 1] === "--baseline");
+  const baselinePathArg = args.find((_a, i) => args[i - 1] === "--baseline");
   const baselinePath = baselinePathArg ?? "docs/structure-audit/coverage-baseline.json";
   const lcovPath = process.env["COVERAGE_LCOV_PATH"] ?? "coverage/lcov.info";
 
