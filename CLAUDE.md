@@ -123,10 +123,13 @@ When implementing, focus on the current phase. Do not add Phase N+1 features in 
 
 @.claude/commands/nimbus-agent-patterns.md
 @.claude/commands/nimbus-architecture.md
+@.claude/commands/nimbus-cicd-data-layer.md
 @.claude/commands/nimbus-commands.md
 @.claude/commands/nimbus-connector-authoring.md
 @.claude/commands/nimbus-db-migrations.md
+@.claude/commands/nimbus-embedding-routing.md
 @.claude/commands/nimbus-file-map.md
+@.claude/commands/nimbus-http-write-surface.md
 @.claude/commands/nimbus-ipc.md
 @.claude/commands/nimbus-security-invariants.md
 @.claude/commands/nimbus-tauri-allowlist.md

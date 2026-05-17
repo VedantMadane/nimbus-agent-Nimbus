@@ -28,11 +28,14 @@ describe("E2E (in-process): nimbus deploy annotate", () => {
   let dir: string;
   let db: Database;
 
+  // Cold-start module load + 29 sequential migrations + sqlite-vec extension
+  // load legitimately approaches 5 s on Windows GHA runners. The default Bun
+  // hook timeout is 5 s; bump it so the hook doesn't race the migration.
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "nimbus-deploy-annotate-e2e-"));
     db = new Database(join(dir, "nimbus.db"));
     runIndexedSchemaMigrations(db, TARGET_SCHEMA_VERSION);
-  });
+  }, 30_000);
 
   afterEach(() => {
     db.close();

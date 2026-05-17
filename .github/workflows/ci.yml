@@ -24,6 +24,12 @@ jobs:
     outputs:
       ui: ${{ steps.changes.outputs.ui }}
       rust: ${{ steps.changes.outputs.rust }}
+      # code-changed=false when every changed file matches docs/, *.md,
+      # LICENSE*, CHANGELOG*, or .github/*.md. Gates the heavy TS/Bun and
+      # cross-platform PR jobs so docs-only PRs still get a structure audit
+      # (which checks doc-ref drift — the relevant gate for docs PRs) without
+      # paying for a full 3-runner test cycle.
+      code-changed: ${{ steps.changes.outputs.code-changed }}
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
@@ -49,13 +55,31 @@ jobs:
           CHANGED=$(git diff --name-only "$BASE" "${{ github.sha }}" 2>/dev/null || echo "")
           echo "ui=$(echo "$CHANGED" | grep -qE '^packages/(ui|sdk)/' && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "rust=$(echo "$CHANGED" | grep -qE '^packages/ui/src-tauri/' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          # Fail-safe: an empty diff (e.g. base resolution glitch) is treated as
+          # "code might have changed" so we never skip the test suite on an
+          # unknown change set.
+          if [[ -z "$CHANGED" ]]; then
+            echo "code-changed=true" >> "$GITHUB_OUTPUT"
+          else
+            # Non-doc-only changes: anything outside docs/, *.md, LICENSE,
+            # CHANGELOG. `.github/workflows/*.yml` is intentionally NOT
+            # whitelisted — workflow changes must run the full test suite
+            # to verify CI itself didn't regress.
+            NON_DOC=$(echo "$CHANGED" | grep -vE '^(docs/|LICENSE([-_].*)?$|CHANGELOG([-_].*)?$|.*\.md$|.*\.MD$)' || true)
+            if [[ -z "$NON_DOC" ]]; then
+              echo "code-changed=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "code-changed=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
 
   # ── PR: fast feedback (three jobs run in parallel) ─────────────────────────
 
   # TS/Bun test suite — ubuntu only, runs in parallel with pr-quality-rust
   pr-quality-ts:
     name: PR quality — TS/Bun (ubuntu-24.04)
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && needs.filter.outputs.code-changed == 'true'
+    needs: filter
     uses: ./.github/workflows/_test-suite.yml
     with:
       runner: ubuntu-24.04
@@ -103,7 +127,8 @@ jobs:
   # no integration, no e2e, no coverage upload — just `bun test` on source.
   pr-quality-cross-platform:
     name: PR quality — Cross-platform (${{ matrix.os }})
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && needs.filter.outputs.code-changed == 'true'
+    needs: filter
     strategy:
       fail-fast: false
       matrix:
@@ -174,10 +199,13 @@ jobs:
         env:
           CI: "true"
 
-  # Code duplication scan — runs in parallel with the above two jobs
+  # Code duplication scan — runs in parallel with the above two jobs.
+  # Scans only packages/ for code duplication; docs-only PRs can't introduce
+  # new code-duplication regressions, so we skip when code-changed is false.
   pr-quality-duplication:
     name: PR quality — Duplication scan
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && needs.filter.outputs.code-changed == 'true'
+    needs: filter
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

@@ -114,4 +114,4 @@ When implementing, focus on the current phase. Do not add Phase N+1 features in 
 - [`docs/roadmap.md`](./docs/roadmap.md) — phases, acceptance criteria, delivered summaries.
 - [`docs/SECURITY-INVARIANTS.md`](./docs/SECURITY-INVARIANTS.md) — I1–I15 rationale + anti-patterns.
 - [`docs/cli-reference.md`](./docs/cli-reference.md) — full CLI subcommand reference.
-- `.claude/commands/nimbus-*.md` — domain skills (architecture, IPC, file-map, commands, testing, agents, connectors, migrations, security invariants, Tauri allowlist, tool-output envelope, Phase 4 reference). The Gemini CLI activates these on demand via `activate_skill`.
+- `.claude/commands/nimbus-*.md` — domain skills (architecture, IPC, file-map, commands, testing, agents, connectors, migrations, security invariants, Tauri allowlist, tool-output envelope, HTTP write surface (I13), embedding routing (T6 PR 3), CI/CD data layer (T4), Phase 4 reference). The Gemini CLI activates these on demand via `activate_skill`.

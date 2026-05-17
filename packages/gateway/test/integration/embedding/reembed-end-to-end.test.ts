@@ -5,12 +5,25 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import pino from "pino";
 import { runIndexedSchemaMigrations } from "../../../src/index/migrations/runner.ts";
-import { tryLoadSqliteVec } from "../../../src/index/sqlite-vec-load.ts";
+import { isVecLoaded, tryLoadSqliteVec } from "../../../src/index/sqlite-vec-load.ts";
 import {
   dispatchIndexReembedRpc,
   type IndexReembedRpcContext,
 } from "../../../src/ipc/index-reembed-rpc.ts";
 import { MockVault } from "../../../src/vault/mock.ts";
+
+// Probe sqlite-vec availability once at load time. macOS CI runners without a
+// loadable vec dylib (codesigning / arch mismatch) skip this suite cleanly
+// instead of failing in beforeEach — same pattern as
+// filesystem-v2-semantic-search.integration.test.ts.
+function vecAvailable(): boolean {
+  const d = new Database(":memory:");
+  tryLoadSqliteVec(d);
+  const ok = isVecLoaded(d);
+  d.close();
+  return ok;
+}
+const VEC_AVAILABLE = vecAvailable();
 
 function freshCtx(): {
   db: Database;
@@ -20,11 +33,7 @@ function freshCtx(): {
 } {
   const tmp = mkdtempSync(join(tmpdir(), "nimbus-reembed-"));
   const db = new Database(join(tmp, "nimbus.db"));
-  if (!tryLoadSqliteVec(db)) {
-    db.close();
-    rmSync(tmp, { recursive: true, force: true });
-    throw new Error("sqlite-vec required for end-to-end test");
-  }
+  tryLoadSqliteVec(db);
   runIndexedSchemaMigrations(db, 30);
   const events: Array<{ method: string; params: unknown }> = [];
   const ctx: IndexReembedRpcContext = {
@@ -70,7 +79,7 @@ function seed(db: Database): void {
   }
 }
 
-describe("nimbus index reembed — end-to-end", () => {
+describe.skipIf(!VEC_AVAILABLE)("nimbus index reembed — end-to-end", () => {
   test("dry-run on a populated index emits done with planned count", async () => {
     const { db, ctx, events, cleanup } = freshCtx();
     try {

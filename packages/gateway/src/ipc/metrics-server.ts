@@ -8,6 +8,8 @@ import { getAllConnectorHealth } from "../connectors/health.ts";
 import { collectIndexMetrics } from "../db/metrics.ts";
 
 export type MetricsServerHandle = {
+  /** Bound port — equals `port` arg unless `port === 0`, in which case the OS assigned one. */
+  readonly port: number;
   readonly stop: () => void;
 };
 
@@ -72,6 +74,7 @@ export function startMetricsServer(getDb: () => Database, port: number): Metrics
   });
 
   return {
+    port: server.port ?? port,
     stop(): void {
       try {
         server.stop();
