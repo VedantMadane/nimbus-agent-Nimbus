@@ -4,6 +4,10 @@ import { confirm, isCancel } from "@clack/prompts";
 import { IPCClient } from "../ipc-client/index.ts";
 import { readGatewayState } from "../lib/gateway-process.ts";
 import { getCliPlatformPaths } from "../paths.ts";
+import {
+  formatNetworkIsolationLine,
+  type SandboxPlatformCapabilities,
+} from "./extension-sandbox-format.ts";
 
 function hasFlag(args: string[], flag: string): boolean {
   return args.includes(flag);
@@ -60,6 +64,29 @@ async function runExtensionList(client: IPCClient, args: string[]): Promise<void
   }
 }
 
+type DiagSnapshotResult = {
+  sandbox?: {
+    platform_capabilities?: SandboxPlatformCapabilities;
+  };
+};
+
+/**
+ * Fetch the sandbox posture from `diag.snapshot`. CLI runs in a separate
+ * process from the Gateway, so the Gateway-side `SandboxRunner` singleton
+ * is reachable only through IPC — the cleanest carrier is the existing
+ * `diag.snapshot` payload (T2 PR 1 Task 20). Returns `null` on any error so
+ * `extension info` still prints the rest of the row when the diagnostic
+ * call fails (e.g. permission denied on the data dir).
+ */
+async function fetchSandboxPosture(client: IPCClient): Promise<SandboxPlatformCapabilities | null> {
+  try {
+    const snap = await client.call<DiagSnapshotResult>("diag.snapshot", {});
+    return snap.sandbox?.platform_capabilities ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function runExtensionInfo(client: IPCClient, rest: string[], args: string[]): Promise<void> {
   const id = rest[0]?.trim() ?? "";
   if (id === "") {
@@ -69,14 +96,23 @@ async function runExtensionInfo(client: IPCClient, rest: string[], args: string[
     extension: ExtensionListEntry;
     message?: string;
   }>("extension.info", { id });
+  const sandboxCap = await fetchSandboxPosture(client);
   if (hasFlag(args, "--json")) {
-    console.log(JSON.stringify(out, undefined, 2));
+    console.log(
+      JSON.stringify(
+        { ...out, sandbox: sandboxCap === null ? null : { platform_capabilities: sandboxCap } },
+        undefined,
+        2,
+      ),
+    );
     return;
   }
   const e = out.extension;
   console.log(`Extension: ${e.id}`);
   console.log(`Version:   ${e.version}`);
   console.log(`Enabled:   ${e.enabled === 1 ? "yes" : "no"}`);
+  console.log(formatNetworkIsolationLine(sandboxCap));
+  console.log("  See: docs/sandbox.md#platform-asymmetry");
   if (e.needs_reinstall === true && out.message !== undefined) {
     console.log("");
     console.log(out.message);
