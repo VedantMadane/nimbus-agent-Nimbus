@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-05-17T13:44:22.995Z",
+  "generated_at": "2026-05-17T18:17:25.907Z",
   "files": {
     "packages/cli/src/commands/ask.ts": {
       "min_coverage_pct": 4.76
@@ -185,9 +185,6 @@
     "packages/gateway/src/auth/oauth-vault-tokens.ts": {
       "min_coverage_pct": 76.6
     },
-    "packages/gateway/src/auth/pkce.ts": {
-      "min_coverage_pct": 65.1
-    },
     "packages/gateway/src/auth/slack-access-token.ts": {
       "min_coverage_pct": 30.77
     },
@@ -213,7 +210,7 @@
       "min_coverage_pct": 10.76
     },
     "packages/gateway/src/connectors/connector-catalog.ts": {
-      "min_coverage_pct": 39.09
+      "min_coverage_pct": 64.71
     },
     "packages/gateway/src/connectors/connector-vault.ts": {
       "min_coverage_pct": 67.74
@@ -260,9 +257,6 @@
     "packages/gateway/src/connectors/kubernetes-sync.ts": {
       "min_coverage_pct": 19.05
     },
-    "packages/gateway/src/connectors/lazy-mesh/credential-orchestration.ts": {
-      "min_coverage_pct": 4.44
-    },
     "packages/gateway/src/connectors/lazy-mesh/mesh.ts": {
       "min_coverage_pct": 60.83
     },
@@ -296,14 +290,8 @@
     "packages/gateway/src/db/query-guard-worker.ts": {
       "min_coverage_pct": 0
     },
-    "packages/gateway/src/db/repair.ts": {
-      "min_coverage_pct": 34.76
-    },
-    "packages/gateway/src/db/snapshot.ts": {
-      "min_coverage_pct": 47.37
-    },
     "packages/gateway/src/db/verify.ts": {
-      "min_coverage_pct": 61.68
+      "min_coverage_pct": 70.06
     },
     "packages/gateway/src/embedding/create-embedding-runtime.ts": {
       "min_coverage_pct": 19.35
@@ -335,9 +323,6 @@
     "packages/gateway/src/ipc/agent-invoke.ts": {
       "min_coverage_pct": 0
     },
-    "packages/gateway/src/ipc/connector-rpc-handlers/auth.ts": {
-      "min_coverage_pct": 6.28
-    },
     "packages/gateway/src/ipc/connector-rpc-handlers/config.ts": {
       "min_coverage_pct": 61.76
     },
@@ -349,9 +334,6 @@
     },
     "packages/gateway/src/ipc/connector-rpc-handlers/status.ts": {
       "min_coverage_pct": 25
-    },
-    "packages/gateway/src/ipc/connector-rpc-shared.ts": {
-      "min_coverage_pct": 50.91
     },
     "packages/gateway/src/ipc/connector-rpc.ts": {
       "min_coverage_pct": 68.29
@@ -369,7 +351,7 @@
       "min_coverage_pct": 51.5
     },
     "packages/gateway/src/ipc/server/server.ts": {
-      "min_coverage_pct": 75.57
+      "min_coverage_pct": 73.86
     },
     "packages/gateway/src/ipc/server/socket-listeners.ts": {
       "min_coverage_pct": 45.21
