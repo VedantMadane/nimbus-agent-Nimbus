@@ -9,17 +9,17 @@ import {
   type SandboxPlatformCapabilities,
 } from "./extension-sandbox-format.ts";
 
-function hasFlag(args: string[], flag: string): boolean {
+export function hasFlag(args: string[], flag: string): boolean {
   return args.includes(flag);
 }
 
-function takeFlagValue(args: string[], flag: string): string | undefined {
+export function takeFlagValue(args: string[], flag: string): string | undefined {
   const i = args.indexOf(flag);
   if (i < 0 || i + 1 >= args.length) return undefined;
   return args[i + 1];
 }
 
-function stripFlags(args: string[]): string[] {
+export function stripFlags(args: string[]): string[] {
   const out: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -42,7 +42,7 @@ type ExtensionListEntry = {
   disabled_reason?: string;
 };
 
-async function runExtensionList(client: IPCClient, args: string[]): Promise<void> {
+export async function runExtensionList(client: IPCClient, args: string[]): Promise<void> {
   const filter = takeFlagValue(args, "--filter");
   const json = hasFlag(args, "--json");
   const params: Record<string, unknown> = {};
@@ -78,7 +78,9 @@ type DiagSnapshotResult = {
  * `extension info` still prints the rest of the row when the diagnostic
  * call fails (e.g. permission denied on the data dir).
  */
-async function fetchSandboxPosture(client: IPCClient): Promise<SandboxPlatformCapabilities | null> {
+export async function fetchSandboxPosture(
+  client: IPCClient,
+): Promise<SandboxPlatformCapabilities | null> {
   try {
     const snap = await client.call<DiagSnapshotResult>("diag.snapshot", {});
     return snap.sandbox?.platform_capabilities ?? null;
@@ -87,7 +89,11 @@ async function fetchSandboxPosture(client: IPCClient): Promise<SandboxPlatformCa
   }
 }
 
-async function runExtensionInfo(client: IPCClient, rest: string[], args: string[]): Promise<void> {
+export async function runExtensionInfo(
+  client: IPCClient,
+  rest: string[],
+  args: string[],
+): Promise<void> {
   const id = rest[0]?.trim() ?? "";
   if (id === "") {
     throw new Error("Usage: nimbus extension info <id> [--json]");
@@ -119,7 +125,7 @@ async function runExtensionInfo(client: IPCClient, rest: string[], args: string[
   }
 }
 
-async function runExtensionInstall(
+export async function runExtensionInstall(
   client: IPCClient,
   args: string[],
   rest: string[],
@@ -153,7 +159,7 @@ async function runExtensionInstall(
   console.log(JSON.stringify(out, undefined, 2));
 }
 
-async function runExtensionEnable(client: IPCClient, rest: string[]): Promise<void> {
+export async function runExtensionEnable(client: IPCClient, rest: string[]): Promise<void> {
   const id = rest[0]?.trim() ?? "";
   if (id === "") {
     throw new Error("Usage: nimbus extension enable <id>");
@@ -162,7 +168,7 @@ async function runExtensionEnable(client: IPCClient, rest: string[]): Promise<vo
   console.log(JSON.stringify(out, undefined, 2));
 }
 
-async function runExtensionDisable(client: IPCClient, rest: string[]): Promise<void> {
+export async function runExtensionDisable(client: IPCClient, rest: string[]): Promise<void> {
   const id = rest[0]?.trim() ?? "";
   if (id === "") {
     throw new Error("Usage: nimbus extension disable <id>");
@@ -171,7 +177,7 @@ async function runExtensionDisable(client: IPCClient, rest: string[]): Promise<v
   console.log(JSON.stringify(out, undefined, 2));
 }
 
-async function runExtensionRemove(
+export async function runExtensionRemove(
   client: IPCClient,
   args: string[],
   rest: string[],
