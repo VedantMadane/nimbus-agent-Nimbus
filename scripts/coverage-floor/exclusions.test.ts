@@ -79,7 +79,6 @@ describe("isExempt — path-separator normalization", () => {
 describe("EXCLUSIONS — registry shape", () => {
   test("registry is frozen", () => {
     expect(() => {
-      // @ts-expect-error — mutating a frozen array must throw in strict mode
       (EXCLUSIONS as unknown as { push: (x: unknown) => void }).push({});
     }).toThrow();
   });
