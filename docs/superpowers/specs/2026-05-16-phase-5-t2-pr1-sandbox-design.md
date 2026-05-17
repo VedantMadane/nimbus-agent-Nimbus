@@ -295,18 +295,110 @@ test.skip(
 - Profile created at install → deleted at uninstall (`DeleteAppContainerProfile` after the running-extension terminate sequence).
 - Startup orphan-reap: enumerate registry sub-keys under `GetAppContainerRegistryLocation()` matching `nimbus-ext-*`; cross-reference against `extension_state.id`; `DeleteAppContainerProfile` on any orphan.
 
-## Section 5 — Lazy-mesh spawn wiring
+## Section 5 — Lazy-mesh spawn wiring (Option A — wrapper-command shim)
 
-The four files under `packages/gateway/src/connectors/lazy-mesh/` that today call `spawn(cmd, args, { env: extensionProcessEnv(...) })` are each rewritten to call `sandboxRunner.spawn(cmd, args, { manifest, env: extensionProcessEnv(...), cwd })`:
+### Discovery + deviation from the original wording
+
+The original wording of this section assumed every file under
+`packages/gateway/src/connectors/lazy-mesh/` contained a direct call to
+`spawn(cmd, args, { env: extensionProcessEnv(...) })` that could simply
+be rewritten to `sandboxRunner.spawn(...)`. Implementation discovery
+on 2026-05-17 found this is **not** how the lazy-mesh works: there are
+**zero** direct calls to `child_process.spawn` in any of the four files.
+Each file instead constructs `new MCPClient({ servers: { name: { command, args, env } } })`
+from `@mastra/mcp@1.7.0`. MCPClient's internal `StdioClientTransport`
+is what forks the child — and the transport has no public hook to
+intercept that fork.
+
+Three viable architectures were considered; the **wrapper-command shim
+(Option A)** was approved:
+
+| Option | Sketch | Why not chosen |
+| ------ | ------ | -------------- |
+| Fork `@mastra/mcp` | Maintain an in-tree fork that exposes a `transportFactory` option. | High maintenance cost; the upstream package is on every connector path. |
+| Monkey-patch | Override `child_process.spawn` at module-load. | Affects every spawn in the Gateway process; brittle; broad blast radius. |
+| **Wrapper-command shim (Option A)** | Rewrite each `ServerSpec` so MCPClient launches a thin Bun TS script (`sandbox-wrapper.ts`) that reads the manifest from env + calls `sandboxRunner.spawn(...)` itself. | Single load-bearing file; trivial to test; preserves I1 unchanged. |
+
+### Final architecture (Option A — what shipped)
+
+Every `ServerSpec` in the four lazy-mesh files is rewritten via
+`wrapServerSpec(spec, manifest, sandboxCwd)`:
+
+```
+// Before:
+{ command: "bun", args: [".../github/server.ts"], env: extensionProcessEnv({ GITHUB_PAT: pat }) }
+
+// After:
+{
+  command: process.execPath,              // the Bun binary
+  args: [
+    <packages/gateway/src/platform/sandbox/sandbox-wrapper.ts>,
+    "bun",
+    ".../github/server.ts",
+  ],
+  env: {
+    ...extensionProcessEnv({ GITHUB_PAT: pat }),  // inner env — I1 unchanged
+    NIMBUS_SANDBOX_MANIFEST_JSON: JSON.stringify(manifest),
+    NIMBUS_SANDBOX_CWD: <cwd>,
+  },
+}
+```
+
+When MCPClient internally forks this rewritten spec, the wrapper script
+runs as the child, reads `NIMBUS_SANDBOX_MANIFEST_JSON` + `NIMBUS_SANDBOX_CWD`
+from its env, strips those two keys (so a sandboxed connector that
+re-execs cannot re-enter the wrapper), calls
+`await (await createSandboxRunner()).spawn(originalCmd, originalArgs, opts)`,
+forwards the child's exit code (`128 + signal_number` on signal kills
+per shell convention), and forwards stdio via `stdio: "inherit"` so the
+MCP JSON-RPC stream passes through transparently: MCPClient ↔ wrapper
+stdio ↔ sandboxed connector stdio.
+
+### Files changed for Option A
 
 | File | Change |
 | ---- | ------ |
-| `mesh.ts` | The single `spawn(...)` call in the connector-startup path gains a `manifest` lookup before spawning and routes through `sandboxRunner.spawn`. |
-| `connector-spawns.ts` | Same pattern; the function gains a `manifest` parameter. |
-| `phase3-config.ts` | Same pattern; the Phase-3 lazy-mesh config bundle's spawn helper. |
-| `user-mcp.ts` | User-installed MCP server spawns; the I15 wiring applies to user-installed third-party MCPs too. (Pre-T2 user MCPs without `permissions.*` hit the hard-disable path at registry load — they never reach this spawn site.) |
+| `platform/sandbox/sandbox-wrapper.ts` (NEW) | Bun-runnable shim. Reads manifest + cwd from env, calls `sandboxRunner.spawn`, forwards stdio + exit code. |
+| `connectors/lazy-mesh/wrap-server-spec.ts` (NEW) | Pure helper — rewrites a `ServerSpec` to launch the wrapper script. Exports `WRAPPER_PATH` for the I15 enforcement test. |
+| `connectors/lazy-mesh/first-party-manifests.ts` (NEW) | Static `FIRST_PARTY_MANIFESTS` registry — one row per first-party connector spawned by lazy-mesh (28 rows). PR 1 hard-codes conservative SaaS hosts; Task 14 will replace this file with disk-loaded `nimbus.extension.json` manifests. |
+| `connectors/lazy-mesh/mesh.ts` | Adds `sandboxCwd: paths.dataDir` to `MeshSpawnContext`; wraps the `filesystem` ServerSpec in the ctor. |
+| `connectors/lazy-mesh/connector-spawns.ts` | Each `servers: { id: { command, args, env } }` literal is wrapped via the local `wrap(spec, serviceId, ctx)` helper. Obsidian extends `filesystem.read` with the user's `[[filesystem.roots]]` paths before wrapping. |
+| `connectors/lazy-mesh/phase3-config.ts` | Each `phase3Add*Mcp` helper gains a `sandboxCwd` parameter; each `servers["X"] = {...}` assignment is wrapped via the local `wrap(spec, serviceId, sandboxCwd)` helper. `buildPhase3Servers` plumbs `sandboxCwd` through. |
+| `connectors/lazy-mesh/user-mcp.ts` | User MCPs are sandboxed under a **hard-coded default-deny manifest**. Loading the registry-stored manifest from disk is deferred to a follow-up after Task 15 (pre-T2 hard-disable) — at PR 1 every user MCP gets zero network + zero filesystem outside cwd. Documented in the `userMcpDefaultManifest` JSDoc. |
+| `connectors/lazy-mesh/slot.ts` | `MeshSpawnContext` gains a `sandboxCwd: string` field — load-bearing for every wrap call. |
 
-`extensionProcessEnv` retains its current shape and call sites — it remains the inner env builder. The outer wrapper `sandboxRunner.spawn` is what changes. I1 invariant is unaffected; the I1 enforcement test continues to assert `{ ...process.env }` does not appear under `connectors/`.
+`extensionProcessEnv` retains its current shape and call sites — it
+remains the inner env builder. I1 invariant is unaffected; the I1
+enforcement test continues to assert `{ ...process.env }` does not
+appear under `connectors/`.
+
+### I15 enforcement contract shift
+
+The original wording of §7 called for the I15 enforcement test + D10
+static rule to grep for `sandboxRunner.spawn(` in each lazy-mesh file.
+With Option A the grep target shifts to **`wrapServerSpec(`** — every
+connector path that produces a ServerSpec must wrap it. Tasks 16 + 17
+will encode the updated grep; Task 13 (this task) verified the four
+files contain at least one `wrapServerSpec(` call at static time.
+
+### Trade-offs accepted
+
+- **One extra process per MCP child.** The wrapper script is a long-lived
+  Bun process whose only job is to keep the sandboxed connector alive.
+  Memory overhead ~25-40 MB per connector (typical Bun startup). For
+  the ~10 simultaneously-active connectors a heavy user would see, this
+  is ~300-400 MB of overhead. Acceptable given the alternative
+  (forking `@mastra/mcp`) is higher long-term maintenance cost.
+- **Manifest JSON in env.** The whole manifest is serialised into a
+  single env var. Manifests are small (< 4 KB for the heaviest
+  first-party row) and well below the OS env-size limit (typically
+  ≥ 1 MB on Linux/macOS, 32 KB on Windows per variable). Task 14 will
+  reduce these to ~200 B per row by stripping un-validated metadata
+  fields from the in-memory manifest object before serialising.
+- **`process.execPath` rather than hardcoded `"bun"`.** Using `process.execPath`
+  ensures the wrapper runs under the same Bun binary as the Gateway,
+  matching version + path resolution. This is the same idiom as the
+  Bun-internal `--inspect` workers.
 
 ## Section 6 — First-party connector permissions migration
 
