@@ -27,9 +27,9 @@
  */
 
 import { type ChildProcess, type StdioOptions, spawn, spawnSync } from "node:child_process";
-import { closeSync, existsSync, openSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdtempSync, openSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { join } from "node:path";
 import pino from "pino";
 
 import type { ExtensionManifest } from "../../extensions/manifest.ts";
@@ -164,8 +164,16 @@ function buildStdioWithSeccomp(
 
 export function createLinuxSandboxRunner(): SandboxRunner {
   const seccompProgram = buildDefaultSeccompFilter();
-  const seccompPath = resolve(tmpdir(), `nimbus-seccomp-${String(process.pid)}.bpf`);
-  writeFileSync(seccompPath, seccompProgram);
+  // mkdtempSync atomically creates a uniquely-named directory with mode 0700
+  // (owner-only). Writing the seccomp BPF inside that directory blocks the
+  // standard /tmp symlink-race attack — an attacker cannot pre-create the
+  // path (the random suffix is unpredictable) and cannot read or replace the
+  // file (parent dir is owner-read-only). writeFileSync also pins the file
+  // mode to 0600 so even a same-uid second process must open with our uid's
+  // own permissions to swap the BPF program before bwrap reads fd 3.
+  const seccompDir = mkdtempSync(join(tmpdir(), "nimbus-sandbox-"));
+  const seccompPath = join(seccompDir, "seccomp.bpf");
+  writeFileSync(seccompPath, seccompProgram, { mode: 0o600 });
 
   const helper = probeHelper();
   if (!helper.available) {
