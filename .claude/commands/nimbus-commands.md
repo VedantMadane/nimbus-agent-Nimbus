@@ -113,8 +113,12 @@ bun run audit:high              # same; root script alias
 ```bash
 bun run audit:structure                 # full pack via orchestrator → run-<ts>.json
 bun run audit:boundaries                # dep-cruiser: D1 cross-pkg / D2 cycles / D3 PAL leakage
-bun run audit:duplication               # jscpd token duplication (D6)
+bun run audit:coverage-floor                 # per-file 80% line-coverage floor (with ratcheting baseline)
+bun run audit:coverage-floor:build-lcov      # per-package bun test + lcov merge (reproduces CI input for the floor gate)
+bun run audit:coverage-floor:update-baseline # raise must-raise watermarks + drop must-remove entries
 bun run audit:dead-code                 # knip unused exports / orphan files (D7)
+bun run audit:duplication               # jscpd token duplication (D6)
+bun run audit:exclusion-parity               # sonar.coverage.exclusions <-> local registry drift check
 bun run audit:any                       # D8 any-count print
 bun run audit:invariants                # D10 spawn rule + D11 vault-key allow-list (binary, --binary-only)
 bun run audit:openapi-drift             # OpenAPI ↔ READ_ONLY_HTTP_ROUTES drift (Phase 5 T4 PR 1)
@@ -125,7 +129,7 @@ bun scripts/structure-audit/count-any-usage.ts --update    # rewrite docs/struct
 bun scripts/structure-audit/check-doc-references.ts --check  # doc-ref drift (broken markdown links + backtick paths)
 ```
 
-Baselines: `docs/structure-audit/{any-baseline.json,db-run-census.json,churn-90d.json,baseline.md}`.
+Baselines: `docs/structure-audit/{any-baseline.json,baseline.md,churn-90d.json,coverage-baseline.json,db-run-census.json}`.
 CI gate (reusable workflow): `.github/workflows/_structure.yml`.
 
 ## Headless packaging + Linux installers
