@@ -248,6 +248,22 @@ jobs:
             sed -i 's|^SF:src/|SF:packages/ui/src/|' packages/ui/coverage/lcov.info
           fi
 
+      - name: Coverage floor — per-file 80% gate
+        if: runner.os == 'Linux'
+        # The PR gate is Ubuntu-only (matches the pre-existing pr-quality
+        # pattern). The 3-OS push matrix still runs `bun test --coverage`
+        # on all three OSes, but the floor gate only runs on Linux because
+        # platform-specific files (vault/{win32,darwin,linux}.ts) are
+        # exempt from the registry — running the gate on Windows/macOS
+        # would not change its verdict.
+        shell: bash
+        run: bun run audit:coverage-floor
+
+      - name: Coverage floor — exclusion parity (sonar <-> registry)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: bun run audit:exclusion-parity
+
       - name: Upload coverage to Codecov
         # Supplementary reporting only — coverage threshold is enforced by the
         # `bun test --coverage-threshold-lines=…` invocation in the gate steps,
