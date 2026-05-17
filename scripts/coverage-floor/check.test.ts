@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import { type EvaluateInput, evaluateCheck } from "./check.ts";
 
+// discoverSourceFiles is also exported and tested in its own describe block below.
+
 const emptyBaseline = {
   version: 1 as const,
   generated_at: "2026-05-17T00:00:00Z",
@@ -253,5 +255,19 @@ describe("computeUpdatedBaseline (--update-baseline mode)", () => {
     // Should be raised to 50 by pass 1, not re-added at 50 by pass 2.
     expect(updated.files.get("a.ts")).toBe(50);
     expect(updated.files.size).toBe(1);
+  });
+});
+
+describe("discoverSourceFiles — package scope", () => {
+  test("only walks bun-tested packages (excludes ui/vscode-extension/docs)", async () => {
+    const { discoverSourceFiles } = await import("./check.ts");
+    const files = await discoverSourceFiles();
+    // The walker must NEVER return paths from packages whose coverage
+    // lcov isn't merged into coverage/lcov.info.
+    expect(files.every((p) => !p.startsWith("packages/ui/"))).toBe(true);
+    expect(files.every((p) => !p.startsWith("packages/vscode-extension/"))).toBe(true);
+    expect(files.every((p) => !p.startsWith("packages/docs/"))).toBe(true);
+    // And it MUST cover gateway src (sanity check that something was scanned).
+    expect(files.some((p) => p.startsWith("packages/gateway/src/"))).toBe(true);
   });
 });

@@ -106,14 +106,26 @@ export function computeUpdatedBaseline(
 
 // ─── I/O boundary ───────────────────────────────────────────────────────────
 
-async function discoverSourceFiles(): Promise<string[]> {
+export async function discoverSourceFiles(): Promise<string[]> {
+  // Scope: packages whose coverage lcov is merged into coverage/lcov.info
+  // by scripts/coverage-floor/build-lcov.sh (mirroring CI). Excludes:
+  //   - packages/ui            (Vitest, separate lcov)
+  //   - packages/vscode-extension (Vitest, separate lcov)
+  //   - packages/docs          (no tests)
+  // A future phase can extend the gate to those packages by merging
+  // their Vitest lcov into coverage/lcov.info first.
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const glob of [
-    new Glob("packages/*/src/**/*.ts"),
-    new Glob("packages/*/src/**/*.tsx"),
+  const globs = [
+    new Glob("packages/gateway/src/**/*.ts"),
+    new Glob("packages/gateway/src/**/*.tsx"),
+    new Glob("packages/cli/src/**/*.ts"),
+    new Glob("packages/cli/src/**/*.tsx"),
+    new Glob("packages/sdk/src/**/*.ts"),
+    new Glob("packages/client/src/**/*.ts"),
     new Glob("packages/mcp-connectors/*/src/**/*.ts"),
-  ]) {
+  ];
+  for (const glob of globs) {
     for await (const rawRel of glob.scan({ cwd: REPO_ROOT })) {
       const rel = rawRel.replaceAll("\\", "/");
       if (seen.has(rel)) continue;
