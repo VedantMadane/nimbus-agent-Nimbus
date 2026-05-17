@@ -1,7 +1,11 @@
 import { extensionProcessEnv } from "../../extensions/spawn-env.ts";
 import type { NimbusVault } from "../../vault/nimbus-vault.ts";
 import { readConnectorSecret } from "../connector-vault.ts";
-import { manifestForFirstParty } from "./first-party-manifests.ts";
+import {
+  hostnameFromUrl,
+  manifestForFirstParty,
+  manifestWithExtraNetworkHosts,
+} from "./first-party-manifests.ts";
 import { mcpConnectorServerScript } from "./keys.ts";
 import type { ServerSpec } from "./slot.ts";
 import { wrapServerSpec } from "./wrap-server-spec.ts";
@@ -130,13 +134,21 @@ export async function phase3AddGrafanaMcp(
   if (gfu === "" || gtk === "") {
     return;
   }
-  servers["grafana"] = wrap(
+  // I15 (T2 PR 1) — Grafana is always user-configured; extend the static
+  // (empty) network list with the hostname parsed from GRAFANA_URL so the
+  // sandbox lets the connector reach the user's Grafana instance.
+  const grafanaHost = hostnameFromUrl(gfu);
+  const grafanaManifest = manifestWithExtraNetworkHosts(
+    "grafana",
+    grafanaHost === null ? [] : [grafanaHost],
+  );
+  servers["grafana"] = wrapServerSpec(
     {
       command: "bun",
       args: [mcpConnectorServerScript("grafana")],
       env: extensionProcessEnv({ GRAFANA_URL: gfu, GRAFANA_API_TOKEN: gtk }),
     },
-    "grafana",
+    grafanaManifest,
     sandboxCwd,
   );
 }

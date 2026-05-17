@@ -13,10 +13,34 @@
  * the sandbox PR on the 30-file manifest sweep (defeats the sequencing).
  *
  * Resolution: this file is the single source of truth for first-party
- * connector permissions until Task 14 replaces it with disk loading. Each
- * row mirrors what the connector would declare in its
- * `nimbus.extension.json` once Task 14 lands. Hosts are conservative —
- * when in doubt, we leave a row default-deny rather than over-grant.
+ * connector permissions until a follow-up replaces it with disk-loaded
+ * manifests. Each row mirrors what the connector declares in its
+ * `nimbus.extension.json` on disk (sibling files added in Task 14). Hosts
+ * are conservative — when in doubt, we leave a row default-deny rather
+ * than over-grant.
+ *
+ * **Known limitations carried forward as Task 14 follow-ups:**
+ *
+ * - `aws` / `azure` / `gcp` declare the region-agnostic control-plane
+ *   hosts only; non-default regions / data-plane hosts (S3 buckets,
+ *   storage accounts, BigQuery datasets) fail under the sandbox until a
+ *   structured region matrix is added.
+ * - `kubernetes` is default-deny — kubeconfig YAML parsing to extract
+ *   the API server hostname is deferred.
+ * - `datadog` SaaS default is `api.datadoghq.com`; non-`us1` sites
+ *   (`DD_SITE` = `eu1` / `us3` / `us5` / `ap1` / `gov`) are not yet
+ *   mapped at spawn time.
+ * - `sentry` self-hosted (`sentry.url` configured) and `bitbucket`
+ *   Server are not yet runtime-merged.
+ * - `gitlab` self-hosted (`GITLAB_API_BASE_URL`) and `jira` /
+ *   `confluence` per-tenant cloud URLs (`JIRA_BASE_URL` /
+ *   `CONFLUENCE_BASE_URL`) are not yet runtime-merged either; only the
+ *   SaaS / API gateway host is in the static list.
+ *
+ * Connectors whose target host is *always* user-configured (`jenkins`,
+ * `grafana`) are runtime-merged today by the corresponding
+ * `ensure<Connector>Mcp` function — see `connector-spawns.ts` and
+ * `phase3-config.ts`.
  *
  * **Hostname conventions:**
  *
@@ -157,8 +181,12 @@ export const FIRST_PARTY_MANIFESTS: Record<string, ExtensionManifest> = {
   // --- CI / CD / incident management ---
   jenkins: baseManifest("com.nimbus.jenkins", {
     // Jenkins is always self-hosted; the base URL comes from vault
-    // (`jenkins.base_url`). PR 1 leaves the SaaS row default-deny
-    // here; Task 14 reads the configured host and extends.
+    // (`jenkins.base_url`). The static row is empty because every Jenkins
+    // user contacts a different host — `ensureJenkinsMcp` extends the
+    // manifest's `network` list at spawn time with the hostname parsed
+    // from `JENKINS_BASE_URL` (see `connector-spawns.ts`). Without that
+    // runtime merge Jenkins would be unreachable under the sandbox; with
+    // it, the connector talks only to the user-configured server.
     network: [],
     filesystem: { read: [], write: [] },
   }),
@@ -172,22 +200,68 @@ export const FIRST_PARTY_MANIFESTS: Record<string, ExtensionManifest> = {
   }),
 
   // --- Cloud platforms (Phase 3 bundle) ---
-  // AWS / Azure / GCP hostname surfaces are huge (regional service
-  // endpoints, S3 bucket-specific hostnames, etc.). PR 1 leaves these
-  // default-deny — Task 14 will populate the full regional matrix, OR
-  // the implementation will switch them to an IP-range allow-list rule
-  // built into the helper. Default-deny means the connector loses
-  // network until Task 14, which is safer than a wrong over-broad list.
-  aws: baseManifest("com.nimbus.aws", DEFAULT_DENY),
-  azure: baseManifest("com.nimbus.azure", DEFAULT_DENY),
-  gcp: baseManifest("com.nimbus.gcp", DEFAULT_DENY),
-  // IaC connector spawns terraform / pulumi as subprocesses; their
-  // network needs are also out-of-scope for PR 1's default-deny.
+  //
+  // AWS / Azure / GCP each spawn the vendor CLI as a subprocess; the CLI
+  // does the real network I/O. The hostname surface is regional (S3 has
+  // per-bucket hosts; EC2 has per-region endpoints; etc.) and the
+  // validator at `permissions-validator.ts` rejects wildcards, so PR 1
+  // lists the region-agnostic control-plane hosts only. Customers using
+  // non-default regions or per-bucket S3 hosts will see auth/list calls
+  // succeed but data-plane calls fail under the sandbox — that is the
+  // known PR 1 limitation tracked as a Task 14 follow-up.
+  aws: baseManifest("com.nimbus.aws", {
+    // Region-agnostic AWS control-plane hosts: STS, IAM, S3 global,
+    // CloudFront / ACM (us-east-1-only services), plus the us-east-1
+    // service endpoints most users hit by default. Other regions add
+    // hosts via TOML config (Task 14 follow-up: structured region matrix).
+    network: [
+      "sts.amazonaws.com",
+      "iam.amazonaws.com",
+      "s3.amazonaws.com",
+      "ec2.amazonaws.com",
+      "cloudfront.amazonaws.com",
+    ],
+    filesystem: { read: [], write: [] },
+  }),
+  azure: baseManifest("com.nimbus.azure", {
+    // Azure Resource Manager control plane + AAD OAuth endpoint. Data-
+    // plane hosts (`<account>.blob.core.windows.net`, region-specific
+    // service endpoints) are not enumerated — those are deferred to a
+    // Task 14 follow-up so we don't ship a wrong over-broad list.
+    network: ["management.azure.com", "login.microsoftonline.com"],
+    filesystem: { read: [], write: [] },
+  }),
+  gcp: baseManifest("com.nimbus.gcp", {
+    // GCP IAM control plane + OAuth token endpoint. Service-specific
+    // hostnames (e.g. `storage.googleapis.com`, `bigquery.googleapis.com`)
+    // are intentionally not in the base list — Task 14 follow-up will
+    // enumerate them once we have a coverage report from the CLI surface.
+    network: ["cloudresourcemanager.googleapis.com", "oauth2.googleapis.com"],
+    filesystem: { read: [], write: [] },
+  }),
+  // IaC connector spawns terraform / pulumi / opentofu as subprocesses.
+  // The connector itself opens no sockets; the CLI's network needs are
+  // governed by *its own* outbound traffic which sits outside the
+  // sandbox boundary (the CLI is exec'd inside the sandboxed connector
+  // but its network calls go through whatever the sandbox grants).
+  // Filesystem permissions are intentionally empty here too — IaC tool
+  // calls take a per-call `workingDirectory` argument, so the relevant
+  // scope is set by the sandbox cwd at spawn time, not baked into the
+  // static manifest.
   iac: baseManifest("com.nimbus.iac", DEFAULT_DENY),
 
   // --- Observability ---
-  grafana: baseManifest("com.nimbus.grafana", DEFAULT_DENY),
+  grafana: baseManifest("com.nimbus.grafana", {
+    // Grafana is always user-configured (could be SaaS `*.grafana.net`
+    // or any self-hosted host). The static row is empty;
+    // `phase3AddGrafanaMcp` extends `network` with the hostname parsed
+    // from `GRAFANA_URL` at spawn time.
+    network: [],
+    filesystem: { read: [], write: [] },
+  }),
   sentry: baseManifest("com.nimbus.sentry", {
+    // SaaS default. Self-hosted Sentry users set `sentry.url`; runtime
+    // merge to extend with that host is a known Task 14 follow-up.
     network: ["sentry.io"],
     filesystem: { read: [], write: [] },
   }),
@@ -196,18 +270,23 @@ export const FIRST_PARTY_MANIFESTS: Record<string, ExtensionManifest> = {
     filesystem: { read: [], write: [] },
   }),
   datadog: baseManifest("com.nimbus.datadog", {
-    // Datadog has regional endpoints (us1/us3/us5/eu1/...) selected via
-    // DD_SITE env. The default is us1 (`datadoghq.com`). Task 14 will
-    // read the configured site and select the matching host.
+    // Datadog regional endpoints (us1/us3/us5/eu1/ap1/gov) are selected
+    // via `DD_SITE`. The default is us1 (`api.datadoghq.com`). Users on
+    // other sites lose network until the Task 14 runtime-merge follow-up
+    // reads `DD_SITE` and substitutes `api.${DD_SITE}`.
     network: ["api.datadoghq.com"],
     filesystem: { read: [], write: [] },
   }),
 
   // --- Cluster management ---
   kubernetes: baseManifest("com.nimbus.kubernetes", {
-    // Kubernetes API hosts are user-configured (kubeconfig); leaving
-    // default-deny here for PR 1. Task 14 will read the host from
-    // kubeconfig and extend the network list.
+    // Kubernetes API server hostname lives inside the kubeconfig YAML
+    // file. Parsing kubeconfig at spawn time to extract `clusters[*]
+    // .cluster.server` is a Task 14 follow-up — for PR 1 the connector
+    // is reachable only when the user's outbound network policy already
+    // allows the API server (e.g. on-cluster service account workflows
+    // where the kubeconfig server is a non-routable IP). General use is
+    // tracked as a known PR 1 limitation.
     network: [],
     filesystem: { read: [], write: [] },
   }),
@@ -216,7 +295,9 @@ export const FIRST_PARTY_MANIFESTS: Record<string, ExtensionManifest> = {
   obsidian: baseManifest("com.nimbus.obsidian", {
     // No network. Vault paths are filesystem-only and supplied at spawn
     // time via `[[filesystem.roots]]`, threaded into the manifest by
-    // `wrap-server-spec.ts` callers.
+    // `connector-spawns.ts::ensureObsidianMcp` before `wrapServerSpec`.
+    // Static row is empty because vault paths are user-scoped (not stable
+    // across users / installs).
     network: [],
     filesystem: { read: [], write: [] },
   }),
@@ -232,4 +313,59 @@ export function manifestForFirstParty(serviceId: string): ExtensionManifest {
   const known = FIRST_PARTY_MANIFESTS[serviceId];
   if (known !== undefined) return known;
   return baseManifest(`com.nimbus.${serviceId}`, DEFAULT_DENY);
+}
+
+/**
+ * Extract the bare hostname from a URL string. Returns `null` if the
+ * input is not parseable or its hostname is empty. Used by connector
+ * spawn helpers (`ensureJenkinsMcp`, `phase3AddGrafanaMcp`) to derive
+ * the runtime `permissions.network` entry from user-configured base
+ * URLs. Lowercases the result so the hostname matches the sandbox
+ * runner's case-insensitive comparison.
+ */
+export function hostnameFromUrl(input: string): string | null {
+  try {
+    const url = new URL(input.trim());
+    const host = url.hostname.toLowerCase();
+    return host === "" ? null : host;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Return a clone of the first-party manifest for `serviceId` with
+ * `extraNetworkHosts` appended to `permissions.network`. Duplicates and
+ * malformed entries are silently dropped. Used by connector spawn
+ * helpers that need to extend the static-registry network list with a
+ * user-configured hostname (`jenkins.base_url`, `grafana.url`, …).
+ *
+ * The static manifest object itself is never mutated — callers receive a
+ * fresh manifest reference, mirroring the pattern in
+ * `ensureObsidianMcp` (which extends `filesystem.read`).
+ */
+export function manifestWithExtraNetworkHosts(
+  serviceId: string,
+  extraNetworkHosts: readonly string[],
+): ExtensionManifest {
+  const base = manifestForFirstParty(serviceId);
+  if (extraNetworkHosts.length === 0) return base;
+  const existing = new Set(base.permissions.network);
+  const merged = [...base.permissions.network];
+  for (const host of extraNetworkHosts) {
+    const lower = host.toLowerCase().trim();
+    if (lower === "" || existing.has(lower)) continue;
+    existing.add(lower);
+    merged.push(lower);
+  }
+  return {
+    ...base,
+    permissions: {
+      network: merged,
+      filesystem: {
+        read: [...base.permissions.filesystem.read],
+        write: [...base.permissions.filesystem.write],
+      },
+    },
+  };
 }

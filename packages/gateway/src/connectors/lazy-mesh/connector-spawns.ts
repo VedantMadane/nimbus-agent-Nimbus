@@ -14,7 +14,11 @@ import { getValidSlackAccessToken } from "../../auth/slack-access-token.ts";
 import { extensionProcessEnv } from "../../extensions/spawn-env.ts";
 import { stripTrailingSlashes } from "../../string/strip-trailing-slashes.ts";
 import { readConnectorSecret } from "../connector-vault.ts";
-import { manifestForFirstParty } from "./first-party-manifests.ts";
+import {
+  hostnameFromUrl,
+  manifestForFirstParty,
+  manifestWithExtraNetworkHosts,
+} from "./first-party-manifests.ts";
 import { LAZY_MESH, mcpConnectorServerScript } from "./keys.ts";
 import { buildPhase3Servers } from "./phase3-config.ts";
 import type { MeshSpawnContext, ServerSpec } from "./slot.ts";
@@ -589,12 +593,22 @@ export async function ensureJenkinsMcp(ctx: MeshSpawnContext): Promise<void> {
     return;
   }
   const base = stripTrailingSlashes(baseRaw.trim());
+  // I15 (T2 PR 1) — Jenkins is always user-configured; extend the static
+  // (empty) network list with the hostname parsed from JENKINS_BASE_URL
+  // so the sandbox lets the connector reach the user's CI server. If the
+  // URL fails to parse we fall through with the base manifest — the
+  // sandbox will reject the network call, which is the safe outcome.
+  const jenkinsHost = hostnameFromUrl(base);
+  const jenkinsManifest = manifestWithExtraNetworkHosts(
+    "jenkins",
+    jenkinsHost === null ? [] : [jenkinsHost],
+  );
   ctx.setLazyClient(
     slotKey,
     new MCPClient({
       id: `nimbus-jenkins-${randomUUID()}`,
       servers: {
-        jenkins: wrap(
+        jenkins: wrapServerSpec(
           {
             command: "bun",
             args: [mcpConnectorServerScript("jenkins")],
@@ -604,8 +618,8 @@ export async function ensureJenkinsMcp(ctx: MeshSpawnContext): Promise<void> {
               JENKINS_API_TOKEN: token.trim(),
             }),
           },
-          "jenkins",
-          ctx,
+          jenkinsManifest,
+          ctx.sandboxCwd,
         ),
       },
     }),
