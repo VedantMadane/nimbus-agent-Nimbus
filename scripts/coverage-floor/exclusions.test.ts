@@ -1,0 +1,86 @@
+import { describe, expect, test } from "bun:test";
+
+import { EXCLUSIONS, isExempt } from "./exclusions.ts";
+
+describe("isExempt — platform-specific PAL files", () => {
+  test("vault/win32.ts is exempt", () => {
+    expect(isExempt("packages/gateway/src/vault/win32.ts")).toBe(true);
+  });
+  test("vault/darwin.ts is exempt", () => {
+    expect(isExempt("packages/gateway/src/vault/darwin.ts")).toBe(true);
+  });
+  test("vault/linux.ts is exempt", () => {
+    expect(isExempt("packages/gateway/src/vault/linux.ts")).toBe(true);
+  });
+  test("platform/{win32,darwin,linux,browser}.ts are exempt", () => {
+    for (const f of ["win32", "darwin", "linux", "browser"]) {
+      expect(isExempt(`packages/gateway/src/platform/${f}.ts`)).toBe(true);
+    }
+  });
+  test("vault/factory.ts is NOT exempt (it's the dispatcher, testable)", () => {
+    expect(isExempt("packages/gateway/src/vault/factory.ts")).toBe(false);
+  });
+});
+
+describe("isExempt — perf bench harness", () => {
+  test("perf/bench-cli.ts is exempt", () => {
+    expect(isExempt("packages/gateway/src/perf/bench-cli.ts")).toBe(true);
+  });
+  test("nested perf/surfaces/* are exempt", () => {
+    expect(isExempt("packages/gateway/src/perf/surfaces/bench-query-latency.ts")).toBe(true);
+  });
+  test("a non-perf file under gateway/src is NOT exempt", () => {
+    expect(isExempt("packages/gateway/src/engine/router.ts")).toBe(false);
+  });
+});
+
+describe("isExempt — SQL migration constants", () => {
+  test("vec-items-1536-v30-sql.ts is exempt", () => {
+    expect(isExempt("packages/gateway/src/index/vec-items-1536-v30-sql.ts")).toBe(true);
+  });
+  test("audit-session-v24-sql.ts is exempt", () => {
+    expect(isExempt("packages/gateway/src/index/audit-session-v24-sql.ts")).toBe(true);
+  });
+  test("a non-migration file under index/ is NOT exempt", () => {
+    expect(isExempt("packages/gateway/src/index/local-index.ts")).toBe(false);
+  });
+});
+
+describe("isExempt — type-only declaration files", () => {
+  test("basename types.ts is exempt", () => {
+    expect(isExempt("packages/gateway/src/engine/types.ts")).toBe(true);
+  });
+  test("basename ending in -types.ts is exempt", () => {
+    expect(isExempt("packages/gateway/src/search/hybrid-types.ts")).toBe(true);
+  });
+  test("a file that merely contains 'type' in its name is NOT exempt", () => {
+    expect(isExempt("packages/gateway/src/metrics/dora-config.ts")).toBe(false);
+  });
+});
+
+describe("isExempt — github-actions entry points", () => {
+  test("annotate-action/src/main.ts is exempt", () => {
+    expect(isExempt("packages/github-actions/annotate-action/src/main.ts")).toBe(true);
+  });
+  test("preflight-query/src/main.ts is exempt", () => {
+    expect(isExempt("packages/github-actions/preflight-query/src/main.ts")).toBe(true);
+  });
+  test("annotate-action/src/output.ts is NOT exempt (extracted helper)", () => {
+    expect(isExempt("packages/github-actions/annotate-action/src/output.ts")).toBe(false);
+  });
+});
+
+describe("isExempt — path-separator normalization", () => {
+  test("backslash-separated paths (Windows) are normalized", () => {
+    expect(isExempt("packages\\gateway\\src\\vault\\win32.ts")).toBe(true);
+  });
+});
+
+describe("EXCLUSIONS — registry shape", () => {
+  test("registry is frozen", () => {
+    expect(() => {
+      // @ts-expect-error — mutating a frozen array must throw in strict mode
+      (EXCLUSIONS as unknown as { push: (x: unknown) => void }).push({});
+    }).toThrow();
+  });
+});
