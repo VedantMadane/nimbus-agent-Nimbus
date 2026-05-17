@@ -34,14 +34,14 @@ All anchored with bounded character classes or use `.` which does not span newli
 | `packages/mcp-connectors/obsidian/src/server.ts:169` | `/^#\s+(.+)$/m` | Same as line 3 |
 | `packages/mcp-connectors/obsidian/src/server.ts:394` | `/[/\\]+$/` | Same as line 1 |
 
-### 2× `Math.random` (`typescript:S2245`)
+### 2× `Math.random` (`typescript:S2245`) — **fixed in code**
 
-Used as a heredoc-delimiter token wrapped in a `do...while` collision-check loop. Collision-resistance is the property that matters, not unpredictability. The surrounding code comment already explains the reasoning. Adversarial output content cannot escape the heredoc parser because the loop re-generates on collision.
+Used as a heredoc-delimiter token wrapped in a `do...while` collision-check loop. Replace `Math.random().toString(36).slice(2)` with `crypto.randomUUID().replaceAll("-", "")` in both files. Keeps the `do...while` loop unchanged — the collision-check is a structural guarantee against adversarial output, cheap to retain. `crypto.randomUUID` is already idiomatic in the gateway (`connector-spawns.ts` uses it for every `MCPClient` id), and the swap retires both S2245 hotspots natively without UI clicks.
 
-| File:line | Use |
+| File:line | Change |
 |---|---|
-| `packages/github-actions/annotate-action/src/main.ts:100` | `EOF_${Math.random()...}` heredoc delim |
-| `packages/github-actions/preflight-query/src/main.ts:142` | Same pattern |
+| `packages/github-actions/annotate-action/src/main.ts:100` | `Math.random().toString(36).slice(2)` → `crypto.randomUUID().replaceAll("-", "")` |
+| `packages/github-actions/preflight-query/src/main.ts:142` | Same swap |
 
 ## Phase 2 — `connector-spawns.ts` deep test pass
 
@@ -54,7 +54,7 @@ The source file contains 18 nearly-identical `ensureXxxMcp(ctx: MeshSpawnContext
 Per function, three baseline tests:
 
 1. **Credentials missing → no spawn.** Vault returns `null`/`""` for the required key(s); the function returns without calling `setLazyClient` and `MCPClient` is not constructed.
-2. **Credentials present → spawn with scoped env.** Vault returns valid values; `setLazyClient` is called exactly once, the constructed `MCPClient` carries the expected `command: "bun"`, the right `args`, and an env produced by `extensionProcessEnv` (invariant I1) containing the expected credential env names — and **not** the rest of `process.env`.
+2. **Credentials present → spawn with scoped env (I1 leak-canary).** Before the test, inject `process.env.NIMBUS_TEST_LEAK_CANARY = "should-not-appear"`. Vault returns valid values; `setLazyClient` is called exactly once, the constructed `MCPClient` carries `command: "bun"`, the right `args`, and an env produced by `extensionProcessEnv` containing the expected credential env names. Assert the captured env **does not contain** `NIMBUS_TEST_LEAK_CANARY` (proves I1: a regression like `{ env: { ...process.env, ...creds } }` would fail this test — asserting credential presence alone would not).
 3. **Already running → no double-spawn.** `getLazyClient(slotKey)` returns an existing client; `scheduleLazyDisconnect` fires but `setLazyClient` and `MCPClient` are not called again.
 
 Extra coverage where the source branches on additional vault keys (Google per-service token resolution, Microsoft Outlook scopes, GitLab API base, Jenkins/Kubernetes optional context, Discord opt-in flag).
@@ -62,16 +62,22 @@ Extra coverage where the source branches on additional vault keys (Google per-se
 **Test infrastructure:**
 
 - Hand-rolled `MeshSpawnContext` mock using `MockVault` from `packages/gateway/src/vault/mock.ts` for the vault dependency. Spies on `setLazyClient`, `getLazyClient`, `bumpToolsEpoch`, `scheduleLazyDisconnect`, `clearLazyIdle`.
-- `mock.module("@mastra/mcp", ...)` to capture `MCPClient` constructor arguments without spawning subprocesses.
-- Each test gets a fresh mock context (no shared state).
+- `mock.module("@mastra/mcp", ...)` returns a constructor that captures `{ id, servers }` and yields an instance with stubbed lifecycle methods (`connect: async () => undefined`, `disconnect: async () => undefined`, `getTools: async () => ({})`). Stubs are defensive — `ensureXxxMcp` does not call them today, but future code changes that do won't make tests hang or throw unhandled rejections.
+- The captured constructor args are inspected per-test (`servers["<id>"].env`) to assert I1 — including the leak-canary check above.
+- Each test gets a fresh mock context and clears the captured args (no shared state).
 
 **Estimate:** ~55 tests; ≥85% line coverage on the source file.
 
 ## Phase 3 — gate-driving coverage on recently-changed files
 
-Run `bun run test:coverage` locally, identify which files in the v0.3.0 → HEAD diff are below 80%, add targeted unit tests until SonarCloud's `new_coverage` flips green.
+**Local fast-fail loop** (do not push and wait for SonarCloud CI to report `new_coverage`):
 
-Likely candidates from recent activity:
+1. `git diff --name-only v0.3.0 HEAD -- "packages/**/*.ts" ":(exclude)packages/**/test/**"` — produces the candidate file list (these are the files SonarCloud will count toward `new_coverage`).
+2. `bun test --coverage --coverage-reporter=text-summary packages/<pkg>` for each affected package — gives per-file line coverage in the terminal output.
+3. For any file in the candidate list with line coverage < 80%: add focused unit tests, re-run step 2, iterate until the file is ≥ 80%.
+4. Final verification: `bun run test:coverage` (full run) — every per-subsystem gate listed in `nimbus-commands` must stay green; new files must each meet the 80% floor.
+
+Likely candidates from recent activity (verified against step 1's diff at implementation time):
 
 - `packages/gateway/src/embedding/routing-pipeline.ts` and `embedding/create-routing-runtime.ts` (T6 PR 3)
 - `packages/gateway/src/ipc/http-write-routes.ts` and `http-auth.ts` / `http-rate-limit.ts` (T4 PR 3b)
@@ -82,7 +88,7 @@ Specific gaps and test names determined after running the coverage report; the p
 
 ## Deliverable
 
-One PR: `dev/asafgolombek/sonar-cleanup-2026-05-17`. The PR description carries the Phase 1 hotspot justifications verbatim so the reviewer can verify them against the SonarCloud "SAFE" comments. Diff is test-only — no production code change.
+One PR: `dev/asafgolombek/sonar-cleanup-2026-05-17`. The PR description carries the Phase 1 regex hotspot justifications verbatim so the reviewer can verify them against the SonarCloud "SAFE" comments. Diff is test-only **plus** the two-line `crypto.randomUUID` swap in `annotate-action/main.ts` and `preflight-query/main.ts` — no other production code change.
 
 ## Out of Scope
 
