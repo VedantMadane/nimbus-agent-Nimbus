@@ -2,12 +2,22 @@
  * Coverage Phase 4 — companion to `test/unit/db/verify.test.ts`, focused on the
  * branches that the unit suite does not exercise:
  *
- *  - integrity_check / fts5 / vec / orphan / fk catch paths (closed DB)
+ *  - fts5 / vec / orphan catch paths (broken schema)
  *  - skipped branches when prerequisite tables are absent
  *  - vec_rowid_mismatch (vec count != embedding_chunk count)
  *  - schema_version on a brand-new DB without `_schema_migrations`
  *  - foreign_key_integrity violation row
  *  - schema_version "fresh" branch where uv === 0 && expected === 0
+ *
+ * Watermark-deferred branches (intentionally NOT covered here):
+ *  - `checkIntegrity`'s catch block (verify.ts lines 49-54). The natural
+ *    forcing function is to close the DB and call `verifyIndex`, but
+ *    `checkFts5Consistency`'s `tableExists` call sits outside its own
+ *    try/catch and throws uncaught before any assertion can prove
+ *    `checkIntegrity`'s catch arm executed. Tightening would require
+ *    exporting `checkIntegrity` directly so it can be tested in isolation;
+ *    `verify.ts` doesn't currently support that, so the branch is left to a
+ *    future refactor.
  */
 
 import { Database } from "bun:sqlite";
@@ -138,5 +148,38 @@ describe("verifyIndex — foreign_key_integrity violation path", () => {
     expect(fk?.status).toBe("fail");
     expect(fk?.detail).toContain("violation");
     expect(fk?.detail).toContain("_fkchild");
+  });
+});
+
+describe("verifyIndex — catch-block coverage via broken queries", () => {
+  test("orphaned_sync_tokens catch block fires when sync_state is altered to omit connector_id", () => {
+    // Rename the `connector_id` column away so `tableExists` (which only
+    // checks the sqlite_master entry) still returns true, but the SELECT
+    // referencing connector_id throws — exercising lines 160-165.
+    const fresh = new Database(":memory:");
+    LocalIndex.ensureSchema(fresh);
+    fresh.run("DROP TABLE sync_state");
+    // Recreate without the column the verify query references.
+    fresh.run("CREATE TABLE sync_state (other_col TEXT PRIMARY KEY)");
+    const result = verifyIndex(fresh, LocalIndex.SCHEMA_VERSION);
+    const orph = result.findings.find((f) => f.label === "orphaned_sync_tokens");
+    expect(orph?.status).toBe("fail");
+    expect(orph?.detail).toBeDefined();
+    fresh.close();
+  });
+
+  test("fts5_consistency catch block fires when the FTS5 command targets a non-fts5 table", () => {
+    // Replace item_fts with a plain table that doesn't have the column the
+    // INSERT references. The dbRun then throws "no such column: item_fts" —
+    // exercising the catch path at lines 85-90.
+    const fresh = new Database(":memory:");
+    LocalIndex.ensureSchema(fresh);
+    fresh.run("DROP TABLE IF EXISTS item_fts");
+    fresh.run("CREATE TABLE item_fts (other TEXT)");
+    const result = verifyIndex(fresh, LocalIndex.SCHEMA_VERSION);
+    const fts = result.findings.find((f) => f.label === "fts5_consistency");
+    expect(fts?.status).toBe("fail");
+    expect(fts?.detail).toBeDefined();
+    fresh.close();
   });
 });
