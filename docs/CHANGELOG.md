@@ -14,6 +14,7 @@ Core sequencing: T1 → T3 → Wave A → T4 → T6 → T2 → Wave B. Status: T
 
 - **Tier-2 connector — Wiz** ✅ — CSPM findings (Phase 8 security surface, delivered early).
 - **Tier-1 connector — LaunchDarkly** ✅ — feature flags / experiments (Phase 7 Wave 3, delivered early).
+- **Tier-1 connector — Flagsmith** ✅ — feature-flag definitions (`flagsmith:feature_flag`); `Authorization: Token` auth, walks `/api/v1/projects/ → /api/v1/projects/{id}/features/` (DRF-paged) + per-project tag resolution. Definitions-only (per-environment state + segments deferred).
 
 ### 2026-05-22
 
