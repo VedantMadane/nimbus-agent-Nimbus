@@ -7,15 +7,36 @@
 // (per the Phase 6 plan: "only test the parse-and-execute helper, NOT
 // the readline event loop").
 
-import { afterAll, afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 
 import "../../test/helpers/cli-mocks.ts"; // module-load side effects only
 import { clearFixture, setFixture } from "../../test/helpers/cli-mocks.ts";
 import { captureOutput } from "../../test/helpers/cli-output.ts";
 import { createMockIpcClient } from "../../test/helpers/mock-ipc-client.ts";
 
+// Mock node:readline/promises at MODULE LOAD (before importing repl.ts) so
+// repl.ts's static `import { createInterface }` binds the stub. A run-time
+// mock.module does NOT reliably rebind an already-imported builtin on CI Linux
+// (observed: real non-TTY stdin made the loop break before runReplTurn ran, so
+// the assertion saw zero IPC calls). Safe to install process-globally without
+// restore: repl.ts is the ONLY node:readline/promises consumer in the CLI
+// suite, so there is no sibling test to poison. Per-test answers come from the
+// `replAnswers` slot; the default "exit" makes any stray use a harmless no-op.
+let replAnswers: string[] = [];
+let replAnswerIdx = 0;
+mock.module("node:readline/promises", () => ({
+  createInterface: () => ({
+    question: async (): Promise<string> => {
+      const answer = replAnswers[replAnswerIdx] ?? "exit";
+      replAnswerIdx += 1;
+      return answer;
+    },
+    close: (): void => {},
+  }),
+}));
+
 const replMod = await import("./repl.ts");
-const { loadReplPreconditions, parseReplArgs, runReplTurn } = replMod;
+const { loadReplPreconditions, parseReplArgs, runRepl, runReplTurn } = replMod;
 
 const out = captureOutput();
 
@@ -134,5 +155,33 @@ describe("loadReplPreconditions (REPL gate)", () => {
     const out = await loadReplPreconditions(["--session", "sess-9"]);
     expect(out.socketPath).toBe("/tmp/fake.sock");
     expect(out.sessionId).toBe("sess-9");
+  });
+});
+
+describe("runRepl (readline loop, module-load readline mock)", () => {
+  beforeEach(() => {
+    out.reset();
+    replAnswers = [];
+    replAnswerIdx = 0;
+  });
+  afterEach(() => {
+    clearFixture();
+  });
+
+  it("exits the loop on `exit` without running a turn", async () => {
+    replAnswers = ["exit"];
+    const mockIpc = createMockIpcClient([]);
+    setFixture({ gatewayState: { socketPath: "/tmp/fake.sock" }, ipcClient: mockIpc.client });
+    await runRepl([]);
+    // "exit" breaks the loop before any turn, so no agent.invoke is issued.
+    expect(mockIpc.calls).toHaveLength(0);
+  });
+
+  it("runs one turn then quits", async () => {
+    replAnswers = ["what is up", "quit"];
+    const mockIpc = createMockIpcClient([{ reply: "all good" }]);
+    setFixture({ gatewayState: { socketPath: "/tmp/fake.sock" }, ipcClient: mockIpc.client });
+    await runRepl([]);
+    expect(mockIpc.calls[0]?.method).toBe("agent.invoke");
   });
 });
