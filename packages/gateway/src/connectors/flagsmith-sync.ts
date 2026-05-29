@@ -5,6 +5,7 @@ import {
   syncPassCursorSuccess,
 } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
+import { connectorFetch } from "./_lib/fetch-outcome.ts";
 import { readConnectorSecret } from "./connector-vault.ts";
 import { mapFlagsmithFeatureToItem } from "./flagsmith-feature-mapping.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
@@ -43,34 +44,12 @@ async function loadCreds(ctx: SyncContext): Promise<FlagsmithCreds | null> {
   };
 }
 
-type FetchOutcome =
-  | { kind: "ok"; parsed: unknown; bytes: number }
-  | { kind: "http_error"; bytes: number }
-  | { kind: "parse_error"; bytes: number };
-
-async function fsGet(ctx: SyncContext, creds: FlagsmithCreds, path: string): Promise<FetchOutcome> {
-  await ctx.rateLimiter.acquire(SERVICE_ID);
-  // Flagsmith admin API token is sent as `Authorization: Token <token>`.
-  const res = await fetch(`${creds.apiBase}/api/v1${path}`, {
+function fsGet(ctx: SyncContext, creds: FlagsmithCreds, path: string) {
+  return connectorFetch(ctx, SERVICE_ID, `${creds.apiBase}/api/v1${path}`, {
     headers: { Authorization: `Token ${creds.token}`, Accept: "application/json" },
   });
-  const text = await res.text();
-  if (!res.ok) {
-    ctx.logger.warn({ serviceId: SERVICE_ID, status: res.status, path }, "flagsmith GET failed");
-    return { kind: "http_error", bytes: text.length };
-  }
-  try {
-    return { kind: "ok", parsed: JSON.parse(text) as unknown, bytes: text.length };
-  } catch {
-    return { kind: "parse_error", bytes: text.length };
-  }
 }
 
-/**
- * Coerce a Flagsmith list response into an array. The `/projects/` and
- * `/tags/` endpoints return a bare JSON array; defensively fall back to a
- * DRF-style `.results` then `.items` when wrapped.
- */
 function extractArray(parsed: unknown): unknown[] {
   if (Array.isArray(parsed)) {
     return parsed;
@@ -105,7 +84,6 @@ function extractProjects(parsed: unknown): FlagsmithProject[] {
   return out;
 }
 
-/** Build a tag-id → label map from a `/projects/{id}/tags/` response. */
 function extractTagMap(parsed: unknown): Record<number, string> {
   const map: Record<number, string> = {};
   for (const t of extractArray(parsed)) {
@@ -134,7 +112,6 @@ function tagsPath(projectId: number): string {
   return `/projects/${encodeURIComponent(String(projectId))}/tags/`;
 }
 
-/** A DRF page has a `next` cursor and a `results` array. */
 function extractFeaturesPage(parsed: unknown): { features: unknown[]; hasNext: boolean } {
   const root = asRecord(parsed) ?? {};
   const results = root["results"];
@@ -173,7 +150,6 @@ type ProjectsOutcome =
   | { readonly projects: FlagsmithProject[]; readonly bytes: number }
   | { readonly error: "http_error" | "parse_error"; readonly bytes: number };
 
-/** Resolve the set of projects to walk (all projects). */
 async function resolveProjects(ctx: SyncContext, creds: FlagsmithCreds): Promise<ProjectsOutcome> {
   const outcome = await fsGet(ctx, creds, "/projects/");
   if (outcome.kind === "ok") {
@@ -182,7 +158,6 @@ async function resolveProjects(ctx: SyncContext, creds: FlagsmithCreds): Promise
   return { error: outcome.kind, bytes: outcome.bytes };
 }
 
-/** Walk one project's features (DRF-paged, capped) and upsert them. */
 async function syncProjectFeatures(
   ctx: SyncContext,
   creds: FlagsmithCreds,
@@ -192,8 +167,6 @@ async function syncProjectFeatures(
   let upserted = 0;
   let bytes = 0;
 
-  // One cheap tags call per project to resolve feature tag ids to labels.
-  // A non-ok tags response is non-fatal — proceed with an empty map.
   const tagsOutcome = await fsGet(ctx, creds, tagsPath(project.id));
   bytes += tagsOutcome.bytes;
   const tagMap = tagsOutcome.kind === "ok" ? extractTagMap(tagsOutcome.parsed) : {};

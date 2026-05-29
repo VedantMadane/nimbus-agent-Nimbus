@@ -5,6 +5,7 @@ import {
   syncPassCursorSuccess,
 } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
+import { connectorFetch } from "./_lib/fetch-outcome.ts";
 import { readConnectorSecret } from "./connector-vault.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, numberField } from "./unknown-record.ts";
@@ -31,11 +32,6 @@ interface VercelCreds {
   readonly teamId: string | null;
 }
 
-/**
- * `vercel.token` is required; `vercel.team_id` is optional. Vercel's API host
- * is a fixed SaaS host (`api.vercel.com`) — there is no host override key. The
- * connector no-ops unless the token is non-empty after trim.
- */
 async function loadCreds(ctx: SyncContext): Promise<VercelCreds | null> {
   const token = (await readConnectorSecret(ctx.vault, "vercel", "token"))?.trim() ?? "";
   if (token === "") {
@@ -45,12 +41,6 @@ async function loadCreds(ctx: SyncContext): Promise<VercelCreds | null> {
   return { token, teamId: teamRaw === "" ? null : teamRaw };
 }
 
-type FetchOutcome =
-  | { kind: "ok"; parsed: unknown; bytes: number }
-  | { kind: "http_error"; bytes: number }
-  | { kind: "parse_error"; bytes: number };
-
-/** Build `/v6/deployments?limit=…` (+ optional `until` + `teamId`). */
 function deploymentsPath(creds: VercelCreds, until: number | null): string {
   const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
   if (until !== null) {
@@ -62,26 +52,10 @@ function deploymentsPath(creds: VercelCreds, until: number | null): string {
   return `/v6/deployments?${params.toString()}`;
 }
 
-async function vercelGet(
-  ctx: SyncContext,
-  creds: VercelCreds,
-  path: string,
-): Promise<FetchOutcome> {
-  await ctx.rateLimiter.acquire(SERVICE_ID);
-  // Vercel uses a standard `Authorization: Bearer <token>` header.
-  const res = await fetch(`${BASE}${path}`, {
+function vercelGet(ctx: SyncContext, creds: VercelCreds, path: string) {
+  return connectorFetch(ctx, SERVICE_ID, `${BASE}${path}`, {
     headers: { Authorization: `Bearer ${creds.token}`, Accept: "application/json" },
   });
-  const text = await res.text();
-  if (!res.ok) {
-    ctx.logger.warn({ serviceId: SERVICE_ID, status: res.status, path }, "vercel GET failed");
-    return { kind: "http_error", bytes: text.length };
-  }
-  try {
-    return { kind: "ok", parsed: JSON.parse(text) as unknown, bytes: text.length };
-  } catch {
-    return { kind: "parse_error", bytes: text.length };
-  }
 }
 
 function extractDeployments(parsed: unknown): unknown[] {
@@ -89,10 +63,6 @@ function extractDeployments(parsed: unknown): unknown[] {
   return Array.isArray(v) ? v : [];
 }
 
-/**
- * Read `pagination.next` — an epoch-ms timestamp to pass as the next page's
- * `until`. Returns null when absent / not a finite number (= last page).
- */
 function nextUntil(parsed: unknown): number | null {
   const pagination = asRecord(asRecord(parsed)?.["pagination"]);
   if (pagination === undefined) {
@@ -132,9 +102,6 @@ export function createVercelSyncable(options: VercelSyncableOptions): Syncable {
       let totalUpserted = 0;
       let until: number | null = null;
 
-      // The deployments walk is the gating call: a FIRST-page http/parse error
-      // maps to the pass-cursor-empty result. Later-page errors just break,
-      // preserving whatever was already collected.
       for (let page = 0; page < MAX_PAGES; page += 1) {
         const outcome = await vercelGet(ctx, creds, deploymentsPath(creds, until));
         totalBytes += outcome.bytes;

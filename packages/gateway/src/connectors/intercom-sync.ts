@@ -5,6 +5,7 @@ import {
   syncPassCursorSuccess,
 } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
+import { connectorFetch } from "./_lib/fetch-outcome.ts";
 import { readConnectorSecret } from "./connector-vault.ts";
 import { mapIntercomConversationToItem } from "./intercom-conversation-mapping.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
@@ -30,12 +31,6 @@ interface IntercomCreds {
   readonly token: string;
 }
 
-/**
- * `intercom.token` is required. Intercom's API host is a fixed SaaS host
- * (`api.intercom.io`, US) — there is no host override key (EU/AU regional hosts
- * are a deferred follow-up). The connector no-ops unless the token is non-empty
- * after trim.
- */
 async function loadCreds(ctx: SyncContext): Promise<IntercomCreds | null> {
   const token = (await readConnectorSecret(ctx.vault, "intercom", "token"))?.trim() ?? "";
   if (token === "") {
@@ -44,16 +39,6 @@ async function loadCreds(ctx: SyncContext): Promise<IntercomCreds | null> {
   return { token };
 }
 
-type FetchOutcome =
-  | { kind: "ok"; parsed: unknown; bytes: number }
-  | { kind: "http_error"; bytes: number }
-  | { kind: "parse_error"; bytes: number };
-
-/**
- * Build `/conversations?per_page=150`, optionally with a `starting_after` cursor
- * (the opaque cursor string from the previous page's `pages.next` — Intercom's
- * forward cursor).
- */
 function conversationsPath(startingAfter: string | null): string {
   const params = new URLSearchParams({ per_page: String(PAGE_SIZE) });
   if (startingAfter !== null) {
@@ -62,40 +47,16 @@ function conversationsPath(startingAfter: string | null): string {
   return `/conversations?${params.toString()}`;
 }
 
-async function intercomGet(
-  ctx: SyncContext,
-  creds: IntercomCreds,
-  path: string,
-): Promise<FetchOutcome> {
-  await ctx.rateLimiter.acquire(SERVICE_ID);
-  // Intercom uses `Authorization: Bearer <access-token>` (never logged) plus the
-  // `Intercom-Version` + `Accept` request headers.
-  const res = await fetch(`${BASE}${path}`, {
+function intercomGet(ctx: SyncContext, creds: IntercomCreds, path: string) {
+  return connectorFetch(ctx, SERVICE_ID, `${BASE}${path}`, {
     headers: {
       Authorization: `Bearer ${creds.token}`,
       "Intercom-Version": "2.11",
       Accept: "application/json",
     },
   });
-  const text = await res.text();
-  if (!res.ok) {
-    ctx.logger.warn({ serviceId: SERVICE_ID, status: res.status, path }, "intercom GET failed");
-    return { kind: "http_error", bytes: text.length };
-  }
-  try {
-    return { kind: "ok", parsed: JSON.parse(text) as unknown, bytes: text.length };
-  } catch {
-    return { kind: "parse_error", bytes: text.length };
-  }
 }
 
-/**
- * `GET /conversations` returns the Intercom list envelope
- * `{ type: "conversation.list", conversations: [...], pages: { next?: { page,
- * starting_after } | null, ... }, total_count }`. Extract the conversations
- * array and the next cursor defensively — a missing/malformed envelope yields an
- * empty page with a null cursor so the walk terminates.
- */
 function extractConversations(parsed: unknown): {
   conversations: unknown[];
   nextCursor: string | null;
@@ -149,12 +110,6 @@ export function createIntercomSyncable(options: IntercomSyncableOptions): Syncab
       let totalUpserted = 0;
       let startingAfter: string | null = null;
 
-      // The first conversations page is the gating call: a FIRST-page http/parse
-      // error maps to the pass-cursor-empty result (http keeps the prior cursor,
-      // parse resets). Later-page errors just break, preserving whatever was
-      // already collected. Intercom cursor-paginates: read
-      // `pages.next.starting_after` and pass it forward until `pages.next` is
-      // absent/null (or the MAX_PAGES cap stops the walk).
       for (let page = 1; page <= MAX_PAGES; page += 1) {
         const outcome = await intercomGet(ctx, creds, conversationsPath(startingAfter));
         totalBytes += outcome.bytes;

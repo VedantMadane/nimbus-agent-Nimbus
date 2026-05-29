@@ -11,6 +11,7 @@ import { discoverSpecFiles } from "./openapi-indexer-discovery.ts";
 import { type ParsedEndpoint, parseSpec } from "./openapi-indexer-parsing.ts";
 import { inferServiceName } from "./openapi-indexer-service-name.ts";
 
+// connectorFetch opt-out: indexes filesystem OpenAPI/AsyncAPI specs, not paginated HTTP.
 const SERVICE_ID = "openapi";
 const DEFAULT_INTERVAL_MS = 10 * 60 * 1000;
 const INITIAL_SYNC_DEPTH_DAYS = 365;
@@ -183,11 +184,6 @@ export function createOpenapiIndexerSyncable(
           continue;
         }
         for (const specPath of entries) {
-          // Open once and use the file descriptor for both fstat and read.
-          // This eliminates the time-of-check / time-of-use race between a
-          // separate `statSync(path)` and `readFileSync(path)` — both calls
-          // now resolve through the same open inode rather than re-traversing
-          // the path.
           let mtimeMs = 0;
           let source: string | undefined;
           let fd: number | undefined;
@@ -228,10 +224,6 @@ export function createOpenapiIndexerSyncable(
             infoTitle: parsed.infoTitle,
             rootPath: root,
           });
-          // One transaction per spec: upsert all of the spec's endpoints AND
-          // its sticky-delete pass commit together. This bounds DB round-trips
-          // for monorepos with many specs and guarantees a spec is never
-          // half-applied if the process is killed mid-iteration.
           const keep = new Set<string>();
           let perSpecDeleted = 0;
           ctx.db.transaction(() => {

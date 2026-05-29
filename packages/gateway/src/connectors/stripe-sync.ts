@@ -5,6 +5,7 @@ import {
   syncPassCursorSuccess,
 } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
+import { connectorFetch } from "./_lib/fetch-outcome.ts";
 import { readConnectorSecret } from "./connector-vault.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { mapStripeInvoiceToItem } from "./stripe-invoice-mapping.ts";
@@ -30,11 +31,6 @@ interface StripeCreds {
   readonly apiKey: string;
 }
 
-/**
- * `stripe.api_key` is required. Stripe's API host is a fixed SaaS host
- * (`api.stripe.com`) — there is no host override key. The connector no-ops
- * unless the key is non-empty after trim.
- */
 async function loadCreds(ctx: SyncContext): Promise<StripeCreds | null> {
   const apiKey = (await readConnectorSecret(ctx.vault, "stripe", "api_key"))?.trim() ?? "";
   if (apiKey === "") {
@@ -43,15 +39,6 @@ async function loadCreds(ctx: SyncContext): Promise<StripeCreds | null> {
   return { apiKey };
 }
 
-type FetchOutcome =
-  | { kind: "ok"; parsed: unknown; bytes: number }
-  | { kind: "http_error"; bytes: number }
-  | { kind: "parse_error"; bytes: number };
-
-/**
- * Build `/v1/invoices?limit=100`, optionally with a `starting_after` cursor
- * (the id of the last invoice from the previous page — Stripe's forward cursor).
- */
 function invoicesPath(startingAfter: string | null): string {
   const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
   if (startingAfter !== null) {
@@ -60,35 +47,12 @@ function invoicesPath(startingAfter: string | null): string {
   return `/v1/invoices?${params.toString()}`;
 }
 
-async function stripeGet(
-  ctx: SyncContext,
-  creds: StripeCreds,
-  path: string,
-): Promise<FetchOutcome> {
-  await ctx.rateLimiter.acquire(SERVICE_ID);
-  // Stripe uses a standard `Authorization: Bearer <secret-key>` header
-  // (the key starts `sk_live_` / `sk_test_` — never logged).
-  const res = await fetch(`${BASE}${path}`, {
+function stripeGet(ctx: SyncContext, creds: StripeCreds, path: string) {
+  return connectorFetch(ctx, SERVICE_ID, `${BASE}${path}`, {
     headers: { Authorization: `Bearer ${creds.apiKey}`, Accept: "application/json" },
   });
-  const text = await res.text();
-  if (!res.ok) {
-    ctx.logger.warn({ serviceId: SERVICE_ID, status: res.status, path }, "stripe GET failed");
-    return { kind: "http_error", bytes: text.length };
-  }
-  try {
-    return { kind: "ok", parsed: JSON.parse(text) as unknown, bytes: text.length };
-  } catch {
-    return { kind: "parse_error", bytes: text.length };
-  }
 }
 
-/**
- * `GET /v1/invoices` returns the Stripe list envelope
- * `{ object: "list", data: [...], has_more: boolean }`. Extract the data array
- * and the `has_more` flag defensively — a missing/malformed envelope yields an
- * empty page with `hasMore: false` so the walk terminates.
- */
 function extractInvoices(parsed: unknown): { invoices: unknown[]; hasMore: boolean } {
   const root = asRecord(parsed);
   if (root === undefined) {
@@ -112,7 +76,6 @@ function upsertInvoices(ctx: SyncContext, invoices: readonly unknown[], now: num
   return upserted;
 }
 
-/** The forward cursor for the next page is the id of the last invoice on this page. */
 function lastInvoiceId(invoices: readonly unknown[]): string | null {
   const last = invoices[invoices.length - 1];
   const row = asRecord(last);
@@ -141,11 +104,6 @@ export function createStripeSyncable(options: StripeSyncableOptions): Syncable {
       let totalUpserted = 0;
       let startingAfter: string | null = null;
 
-      // The first invoices page is the gating call: a FIRST-page http/parse
-      // error maps to the pass-cursor-empty result. Later-page errors just
-      // break, preserving whatever was already collected. Stripe cursor-
-      // paginates: pass `starting_after=<last id>` and follow `has_more` until
-      // it is false (or the MAX_PAGES cap stops the walk).
       for (let page = 1; page <= MAX_PAGES; page += 1) {
         const outcome = await stripeGet(ctx, creds, invoicesPath(startingAfter));
         totalBytes += outcome.bytes;

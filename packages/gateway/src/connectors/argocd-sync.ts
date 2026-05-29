@@ -5,6 +5,7 @@ import {
   syncPassCursorSuccess,
 } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
+import { connectorFetch } from "./_lib/fetch-outcome.ts";
 import { mapArgocdApplicationToItem } from "./argocd-application-mapping.ts";
 import { readConnectorSecret } from "./connector-vault.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
@@ -32,11 +33,6 @@ function trimTrailingSlash(s: string): string {
   return s.endsWith("/") ? s.slice(0, -1) : s;
 }
 
-/**
- * Both `argocd.url` and `argocd.token` are required and have no defaults —
- * ArgoCD is self-hosted, so there is no SaaS host to fall back to. The
- * connector no-ops unless both are non-empty after trim.
- */
 async function loadCreds(ctx: SyncContext): Promise<ArgocdCreds | null> {
   const url = (await readConnectorSecret(ctx.vault, "argocd", "url"))?.trim() ?? "";
   const token = (await readConnectorSecret(ctx.vault, "argocd", "token"))?.trim() ?? "";
@@ -46,30 +42,6 @@ async function loadCreds(ctx: SyncContext): Promise<ArgocdCreds | null> {
   return { url: trimTrailingSlash(url), token };
 }
 
-type FetchOutcome =
-  | { kind: "ok"; parsed: unknown; bytes: number }
-  | { kind: "http_error"; bytes: number }
-  | { kind: "parse_error"; bytes: number };
-
-async function agGet(ctx: SyncContext, creds: ArgocdCreds, path: string): Promise<FetchOutcome> {
-  await ctx.rateLimiter.acquire(SERVICE_ID);
-  // ArgoCD API tokens are sent as `Authorization: Bearer <jwt>`.
-  const res = await fetch(`${creds.url}/api/v1${path}`, {
-    headers: { Authorization: `Bearer ${creds.token}`, Accept: "application/json" },
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    ctx.logger.warn({ serviceId: SERVICE_ID, status: res.status, path }, "argocd GET failed");
-    return { kind: "http_error", bytes: text.length };
-  }
-  try {
-    return { kind: "ok", parsed: JSON.parse(text) as unknown, bytes: text.length };
-  } catch {
-    return { kind: "parse_error", bytes: text.length };
-  }
-}
-
-/** `GET /applications` returns `{ items: [...] }`; defensively coerce to an array. */
 function extractApplications(parsed: unknown): unknown[] {
   const items = asRecord(parsed)?.["items"];
   return Array.isArray(items) ? items : [];
@@ -106,8 +78,9 @@ export function createArgocdSyncable(options: ArgocdSyncableOptions): Syncable {
         return syncNoopResult(cursor, t0);
       }
 
-      // ArgoCD returns the full application list in one response — no pagination.
-      const outcome = await agGet(ctx, creds, "/applications");
+      const outcome = await connectorFetch(ctx, SERVICE_ID, `${creds.url}/api/v1/applications`, {
+        headers: { Authorization: `Bearer ${creds.token}`, Accept: "application/json" },
+      });
       if (outcome.kind !== "ok") {
         return outcome.kind === "http_error"
           ? syncPassCursorHttpEmpty(t0, outcome.bytes, cursor, pass1Cursor())
