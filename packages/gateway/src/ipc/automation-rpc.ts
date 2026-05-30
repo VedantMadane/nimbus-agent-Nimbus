@@ -188,7 +188,7 @@ const AUTOMATION_HANDLERS: Readonly<Record<string, AutomationHandler>> = {
 
   "extension.remove": (rec, ctx) => {
     const id = requireString(rec, "id");
-    const force = rec !== undefined && rec["force"] === true;
+    const force = rec?.["force"] === true;
 
     if (!force) {
       const rdeps = reverseDeps(ctx.db, id);
@@ -327,8 +327,7 @@ async function handleExtensionSync(
   if (ctx.fetcher === undefined) {
     throw new AutomationRpcError(-32603, "Gateway is not configured with a publisher key fetcher");
   }
-  const dryRun =
-    rec !== undefined && typeof rec["dryRun"] === "boolean" ? (rec["dryRun"] as boolean) : false;
+  const dryRun = rec !== undefined && typeof rec["dryRun"] === "boolean" ? rec["dryRun"] : false;
   try {
     const result = await syncPublisherKeys({
       vault: ctx.vault,

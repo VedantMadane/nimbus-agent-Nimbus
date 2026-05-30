@@ -72,13 +72,13 @@ export function registerScriptConsentHandler(client: IPCClient, source: string):
         }
         const o = parsed as Record<string, unknown>;
         if (typeof o["approved"] !== "boolean") {
-          throw new Error(
+          throw new TypeError(
             `--script-consent-source: malformed JSONL on line ${lineIdx + 1}: missing or non-boolean "approved"`,
           );
         }
         return {
           approved: o["approved"],
-          ...(typeof o["note"] === "string" ? { note: o["note"] as string } : {}),
+          ...(typeof o["note"] === "string" ? { note: o["note"] } : {}),
         };
       });
   } catch (err) {
@@ -107,7 +107,7 @@ export function registerScriptConsentHandler(client: IPCClient, source: string):
     cursor += 1;
     const promptText = typeof p.prompt === "string" ? p.prompt : "(no prompt)";
     const decisionWord = decision.approved ? "approve" : "reject";
-    const noteSuffix = decision.note !== undefined ? ` — ${decision.note}` : "";
+    const noteSuffix = decision.note === undefined ? "" : ` — ${decision.note}`;
     process.stdout.write(
       `[consent.request] ${promptText}\n[scripted: ${decisionWord}]${noteSuffix}\n`,
     );

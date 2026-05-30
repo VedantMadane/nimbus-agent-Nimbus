@@ -99,7 +99,7 @@ function parseUpdateChannel(value: unknown): "stable" | "beta" {
 function parseChangelog(value: unknown): string | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "string") {
-    throw new Error("extension manifest changelog must be a string");
+    throw new TypeError("extension manifest changelog must be a string");
   }
   const normalized = value.normalize("NFC");
   const bytes = Buffer.byteLength(normalized, "utf8");
@@ -144,7 +144,7 @@ export type RegistryParseResult = {
   isPreT2Legacy: boolean;
 };
 
-export function parseExtensionManifestForRegistry(text: string): RegistryParseResult {
+function parseManifestObject(text: string): Record<string, unknown> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text) as unknown;
@@ -154,7 +154,11 @@ export function parseExtensionManifestForRegistry(text: string): RegistryParseRe
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("extension manifest must be a JSON object");
   }
-  const o = parsed as Record<string, unknown>;
+  return parsed as Record<string, unknown>;
+}
+
+export function parseExtensionManifestForRegistry(text: string): RegistryParseResult {
+  const o = parseManifestObject(text);
   const id = typeof o["id"] === "string" ? o["id"].trim() : "";
   const version = typeof o["version"] === "string" ? o["version"].trim() : "";
   if (id === "" || version === "") {
@@ -182,11 +186,11 @@ export function parseExtensionManifestForRegistry(text: string): RegistryParseRe
       ...(name !== undefined && name !== "" ? { name } : {}),
       ...(entry !== undefined && entry !== "" ? { entry } : {}),
       permissions,
-      ...(publisher !== undefined ? { publisher } : {}),
-      ...(signature !== undefined ? { signature } : {}),
+      ...(publisher === undefined ? {} : { publisher }),
+      ...(signature === undefined ? {} : { signature }),
       updateChannel,
-      ...(changelog !== undefined ? { changelog } : {}),
-      ...(dependsOn !== undefined ? { dependsOn } : {}),
+      ...(changelog === undefined ? {} : { changelog }),
+      ...(dependsOn === undefined ? {} : { dependsOn }),
     },
     isPreT2Legacy,
   };

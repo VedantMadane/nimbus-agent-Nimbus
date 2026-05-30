@@ -268,6 +268,50 @@ async function dispatchReadOnlyGet(
   return new Response("Not Found", { status: 404 });
 }
 
+async function handlePost(
+  req: Request,
+  writeDb: Database | null,
+  rateLimiter: HttpWriteRateLimiter,
+  opts: ReadOnlyHttpServerOptions,
+): Promise<Response> {
+  if (writeDb === null || opts.resolveDeploymentToken === undefined) {
+    return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET" } });
+  }
+  try {
+    const expectedToken = await opts.resolveDeploymentToken();
+    const cfgDir = opts.configDir;
+    const knownServices =
+      cfgDir === undefined
+        ? (): readonly string[] => []
+        : (): readonly string[] => Array.from(loadNimbusServiceConfigsFromConfigDir(cfgDir).keys());
+    return await dispatchWriteRoute(req, {
+      writeDb,
+      expectedToken,
+      rateLimiter,
+      nowMs: opts.nowMs ?? ((): number => Date.now()),
+      knownServices,
+    });
+  } catch {
+    return json({ error: "internal_error" }, 500);
+  }
+}
+
+async function handleGet(
+  url: URL,
+  db: Database,
+  opts: ReadOnlyHttpServerOptions,
+): Promise<Response> {
+  const path = url.pathname;
+  if (WRITE_ROUTE_ALLOWLIST.some((r) => r.endsWith(` ${path}`))) {
+    return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
+  }
+  try {
+    return await dispatchReadOnlyGet(path, url, db, opts);
+  } catch {
+    return json({ error: "internal_error" }, 500);
+  }
+}
+
 export function startReadOnlyHttpServer(
   dbPath: string,
   port: number,
@@ -288,53 +332,19 @@ export function startReadOnlyHttpServer(
     async fetch(req: Request): Promise<Response> {
       const url = new URL(req.url);
       if (req.method === "POST") {
-        if (writeDb === null || opts.resolveDeploymentToken === undefined) {
-          return new Response("Method Not Allowed", {
-            status: 405,
-            headers: { Allow: "GET" },
-          });
-        }
-        try {
-          const expectedToken = await opts.resolveDeploymentToken();
-          const cfgDir = opts.configDir;
-          const knownServices =
-            cfgDir === undefined
-              ? (): readonly string[] => []
-              : (): readonly string[] =>
-                  Array.from(loadNimbusServiceConfigsFromConfigDir(cfgDir).keys());
-          return await dispatchWriteRoute(req, {
-            writeDb,
-            expectedToken,
-            rateLimiter,
-            nowMs: opts.nowMs ?? ((): number => Date.now()),
-            knownServices,
-          });
-        } catch {
-          return json({ error: "internal_error" }, 500);
-        }
+        return handlePost(req, writeDb, rateLimiter, opts);
       }
       if (req.method !== "GET") {
-        const allow = writeDb !== null ? "GET, POST" : "GET";
+        const allow = writeDb === null ? "GET" : "GET, POST";
         return new Response("Method Not Allowed", { status: 405, headers: { Allow: allow } });
       }
-      const path = url.pathname;
-      if (WRITE_ROUTE_ALLOWLIST.some((r) => r.endsWith(` ${path}`))) {
-        return new Response("Method Not Allowed", {
-          status: 405,
-          headers: { Allow: "POST" },
-        });
-      }
-      try {
-        return await dispatchReadOnlyGet(path, url, db, opts);
-      } catch {
-        return json({ error: "internal_error" }, 500);
-      }
+      return handleGet(url, db, opts);
     },
   });
 
   const actualPort = server.port;
   if (typeof actualPort !== "number") {
-    throw new Error(
+    throw new TypeError(
       `startReadOnlyHttpServer: Bun.serve did not bind a TCP port (server.port=${String(actualPort)})`,
     );
   }

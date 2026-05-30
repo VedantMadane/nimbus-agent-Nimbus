@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { AgentCoordinator, type SubTask } from "../engine/coordinator.ts";
 import { emitBriefWithSynthesis } from "./_lib/emit-brief.ts";
-import type { GapNote, ImpactBrief, ImpactCategory, ImpactFinding } from "./_lib/findings.ts";
+import type { GapNote, ImpactBrief, ImpactFinding } from "./_lib/findings.ts";
 import {
   aggregateMissingEntityTypes,
   detectEmptyIndex,
@@ -140,9 +140,15 @@ const HOST_TO_SERVICE: Readonly<Record<string, string>> = Object.freeze({
 const PR_URL_RE = /^https?:\/\/([^/]+)\/([^/]+)\/([^/]+)\/pull\/(\d+)/i;
 
 function resolveStartEntity(db: Database, fileOrPrUrl: string): ResolvedStart | null {
-  const m = fileOrPrUrl.match(PR_URL_RE);
+  const m = PR_URL_RE.exec(fileOrPrUrl);
   if (m !== null) {
-    const [, rawHost, owner, repo, prNum] = m as [string, string, string, string, string];
+    const [, rawHost, owner, repo, prNum] = m as unknown as [
+      string,
+      string,
+      string,
+      string,
+      string,
+    ];
     const host = rawHost.toLowerCase();
     const hostFirstSegment = host.split(".").at(0) ?? host;
     const service = HOST_TO_SERVICE[host] ?? hostFirstSegment;
@@ -163,14 +169,14 @@ function resolveStartEntity(db: Database, fileOrPrUrl: string): ResolvedStart | 
     .query("SELECT id FROM graph_entity WHERE type = 'symbol' AND label = ? LIMIT 1")
     .get(fileOrPrUrl) as { id?: string } | null;
   const sym =
-    exactSym?.id !== undefined
-      ? exactSym
-      : (db
+    exactSym?.id === undefined
+      ? (db
           .query(
             "SELECT id FROM graph_entity WHERE type = 'symbol' AND label LIKE '%' || ? || '%' " +
               "ORDER BY length(label) ASC, id ASC LIMIT 1",
           )
-          .get(fileOrPrUrl) as { id?: string } | null);
+          .get(fileOrPrUrl) as { id?: string } | null)
+      : exactSym;
   if (sym?.id !== undefined) {
     return { entityId: sym.id, entityType: "symbol", repoIds: [] };
   }
@@ -230,7 +236,7 @@ async function subDownstreamCode(
   }
   return {
     findings: rows.map((r) => ({
-      category: "downstream_repo" as ImpactCategory,
+      category: "downstream_repo",
       affectedItemId: r.entity_id,
       affectedTitle: r.title,
       serviceId: r.service_id,
@@ -276,7 +282,7 @@ async function subPipelines(
     const hops = start.repoIds.length > 0 ? 2 : 1;
     return {
       findings: rows.map((r) => ({
-        category: "pipeline" as ImpactCategory,
+        category: "pipeline",
         affectedItemId: r.entity_id,
         affectedTitle: r.title,
         serviceId: r.service_id,
@@ -320,7 +326,7 @@ async function subOncall(
   if (rows.length === 0) return {};
   return {
     findings: rows.map((r) => ({
-      category: "oncall_rotation" as ImpactCategory,
+      category: "oncall_rotation",
       affectedItemId: r.entity_id,
       affectedTitle: r.title,
       serviceId: "pagerduty",
@@ -355,7 +361,7 @@ async function subDashboards(
   const pathSummary = `${start.entityType} → upstream_refs → dashboard`;
   return {
     findings: rows.map((r) => ({
-      category: "dashboard" as ImpactCategory,
+      category: "dashboard",
       affectedItemId: r.entity_id,
       affectedTitle: r.title,
       serviceId: r.service_id,
@@ -390,7 +396,7 @@ async function subDownstreamRepos(
   if (rows.length === 0) return {};
   return {
     findings: rows.map((r) => ({
-      category: "service" as ImpactCategory,
+      category: "service",
       affectedItemId: r.id,
       affectedTitle: r.label,
       serviceId: r.service_id,

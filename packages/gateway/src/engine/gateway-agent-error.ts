@@ -16,12 +16,14 @@ export type AgentUnavailableInit = {
   detail?: string;
 };
 
+const DEFAULT_AGENT_UNAVAILABLE_INIT: AgentUnavailableInit = { reason: "unknown" };
+
 export class GatewayAgentUnavailableError extends Error {
   override readonly name = "GatewayAgentUnavailableError";
   readonly reason: AgentUnavailableReason;
   readonly provider: AgentProviderName | undefined;
 
-  constructor(init: AgentUnavailableInit = { reason: "unknown" }) {
+  constructor(init: AgentUnavailableInit = DEFAULT_AGENT_UNAVAILABLE_INIT) {
     super(buildAgentErrorMessage(init));
     this.reason = init.reason;
     this.provider = init.provider;
@@ -74,7 +76,7 @@ function parseProviderErrorBody(body: string): ProviderErrorBody {
   try {
     const parsed = JSON.parse(body) as unknown;
     if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as ProviderErrorBody;
+      return parsed;
     }
   } catch {
     /* not JSON */
@@ -115,7 +117,7 @@ export function agentErrorFromHttpResponse(
   return new GatewayAgentUnavailableError({
     reason: "provider_error",
     provider,
-    detail: msg !== "" ? `HTTP ${String(status)}: ${clipDetail(msg)}` : `HTTP ${String(status)}`,
+    detail: msg === "" ? `HTTP ${String(status)}` : `HTTP ${String(status)}: ${clipDetail(msg)}`,
   });
 }
 
@@ -127,7 +129,7 @@ export function agentErrorFromCaughtError(
   const msg = raw.toLowerCase();
 
   const init = (reason: AgentUnavailableReason): AgentUnavailableInit =>
-    provider !== undefined ? { reason, provider } : { reason };
+    provider === undefined ? { reason } : { reason, provider };
 
   if (
     msg.includes("insufficient_quota") ||

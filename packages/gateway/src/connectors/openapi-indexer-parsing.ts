@@ -126,7 +126,7 @@ function extractAsyncapiEndpoints(doc: {
   return out;
 }
 
-function parseStringToJson(absPath: string, source: string): unknown | undefined {
+function parseStringToJson(absPath: string, source: string): unknown {
   const trimmed = source.trimStart();
   if (
     absPath.toLowerCase().endsWith(".json") ||
@@ -140,7 +140,7 @@ function parseStringToJson(absPath: string, source: string): unknown | undefined
     }
   }
   try {
-    return yamlLoad(source) as unknown;
+    return yamlLoad(source);
   } catch {
     return undefined;
   }
@@ -166,7 +166,7 @@ export function parseSpec(input: ParseInput): ParseResult {
   try {
     endpoints = isAsync
       ? extractAsyncapiEndpoints(raw as { channels?: Record<string, unknown> })
-      : extractOpenapiEndpoints(raw as { paths?: Record<string, unknown> });
+      : extractOpenapiEndpoints(raw);
   } catch {
     return { kind: "skipped", reason: "parse_failed" };
   }

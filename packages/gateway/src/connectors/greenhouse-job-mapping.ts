@@ -92,13 +92,13 @@ export function mapGreenhouseJobToItem(
 
   const canonicalUrl: string | null = null;
 
-  const trimmedName = name !== null ? name.trim() : "";
-  const titleText = trimmedName !== "" ? trimmedName : `Job ${id}`;
+  const trimmedName = name === null ? "" : name.trim();
+  const titleText = trimmedName === "" ? `Job ${id}` : trimmedName;
 
   const summaryParts = [...departmentNames, ...officeNames, ...officeLocations];
   const summary = summaryParts.join(" — ");
-  const bodyPreview =
-    summary !== "" ? summary : status !== null && status !== "" ? status : titleText;
+  const statusOrTitle = status !== null && status !== "" ? status : titleText;
+  const bodyPreview = summary === "" ? statusOrTitle : summary;
 
   const modifiedAt = updatedAt ?? createdAt ?? ctx.syncedAt;
 

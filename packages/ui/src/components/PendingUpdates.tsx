@@ -43,7 +43,7 @@ export function PendingUpdates({
   } | null>(null);
   const [inFlight, setInFlight] = useState<string | null>(null);
 
-  const list: AvailableUpdateUi[] = Array.isArray(data) ? (data as AvailableUpdateUi[]) : [];
+  const list: AvailableUpdateUi[] = Array.isArray(data) ? data : [];
 
   async function handleApply(id: string, toVersion: string): Promise<void> {
     setApplyError(null);
@@ -86,7 +86,7 @@ export function PendingUpdates({
           {applyResult.result.applied
             ? `Updated ${applyResult.id}`
             : `Update failed: ${applyResult.result.reason}${
-                applyResult.result.hint !== undefined ? ` — ${applyResult.result.hint}` : ""
+                applyResult.result.hint === undefined ? "" : ` — ${applyResult.result.hint}`
               }`}
         </p>
       )}
