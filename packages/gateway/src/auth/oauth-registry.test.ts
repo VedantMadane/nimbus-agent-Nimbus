@@ -171,6 +171,320 @@ describe("zoom descriptor", () => {
   });
 });
 
+describe("hubspot descriptor", () => {
+  test("table includes hubspot with vaultKey, urls, and body-secret quirks", () => {
+    expect(OAUTH_PROVIDERS.hubspot.id).toBe("hubspot");
+    expect(OAUTH_PROVIDERS.hubspot.vaultKey).toBe("hubspot.oauth");
+    expect(OAUTH_PROVIDERS.hubspot.authorizeUrl).toBe("https://app.hubspot.com/oauth/authorize");
+    expect(OAUTH_PROVIDERS.hubspot.tokenUrl).toBe("https://api.hubapi.com/oauth/v1/token");
+    expect(OAUTH_PROVIDERS.hubspot.usesPkce).toBe(false);
+    expect(OAUTH_PROVIDERS.hubspot.clientSecret).toBe("required");
+    expect(OAUTH_PROVIDERS.hubspot.secretPlacement).toBe("body");
+    expect(OAUTH_PROVIDERS.hubspot.bodyFormat).toBe("form");
+    expect(OAUTH_PROVIDERS.hubspot.mirrorPerService).toBe(false);
+    expect(OAUTH_PROVIDERS.hubspot.tokenHeaders).toBeUndefined();
+  });
+
+  test("authorize params omit PKCE + scope joined with spaces", () => {
+    const p = OAUTH_PROVIDERS.hubspot.buildAuthorizeParams({
+      clientId: "hs-cid",
+      scopes: ["crm.objects.deals.read", "oauth"],
+      redirectUri: "http://127.0.0.1:1/oauth/callback",
+      state: "st",
+      codeChallenge: "cc",
+    });
+    expect(p["client_id"]).toBe("hs-cid");
+    expect(p["response_type"]).toBe("code");
+    expect(p["scope"]).toBe("crm.objects.deals.read oauth");
+    expect(p["state"]).toBe("st");
+    expect(p["code_challenge"]).toBeUndefined();
+    expect(p["code_challenge_method"]).toBeUndefined();
+  });
+
+  test("exchange posts form with client_secret in body; error message omits secrets", async () => {
+    let seenBody = "";
+    let seenCT = "";
+    const fetchImpl = async (_i: string | URL | Request, init?: RequestInit) => {
+      seenBody = typeof init?.body === "string" ? init.body : "";
+      seenCT = new Headers(init?.headers).get("content-type") ?? "";
+      return new Response(
+        JSON.stringify({ access_token: "hs-a", refresh_token: "hs-r", expires_in: 1800 }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+    const r = await exchangeAuthorizationCode({
+      descriptor: OAUTH_PROVIDERS.hubspot,
+      fetchFn: fetchImpl,
+      clientId: "cid",
+      clientSecret: "HUBSPOT_SECRET",
+      redirectUri: "http://127.0.0.1:1/oauth/callback",
+      authCode: "code",
+      requestedScopes: ["crm.objects.deals.read"],
+    });
+    expect(r.accessToken).toBe("hs-a");
+    expect(r.refreshToken).toBe("hs-r");
+    expect(seenCT).toContain("application/x-www-form-urlencoded");
+    expect(seenBody).toContain("client_secret=HUBSPOT_SECRET");
+    expect(seenBody).toContain("grant_type=authorization_code");
+  });
+});
+
+describe("miro descriptor", () => {
+  test("table includes miro with vaultKey, urls, and body-secret quirks", () => {
+    expect(OAUTH_PROVIDERS.miro.id).toBe("miro");
+    expect(OAUTH_PROVIDERS.miro.vaultKey).toBe("miro.oauth");
+    expect(OAUTH_PROVIDERS.miro.authorizeUrl).toBe("https://miro.com/oauth/authorize");
+    expect(OAUTH_PROVIDERS.miro.tokenUrl).toBe("https://api.miro.com/v1/oauth/token");
+    expect(OAUTH_PROVIDERS.miro.usesPkce).toBe(false);
+    expect(OAUTH_PROVIDERS.miro.clientSecret).toBe("required");
+    expect(OAUTH_PROVIDERS.miro.secretPlacement).toBe("body");
+    expect(OAUTH_PROVIDERS.miro.bodyFormat).toBe("form");
+    expect(OAUTH_PROVIDERS.miro.mirrorPerService).toBe(false);
+    expect(OAUTH_PROVIDERS.miro.tokenHeaders).toBeUndefined();
+  });
+
+  test("authorize params omit PKCE + scope joined with spaces", () => {
+    const p = OAUTH_PROVIDERS.miro.buildAuthorizeParams({
+      clientId: "miro-cid",
+      scopes: ["boards:read"],
+      redirectUri: "http://127.0.0.1:1/oauth/callback",
+      state: "st",
+      codeChallenge: "cc",
+    });
+    expect(p["client_id"]).toBe("miro-cid");
+    expect(p["response_type"]).toBe("code");
+    expect(p["scope"]).toBe("boards:read");
+    expect(p["state"]).toBe("st");
+    expect(p["code_challenge"]).toBeUndefined();
+    expect(p["code_challenge_method"]).toBeUndefined();
+  });
+
+  test("exchange posts form with client_secret in body; error message omits secrets", async () => {
+    let seenBody = "";
+    let seenCT = "";
+    const fetchImpl = async (_i: string | URL | Request, init?: RequestInit) => {
+      seenBody = typeof init?.body === "string" ? init.body : "";
+      seenCT = new Headers(init?.headers).get("content-type") ?? "";
+      return new Response(
+        JSON.stringify({ access_token: "miro-a", refresh_token: "miro-r", expires_in: 1800 }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+    const r = await exchangeAuthorizationCode({
+      descriptor: OAUTH_PROVIDERS.miro,
+      fetchFn: fetchImpl,
+      clientId: "cid",
+      clientSecret: "MIRO_SECRET",
+      redirectUri: "http://127.0.0.1:1/oauth/callback",
+      authCode: "code",
+      requestedScopes: ["boards:read"],
+    });
+    expect(r.accessToken).toBe("miro-a");
+    expect(r.refreshToken).toBe("miro-r");
+    expect(seenCT).toContain("application/x-www-form-urlencoded");
+    expect(seenBody).toContain("client_secret=MIRO_SECRET");
+    expect(seenBody).toContain("grant_type=authorization_code");
+  });
+});
+
+describe("canva descriptor", () => {
+  test("table includes canva with vaultKey, urls, and PKCE + basic-header quirks", () => {
+    expect(OAUTH_PROVIDERS.canva.id).toBe("canva");
+    expect(OAUTH_PROVIDERS.canva.vaultKey).toBe("canva.oauth");
+    expect(OAUTH_PROVIDERS.canva.authorizeUrl).toBe("https://www.canva.com/api/oauth/authorize");
+    expect(OAUTH_PROVIDERS.canva.tokenUrl).toBe("https://api.canva.com/rest/v1/oauth/token");
+    expect(OAUTH_PROVIDERS.canva.usesPkce).toBe(true);
+    expect(OAUTH_PROVIDERS.canva.clientSecret).toBe("required");
+    expect(OAUTH_PROVIDERS.canva.secretPlacement).toBe("basic_header");
+    expect(OAUTH_PROVIDERS.canva.bodyFormat).toBe("form");
+    expect(OAUTH_PROVIDERS.canva.mirrorPerService).toBe(false);
+    expect(OAUTH_PROVIDERS.canva.tokenHeaders).toBeUndefined();
+  });
+
+  test("authorize params include S256 PKCE + scope joined with spaces", () => {
+    const p = OAUTH_PROVIDERS.canva.buildAuthorizeParams({
+      clientId: "canva-cid",
+      scopes: ["design:meta:read"],
+      redirectUri: "http://127.0.0.1:1/oauth/callback",
+      state: "st",
+      codeChallenge: "cc",
+    });
+    expect(p["client_id"]).toBe("canva-cid");
+    expect(p["response_type"]).toBe("code");
+    expect(p["scope"]).toBe("design:meta:read");
+    expect(p["state"]).toBe("st");
+    expect(p["code_challenge"]).toBe("cc");
+    expect(p["code_challenge_method"]).toBe("S256");
+  });
+
+  test("exchange sends Basic header + PKCE verifier; client_secret NOT in body", async () => {
+    let seenBody = "";
+    let seenAuth = "";
+    let seenCT = "";
+    const fetchImpl = async (_i: string | URL | Request, init?: RequestInit) => {
+      seenBody = typeof init?.body === "string" ? init.body : "";
+      const h = new Headers(init?.headers);
+      seenAuth = h.get("authorization") ?? "";
+      seenCT = h.get("content-type") ?? "";
+      return new Response(
+        JSON.stringify({ access_token: "canva-a", refresh_token: "canva-r", expires_in: 14_400 }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+    const r = await exchangeAuthorizationCode({
+      descriptor: OAUTH_PROVIDERS.canva,
+      fetchFn: fetchImpl,
+      clientId: "cid",
+      clientSecret: "CANVA_SECRET",
+      redirectUri: "http://127.0.0.1:1/oauth/callback",
+      codeVerifier: "verifier-123",
+      authCode: "code",
+      requestedScopes: ["design:meta:read"],
+    });
+    expect(r.accessToken).toBe("canva-a");
+    expect(r.refreshToken).toBe("canva-r");
+    expect(seenCT).toContain("application/x-www-form-urlencoded");
+    // Secret travels in the Basic header, not the body.
+    const expectedBasic = `Basic ${Buffer.from("cid:CANVA_SECRET", "utf8").toString("base64")}`;
+    expect(seenAuth).toBe(expectedBasic);
+    expect(seenBody).not.toContain("CANVA_SECRET");
+    expect(seenBody).toContain("code_verifier=verifier-123");
+    expect(seenBody).toContain("grant_type=authorization_code");
+  });
+});
+
+describe("figma descriptor", () => {
+  test("table includes figma with vaultKey, urls, and body-secret quirks", () => {
+    expect(OAUTH_PROVIDERS.figma.id).toBe("figma");
+    expect(OAUTH_PROVIDERS.figma.vaultKey).toBe("figma.oauth");
+    expect(OAUTH_PROVIDERS.figma.authorizeUrl).toBe("https://www.figma.com/oauth");
+    expect(OAUTH_PROVIDERS.figma.tokenUrl).toBe("https://api.figma.com/v1/oauth/token");
+    expect(OAUTH_PROVIDERS.figma.usesPkce).toBe(false);
+    expect(OAUTH_PROVIDERS.figma.clientSecret).toBe("required");
+    expect(OAUTH_PROVIDERS.figma.secretPlacement).toBe("body");
+    expect(OAUTH_PROVIDERS.figma.bodyFormat).toBe("form");
+    expect(OAUTH_PROVIDERS.figma.mirrorPerService).toBe(false);
+    expect(OAUTH_PROVIDERS.figma.tokenHeaders).toBeUndefined();
+  });
+
+  test("authorize params omit PKCE + scope joined with spaces", () => {
+    const p = OAUTH_PROVIDERS.figma.buildAuthorizeParams({
+      clientId: "figma-cid",
+      scopes: ["files:read"],
+      redirectUri: "http://127.0.0.1:1/oauth/callback",
+      state: "st",
+      codeChallenge: "cc",
+    });
+    expect(p["client_id"]).toBe("figma-cid");
+    expect(p["response_type"]).toBe("code");
+    expect(p["scope"]).toBe("files:read");
+    expect(p["state"]).toBe("st");
+    expect(p["code_challenge"]).toBeUndefined();
+    expect(p["code_challenge_method"]).toBeUndefined();
+  });
+
+  test("exchange posts form with client_secret in body; error message omits secrets", async () => {
+    let seenBody = "";
+    let seenCT = "";
+    const fetchImpl = async (_i: string | URL | Request, init?: RequestInit) => {
+      seenBody = typeof init?.body === "string" ? init.body : "";
+      seenCT = new Headers(init?.headers).get("content-type") ?? "";
+      return new Response(
+        JSON.stringify({ access_token: "figma-a", refresh_token: "figma-r", expires_in: 1800 }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+    const r = await exchangeAuthorizationCode({
+      descriptor: OAUTH_PROVIDERS.figma,
+      fetchFn: fetchImpl,
+      clientId: "cid",
+      clientSecret: "FIGMA_SECRET",
+      redirectUri: "http://127.0.0.1:1/oauth/callback",
+      authCode: "code",
+      requestedScopes: ["files:read"],
+    });
+    expect(r.accessToken).toBe("figma-a");
+    expect(r.refreshToken).toBe("figma-r");
+    expect(seenCT).toContain("application/x-www-form-urlencoded");
+    expect(seenBody).toContain("client_secret=FIGMA_SECRET");
+    expect(seenBody).toContain("grant_type=authorization_code");
+  });
+});
+
+describe("salesforce descriptor", () => {
+  test("table includes salesforce with vaultKey, urls, and PKCE + body-secret quirks", () => {
+    expect(OAUTH_PROVIDERS.salesforce.id).toBe("salesforce");
+    expect(OAUTH_PROVIDERS.salesforce.vaultKey).toBe("salesforce.oauth");
+    expect(OAUTH_PROVIDERS.salesforce.authorizeUrl).toBe(
+      "https://login.salesforce.com/services/oauth2/authorize",
+    );
+    expect(OAUTH_PROVIDERS.salesforce.tokenUrl).toBe(
+      "https://login.salesforce.com/services/oauth2/token",
+    );
+    expect(OAUTH_PROVIDERS.salesforce.usesPkce).toBe(true);
+    expect(OAUTH_PROVIDERS.salesforce.clientSecret).toBe("required");
+    expect(OAUTH_PROVIDERS.salesforce.secretPlacement).toBe("body");
+    expect(OAUTH_PROVIDERS.salesforce.bodyFormat).toBe("form");
+    expect(OAUTH_PROVIDERS.salesforce.mirrorPerService).toBe(false);
+    expect(OAUTH_PROVIDERS.salesforce.tokenHeaders).toBeUndefined();
+  });
+
+  test("authorize params include PKCE challenge when codeChallenge present", () => {
+    const p = OAUTH_PROVIDERS.salesforce.buildAuthorizeParams({
+      clientId: "sf-cid",
+      scopes: ["api", "refresh_token"],
+      redirectUri: "http://127.0.0.1:1/oauth/callback",
+      state: "st",
+      codeChallenge: "cc",
+    });
+    expect(p["client_id"]).toBe("sf-cid");
+    expect(p["response_type"]).toBe("code");
+    expect(p["scope"]).toBe("api refresh_token");
+    expect(p["state"]).toBe("st");
+    expect(p["code_challenge"]).toBe("cc");
+    expect(p["code_challenge_method"]).toBe("S256");
+  });
+
+  test("parseTokenResponse captures instance_url and synthesizes a future expiry when expires_in absent", () => {
+    const before = Date.now();
+    const r = OAUTH_PROVIDERS.salesforce.parseTokenResponse(
+      {
+        access_token: "sf-a",
+        refresh_token: "sf-r",
+        instance_url: "https://acme.my.salesforce.com",
+        scope: "api refresh_token",
+        // NOTE: no expires_in — Salesforce omits it.
+      },
+      ["api", "refresh_token"],
+    );
+    expect(r.accessToken).toBe("sf-a");
+    expect(r.refreshToken).toBe("sf-r");
+    expect(r.instanceUrl).toBe("https://acme.my.salesforce.com");
+    expect(r.scopes).toEqual(["api", "refresh_token"]);
+    // 30-minute conservative window in the future.
+    expect(r.expiresAt).toBeGreaterThan(before + 20 * 60 * 1000);
+    expect(r.expiresAt).toBeLessThanOrEqual(Date.now() + 30 * 60 * 1000);
+  });
+
+  test("parseTokenResponse throws when instance_url is missing", () => {
+    expect(() =>
+      OAUTH_PROVIDERS.salesforce.parseTokenResponse(
+        { access_token: "sf-a", refresh_token: "sf-r" },
+        ["api"],
+      ),
+    ).toThrow("instance_url");
+  });
+
+  test("parseTokenResponse throws when access_token is missing", () => {
+    expect(() =>
+      OAUTH_PROVIDERS.salesforce.parseTokenResponse(
+        { instance_url: "https://acme.my.salesforce.com" },
+        ["api"],
+      ),
+    ).toThrow("access_token");
+  });
+});
+
 describe("buildAuthorizeUrl", () => {
   test("composes URL using descriptor.authorizeUrl + buildAuthorizeParams", () => {
     const url = buildAuthorizeUrl(OAUTH_PROVIDERS.google, {
@@ -257,6 +571,26 @@ describe("refreshViaRegistry", () => {
     expect(r.accessToken).toBe("new-access");
     expect(r.refreshToken).toBe("old-refresh");
     expect(await vault.get("microsoft.oauth")).toContain("new-access");
+  });
+
+  test("persisted payload omits instanceUrl for a provider that does not discover one", async () => {
+    const vault = createMemoryVault();
+    await refreshViaRegistry({
+      descriptor: OAUTH_PROVIDERS.microsoft,
+      refreshToken: "old-refresh",
+      clientId: "cid",
+      vault,
+      fetchFn: async () =>
+        new Response(JSON.stringify({ access_token: "new-access", expires_in: 120 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    });
+    const stored = await vault.get("microsoft.oauth");
+    expect(stored).not.toBeNull();
+    // Conditional spread leaves the field out entirely (byte-identical to before).
+    expect(stored).not.toContain("instanceUrl");
+    expect(JSON.parse(stored ?? "{}") as Record<string, unknown>).not.toHaveProperty("instanceUrl");
   });
 });
 

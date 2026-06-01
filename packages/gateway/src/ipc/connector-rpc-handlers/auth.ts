@@ -1,8 +1,18 @@
 import {
+  CANVA_OAUTH_CLIENT_ID_HELP,
+  CANVA_OAUTH_CLIENT_SECRET_HELP,
+  FIGMA_OAUTH_CLIENT_ID_HELP,
+  FIGMA_OAUTH_CLIENT_SECRET_HELP,
   GOOGLE_OAUTH_CLIENT_ID_HELP,
+  HUBSPOT_OAUTH_CLIENT_ID_HELP,
+  HUBSPOT_OAUTH_CLIENT_SECRET_HELP,
   MICROSOFT_OAUTH_CLIENT_ID_HELP,
+  MIRO_OAUTH_CLIENT_ID_HELP,
+  MIRO_OAUTH_CLIENT_SECRET_HELP,
   NOTION_OAUTH_CLIENT_ID_HELP,
   NOTION_OAUTH_CLIENT_SECRET_HELP,
+  SALESFORCE_OAUTH_CLIENT_ID_HELP,
+  SALESFORCE_OAUTH_CLIENT_SECRET_HELP,
   SLACK_OAUTH_CLIENT_ID_HELP,
   ZOOM_OAUTH_CLIENT_ID_HELP,
   ZOOM_OAUTH_CLIENT_SECRET_HELP,
@@ -565,6 +575,41 @@ function oauthClientConfigForProvider(
         emptyClientIdMessage: ZOOM_OAUTH_CLIENT_ID_HELP,
         clientSecret: Config.oauthZoomClientSecret,
         clientSecretMissingHelp: ZOOM_OAUTH_CLIENT_SECRET_HELP,
+      };
+    case "hubspot":
+      return {
+        clientId: Config.oauthHubspotClientId,
+        emptyClientIdMessage: HUBSPOT_OAUTH_CLIENT_ID_HELP,
+        clientSecret: Config.oauthHubspotClientSecret,
+        clientSecretMissingHelp: HUBSPOT_OAUTH_CLIENT_SECRET_HELP,
+      };
+    case "miro":
+      return {
+        clientId: Config.oauthMiroClientId,
+        emptyClientIdMessage: MIRO_OAUTH_CLIENT_ID_HELP,
+        clientSecret: Config.oauthMiroClientSecret,
+        clientSecretMissingHelp: MIRO_OAUTH_CLIENT_SECRET_HELP,
+      };
+    case "canva":
+      return {
+        clientId: Config.oauthCanvaClientId,
+        emptyClientIdMessage: CANVA_OAUTH_CLIENT_ID_HELP,
+        clientSecret: Config.oauthCanvaClientSecret,
+        clientSecretMissingHelp: CANVA_OAUTH_CLIENT_SECRET_HELP,
+      };
+    case "figma":
+      return {
+        clientId: Config.oauthFigmaClientId,
+        emptyClientIdMessage: FIGMA_OAUTH_CLIENT_ID_HELP,
+        clientSecret: Config.oauthFigmaClientSecret,
+        clientSecretMissingHelp: FIGMA_OAUTH_CLIENT_SECRET_HELP,
+      };
+    case "salesforce":
+      return {
+        clientId: Config.oauthSalesforceClientId,
+        emptyClientIdMessage: SALESFORCE_OAUTH_CLIENT_ID_HELP,
+        clientSecret: Config.oauthSalesforceClientSecret,
+        clientSecretMissingHelp: SALESFORCE_OAUTH_CLIENT_SECRET_HELP,
       };
     default: {
       const _ex: never = profile.provider;

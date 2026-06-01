@@ -60,6 +60,7 @@ describe("manifestForFirstParty", () => {
       "google_drive",
       "gmail",
       "google_photos",
+      "google_meet",
       "onedrive",
       "outlook",
       "teams",
@@ -102,7 +103,17 @@ describe("manifestForFirstParty", () => {
       "greenhouse",
       "pipedrive",
       "stackoverflow",
+      "zotero",
+      "dependencytrack",
+      "airflow",
+      "prefect",
+      "dagster",
+      "ramp",
       "zoom",
+      "hubspot",
+      "miro",
+      "canva",
+      "figma",
     ];
     for (const id of expected) {
       expect(FIRST_PARTY_MANIFESTS[id]).toBeDefined();

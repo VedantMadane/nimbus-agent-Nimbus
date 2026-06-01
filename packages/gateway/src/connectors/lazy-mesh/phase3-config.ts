@@ -14,6 +14,29 @@ function wrap(spec: ServerSpec, serviceId: string, sandboxCwd: string): ServerSp
   return wrapServerSpec(spec, manifestForFirstParty(serviceId), sandboxCwd);
 }
 
+// Vertex AI is regional; this is the default when the optional `gcp.region`
+// config key is unset.
+const VERTEX_AI_DEFAULT_REGION = "us-central1";
+
+/**
+ * Inline argv flag-smuggling guard for the optional Vertex AI region before it
+ * is interpolated into the spawned MCP's `VERTEX_AI_REGION` env and the per-region
+ * network host (the gateway package cannot import `mcp-connectors/shared`). A value
+ * that is empty, over-long, `-`-prefixed, or carries control characters is rejected
+ * so the caller falls back to the safe default.
+ */
+function isSafeRegion(value: string): boolean {
+  if (value.length === 0 || value.length > 1024 || value.startsWith("-")) {
+    return false;
+  }
+  for (let i = 0; i < value.length; i += 1) {
+    if (value.charCodeAt(i) < 0x20) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export async function phase3AddAwsMcp(
   vault: NimbusVault,
   servers: Record<string, ServerSpec>,
@@ -94,6 +117,237 @@ export async function phase3AddGcpMcp(
       env: extensionProcessEnv({ GOOGLE_APPLICATION_CREDENTIALS: gcpPath }),
     },
     "gcp",
+    sandboxCwd,
+  );
+}
+
+export async function phase3AddBigqueryMcp(
+  vault: NimbusVault,
+  servers: Record<string, ServerSpec>,
+  sandboxCwd: string,
+): Promise<void> {
+  // BigQuery (Tier-3, metadata-only) reuses the existing GCP credentials.
+  const gcpPath = (await readConnectorSecret(vault, "gcp", "credentials_json_path"))?.trim() ?? "";
+  if (gcpPath === "") {
+    return;
+  }
+  const projectId = (await readConnectorSecret(vault, "gcp", "project_id"))?.trim() ?? "";
+  servers["bigquery"] = wrap(
+    {
+      command: "bun",
+      args: [mcpConnectorServerScript("bigquery")],
+      env: extensionProcessEnv({
+        GOOGLE_APPLICATION_CREDENTIALS: gcpPath,
+        ...(projectId === "" ? {} : { BIGQUERY_PROJECT: projectId }),
+      }),
+    },
+    "bigquery",
+    sandboxCwd,
+  );
+}
+
+export async function phase3AddAthenaMcp(
+  vault: NimbusVault,
+  servers: Record<string, ServerSpec>,
+  sandboxCwd: string,
+): Promise<void> {
+  // Athena (Tier-3, metadata-only) reuses the existing AWS credentials — mirror
+  // phase3AddAwsMcp's inline cred reads.
+  const ak = (await readConnectorSecret(vault, "aws", "access_key_id"))?.trim() ?? "";
+  const sk = (await readConnectorSecret(vault, "aws", "secret_access_key"))?.trim() ?? "";
+  const reg = (await readConnectorSecret(vault, "aws", "default_region"))?.trim() ?? "";
+  const prof = (await readConnectorSecret(vault, "aws", "profile"))?.trim() ?? "";
+  const awsOk =
+    (ak !== "" && sk !== "" && (reg !== "" || prof !== "")) || (prof !== "" && ak === "");
+  if (!awsOk) {
+    return;
+  }
+  const extra: Record<string, string> = {};
+  if (ak !== "") {
+    extra["AWS_ACCESS_KEY_ID"] = ak;
+  }
+  if (sk !== "") {
+    extra["AWS_SECRET_ACCESS_KEY"] = sk;
+  }
+  if (reg !== "") {
+    extra["AWS_DEFAULT_REGION"] = reg;
+  }
+  if (prof !== "") {
+    extra["AWS_PROFILE"] = prof;
+  }
+  // Add the regional Athena endpoint host for the configured region — the
+  // RFC-1123 validator rejects the `athena.*.amazonaws.com` wildcard, so the
+  // concrete per-region host is added here (sts.amazonaws.com is the fixed base).
+  const athenaManifest = manifestWithExtraNetworkHosts(
+    "athena",
+    reg === "" ? [] : [`athena.${reg}.amazonaws.com`],
+  );
+  servers["athena"] = wrapServerSpec(
+    {
+      command: "bun",
+      args: [mcpConnectorServerScript("athena")],
+      env: extensionProcessEnv(extra),
+    },
+    athenaManifest,
+    sandboxCwd,
+  );
+}
+
+export async function phase3AddCloudwatchMcp(
+  vault: NimbusVault,
+  servers: Record<string, ServerSpec>,
+  sandboxCwd: string,
+): Promise<void> {
+  // CloudWatch (Tier-3, metadata-only) reuses the existing AWS credentials —
+  // mirror phase3AddAwsMcp's inline cred reads.
+  const ak = (await readConnectorSecret(vault, "aws", "access_key_id"))?.trim() ?? "";
+  const sk = (await readConnectorSecret(vault, "aws", "secret_access_key"))?.trim() ?? "";
+  const reg = (await readConnectorSecret(vault, "aws", "default_region"))?.trim() ?? "";
+  const prof = (await readConnectorSecret(vault, "aws", "profile"))?.trim() ?? "";
+  const awsOk =
+    (ak !== "" && sk !== "" && (reg !== "" || prof !== "")) || (prof !== "" && ak === "");
+  if (!awsOk) {
+    return;
+  }
+  const extra: Record<string, string> = {};
+  if (ak !== "") {
+    extra["AWS_ACCESS_KEY_ID"] = ak;
+  }
+  if (sk !== "") {
+    extra["AWS_SECRET_ACCESS_KEY"] = sk;
+  }
+  if (reg !== "") {
+    extra["AWS_DEFAULT_REGION"] = reg;
+  }
+  if (prof !== "") {
+    extra["AWS_PROFILE"] = prof;
+  }
+  // Add the regional CloudWatch Logs endpoint host for the configured region —
+  // the RFC-1123 validator rejects the `logs.*.amazonaws.com` wildcard, so the
+  // concrete per-region host is added here (sts.amazonaws.com is the fixed base).
+  const cloudwatchManifest = manifestWithExtraNetworkHosts(
+    "cloudwatch",
+    reg === "" ? [] : [`logs.${reg}.amazonaws.com`],
+  );
+  servers["cloudwatch"] = wrapServerSpec(
+    {
+      command: "bun",
+      args: [mcpConnectorServerScript("cloudwatch")],
+      env: extensionProcessEnv(extra),
+    },
+    cloudwatchManifest,
+    sandboxCwd,
+  );
+}
+
+export async function phase3AddSagemakerMcp(
+  vault: NimbusVault,
+  servers: Record<string, ServerSpec>,
+  sandboxCwd: string,
+): Promise<void> {
+  // SageMaker (Tier-3, metadata-only) reuses the existing AWS credentials —
+  // mirror phase3AddCloudwatchMcp's inline cred reads.
+  const ak = (await readConnectorSecret(vault, "aws", "access_key_id"))?.trim() ?? "";
+  const sk = (await readConnectorSecret(vault, "aws", "secret_access_key"))?.trim() ?? "";
+  const reg = (await readConnectorSecret(vault, "aws", "default_region"))?.trim() ?? "";
+  const prof = (await readConnectorSecret(vault, "aws", "profile"))?.trim() ?? "";
+  const awsOk =
+    (ak !== "" && sk !== "" && (reg !== "" || prof !== "")) || (prof !== "" && ak === "");
+  if (!awsOk) {
+    return;
+  }
+  const extra: Record<string, string> = {};
+  if (ak !== "") {
+    extra["AWS_ACCESS_KEY_ID"] = ak;
+  }
+  if (sk !== "") {
+    extra["AWS_SECRET_ACCESS_KEY"] = sk;
+  }
+  if (reg !== "") {
+    extra["AWS_DEFAULT_REGION"] = reg;
+  }
+  if (prof !== "") {
+    extra["AWS_PROFILE"] = prof;
+  }
+  // Add the regional SageMaker endpoint host for the configured region — the
+  // RFC-1123 validator rejects the `api.sagemaker.*.amazonaws.com` wildcard, so
+  // the concrete per-region host is added here (sts.amazonaws.com is the fixed
+  // base).
+  const sagemakerManifest = manifestWithExtraNetworkHosts(
+    "sagemaker",
+    reg === "" ? [] : [`api.sagemaker.${reg}.amazonaws.com`],
+  );
+  servers["sagemaker"] = wrapServerSpec(
+    {
+      command: "bun",
+      args: [mcpConnectorServerScript("sagemaker")],
+      env: extensionProcessEnv(extra),
+    },
+    sagemakerManifest,
+    sandboxCwd,
+  );
+}
+
+export async function phase3AddCloudLoggingMcp(
+  vault: NimbusVault,
+  servers: Record<string, ServerSpec>,
+  sandboxCwd: string,
+): Promise<void> {
+  // Cloud Logging (Tier-3, metadata-only) reuses the existing GCP credentials —
+  // mirror phase3AddBigqueryMcp's gcp cred gate.
+  const gcpPath = (await readConnectorSecret(vault, "gcp", "credentials_json_path"))?.trim() ?? "";
+  if (gcpPath === "") {
+    return;
+  }
+  const projectId = (await readConnectorSecret(vault, "gcp", "project_id"))?.trim() ?? "";
+  servers["cloud_logging"] = wrap(
+    {
+      command: "bun",
+      args: [mcpConnectorServerScript("cloud-logging")],
+      env: extensionProcessEnv({
+        GOOGLE_APPLICATION_CREDENTIALS: gcpPath,
+        ...(projectId === "" ? {} : { GOOGLE_CLOUD_PROJECT: projectId }),
+      }),
+    },
+    "cloud_logging",
+    sandboxCwd,
+  );
+}
+
+export async function phase3AddVertexAiMcp(
+  vault: NimbusVault,
+  servers: Record<string, ServerSpec>,
+  sandboxCwd: string,
+): Promise<void> {
+  // Vertex AI (Tier-3, metadata-only) reuses the existing GCP credentials —
+  // mirror phase3AddCloudLoggingMcp's gcp cred gate.
+  const gcpPath = (await readConnectorSecret(vault, "gcp", "credentials_json_path"))?.trim() ?? "";
+  if (gcpPath === "") {
+    return;
+  }
+  const projectId = (await readConnectorSecret(vault, "gcp", "project_id"))?.trim() ?? "";
+  // Region is an OPTIONAL non-secret gcp config key; default to us-central1.
+  // Vertex AI is regional — the per-region host `<region>-aiplatform.googleapis.com`
+  // is added to the manifest at spawn-time. The base aiplatform.googleapis.com host
+  // is in the static manifest; the RFC-1123 validator rejects a `*-aiplatform...`
+  // wildcard, so the concrete per-region host is merged in here.
+  const rawRegion = (await readConnectorSecret(vault, "gcp", "region"))?.trim() ?? "";
+  const region = rawRegion === "" ? VERTEX_AI_DEFAULT_REGION : rawRegion;
+  const safeRegion = isSafeRegion(region) ? region : VERTEX_AI_DEFAULT_REGION;
+  const manifest = manifestWithExtraNetworkHosts("vertex_ai", [
+    `${safeRegion}-aiplatform.googleapis.com`,
+  ]);
+  servers["vertex_ai"] = wrapServerSpec(
+    {
+      command: "bun",
+      args: [mcpConnectorServerScript("vertex-ai")],
+      env: extensionProcessEnv({
+        GOOGLE_APPLICATION_CREDENTIALS: gcpPath,
+        VERTEX_AI_REGION: safeRegion,
+        ...(projectId === "" ? {} : { GOOGLE_CLOUD_PROJECT: projectId }),
+      }),
+    },
+    manifest,
     sandboxCwd,
   );
 }
@@ -830,6 +1084,217 @@ export async function phase3AddStackoverflowMcp(
   );
 }
 
+export async function phase3AddZoteroMcp(
+  vault: NimbusVault,
+  servers: Record<string, ServerSpec>,
+  sandboxCwd: string,
+): Promise<void> {
+  const apiKey = (await readConnectorSecret(vault, "zotero", "api_key"))?.trim() ?? "";
+  const library = (await readConnectorSecret(vault, "zotero", "library"))?.trim() ?? "";
+  if (apiKey === "" || library === "") {
+    return;
+  }
+  servers["zotero"] = wrap(
+    {
+      command: "bun",
+      args: [mcpConnectorServerScript("zotero")],
+      env: extensionProcessEnv({
+        ZOTERO_API_KEY: apiKey,
+        ZOTERO_LIBRARY: library,
+      }),
+    },
+    "zotero",
+    sandboxCwd,
+  );
+}
+
+export async function phase3AddRampMcp(
+  vault: NimbusVault,
+  servers: Record<string, ServerSpec>,
+  sandboxCwd: string,
+): Promise<void> {
+  const clientId = (await readConnectorSecret(vault, "ramp", "client_id"))?.trim() ?? "";
+  const clientSecret = (await readConnectorSecret(vault, "ramp", "client_secret"))?.trim() ?? "";
+  if (clientId === "" || clientSecret === "") {
+    return;
+  }
+  servers["ramp"] = wrap(
+    {
+      command: "bun",
+      args: [mcpConnectorServerScript("ramp")],
+      env: extensionProcessEnv({
+        RAMP_CLIENT_ID: clientId,
+        RAMP_CLIENT_SECRET: clientSecret,
+      }),
+    },
+    "ramp",
+    sandboxCwd,
+  );
+}
+
+export async function phase3AddDependencytrackMcp(
+  vault: NimbusVault,
+  servers: Record<string, ServerSpec>,
+  sandboxCwd: string,
+): Promise<void> {
+  const url = (await readConnectorSecret(vault, "dependencytrack", "base_url"))?.trim() ?? "";
+  const apiKey = (await readConnectorSecret(vault, "dependencytrack", "api_key"))?.trim() ?? "";
+  if (url === "" || apiKey === "") {
+    return;
+  }
+  const host = hostnameFromUrl(url);
+  const manifest = manifestWithExtraNetworkHosts("dependencytrack", host === null ? [] : [host]);
+  servers["dependencytrack"] = wrapServerSpec(
+    {
+      command: "bun",
+      args: [mcpConnectorServerScript("dependencytrack")],
+      env: extensionProcessEnv({ DEPENDENCYTRACK_URL: url, DEPENDENCYTRACK_API_KEY: apiKey }),
+    },
+    manifest,
+    sandboxCwd,
+  );
+}
+
+export async function phase3AddElasticsearchMcp(
+  vault: NimbusVault,
+  servers: Record<string, ServerSpec>,
+  sandboxCwd: string,
+): Promise<void> {
+  const url = (await readConnectorSecret(vault, "elasticsearch", "url"))?.trim() ?? "";
+  const apiKey = (await readConnectorSecret(vault, "elasticsearch", "api_key"))?.trim() ?? "";
+  if (url === "" || apiKey === "") {
+    return;
+  }
+  const host = hostnameFromUrl(url);
+  const manifest = manifestWithExtraNetworkHosts("elasticsearch", host === null ? [] : [host]);
+  servers["elasticsearch"] = wrapServerSpec(
+    {
+      command: "bun",
+      args: [mcpConnectorServerScript("elasticsearch")],
+      env: extensionProcessEnv({ ELASTICSEARCH_URL: url, ELASTICSEARCH_API_KEY: apiKey }),
+    },
+    manifest,
+    sandboxCwd,
+  );
+}
+
+export async function phase3AddAirflowMcp(
+  vault: NimbusVault,
+  servers: Record<string, ServerSpec>,
+  sandboxCwd: string,
+): Promise<void> {
+  const url = (await readConnectorSecret(vault, "airflow", "base_url"))?.trim() ?? "";
+  const username = (await readConnectorSecret(vault, "airflow", "username"))?.trim() ?? "";
+  const password = (await readConnectorSecret(vault, "airflow", "password"))?.trim() ?? "";
+  if (url === "" || username === "" || password === "") {
+    return;
+  }
+  const host = hostnameFromUrl(url);
+  const manifest = manifestWithExtraNetworkHosts("airflow", host === null ? [] : [host]);
+  servers["airflow"] = wrapServerSpec(
+    {
+      command: "bun",
+      args: [mcpConnectorServerScript("airflow")],
+      env: extensionProcessEnv({
+        AIRFLOW_URL: url,
+        AIRFLOW_USERNAME: username,
+        AIRFLOW_PASSWORD: password,
+      }),
+    },
+    manifest,
+    sandboxCwd,
+  );
+}
+
+export async function phase3AddPrefectMcp(
+  vault: NimbusVault,
+  servers: Record<string, ServerSpec>,
+  sandboxCwd: string,
+): Promise<void> {
+  const apiUrl = (await readConnectorSecret(vault, "prefect", "api_url"))?.trim() ?? "";
+  const apiKey = (await readConnectorSecret(vault, "prefect", "api_key"))?.trim() ?? "";
+  if (apiUrl === "" || apiKey === "") {
+    return;
+  }
+  const host = hostnameFromUrl(apiUrl);
+  const manifest = manifestWithExtraNetworkHosts("prefect", host === null ? [] : [host]);
+  servers["prefect"] = wrapServerSpec(
+    {
+      command: "bun",
+      args: [mcpConnectorServerScript("prefect")],
+      env: extensionProcessEnv({
+        PREFECT_API_URL: apiUrl,
+        PREFECT_API_KEY: apiKey,
+      }),
+    },
+    manifest,
+    sandboxCwd,
+  );
+}
+
+export async function phase3AddDagsterMcp(
+  vault: NimbusVault,
+  servers: Record<string, ServerSpec>,
+  sandboxCwd: string,
+): Promise<void> {
+  const baseUrl = (await readConnectorSecret(vault, "dagster", "base_url"))?.trim() ?? "";
+  const apiToken = (await readConnectorSecret(vault, "dagster", "api_token"))?.trim() ?? "";
+  if (baseUrl === "" || apiToken === "") {
+    return;
+  }
+  const host = hostnameFromUrl(baseUrl);
+  const manifest = manifestWithExtraNetworkHosts("dagster", host === null ? [] : [host]);
+  servers["dagster"] = wrapServerSpec(
+    {
+      command: "bun",
+      args: [mcpConnectorServerScript("dagster")],
+      env: extensionProcessEnv({
+        DAGSTER_BASE_URL: baseUrl,
+        DAGSTER_API_TOKEN: apiToken,
+      }),
+    },
+    manifest,
+    sandboxCwd,
+  );
+}
+
+export async function phase3AddGreatExpectationsMcp(
+  vault: NimbusVault,
+  servers: Record<string, ServerSpec>,
+  sandboxCwd: string,
+): Promise<void> {
+  // Great Expectations (Tier-3, no-row-data) has NO network and NO live
+  // credential — it reads GX validation-result JSON artefacts from a configured
+  // local directory. `great_expectations.results_dir` is a non-secret PATH; noop
+  // when unset.
+  const dir = (await readConnectorSecret(vault, "great_expectations", "results_dir"))?.trim() ?? "";
+  if (dir === "") {
+    return;
+  }
+  // Extend the connector manifest's filesystem.read with the configured results
+  // dir at spawn time, mirroring ensureObsidianMcp's inline manifest extension.
+  const base = manifestForFirstParty("great_expectations");
+  const manifest = {
+    ...base,
+    permissions: {
+      ...base.permissions,
+      filesystem: {
+        read: [...base.permissions.filesystem.read, dir],
+        write: [...base.permissions.filesystem.write],
+      },
+    },
+  };
+  servers["great_expectations"] = wrapServerSpec(
+    {
+      command: "bun",
+      args: [mcpConnectorServerScript("great-expectations")],
+      env: extensionProcessEnv({ GREAT_EXPECTATIONS_RESULTS_DIR: dir }),
+    },
+    manifest,
+    sandboxCwd,
+  );
+}
+
 export async function buildPhase3Servers(
   vault: NimbusVault,
   sandboxCwd: string,
@@ -838,6 +1303,12 @@ export async function buildPhase3Servers(
   await phase3AddAwsMcp(vault, servers, sandboxCwd);
   await phase3AddAzureMcp(vault, servers, sandboxCwd);
   await phase3AddGcpMcp(vault, servers, sandboxCwd);
+  await phase3AddBigqueryMcp(vault, servers, sandboxCwd);
+  await phase3AddAthenaMcp(vault, servers, sandboxCwd);
+  await phase3AddCloudwatchMcp(vault, servers, sandboxCwd);
+  await phase3AddSagemakerMcp(vault, servers, sandboxCwd);
+  await phase3AddCloudLoggingMcp(vault, servers, sandboxCwd);
+  await phase3AddVertexAiMcp(vault, servers, sandboxCwd);
   await phase3AddIacMcp(vault, servers, sandboxCwd);
   await phase3AddGrafanaMcp(vault, servers, sandboxCwd);
   await phase3AddSentryMcp(vault, servers, sandboxCwd);
@@ -869,5 +1340,13 @@ export async function buildPhase3Servers(
   await phase3AddGreenhouseMcp(vault, servers, sandboxCwd);
   await phase3AddPipedriveMcp(vault, servers, sandboxCwd);
   await phase3AddStackoverflowMcp(vault, servers, sandboxCwd);
+  await phase3AddZoteroMcp(vault, servers, sandboxCwd);
+  await phase3AddDependencytrackMcp(vault, servers, sandboxCwd);
+  await phase3AddElasticsearchMcp(vault, servers, sandboxCwd);
+  await phase3AddAirflowMcp(vault, servers, sandboxCwd);
+  await phase3AddPrefectMcp(vault, servers, sandboxCwd);
+  await phase3AddDagsterMcp(vault, servers, sandboxCwd);
+  await phase3AddRampMcp(vault, servers, sandboxCwd);
+  await phase3AddGreatExpectationsMcp(vault, servers, sandboxCwd);
   return servers;
 }

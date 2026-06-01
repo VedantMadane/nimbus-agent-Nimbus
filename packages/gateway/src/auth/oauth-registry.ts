@@ -2,13 +2,28 @@ import { validateVaultKeyOrThrow } from "../vault/key-format.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import { parseStoredOAuthTokens } from "./oauth-vault-payload.ts";
 
-export type OAuthProvider = "google" | "microsoft" | "slack" | "notion" | "zoom";
+export type OAuthProvider =
+  | "google"
+  | "microsoft"
+  | "slack"
+  | "notion"
+  | "zoom"
+  | "hubspot"
+  | "miro"
+  | "canva"
+  | "figma"
+  | "salesforce";
 
 export interface PKCEResult {
   accessToken: string;
   refreshToken: string;
   expiresAt: number;
   scopes: string[];
+  /**
+   * Per-tenant API host discovered at OAuth time (Salesforce's `instance_url`).
+   * Optional and undefined for every provider with a fixed SaaS API host.
+   */
+  instanceUrl?: string;
 }
 
 export type RegistryFetch = (
@@ -145,6 +160,47 @@ function parseNotionTokenResponse(json: unknown, requested: string[]): PKCEResul
   };
 }
 
+// Default Salesforce access-token lifetime when the token response omits
+// `expires_in`. Salesforce does NOT return `expires_in`; its actual session
+// timeout is org-configured and frequently short. A conservative 30-minute
+// window means the registry's proactive single-flight refresh (REFRESH_MARGIN
+// 120 s) renews the access token roughly every sync cycle using the long-lived
+// refresh token — robust against short org session timeouts.
+const SALESFORCE_DEFAULT_EXPIRY_MS = 30 * 60 * 1000;
+
+function parseSalesforceTokenResponse(json: unknown, requested: string[]): PKCEResult {
+  if (json === null || typeof json !== "object" || Array.isArray(json)) {
+    throw new Error("Salesforce token response invalid");
+  }
+  const o = json as Record<string, unknown>;
+  const access = o["access_token"];
+  if (typeof access !== "string" || access === "") {
+    throw new Error("Salesforce token response missing access_token");
+  }
+  const refresh = o["refresh_token"];
+  const refreshStr = typeof refresh === "string" ? refresh : "";
+  // instance_url is the per-tenant API host (e.g. https://acme.my.salesforce.com)
+  // and is REQUIRED for Salesforce — every request targets it.
+  const instance = o["instance_url"];
+  if (typeof instance !== "string" || instance === "") {
+    throw new Error("Salesforce token response missing instance_url");
+  }
+  // Salesforce omits expires_in; synthesize a conservative window if absent.
+  const expiresIn = parseExpiresInSeconds(o["expires_in"]);
+  const expiresAt =
+    Number.isFinite(expiresIn) && expiresIn > 0
+      ? Date.now() + Math.floor(expiresIn * 1000)
+      : Date.now() + SALESFORCE_DEFAULT_EXPIRY_MS;
+  const scope = typeof o["scope"] === "string" ? (o["scope"] as string) : undefined;
+  return {
+    accessToken: access,
+    refreshToken: refreshStr,
+    expiresAt,
+    scopes: scopesFromTokenResponse(scope, requested),
+    instanceUrl: instance,
+  };
+}
+
 export const OAUTH_PROVIDERS: Record<OAuthProvider, OAuthProviderDescriptor> = {
   google: {
     id: "google",
@@ -257,6 +313,121 @@ export const OAUTH_PROVIDERS: Record<OAuthProvider, OAuthProviderDescriptor> = {
         : { code_challenge: a.codeChallenge, code_challenge_method: "S256" }),
     }),
     parseTokenResponse: parseStandardTokenResponse,
+  },
+  hubspot: {
+    id: "hubspot",
+    vaultKey: "hubspot.oauth",
+    authorizeUrl: "https://app.hubspot.com/oauth/authorize",
+    tokenUrl: "https://api.hubapi.com/oauth/v1/token",
+    // HubSpot uses the standard authorization-code flow (NOT PKCE) with the
+    // client_id + client_secret form-encoded into the token-exchange BODY.
+    usesPkce: false,
+    clientSecret: "required",
+    secretPlacement: "body",
+    bodyFormat: "form",
+    mirrorPerService: false,
+    buildAuthorizeParams: (a) => ({
+      client_id: a.clientId,
+      redirect_uri: a.redirectUri,
+      response_type: "code",
+      scope: a.scopes.join(" "),
+      state: a.state,
+    }),
+    parseTokenResponse: parseStandardTokenResponse,
+  },
+  miro: {
+    id: "miro",
+    vaultKey: "miro.oauth",
+    authorizeUrl: "https://miro.com/oauth/authorize",
+    tokenUrl: "https://api.miro.com/v1/oauth/token",
+    // Miro uses the standard authorization-code flow (NOT PKCE) with the
+    // client_id + client_secret form-encoded into the token-exchange BODY.
+    usesPkce: false,
+    clientSecret: "required",
+    secretPlacement: "body",
+    bodyFormat: "form",
+    mirrorPerService: false,
+    buildAuthorizeParams: (a) => ({
+      client_id: a.clientId,
+      redirect_uri: a.redirectUri,
+      response_type: "code",
+      scope: a.scopes.join(" "),
+      state: a.state,
+    }),
+    parseTokenResponse: parseStandardTokenResponse,
+  },
+  canva: {
+    id: "canva",
+    vaultKey: "canva.oauth",
+    authorizeUrl: "https://www.canva.com/api/oauth/authorize",
+    tokenUrl: "https://api.canva.com/rest/v1/oauth/token",
+    // Canva uses the authorization-code flow WITH PKCE; the token endpoint
+    // authenticates the client via HTTP Basic auth (base64(client_id:client_secret))
+    // alongside the PKCE code_verifier. Same descriptor shape as Zoom.
+    usesPkce: true,
+    clientSecret: "required",
+    secretPlacement: "basic_header",
+    bodyFormat: "form",
+    mirrorPerService: false,
+    buildAuthorizeParams: (a) => ({
+      client_id: a.clientId,
+      redirect_uri: a.redirectUri,
+      response_type: "code",
+      scope: a.scopes.join(" "),
+      state: a.state,
+      ...(a.codeChallenge === undefined
+        ? {}
+        : { code_challenge: a.codeChallenge, code_challenge_method: "S256" }),
+    }),
+    parseTokenResponse: parseStandardTokenResponse,
+  },
+  figma: {
+    id: "figma",
+    vaultKey: "figma.oauth",
+    authorizeUrl: "https://www.figma.com/oauth",
+    tokenUrl: "https://api.figma.com/v1/oauth/token",
+    // Figma uses the standard authorization-code flow (NOT PKCE) with the
+    // client_id + client_secret form-encoded into the token-exchange BODY.
+    // Same descriptor shape as Miro/HubSpot.
+    usesPkce: false,
+    clientSecret: "required",
+    secretPlacement: "body",
+    bodyFormat: "form",
+    mirrorPerService: false,
+    buildAuthorizeParams: (a) => ({
+      client_id: a.clientId,
+      redirect_uri: a.redirectUri,
+      response_type: "code",
+      scope: a.scopes.join(" "),
+      state: a.state,
+    }),
+    parseTokenResponse: parseStandardTokenResponse,
+  },
+  salesforce: {
+    id: "salesforce",
+    vaultKey: "salesforce.oauth",
+    authorizeUrl: "https://login.salesforce.com/services/oauth2/authorize",
+    tokenUrl: "https://login.salesforce.com/services/oauth2/token",
+    // Salesforce uses the authorization-code flow WITH PKCE; the token endpoint
+    // takes the client_id + client_secret form-encoded in the request BODY.
+    // The token response returns a per-tenant `instance_url` (captured into the
+    // stored blob) and notably OMITS `expires_in` (see parseSalesforceTokenResponse).
+    usesPkce: true,
+    clientSecret: "required",
+    secretPlacement: "body",
+    bodyFormat: "form",
+    mirrorPerService: false,
+    buildAuthorizeParams: (a) => ({
+      client_id: a.clientId,
+      redirect_uri: a.redirectUri,
+      response_type: "code",
+      scope: a.scopes.join(" "),
+      state: a.state,
+      ...(a.codeChallenge === undefined
+        ? {}
+        : { code_challenge: a.codeChallenge, code_challenge_method: "S256" }),
+    }),
+    parseTokenResponse: parseSalesforceTokenResponse,
   },
 };
 
@@ -379,6 +550,12 @@ async function persistTokens(vault: NimbusVault, vaultKey: string, r: PKCEResult
       refreshToken: r.refreshToken,
       expiresAt: r.expiresAt,
       scopes: r.scopes,
+      // Conditional spread: only providers that discovered a per-tenant host
+      // (Salesforce) carry `instanceUrl`. Every other provider's persisted
+      // payload stays byte-identical to before this field existed.
+      ...(r.instanceUrl !== undefined && r.instanceUrl !== ""
+        ? { instanceUrl: r.instanceUrl }
+        : {}),
     }),
   );
 }

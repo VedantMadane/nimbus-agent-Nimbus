@@ -9,21 +9,26 @@ import type { NimbusVault } from "../../vault/nimbus-vault.ts";
 import type { UserMcpConnectorRow } from "../user-mcp-store.ts";
 import {
   ensureBitbucketMcp,
+  ensureCanvaMcp,
   ensureCircleciMcp,
   ensureConfluenceMcp,
   ensureDiscordMcp,
+  ensureFigmaMcp,
   ensureGithubMcp,
   ensureGitlabMcp,
   ensureGoogleDriveMcp,
+  ensureHubspotMcp,
   ensureJenkinsMcp,
   ensureJiraMcp,
   ensureKubernetesMcp,
   ensureLinearMcp,
   ensureMicrosoftBundleMcp,
+  ensureMiroMcp,
   ensureNotionMcp,
   ensureObsidianMcp,
   ensurePagerdutyMcp,
   ensurePhase3BundleMcp,
+  ensureSalesforceMcp,
   ensureSlackMcp,
   ensureZoomMcp,
 } from "./connector-spawns.ts";
@@ -278,6 +283,26 @@ export class LazyConnectorMesh {
     return ensureZoomMcp(this.spawnContext);
   }
 
+  async ensureHubspotRunning(): Promise<void> {
+    return ensureHubspotMcp(this.spawnContext);
+  }
+
+  async ensureMiroRunning(): Promise<void> {
+    return ensureMiroMcp(this.spawnContext);
+  }
+
+  async ensureCanvaRunning(): Promise<void> {
+    return ensureCanvaMcp(this.spawnContext);
+  }
+
+  async ensureFigmaRunning(): Promise<void> {
+    return ensureFigmaMcp(this.spawnContext);
+  }
+
+  async ensureSalesforceRunning(): Promise<void> {
+    return ensureSalesforceMcp(this.spawnContext);
+  }
+
   private async collectBuiltInToolMaps(): Promise<
     ReadonlyArray<{ map: LazyMeshToolMap; name: string }>
   > {
@@ -302,6 +327,11 @@ export class LazyConnectorMesh {
       { map: await list(LAZY_MESH.pagerduty), name: "pagerduty" },
       { map: await list(LAZY_MESH.kubernetes), name: "kubernetes" },
       { map: await list(LAZY_MESH.zoom), name: "zoom" },
+      { map: await list(LAZY_MESH.hubspot), name: "hubspot" },
+      { map: await list(LAZY_MESH.miro), name: "miro" },
+      { map: await list(LAZY_MESH.canva), name: "canva" },
+      { map: await list(LAZY_MESH.figma), name: "figma" },
+      { map: await list(LAZY_MESH.salesforce), name: "salesforce" },
       { map: await list(LAZY_MESH.phase3Bundle), name: "phase3-bundle" },
     ];
   }

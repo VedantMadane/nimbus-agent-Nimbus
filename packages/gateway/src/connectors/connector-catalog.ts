@@ -4,6 +4,7 @@ export const CONNECTOR_SERVICE_IDS = [
   "google_drive",
   "gmail",
   "google_photos",
+  "google_meet",
   "onedrive",
   "outlook",
   "teams",
@@ -55,7 +56,26 @@ export const CONNECTOR_SERVICE_IDS = [
   "greenhouse",
   "pipedrive",
   "stackoverflow",
+  "zotero",
+  "dependencytrack",
+  "airflow",
+  "prefect",
+  "dagster",
+  "ramp",
   "zoom",
+  "hubspot",
+  "miro",
+  "canva",
+  "figma",
+  "salesforce",
+  "bigquery",
+  "athena",
+  "cloudwatch",
+  "sagemaker",
+  "cloud_logging",
+  "vertex_ai",
+  "elasticsearch",
+  "great_expectations",
 ] as const;
 
 export type ConnectorServiceId = (typeof CONNECTOR_SERVICE_IDS)[number];
@@ -64,6 +84,7 @@ export const GOOGLE_CONNECTOR_SERVICES: ReadonlySet<string> = new Set([
   "google_drive",
   "gmail",
   "google_photos",
+  "google_meet",
 ]);
 
 export const MICROSOFT_CONNECTOR_SERVICES: ReadonlySet<string> = new Set([
@@ -90,6 +111,7 @@ const CONNECTOR_SYNC_INTERVAL_MS: { readonly [K in ConnectorServiceId]: number }
   notion: MIN5,
   confluence: MIN10,
   google_photos: HOUR6,
+  google_meet: HOUR6,
   github: MIN1,
   github_actions: MIN1,
   gitlab: MIN1,
@@ -135,7 +157,26 @@ const CONNECTOR_SYNC_INTERVAL_MS: { readonly [K in ConnectorServiceId]: number }
   greenhouse: MIN10,
   pipedrive: MIN10,
   stackoverflow: MIN10,
+  zotero: MIN10,
+  dependencytrack: MIN10,
+  airflow: MIN10,
+  prefect: MIN10,
+  dagster: MIN10,
+  ramp: MIN10,
   zoom: MIN10,
+  hubspot: MIN10,
+  miro: MIN10,
+  canva: MIN10,
+  figma: MIN10,
+  salesforce: MIN10,
+  bigquery: MIN10,
+  athena: MIN10,
+  cloudwatch: MIN10,
+  sagemaker: MIN10,
+  cloud_logging: MIN10,
+  vertex_ai: MIN10,
+  elasticsearch: MIN10,
+  great_expectations: MIN10,
 };
 
 export function normalizeConnectorServiceId(raw: string): ConnectorServiceId | null {
@@ -206,6 +247,27 @@ const OAUTH_UNSUPPORTED_DETAILS: Partial<Record<ConnectorServiceId, string>> = {
   greenhouse: "uses a Greenhouse Harvest API key (connector.auth greenhouse)",
   pipedrive: "uses a Pipedrive API token (connector.auth pipedrive)",
   stackoverflow: "uses a Stack Overflow for Teams PAT + team slug (connector.auth stackoverflow)",
+  zotero: "uses a Zotero API key + library spec (connector.auth zotero)",
+  dependencytrack: "uses a Dependency-Track API key + base URL (connector.auth dependencytrack)",
+  airflow: "uses HTTP Basic auth — username + password + base URL (connector.auth airflow)",
+  prefect: "uses a Prefect API key (Bearer) + workspace API URL (connector.auth prefect)",
+  dagster: "uses a Dagster Cloud API token + host base URL (connector.auth dagster)",
+  ramp: "uses OAuth2 client-credentials — client id + client secret (connector.auth ramp)",
+  bigquery:
+    "reuses the existing GCP service-account JSON key path + project id (connector.auth gcp) — no separate BigQuery credential",
+  athena:
+    "reuses the existing AWS access key + secret + region or profile (connector.auth aws) — no separate Athena credential",
+  cloudwatch:
+    "reuses the existing AWS access key + secret + region or profile (connector.auth aws) — no separate CloudWatch credential",
+  sagemaker:
+    "reuses the existing AWS access key + secret + region or profile (connector.auth aws) — no separate SageMaker credential",
+  cloud_logging:
+    "reuses the existing GCP service-account JSON key path + project id (connector.auth gcp) — no separate Cloud Logging credential",
+  vertex_ai:
+    "reuses the existing GCP service-account JSON key path + project id (connector.auth gcp) — no separate Vertex AI credential; optional gcp.region selects the region (default us-central1)",
+  elasticsearch: "uses an Elasticsearch API key + cluster URL (connector.auth elasticsearch)",
+  great_expectations:
+    "reads Great Expectations validation-result JSON artefacts from the configured great_expectations.results_dir — no live credentials",
 };
 
 export function oauthProfileForService(serviceId: ConnectorServiceId): ConnectorOAuthProfile {
@@ -234,6 +296,11 @@ export function oauthProfileForService(serviceId: ConnectorServiceId): Connector
           "https://www.googleapis.com/auth/photoslibrary.readonly",
           "https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata",
         ],
+      };
+    case "google_meet":
+      return {
+        provider: "google",
+        defaultScopes: ["https://www.googleapis.com/auth/meetings.space.readonly"],
       };
     case "onedrive":
       return {
@@ -298,6 +365,31 @@ export function oauthProfileForService(serviceId: ConnectorServiceId): Connector
           "meeting:read:list_meetings",
           "cloud_recording:read:list_user_recordings",
         ],
+      };
+    case "hubspot":
+      return {
+        provider: "hubspot",
+        defaultScopes: ["crm.objects.deals.read", "oauth"],
+      };
+    case "miro":
+      return {
+        provider: "miro",
+        defaultScopes: ["boards:read"],
+      };
+    case "canva":
+      return {
+        provider: "canva",
+        defaultScopes: ["design:meta:read"],
+      };
+    case "figma":
+      return {
+        provider: "figma",
+        defaultScopes: ["files:read"],
+      };
+    case "salesforce":
+      return {
+        provider: "salesforce",
+        defaultScopes: ["api", "refresh_token"],
       };
     default:
       return oauthUnsupported(

@@ -27,6 +27,11 @@ export const LAZY_MESH = {
   kubernetes: "mesh:kubernetes",
   obsidian: "mesh:obsidian",
   zoom: "mesh:zoom",
+  hubspot: "mesh:hubspot",
+  miro: "mesh:miro",
+  canva: "mesh:canva",
+  figma: "mesh:figma",
+  salesforce: "mesh:salesforce",
   phase3Bundle: "mesh:phase3-bundle",
 } as const;
 

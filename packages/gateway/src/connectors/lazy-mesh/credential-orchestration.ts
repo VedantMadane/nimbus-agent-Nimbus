@@ -28,6 +28,11 @@ export type CredentialSpawners = {
   readonly ensurePhase3BundleMcp: (ctx: MeshSpawnContext) => Promise<void>;
   readonly ensureSlackMcp: (ctx: MeshSpawnContext) => Promise<void>;
   readonly ensureZoomMcp: (ctx: MeshSpawnContext) => Promise<void>;
+  readonly ensureHubspotMcp: (ctx: MeshSpawnContext) => Promise<void>;
+  readonly ensureMiroMcp: (ctx: MeshSpawnContext) => Promise<void>;
+  readonly ensureCanvaMcp: (ctx: MeshSpawnContext) => Promise<void>;
+  readonly ensureFigmaMcp: (ctx: MeshSpawnContext) => Promise<void>;
+  readonly ensureSalesforceMcp: (ctx: MeshSpawnContext) => Promise<void>;
 };
 
 async function ensureIfConnectorSecretSet<S extends ConnectorServiceId>(
@@ -157,6 +162,19 @@ async function ensureKubernetesIfVaultCreds(
   }
 }
 
+async function ensureFigmaIfVaultCreds(
+  ctx: MeshSpawnContext,
+  spawners: CredentialSpawners,
+): Promise<void> {
+  // Figma needs BOTH the OAuth token and the non-secret team id (mirrors the
+  // Stack Overflow token + team second-key pattern).
+  const oauth = await readConnectorSecret(ctx.vault, "figma", "oauth");
+  const teamId = await readConnectorSecret(ctx.vault, "figma", "team_id");
+  if (oauth !== null && oauth !== "" && teamId !== null && teamId.trim() !== "") {
+    await spawners.ensureFigmaMcp(ctx);
+  }
+}
+
 export async function ensureCredentialConnectorsRunning(
   ctx: MeshSpawnContext,
   spawners: CredentialSpawners = defaultSpawners,
@@ -171,6 +189,13 @@ export async function ensureCredentialConnectorsRunning(
   await ensureJiraIfVaultCreds(ctx, spawners);
   await ensureIfConnectorSecretSet(ctx, "notion", "oauth", () => spawners.ensureNotionMcp(ctx));
   await ensureIfConnectorSecretSet(ctx, "zoom", "oauth", () => spawners.ensureZoomMcp(ctx));
+  await ensureIfConnectorSecretSet(ctx, "hubspot", "oauth", () => spawners.ensureHubspotMcp(ctx));
+  await ensureIfConnectorSecretSet(ctx, "miro", "oauth", () => spawners.ensureMiroMcp(ctx));
+  await ensureIfConnectorSecretSet(ctx, "canva", "oauth", () => spawners.ensureCanvaMcp(ctx));
+  await ensureFigmaIfVaultCreds(ctx, spawners);
+  await ensureIfConnectorSecretSet(ctx, "salesforce", "oauth", () =>
+    spawners.ensureSalesforceMcp(ctx),
+  );
   await ensureConfluenceIfVaultCreds(ctx, spawners);
   await ensureDiscordIfOptIn(ctx, spawners);
   await ensureJenkinsIfVaultCreds(ctx, spawners);

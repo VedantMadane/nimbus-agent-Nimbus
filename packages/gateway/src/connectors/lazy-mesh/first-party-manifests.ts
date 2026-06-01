@@ -75,6 +75,10 @@ export const FIRST_PARTY_MANIFESTS: Record<string, ExtensionManifest> = {
     network: ["www.googleapis.com", "photoslibrary.googleapis.com", "oauth2.googleapis.com"],
     filesystem: { read: [], write: [] },
   }),
+  google_meet: baseManifest("com.nimbus.google-meet", {
+    network: ["www.googleapis.com", "meet.googleapis.com", "oauth2.googleapis.com"],
+    filesystem: { read: [], write: [] },
+  }),
 
   onedrive: baseManifest("com.nimbus.onedrive", {
     network: ["graph.microsoft.com", "login.microsoftonline.com"],
@@ -118,6 +122,67 @@ export const FIRST_PARTY_MANIFESTS: Record<string, ExtensionManifest> = {
   }),
   gcp: baseManifest("com.nimbus.gcp", {
     network: ["cloudresourcemanager.googleapis.com", "oauth2.googleapis.com"],
+    filesystem: { read: [], write: [] },
+  }),
+  // BigQuery (Tier-3, metadata-only). Execs `gcloud` to mint an access token, then
+  // calls the BigQuery REST metadata endpoints. Mirrors the gcp manifest's empty
+  // filesystem shape (the sandbox permits exec of the wrapped command itself).
+  bigquery: baseManifest("com.nimbus.bigquery", {
+    network: ["bigquery.googleapis.com", "oauth2.googleapis.com", "www.googleapis.com"],
+    filesystem: { read: [], write: [] },
+  }),
+  // Athena (Tier-3, metadata-only). Execs the `aws` CLI (which talks to the
+  // regional `athena.<region>.amazonaws.com` endpoint + sts.amazonaws.com for
+  // credential resolution). The Athena regional host is a concrete RFC-1123
+  // hostname added per-region at spawn via manifestWithExtraNetworkHosts (the
+  // RFC-1123 validator rejects the `athena.*.amazonaws.com` wildcard, like
+  // Salesforce's per-tenant host). Mirrors the aws manifest's empty filesystem
+  // shape (the sandbox permits exec of the wrapped `aws` command itself).
+  athena: baseManifest("com.nimbus.athena", {
+    network: ["sts.amazonaws.com"],
+    filesystem: { read: [], write: [] },
+  }),
+  // CloudWatch (Tier-3, metadata-only). Execs the `aws` CLI (which talks to the
+  // regional `logs.<region>.amazonaws.com` endpoint + sts.amazonaws.com for
+  // credential resolution). The regional Logs host is a concrete RFC-1123 hostname
+  // added per-region at spawn via manifestWithExtraNetworkHosts (the validator
+  // rejects the `logs.*.amazonaws.com` wildcard, like Athena). Mirrors the aws
+  // manifest's empty filesystem shape (the sandbox permits exec of the wrapped
+  // `aws` command itself).
+  cloudwatch: baseManifest("com.nimbus.cloudwatch", {
+    network: ["sts.amazonaws.com"],
+    filesystem: { read: [], write: [] },
+  }),
+  // SageMaker (Tier-3, metadata-only). Execs the `aws` CLI (which talks to the
+  // regional `api.sagemaker.<region>.amazonaws.com` endpoint + sts.amazonaws.com
+  // for credential resolution). The regional SageMaker host is a concrete RFC-1123
+  // hostname added per-region at spawn via manifestWithExtraNetworkHosts (the
+  // validator rejects the `api.sagemaker.*.amazonaws.com` wildcard, like Athena).
+  // Mirrors the aws manifest's empty filesystem shape (the sandbox permits exec of
+  // the wrapped `aws` command itself).
+  sagemaker: baseManifest("com.nimbus.sagemaker", {
+    network: ["sts.amazonaws.com"],
+    filesystem: { read: [], write: [] },
+  }),
+  // Cloud Logging (Tier-3, metadata-only). Execs the `gcloud` CLI, which talks to
+  // the Cloud Logging API to list routing SINK config metadata (NEVER log entries).
+  // Mirrors the bigquery manifest's GCP network shape (logging.googleapis.com for
+  // the API, oauth2/www.googleapis.com for credential resolution + discovery) and
+  // the empty filesystem shape (the sandbox permits exec of the wrapped command).
+  cloud_logging: baseManifest("com.nimbus.cloud-logging", {
+    network: ["logging.googleapis.com", "oauth2.googleapis.com", "www.googleapis.com"],
+    filesystem: { read: [], write: [] },
+  }),
+  // Vertex AI (Tier-3, metadata-only). Execs the `gcloud` CLI, which talks to the
+  // regional `<region>-aiplatform.googleapis.com` endpoint to list Vertex AI model
+  // REGISTRY metadata (NEVER inference / predictions). The per-region host is a
+  // concrete RFC-1123 hostname added at spawn via manifestWithExtraNetworkHosts (the
+  // validator rejects a `*-aiplatform.googleapis.com` wildcard, like Athena's regional
+  // host). The base aiplatform.googleapis.com host + oauth2/www.googleapis.com cover
+  // credential resolution + discovery. Empty filesystem shape (the sandbox permits
+  // exec of the wrapped `gcloud` command itself).
+  vertex_ai: baseManifest("com.nimbus.vertex-ai", {
+    network: ["aiplatform.googleapis.com", "oauth2.googleapis.com", "www.googleapis.com"],
     filesystem: { read: [], write: [] },
   }),
   iac: baseManifest("com.nimbus.iac", DEFAULT_DENY),
@@ -269,6 +334,41 @@ export const FIRST_PARTY_MANIFESTS: Record<string, ExtensionManifest> = {
     filesystem: { read: [], write: [] },
   }),
 
+  zotero: baseManifest("com.nimbus.zotero", {
+    network: ["api.zotero.org"],
+    filesystem: { read: [], write: [] },
+  }),
+
+  dependencytrack: baseManifest("com.nimbus.dependencytrack", {
+    network: [],
+    filesystem: { read: [], write: [] },
+  }),
+
+  elasticsearch: baseManifest("com.nimbus.elasticsearch", {
+    network: [],
+    filesystem: { read: [], write: [] },
+  }),
+
+  airflow: baseManifest("com.nimbus.airflow", {
+    network: [],
+    filesystem: { read: [], write: [] },
+  }),
+
+  prefect: baseManifest("com.nimbus.prefect", {
+    network: [],
+    filesystem: { read: [], write: [] },
+  }),
+
+  dagster: baseManifest("com.nimbus.dagster", {
+    network: [],
+    filesystem: { read: [], write: [] },
+  }),
+
+  ramp: baseManifest("com.nimbus.ramp", {
+    network: ["api.ramp.com"],
+    filesystem: { read: [], write: [] },
+  }),
+
   kubernetes: baseManifest("com.nimbus.kubernetes", {
     network: [],
     filesystem: { read: [], write: [] },
@@ -279,7 +379,45 @@ export const FIRST_PARTY_MANIFESTS: Record<string, ExtensionManifest> = {
     filesystem: { read: [], write: [] },
   }),
 
+  hubspot: baseManifest("com.nimbus.hubspot", {
+    network: ["api.hubapi.com"],
+    filesystem: { read: [], write: [] },
+  }),
+
+  miro: baseManifest("com.nimbus.miro", {
+    network: ["api.miro.com"],
+    filesystem: { read: [], write: [] },
+  }),
+
+  canva: baseManifest("com.nimbus.canva", {
+    network: ["api.canva.com"],
+    filesystem: { read: [], write: [] },
+  }),
+
+  figma: baseManifest("com.nimbus.figma", {
+    network: ["api.figma.com"],
+    filesystem: { read: [], write: [] },
+  }),
+
+  salesforce: baseManifest("com.nimbus.salesforce", {
+    // The per-tenant instance host (e.g. acme.my.salesforce.com) is discovered
+    // at OAuth time and added to this manifest at spawn via
+    // manifestWithExtraNetworkHosts. login.salesforce.com is the fixed
+    // authorize/token host base.
+    network: ["login.salesforce.com"],
+    filesystem: { read: [], write: [] },
+  }),
+
   obsidian: baseManifest("com.nimbus.obsidian", {
+    network: [],
+    filesystem: { read: [], write: [] },
+  }),
+
+  // Great Expectations (Tier-3, no-row-data). NO network and NO live credential —
+  // reads GX validation-result JSON artefacts from a configured local directory.
+  // The results dir is added to filesystem.read at spawn time, mirroring obsidian's
+  // per-path manifest extension; the static base has empty read/write.
+  great_expectations: baseManifest("com.nimbus.great-expectations", {
     network: [],
     filesystem: { read: [], write: [] },
   }),

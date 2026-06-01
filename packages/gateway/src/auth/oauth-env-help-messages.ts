@@ -79,3 +79,121 @@ marketplace.zoom.us → your app → App Credentials → copy the Client Secret.
 
 PowerShell example:
   $env:NIMBUS_OAUTH_ZOOM_CLIENT_SECRET = "..."`;
+
+export const HUBSPOT_OAUTH_CLIENT_ID_HELP = `Set NIMBUS_OAUTH_HUBSPOT_CLIENT_ID to your HubSpot app's Client ID (OAuth 2.0 authorization-code flow).
+
+How to obtain:
+1. developers.hubspot.com → create or open an app under your developer account.
+2. Auth tab → add the scopes you need (e.g. crm.objects.deals.read, oauth).
+3. Configure a redirect URL for the local loopback callback (Nimbus binds a localhost port).
+4. Copy the Client ID from the Auth page.
+
+You must also set NIMBUS_OAUTH_HUBSPOT_CLIENT_SECRET (HubSpot's token endpoint requires the client secret in the request body).
+
+Before starting the gateway (PowerShell example):
+  $env:NIMBUS_OAUTH_HUBSPOT_CLIENT_ID = "..."
+  $env:NIMBUS_OAUTH_HUBSPOT_CLIENT_SECRET = "..."`;
+
+export const HUBSPOT_OAUTH_CLIENT_SECRET_HELP = `Set NIMBUS_OAUTH_HUBSPOT_CLIENT_SECRET to your HubSpot app's Client Secret.
+
+HubSpot's token exchange requires the client secret form-encoded in the request body (it is not stored in the Nimbus vault).
+
+developers.hubspot.com → your app → Auth → copy the Client Secret.
+
+PowerShell example:
+  $env:NIMBUS_OAUTH_HUBSPOT_CLIENT_SECRET = "..."`;
+
+export const MIRO_OAUTH_CLIENT_ID_HELP = `Set NIMBUS_OAUTH_MIRO_CLIENT_ID to your Miro app's Client ID (OAuth 2.0 authorization-code flow).
+
+How to obtain:
+1. miro.com/app/settings/user-profile/apps → create or open an app.
+2. Add the read scopes you need (e.g. boards:read).
+3. Configure a redirect URL for the local loopback callback (Nimbus binds a localhost port).
+4. Copy the Client ID from the app's settings page.
+
+You must also set NIMBUS_OAUTH_MIRO_CLIENT_SECRET (Miro's token endpoint requires the client secret in the request body).
+
+Before starting the gateway (PowerShell example):
+  $env:NIMBUS_OAUTH_MIRO_CLIENT_ID = "..."
+  $env:NIMBUS_OAUTH_MIRO_CLIENT_SECRET = "..."`;
+
+export const MIRO_OAUTH_CLIENT_SECRET_HELP = `Set NIMBUS_OAUTH_MIRO_CLIENT_SECRET to your Miro app's Client Secret.
+
+Miro's token exchange requires the client secret form-encoded in the request body (it is not stored in the Nimbus vault).
+
+miro.com → your app → settings → copy the Client Secret.
+
+PowerShell example:
+  $env:NIMBUS_OAUTH_MIRO_CLIENT_SECRET = "..."`;
+
+export const CANVA_OAUTH_CLIENT_ID_HELP = `Set NIMBUS_OAUTH_CANVA_CLIENT_ID to your Canva app's Client ID (OAuth 2.0 authorization-code flow WITH PKCE).
+
+How to obtain:
+1. canva.com/developers → create or open an integration.
+2. Add the read scopes you need (e.g. design:meta:read).
+3. Configure a redirect URL for the local loopback callback (Nimbus binds a localhost port).
+4. Copy the Client ID from the integration's configuration page.
+
+You must also set NIMBUS_OAUTH_CANVA_CLIENT_SECRET (Canva's token endpoint authenticates the client via an HTTP Basic header).
+
+Before starting the gateway (PowerShell example):
+  $env:NIMBUS_OAUTH_CANVA_CLIENT_ID = "..."
+  $env:NIMBUS_OAUTH_CANVA_CLIENT_SECRET = "..."`;
+
+export const CANVA_OAUTH_CLIENT_SECRET_HELP = `Set NIMBUS_OAUTH_CANVA_CLIENT_SECRET to your Canva app's Client Secret.
+
+Canva's token exchange authenticates the client via an HTTP Basic header (base64(client_id:client_secret)) alongside the PKCE code_verifier (it is not stored in the Nimbus vault).
+
+canva.com/developers → your integration → copy the Client Secret.
+
+PowerShell example:
+  $env:NIMBUS_OAUTH_CANVA_CLIENT_SECRET = "..."`;
+
+export const FIGMA_OAUTH_CLIENT_ID_HELP = `Set NIMBUS_OAUTH_FIGMA_CLIENT_ID to your Figma app's Client ID (OAuth 2.0 authorization-code flow).
+
+How to obtain:
+1. figma.com/developers/apps → create or open an app.
+2. Add the read scopes you need (e.g. files:read).
+3. Configure a redirect URL for the local loopback callback (Nimbus binds a localhost port).
+4. Copy the Client ID from the app's configuration page.
+
+You must also set NIMBUS_OAUTH_FIGMA_CLIENT_SECRET (Figma's token endpoint requires the client secret in the request body).
+
+This connector also needs your Figma team id — set it once via the vault key figma.team_id (see the connector README); v1 indexes a single configured team's files.
+
+Before starting the gateway (PowerShell example):
+  $env:NIMBUS_OAUTH_FIGMA_CLIENT_ID = "..."
+  $env:NIMBUS_OAUTH_FIGMA_CLIENT_SECRET = "..."`;
+
+export const FIGMA_OAUTH_CLIENT_SECRET_HELP = `Set NIMBUS_OAUTH_FIGMA_CLIENT_SECRET to your Figma app's Client Secret.
+
+Figma's token exchange requires the client secret form-encoded in the request body (it is not stored in the Nimbus vault).
+
+figma.com/developers/apps → your app → copy the Client Secret.
+
+PowerShell example:
+  $env:NIMBUS_OAUTH_FIGMA_CLIENT_SECRET = "..."`;
+
+export const SALESFORCE_OAUTH_CLIENT_ID_HELP = `Set NIMBUS_OAUTH_SALESFORCE_CLIENT_ID to your Salesforce connected app's Consumer Key (OAuth 2.0 authorization-code flow WITH PKCE).
+
+How to obtain:
+1. Salesforce Setup → App Manager → New Connected App (or open an existing one).
+2. Enable OAuth Settings; add the scopes you need (e.g. api, refresh_token) and a redirect URL for the local loopback callback (Nimbus binds a localhost port).
+3. Copy the Consumer Key from the connected app's API (Enable OAuth Settings) section.
+
+You must also set NIMBUS_OAUTH_SALESFORCE_CLIENT_SECRET (Salesforce's token endpoint requires the client secret — the Consumer Secret — in the request body).
+
+The per-tenant API host (instance_url) is discovered automatically during the OAuth exchange and stored alongside the tokens — you do not configure it.
+
+Before starting the gateway (PowerShell example):
+  $env:NIMBUS_OAUTH_SALESFORCE_CLIENT_ID = "..."
+  $env:NIMBUS_OAUTH_SALESFORCE_CLIENT_SECRET = "..."`;
+
+export const SALESFORCE_OAUTH_CLIENT_SECRET_HELP = `Set NIMBUS_OAUTH_SALESFORCE_CLIENT_SECRET to your Salesforce connected app's Consumer Secret.
+
+Salesforce's token exchange requires the client secret form-encoded in the request body (it is not stored in the Nimbus vault).
+
+Salesforce Setup → App Manager → your connected app → Manage Consumer Details → copy the Consumer Secret.
+
+PowerShell example:
+  $env:NIMBUS_OAUTH_SALESFORCE_CLIENT_SECRET = "..."`;

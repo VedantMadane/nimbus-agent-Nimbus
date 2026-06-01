@@ -2,14 +2,19 @@ import { randomUUID } from "node:crypto";
 
 import { MCPClient } from "@mastra/mcp";
 
+import { getValidCanvaAccessToken } from "../../auth/canva-access-token.ts";
+import { getValidFigmaAccessToken } from "../../auth/figma-access-token.ts";
 import {
   type GoogleConnectorOAuthServiceId,
   getValidGoogleAccessToken,
   resolveGoogleOAuthVaultKey,
 } from "../../auth/google-access-token.ts";
+import { getValidHubspotAccessToken } from "../../auth/hubspot-access-token.ts";
 import { getValidMicrosoftAccessToken } from "../../auth/microsoft-access-token.ts";
+import { getValidMiroAccessToken } from "../../auth/miro-access-token.ts";
 import { getValidNotionAccessToken } from "../../auth/notion-access-token.ts";
 import { readMicrosoftOAuthScopesForOutlookEnv } from "../../auth/oauth-vault-tokens.ts";
+import { getValidSalesforceAuth } from "../../auth/salesforce-access-token.ts";
 import { getValidSlackAccessToken } from "../../auth/slack-access-token.ts";
 import { getValidZoomAccessToken } from "../../auth/zoom-access-token.ts";
 import { extensionProcessEnv } from "../../extensions/spawn-env.ts";
@@ -64,7 +69,12 @@ export async function ensureGoogleDriveMcp(ctx: MeshSpawnContext): Promise<void>
     return;
   }
   const googleServers: Record<string, ServerSpec> = {};
-  const ids: GoogleConnectorOAuthServiceId[] = ["google_drive", "gmail", "google_photos"];
+  const ids: GoogleConnectorOAuthServiceId[] = [
+    "google_drive",
+    "gmail",
+    "google_photos",
+    "google_meet",
+  ];
   for (const id of ids) {
     const resolved = await resolveGoogleOAuthVaultKey(ctx.vault, id);
     if (resolved === null) {
@@ -91,7 +101,7 @@ export async function ensureGoogleDriveMcp(ctx: MeshSpawnContext): Promise<void>
         "gmail",
         ctx,
       );
-    } else {
+    } else if (id === "google_photos") {
       googleServers["google_photos"] = wrap(
         {
           command: "bun",
@@ -99,6 +109,16 @@ export async function ensureGoogleDriveMcp(ctx: MeshSpawnContext): Promise<void>
           env: extensionProcessEnv({ GOOGLE_OAUTH_ACCESS_TOKEN: token }),
         },
         "google_photos",
+        ctx,
+      );
+    } else {
+      googleServers["google_meet"] = wrap(
+        {
+          command: "bun",
+          args: [mcpConnectorServerScript("google-meet")],
+          env: extensionProcessEnv({ GOOGLE_OAUTH_ACCESS_TOKEN: token }),
+        },
+        "google_meet",
         ctx,
       );
     }
@@ -775,6 +795,241 @@ export async function ensureZoomMcp(ctx: MeshSpawnContext): Promise<void> {
           },
           "zoom",
           ctx,
+        ),
+      },
+    }),
+  );
+  ctx.bumpToolsEpoch();
+  ctx.scheduleLazyDisconnect(slotKey);
+}
+
+/**
+ * audit-ignore-next-line D11-vault-key (JSDoc reference, not vault-key construction)
+ * Starts HubSpot MCP when `hubspot.oauth` is present and a valid access token can be resolved.
+ */
+export async function ensureHubspotMcp(ctx: MeshSpawnContext): Promise<void> {
+  const slotKey = LAZY_MESH.hubspot;
+  ctx.clearLazyIdle(slotKey);
+  if (ctx.getLazyClient(slotKey) !== undefined) {
+    ctx.scheduleLazyDisconnect(slotKey);
+    return;
+  }
+  const raw = await readConnectorSecret(ctx.vault, "hubspot", "oauth");
+  if (raw === null || raw === "") {
+    return;
+  }
+  let accessToken: string;
+  try {
+    accessToken = await getValidHubspotAccessToken(ctx.vault);
+  } catch {
+    return;
+  }
+  if (accessToken === "") {
+    return;
+  }
+  ctx.setLazyClient(
+    slotKey,
+    new MCPClient({
+      id: `nimbus-hubspot-${randomUUID()}`,
+      servers: {
+        hubspot: wrap(
+          {
+            command: "bun",
+            args: [mcpConnectorServerScript("hubspot")],
+            env: extensionProcessEnv({ HUBSPOT_TOKEN: accessToken }),
+          },
+          "hubspot",
+          ctx,
+        ),
+      },
+    }),
+  );
+  ctx.bumpToolsEpoch();
+  ctx.scheduleLazyDisconnect(slotKey);
+}
+
+/**
+ * audit-ignore-next-line D11-vault-key (JSDoc reference, not vault-key construction)
+ * Starts Miro MCP when `miro.oauth` is present and a valid access token can be resolved.
+ */
+export async function ensureMiroMcp(ctx: MeshSpawnContext): Promise<void> {
+  const slotKey = LAZY_MESH.miro;
+  ctx.clearLazyIdle(slotKey);
+  if (ctx.getLazyClient(slotKey) !== undefined) {
+    ctx.scheduleLazyDisconnect(slotKey);
+    return;
+  }
+  const raw = await readConnectorSecret(ctx.vault, "miro", "oauth");
+  if (raw === null || raw === "") {
+    return;
+  }
+  let accessToken: string;
+  try {
+    accessToken = await getValidMiroAccessToken(ctx.vault);
+  } catch {
+    return;
+  }
+  if (accessToken === "") {
+    return;
+  }
+  ctx.setLazyClient(
+    slotKey,
+    new MCPClient({
+      id: `nimbus-miro-${randomUUID()}`,
+      servers: {
+        miro: wrap(
+          {
+            command: "bun",
+            args: [mcpConnectorServerScript("miro")],
+            env: extensionProcessEnv({ MIRO_TOKEN: accessToken }),
+          },
+          "miro",
+          ctx,
+        ),
+      },
+    }),
+  );
+  ctx.bumpToolsEpoch();
+  ctx.scheduleLazyDisconnect(slotKey);
+}
+
+/**
+ * audit-ignore-next-line D11-vault-key (JSDoc reference, not vault-key construction)
+ * Starts Canva MCP when `canva.oauth` is present and a valid access token can be resolved.
+ */
+export async function ensureCanvaMcp(ctx: MeshSpawnContext): Promise<void> {
+  const slotKey = LAZY_MESH.canva;
+  ctx.clearLazyIdle(slotKey);
+  if (ctx.getLazyClient(slotKey) !== undefined) {
+    ctx.scheduleLazyDisconnect(slotKey);
+    return;
+  }
+  const raw = await readConnectorSecret(ctx.vault, "canva", "oauth");
+  if (raw === null || raw === "") {
+    return;
+  }
+  let accessToken: string;
+  try {
+    accessToken = await getValidCanvaAccessToken(ctx.vault);
+  } catch {
+    return;
+  }
+  if (accessToken === "") {
+    return;
+  }
+  ctx.setLazyClient(
+    slotKey,
+    new MCPClient({
+      id: `nimbus-canva-${randomUUID()}`,
+      servers: {
+        canva: wrap(
+          {
+            command: "bun",
+            args: [mcpConnectorServerScript("canva")],
+            env: extensionProcessEnv({ CANVA_TOKEN: accessToken }),
+          },
+          "canva",
+          ctx,
+        ),
+      },
+    }),
+  );
+  ctx.bumpToolsEpoch();
+  ctx.scheduleLazyDisconnect(slotKey);
+}
+
+/**
+ * audit-ignore-next-line D11-vault-key (JSDoc reference, not vault-key construction)
+ * Starts Figma MCP when BOTH `figma.oauth` (a resolvable access token) AND the
+ * non-secret `figma.team_id` are present in the Vault.
+ */
+export async function ensureFigmaMcp(ctx: MeshSpawnContext): Promise<void> {
+  const slotKey = LAZY_MESH.figma;
+  ctx.clearLazyIdle(slotKey);
+  if (ctx.getLazyClient(slotKey) !== undefined) {
+    ctx.scheduleLazyDisconnect(slotKey);
+    return;
+  }
+  const raw = await readConnectorSecret(ctx.vault, "figma", "oauth");
+  const teamId = (await readConnectorSecret(ctx.vault, "figma", "team_id"))?.trim() ?? "";
+  if (raw === null || raw === "" || teamId === "") {
+    return;
+  }
+  let accessToken: string;
+  try {
+    accessToken = await getValidFigmaAccessToken(ctx.vault);
+  } catch {
+    return;
+  }
+  if (accessToken === "") {
+    return;
+  }
+  ctx.setLazyClient(
+    slotKey,
+    new MCPClient({
+      id: `nimbus-figma-${randomUUID()}`,
+      servers: {
+        figma: wrap(
+          {
+            command: "bun",
+            args: [mcpConnectorServerScript("figma")],
+            env: extensionProcessEnv({ FIGMA_TOKEN: accessToken, FIGMA_TEAM_ID: teamId }),
+          },
+          "figma",
+          ctx,
+        ),
+      },
+    }),
+  );
+  ctx.bumpToolsEpoch();
+  ctx.scheduleLazyDisconnect(slotKey);
+}
+
+/**
+ * audit-ignore-next-line D11-vault-key (JSDoc reference, not vault-key construction)
+ * Starts Salesforce MCP when `salesforce.oauth` is present and a valid access
+ * token + instance_url can be resolved. The instance_url is a per-tenant API
+ * host discovered at OAuth time, so it is added to the sandbox manifest at spawn
+ * via the Jenkins-style extra-hosts pattern (direct wrapServerSpec, not wrap()).
+ */
+export async function ensureSalesforceMcp(ctx: MeshSpawnContext): Promise<void> {
+  const slotKey = LAZY_MESH.salesforce;
+  ctx.clearLazyIdle(slotKey);
+  if (ctx.getLazyClient(slotKey) !== undefined) {
+    ctx.scheduleLazyDisconnect(slotKey);
+    return;
+  }
+  const raw = await readConnectorSecret(ctx.vault, "salesforce", "oauth");
+  if (raw === null || raw === "") {
+    return;
+  }
+  let auth: { accessToken: string; instanceUrl: string };
+  try {
+    auth = await getValidSalesforceAuth(ctx.vault);
+  } catch {
+    return;
+  }
+  if (auth.accessToken === "" || auth.instanceUrl === "") {
+    return;
+  }
+  const sfHost = hostnameFromUrl(auth.instanceUrl);
+  const manifest = manifestWithExtraNetworkHosts("salesforce", sfHost === null ? [] : [sfHost]);
+  ctx.setLazyClient(
+    slotKey,
+    new MCPClient({
+      id: `nimbus-salesforce-${randomUUID()}`,
+      servers: {
+        salesforce: wrapServerSpec(
+          {
+            command: "bun",
+            args: [mcpConnectorServerScript("salesforce")],
+            env: extensionProcessEnv({
+              SALESFORCE_ACCESS_TOKEN: auth.accessToken,
+              SALESFORCE_INSTANCE_URL: auth.instanceUrl,
+            }),
+          },
+          manifest,
+          ctx.sandboxCwd,
         ),
       },
     }),

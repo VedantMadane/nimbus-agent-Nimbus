@@ -49,7 +49,26 @@ export type Provider =
   | "greenhouse"
   | "pipedrive"
   | "stackoverflow"
-  | "zoom";
+  | "zotero"
+  | "dependencytrack"
+  | "elasticsearch"
+  | "airflow"
+  | "prefect"
+  | "dagster"
+  | "ramp"
+  | "zoom"
+  | "hubspot"
+  | "miro"
+  | "canva"
+  | "figma"
+  | "salesforce"
+  | "bigquery"
+  | "athena"
+  | "cloudwatch"
+  | "sagemaker"
+  | "cloud_logging"
+  | "vertex_ai"
+  | "great_expectations";
 
 export interface ProviderQuota {
   requestsPerMinute: number;
@@ -107,7 +126,26 @@ export const DEFAULT_QUOTAS: Record<Provider, ProviderQuota> = {
   greenhouse: { requestsPerMinute: 60, burstSize: 10 },
   pipedrive: { requestsPerMinute: 60, burstSize: 10 },
   stackoverflow: { requestsPerMinute: 60, burstSize: 10 },
+  zotero: { requestsPerMinute: 60, burstSize: 10 },
+  dependencytrack: { requestsPerMinute: 60, burstSize: 10 },
+  elasticsearch: { requestsPerMinute: 60, burstSize: 10 },
+  airflow: { requestsPerMinute: 60, burstSize: 10 },
+  prefect: { requestsPerMinute: 60, burstSize: 10 },
+  dagster: { requestsPerMinute: 60, burstSize: 10 },
+  ramp: { requestsPerMinute: 60, burstSize: 10 },
   zoom: { requestsPerMinute: 60, burstSize: 10 },
+  hubspot: { requestsPerMinute: 100, burstSize: 10 },
+  miro: { requestsPerMinute: 60, burstSize: 10 },
+  canva: { requestsPerMinute: 60, burstSize: 10 },
+  figma: { requestsPerMinute: 60, burstSize: 10 },
+  salesforce: { requestsPerMinute: 60, burstSize: 10 },
+  bigquery: { requestsPerMinute: 40, burstSize: 8 },
+  athena: { requestsPerMinute: 40, burstSize: 8 },
+  cloudwatch: { requestsPerMinute: 40, burstSize: 8 },
+  sagemaker: { requestsPerMinute: 40, burstSize: 8 },
+  cloud_logging: { requestsPerMinute: 40, burstSize: 8 },
+  vertex_ai: { requestsPerMinute: 40, burstSize: 8 },
+  great_expectations: { requestsPerMinute: 60, burstSize: 10 },
 };
 
 type BucketState = {
