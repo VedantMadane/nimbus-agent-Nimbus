@@ -1,8 +1,12 @@
 import type { Database } from "bun:sqlite";
 import type { Agent } from "@mastra/core/agent";
+import pino from "pino";
 
 import type { LocalIndex } from "../index/local-index.ts";
+import type { RankedIndexItem } from "../index/ranked-item.ts";
 import type { ConsentCoordinator } from "../ipc/consent.ts";
+import type { LlmRouter } from "../llm/router.ts";
+import type { LlmGenerateResult } from "../llm/types.ts";
 import type { SessionMemoryStore } from "../memory/session-memory-store.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
 import { getAgentRequestSessionId } from "./agent-request-context.ts";
@@ -11,7 +15,13 @@ import { GatewayAgentUnavailableError } from "./gateway-agent-error.ts";
 import { type PlanResult, planFromIntent } from "./planner.ts";
 import { type ClassifiedIntent, classifyIntent } from "./router.ts";
 import { runConversationalAgent } from "./run-conversational-agent.ts";
+import { wrapToolOutput } from "./tool-output-envelope.ts";
 import type { ConnectorDispatcher, PlannedAction } from "./types.ts";
+
+const runAskLog = pino({
+  name: "run-ask",
+  level: process.env["NIMBUS_LOG_LEVEL"] ?? "info",
+});
 
 export type RunAskParams = {
   input: string;
@@ -23,6 +33,7 @@ export type RunAskParams = {
   dispatcher: ConnectorDispatcher;
   sendChunk: (text: string) => void;
   conversationalAgent?: Agent;
+  llmRouter?: LlmRouter;
   sessionMemoryStore?: SessionMemoryStore;
   classify?: (input: string) => Promise<ClassifiedIntent>;
 };
@@ -101,6 +112,54 @@ async function classifyIntentForAsk(input: string): Promise<ClassifiedIntent> {
   }
 }
 
+function canUseConversation(p: RunAskParams): boolean {
+  return p.conversationalAgent !== undefined || p.llmRouter?.prefersLocal() === true;
+}
+
+function shouldBuildLocalContext(p: RunAskParams): boolean {
+  if (p.llmRouter === undefined) {
+    return false;
+  }
+  if (p.conversationalAgent === undefined) {
+    return true;
+  }
+  return p.llmRouter.prefersLocal();
+}
+
+function shouldAnswerFromLocalIndexedContext(p: RunAskParams): boolean {
+  return (
+    p.llmRouter?.prefersLocal() === true &&
+    /\b(local indexed|indexed nimbus|nimbus github context|indexed github context)\b/i.test(p.input)
+  );
+}
+
+async function classifyIntentForAskWithLocalFallback(p: RunAskParams): Promise<ClassifiedIntent> {
+  try {
+    return await (p.classify ?? classifyIntentForAsk)(p.input);
+  } catch (e) {
+    if (
+      p.llmRouter === undefined ||
+      !p.llmRouter.prefersLocal() ||
+      !(e instanceof GatewayAgentUnavailableError)
+    ) {
+      throw e;
+    }
+    if (e.reason !== "no_api_key" && e.reason !== "invalid_api_key") {
+      throw e;
+    }
+    runAskLog.warn(
+      { reason: e.reason, provider: e.provider },
+      "remote intent classifier unavailable; falling back to local indexed-context answer",
+    );
+    return {
+      intent: "unknown",
+      entities: {},
+      requiresHITL: false,
+      confidence: 0,
+    };
+  }
+}
+
 async function runActionsPlan(
   p: RunAskParams,
   actions: PlannedAction[],
@@ -146,6 +205,185 @@ async function dispatchPlan(p: RunAskParams, plan: PlanResult): Promise<{ reply:
   return await runActionsPlan(p, plan.actions);
 }
 
+const LOCAL_CONTEXT_ITEM_LIMIT = 8;
+const LOCAL_CONTEXT_PREVIEW_MAX_CHARS = 900;
+const LOCAL_CONTEXT_QUOTED_QUERY_LIMIT = 4;
+
+type LocalContextItem = {
+  sourceId: string;
+  rank: number;
+  service: string;
+  indexedType: string;
+  title: string;
+  preview?: string;
+  url?: string;
+};
+
+function cleanContextText(text: string): string {
+  return text.replaceAll(/\s+/g, " ").trim();
+}
+
+function clipContextText(text: string, maxChars: number): string {
+  if (text.length <= maxChars) {
+    return text;
+  }
+  return `${text.slice(0, maxChars - 3)}...`;
+}
+
+function extractQuotedSearchQueries(input: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const match of input.matchAll(/["'`]([^"'`]{3,120})["'`]/g)) {
+    const query = cleanContextText(match[1] ?? "");
+    const key = query.toLowerCase();
+    if (query !== "" && !seen.has(key)) {
+      seen.add(key);
+      out.push(query);
+    }
+    if (out.length >= LOCAL_CONTEXT_QUOTED_QUERY_LIMIT) {
+      break;
+    }
+  }
+  return out;
+}
+
+function extractGithubRepoSlugs(input: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const match of input.matchAll(/\b([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\b/g)) {
+    const slug = (match[1] ?? "").toLowerCase();
+    if (slug !== "" && !seen.has(slug)) {
+      seen.add(slug);
+      out.push(slug);
+    }
+  }
+  return out;
+}
+
+function formatContextItem(
+  localIndex: LocalIndex,
+  item: RankedIndexItem,
+): Omit<LocalContextItem, "rank"> {
+  const title = cleanContextText(item.name);
+  const preview = cleanContextText(
+    item.semanticSnippet ?? localIndex.getBodyPreview(item.indexPrimaryKey) ?? "",
+  );
+  const url = cleanContextText(item.canonicalUrl ?? item.url ?? "");
+  return {
+    sourceId: item.indexPrimaryKey,
+    service: item.service,
+    indexedType: item.indexedType,
+    title,
+    ...(preview === ""
+      ? {}
+      : { preview: clipContextText(preview, LOCAL_CONTEXT_PREVIEW_MAX_CHARS) }),
+    ...(url === "" ? {} : { url }),
+  };
+}
+
+type GithubIssueContextRow = {
+  id: string;
+  service: string;
+  type: string;
+  title: string;
+  body_preview: string | null;
+  url: string | null;
+};
+
+function githubIssueContextItemsForRepo(
+  localIndex: LocalIndex,
+  repoSlug: string,
+): Array<Omit<LocalContextItem, "rank">> {
+  const like = `${repoSlug}#issue-%`;
+  const urlLike = `%github.com/${repoSlug}/issues/%`;
+  const rows = localIndex
+    .getDatabase()
+    .query(
+      `SELECT id, service, type, title, body_preview, url
+       FROM item
+       WHERE service = 'github'
+         AND type = 'issue'
+         AND (lower(external_id) LIKE ? OR lower(url) LIKE ?)
+       ORDER BY modified_at DESC, synced_at DESC, title ASC
+       LIMIT ?`,
+    )
+    .all(like, urlLike, LOCAL_CONTEXT_ITEM_LIMIT) as GithubIssueContextRow[];
+  return rows.map((row) => {
+    const preview = cleanContextText(row.body_preview ?? "");
+    const url = cleanContextText(row.url ?? "");
+    return {
+      sourceId: row.id,
+      service: row.service,
+      indexedType: row.type,
+      title: cleanContextText(row.title),
+      ...(preview === ""
+        ? {}
+        : { preview: clipContextText(preview, LOCAL_CONTEXT_PREVIEW_MAX_CHARS) }),
+      ...(url === "" ? {} : { url }),
+    };
+  });
+}
+
+async function buildLocalIndexedContext(
+  localIndex: LocalIndex,
+  input: string,
+): Promise<string | undefined> {
+  const query = input.trim();
+  if (query === "") {
+    return undefined;
+  }
+  try {
+    const byId = new Map<string, Omit<LocalContextItem, "rank">>();
+    const addRankedResults = (items: RankedIndexItem[]): void => {
+      for (const item of items) {
+        if (!byId.has(item.indexPrimaryKey)) {
+          byId.set(item.indexPrimaryKey, formatContextItem(localIndex, item));
+        }
+      }
+    };
+    const addContextItems = (items: Array<Omit<LocalContextItem, "rank">>): void => {
+      for (const item of items) {
+        if (!byId.has(item.sourceId)) {
+          byId.set(item.sourceId, item);
+        }
+      }
+    };
+    addRankedResults(
+      await localIndex.searchRankedAsync(
+        { name: query, limit: LOCAL_CONTEXT_ITEM_LIMIT },
+        { semantic: true, contextChunks: 2 },
+      ),
+    );
+    for (const quotedQuery of extractQuotedSearchQueries(query)) {
+      addRankedResults(
+        localIndex.searchRanked({ name: quotedQuery, limit: LOCAL_CONTEXT_ITEM_LIMIT }),
+      );
+    }
+    for (const repoSlug of extractGithubRepoSlugs(query)) {
+      addContextItems(githubIssueContextItemsForRepo(localIndex, repoSlug));
+    }
+    if (byId.size === 0) {
+      addRankedResults(localIndex.searchRanked({ name: query, limit: LOCAL_CONTEXT_ITEM_LIMIT }));
+    }
+    if (byId.size === 0) {
+      addRankedResults(localIndex.searchRanked({ limit: LOCAL_CONTEXT_ITEM_LIMIT }));
+    }
+    if (byId.size === 0) {
+      return undefined;
+    }
+    const contextItems = [...byId.values()]
+      .slice(0, LOCAL_CONTEXT_ITEM_LIMIT)
+      .map((item, idx) => ({ ...item, rank: idx + 1 }));
+    return `Indexed Nimbus context:\n${wrapToolOutput(
+      { service: "nimbus", tool: "localIndex.searchRanked" },
+      contextItems,
+    )}`;
+  } catch (e) {
+    runAskLog.warn({ err: e }, "failed to build local indexed context for local LLM");
+    return undefined;
+  }
+}
+
 async function loadRecentConversationHistory(
   store: SessionMemoryStore | undefined,
   sessionId: string | undefined,
@@ -189,28 +427,37 @@ async function persistConversationTurn(
   }
 }
 
-export async function runAsk(p: RunAskParams): Promise<{ reply: string }> {
+export async function runAsk(
+  p: RunAskParams,
+): Promise<{ reply: string; modelMeta?: LlmGenerateResult }> {
   const indexed = countIndexedItems(p.localIndex);
   const empty = emptyIndexGuidanceIfNeeded(p, indexed);
   if (empty !== undefined) {
     return empty;
   }
 
-  const classified = await (p.classify ?? classifyIntentForAsk)(p.input);
+  const classified = await classifyIntentForAskWithLocalFallback(p);
 
-  const conversationalAgent = p.conversationalAgent;
-  const shouldUseConversational = classified.intent === "unknown" || classified.confidence < 0.6;
+  const shouldUseConversational =
+    shouldAnswerFromLocalIndexedContext(p) ||
+    classified.intent === "unknown" ||
+    classified.confidence < 0.6;
 
-  if (conversationalAgent !== undefined && shouldUseConversational) {
+  if (canUseConversation(p) && shouldUseConversational) {
     const sessionId = getAgentRequestSessionId();
     const priorTurns = await loadRecentConversationHistory(p.sessionMemoryStore, sessionId);
+    const localContext = shouldBuildLocalContext(p)
+      ? await buildLocalIndexedContext(p.localIndex, p.input)
+      : undefined;
 
     const result = await runConversationalAgent({
-      agent: conversationalAgent,
       input: p.input,
       stream: p.stream,
       sendChunk: p.sendChunk,
       priorTurns,
+      ...(p.conversationalAgent === undefined ? {} : { agent: p.conversationalAgent }),
+      ...(p.llmRouter === undefined ? {} : { llmRouter: p.llmRouter }),
+      ...(localContext === undefined ? {} : { localContext }),
     });
 
     await persistConversationTurn(p.sessionMemoryStore, sessionId, p.input, result.reply);
