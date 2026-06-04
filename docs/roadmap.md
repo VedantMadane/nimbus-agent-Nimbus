@@ -4,7 +4,7 @@ This document is the authoritative roadmap for Nimbus. [`README.md`](./README.md
 
 Phases are thematic, not calendar-bound. A phase begins when its dependencies are met and ends when its acceptance criteria pass — not at a quarter boundary. Phases may overlap when deliverables are independent.
 
-> **Last updated:** 2026-05-28 (second pass) — added **Phase 18 (Vertical Personas)** + **Phase 19 (Ambient Surfaces)** as new dedicated phases; extended **Phase 6** with personal CRM, family/couples/group mesh mode, `nimbus share`, and sovereign-mesh referral; extended **Phase 7** with the implicit-knowledge agent triad (`nimbus why` / `glossary` / `decisions`), `nimbus negotiate`, devil's-advocate mode, agent-persona configuration, and first-class negation + aggregation queries; extended **Phase 8** with the contextual dependency-update intelligence agent; extended **Phase 9** with **Wave 6 (Agent Honesty Surfaces)** — calibration audit, bias diagnostics, refusal log; extended **Phase 11** with the public dogfooding telemetry dashboard (vulnerability-as-marketing); extended **Phase 13.5** with the voice-only ambient stretch. 2026-05-28 (first pass) — added **Phase 5.5 (Marketplace Registry)**, **Phase 12.5 (Compliance Receipts)**, and **Phase 13.5 (Mobile Companion — iOS first)** as new dedicated phases; promoted **`nimbus eval` (author-facing eval framework + quality score)** into Phase 9 as a Phase 5.5 prerequisite; added **M8 — Time-Travel** as a north-star; added the **S — Standards (reference-impl-only)** cross-phase track anchored on the **Egress Attestation Format (EAF)** as RFC-001 with the verifier CLI. Rationale: a single adversarial stress-test pass over an "industry-standard" brainstorm killed standards-body LAIP/PAT/SCM plays, the vertical-starter-pack compliance plan, the multi-platform distribution scatter, and demoted personal fine-tune + cross-agent handoff to research bets; the surviving shape is the marketplace + compliance-as-receipts + mobile-on-call wedge and an in-place EAF reference impl. 2026-05-25 — added North-Star **M7 (Provable Locality)** (egress ledger threaded through Phase 8 + Phase 12), a **Concurrency & Scaling** documentation pass with a **B5 (high-priority) — WAL concurrency hardening** follow-up, a Phase 9 **model-weight integrity** item, and a proposed standing-approval **taint-barrier** invariant. 2026-05-24 — added **Phase 16 (The Platform Layer)** and **Phase 17 (The On-Call Copilot)**, plus a near-term **First-Run & Time-to-Wow** initiative (including `nimbus demo`), the cross-phase **North-Star Capabilities** (M1–M6 + connective tissue), and the **killer-demo** milestone. Phase 5 (The Extended Surface) remains active. The full dated delivery log (every PR, with dates) lives in [`docs/CHANGELOG.md`](./CHANGELOG.md); this document carries the forward-looking acceptance criteria and per-phase Shipped summaries. Phase 5 core sequencing (locked in the T1 sequencing spec): T1 → T3 → Wave A → T4 → T6 → T2 → Wave B. The 2026-05-10 reorganisation inserted Phases 7 (Engineering Excellence), 8 (Security Engineering), and 9 (AI Engineering Loop) before the Autonomous Agent and added Phase 14 (Agent Evolution / AI v2) and Phase 15 (Cross-Organizational Federation) — see [§ How to Update This Document](#how-to-update-this-document).
+> **Last updated:** 2026-06-04 — **renumbered the Marketplace Registry phase to Phase 9.5** and relocated it after Phase 9 (it previously sat as a `.5` between Phases 5 and 6; its hard blocker is Phase 9 Wave 5, the `nimbus eval` framework); **decomposed Phase 6 (Team) into 9 sequenced delivery slices** (Slice 1 = Federation Core; see `docs/superpowers/specs/2026-06-04-phase6-federation-core-design.md`); and **moved personal/family/friend federation out of Phase 6 into a new Phase 20 (Personal & Household Federation)** per guiding-principle #7. 2026-05-28 (second pass) — added **Phase 18 (Vertical Personas)** + **Phase 19 (Ambient Surfaces)** as new dedicated phases; extended **Phase 6** with personal CRM, family/couples/group mesh mode, `nimbus share`, and sovereign-mesh referral; extended **Phase 7** with the implicit-knowledge agent triad (`nimbus why` / `glossary` / `decisions`), `nimbus negotiate`, devil's-advocate mode, agent-persona configuration, and first-class negation + aggregation queries; extended **Phase 8** with the contextual dependency-update intelligence agent; extended **Phase 9** with **Wave 6 (Agent Honesty Surfaces)** — calibration audit, bias diagnostics, refusal log; extended **Phase 11** with the public dogfooding telemetry dashboard (vulnerability-as-marketing); extended **Phase 13.5** with the voice-only ambient stretch. 2026-05-28 (first pass) — added **Phase 9.5 (Marketplace Registry)**, **Phase 12.5 (Compliance Receipts)**, and **Phase 13.5 (Mobile Companion — iOS first)** as new dedicated phases; promoted **`nimbus eval` (author-facing eval framework + quality score)** into Phase 9 as a Phase 9.5 prerequisite; added **M8 — Time-Travel** as a north-star; added the **S — Standards (reference-impl-only)** cross-phase track anchored on the **Egress Attestation Format (EAF)** as RFC-001 with the verifier CLI. Rationale: a single adversarial stress-test pass over an "industry-standard" brainstorm killed standards-body LAIP/PAT/SCM plays, the vertical-starter-pack compliance plan, the multi-platform distribution scatter, and demoted personal fine-tune + cross-agent handoff to research bets; the surviving shape is the marketplace + compliance-as-receipts + mobile-on-call wedge and an in-place EAF reference impl. 2026-05-25 — added North-Star **M7 (Provable Locality)** (egress ledger threaded through Phase 8 + Phase 12), a **Concurrency & Scaling** documentation pass with a **B5 (high-priority) — WAL concurrency hardening** follow-up, a Phase 9 **model-weight integrity** item, and a proposed standing-approval **taint-barrier** invariant. 2026-05-24 — added **Phase 16 (The Platform Layer)** and **Phase 17 (The On-Call Copilot)**, plus a near-term **First-Run & Time-to-Wow** initiative (including `nimbus demo`), the cross-phase **North-Star Capabilities** (M1–M6 + connective tissue), and the **killer-demo** milestone. Phase 5 (The Extended Surface) remains active. The full dated delivery log (every PR, with dates) lives in [`docs/CHANGELOG.md`](./CHANGELOG.md); this document carries the forward-looking acceptance criteria and per-phase Shipped summaries. Phase 5 core sequencing (locked in the T1 sequencing spec): T1 → T3 → Wave A → T4 → T6 → T2 → Wave B. The 2026-05-10 reorganisation inserted Phases 7 (Engineering Excellence), 8 (Security Engineering), and 9 (AI Engineering Loop) before the Autonomous Agent and added Phase 14 (Agent Evolution / AI v2) and Phase 15 (Cross-Organizational Federation) — see [§ How to Update This Document](#how-to-update-this-document).
 
 ---
 
@@ -15,7 +15,7 @@ Phases are thematic, not calendar-bound. A phase begins when its dependencies ar
 - [Status Overview](#status-overview)
 - [Shipped](#shipped) — Phases 1, 2, 3, 3.5, 4
 - [Active](#active) — Phase 5
-- [Planned](#planned) — Phases 5.5 through 19 (including 5.5 Marketplace Registry, 12.5 Compliance Receipts, 13.5 Mobile Companion, 18 Vertical Personas, 19 Ambient Surfaces), plus near-term & cross-phase initiatives (M1–M8 north-stars + S — Standards track)
+- [Planned](#planned) — Phases 6 through 20 (including 9.5 Marketplace Registry, 12.5 Compliance Receipts, 13.5 Mobile Companion, 18 Vertical Personas, 19 Ambient Surfaces, 20 Personal & Household Federation), plus near-term & cross-phase initiatives (M1–M8 north-stars + S — Standards track)
 - [How to Update This Document](#how-to-update-this-document)
 
 ---
@@ -56,11 +56,11 @@ Commercial license also available now for organizations that need to embed Nimbu
 | Phase 3.5 | Observability & Developer Experience | ✅ Complete |
 | Phase 4 | Presence | ✅ Complete |
 | Phase 5 | The Extended Surface | ✅ Complete |
-| Phase 5.5 | Marketplace Registry | Planned |
 | Phase 6 | Team | Planned |
 | Phase 7 | Engineering Excellence | Planned |
 | Phase 8 | Security Engineering | Planned |
 | Phase 9 | AI Engineering Loop | Planned |
+| Phase 9.5 | Marketplace Registry | Planned |
 | Phase 10 | The Autonomous Agent | Planned |
 | Phase 11 | Sovereign Mesh | Planned |
 | Phase 12 | Enterprise | Planned |
@@ -73,6 +73,7 @@ Commercial license also available now for organizations that need to embed Nimbu
 | Phase 17 | The On-Call Copilot | Planned |
 | Phase 18 | Vertical Personas | Planned |
 | Phase 19 | Ambient Surfaces | Planned |
+| Phase 20 | Personal & Household Federation | Planned |
 
 ---
 
@@ -477,7 +478,7 @@ The B1 security audit completed in Phase 4. Three more initiatives are active or
 
 ### Phase 5 — The Extended Surface ✅
 
-> **Status: ✅ Complete (2026-06-04).** All workstreams shipped — T1–T6, Wave A, Wave B, and Tiers 1–5. The remaining unchecked connectors are documented non-gating deferrals: **Pocket** (Mozilla shut it down — dead upstream, API disabled 2025-11-12), **Loom** / **Expensify** (no public token-auth read API), **Microsoft App Center** (retired by Microsoft 2025-03-31), **Chromatic** (no listable builds API), **LogRocket / FullStory / Datadog RUM** + **Web-vitals watcher** (Wave B stretch, "does not gate Phase 5 completion"). The `nimbus security scan` v2 and `tool_call_log` retention items closed the last buildable work (see [`docs/CHANGELOG.md`](./CHANGELOG.md)). The community-extension Marketplace acceptance criterion is tracked in **Phase 5.5** and does not gate Phase 5.
+> **Status: ✅ Complete (2026-06-04).** All workstreams shipped — T1–T6, Wave A, Wave B, and Tiers 1–5. The remaining unchecked connectors are documented non-gating deferrals: **Pocket** (Mozilla shut it down — dead upstream, API disabled 2025-11-12), **Loom** / **Expensify** (no public token-auth read API), **Microsoft App Center** (retired by Microsoft 2025-03-31), **Chromatic** (no listable builds API), **LogRocket / FullStory / Datadog RUM** + **Web-vitals watcher** (Wave B stretch, "does not gate Phase 5 completion"). The `nimbus security scan` v2 and `tool_call_log` retention items closed the last buildable work (see [`docs/CHANGELOG.md`](./CHANGELOG.md)). The community-extension Marketplace acceptance criterion is tracked in **Phase 9.5** and does not gate Phase 5.
 
 **Goal:** Fill every connector gap so that wherever a knowledge worker or developer spends time, their data is in the index. Mature the extension ecosystem. Establish Nimbus as a first-class data layer for CI/CD pipelines and external tooling.
 
@@ -687,7 +688,7 @@ Connector breadth for mobile and frontend engineering disciplines that didn't fi
 - The `nimbus-dev/query-action` GitHub Actions action successfully queries a running Gateway's HTTP API and blocks a deploy when an active P1 incident is detected for the target service
 - A repo containing `openapi.yaml` is indexed and `nimbus ask "which services have a POST /payments endpoint?"` returns the correct service name from the local index without a live API call
 - `nimbus security scan` detects a deliberately introduced test credential in a filesystem root configured at `summary` depth and reports the file path, pattern match type, and connector — verified in `packages/gateway/test/e2e/scenarios/security-scan.e2e.test.ts`
-- **(Tracked in Phase 5.5 — not a Phase 5 gate.)** A community extension published via the **Marketplace Registry** can be installed, enabled, and used without the author having access to Nimbus core source. This depends on the public registry host (`registry.nimbus-agent.dev`) and the seed/publish flow, which are the deliverables of **[Phase 5.5 (Marketplace Registry)](#phase-55--marketplace-registry)** (Planned), so it is tracked there and does not gate Phase 5 completion. Phase 5's own extension surface — install-from-directory, Ed25519-signed verified-publisher badges, changelog-previewed auto-update, and extension dependency resolution — is complete (see Extension Marketplace v2 above).
+- **(Tracked in Phase 9.5 — not a Phase 5 gate.)** A community extension published via the **Marketplace Registry** can be installed, enabled, and used without the author having access to Nimbus core source. This depends on the public registry host (`registry.nimbus-agent.dev`) and the seed/publish flow, which are the deliverables of **[Phase 9.5 (Marketplace Registry)](#phase-95--marketplace-registry)** (Planned), so it is tracked there and does not gate Phase 5 completion. Phase 5's own extension surface — install-from-directory, Ed25519-signed verified-publisher badges, changelog-previewed auto-update, and extension dependency resolution — is complete (see Extension Marketplace v2 above).
 - `nimbus ask "which repos have critical Snyk vulnerabilities with open PRs touching the affected packages?"` returns results from the local index without any live API call
 - `nimbus metrics dora --service payment-service --since 30d` returns all four DORA metrics computed from indexed GitHub and PagerDuty data
 - An ArgoCD application sync failure is indexed and correlatable with the triggering Git commit within one sync cycle
@@ -704,79 +705,39 @@ Connector breadth for mobile and frontend engineering disciplines that didn't fi
 
 ## Planned
 
-### Phase 5.5 — Marketplace Registry
-
-**Goal:** Turn the connector + extension ecosystem into a discoverable, trustworthy, quality-scored economy without yet operating a payment processor. The v0.1.1 trigger "5 seed community extensions in the registry" is elevated to a full phase because the marketplace is the **ecosystem flywheel** that compounds every other piece of work — once authors are publishing, every new SaaS the world produces becomes a Nimbus connector within days. Payments wait until install base is large enough to support author rent (post-Phase 12); this phase ships the **registry, the quality layer, and the trust layer** only.
-
-> **Composes with Phase 9 (AI Engineering Loop):** quality scores in the marketplace listing are produced by the **`nimbus eval` framework** delivered in Phase 9 — see [§ Phase 9 → Wave 5](#phase-9--ai-engineering-loop). Phase 9 ships Wave 5 *before* Phase 5.5 closes, so the marketplace UI has real quality data from day one.
->
-> **Composes with the S — Standards track:** registry-published extensions carry a Signed Connector Manifest produced by the same `I16` Ed25519 chain the Gateway already enforces at install + startup. The published manifest schema is the reference implementation for the SCM artifact in the [§ S — Standards (cross-phase)](#s--standards-cross-phase) track.
-
-#### Dependencies
-
-- Phase 3 Extension Registry v1 (manifest + sandbox + signing infra)
-- Phase 4 Plugin API v1 frozen + `@nimbus-dev/sdk` v1.0.0 published
-- Phase 4 `I16` extension-signature verification (publisher Ed25519 chain)
-- Phase 9 Wave 5 — `nimbus eval` framework + quality-score persistence (gating the marketplace UI's quality column)
-- Phase 4 auto-update daemon (`extension.checkForUpdates` / `extension.update` IPC; CLI-only)
-
-#### Hosted Registry
-
-- [ ] **`registry.nimbus-agent.dev`** — public read-only HTTP registry serving signed extension manifests + tarball URLs + version metadata. **No user accounts on the registry itself.** Authors publish via a one-shot signed POST whose payload is verified against a public-key chain rooted in the publisher Ed25519 key — the same chain `I16` already enforces at install. Registry is stateless against authorship: the keys are the identity. Static-hosting-friendly (S3 / R2 / GCS + CDN); no relational database; manifest index materialized from the on-disk tarball tree on each publish.
-- [ ] **Author publishing flow** — `nimbus extension publish` CLI: signs the manifest with the publisher key, uploads the tarball + manifest to the registry, returns a registry URL. Idempotent against a `<id>@<version>` tuple; refuses to overwrite an existing version (`I16` chain integrity). Pre-publish runs `nimbus eval` against the extension's declared eval suite (see Phase 9 Wave 5) and persists the score into the manifest.
-- [ ] **`nimbus extension search <query>` + `nimbus extension info <id>`** — CLI surfaces over the registry's manifest index. Output includes install count, quality score, last-published date, publisher verification status, declared `permissions`, and the cryptographic fingerprint of the signing key.
-- [ ] **Manifest browser at `nimbus-agent.dev/extensions`** — static-site catalog with search + filter by category / connector kind / quality threshold / verified-publisher only. Renders per-extension pages with the README, sandbox manifest, eval-suite summary, and the install command. No JavaScript on the read path; static HTML so it's archivable + auditable.
-
-#### Private & Composable Registries
-
-- [ ] **"Bring your own registry"** — `nimbus config set registry.url https://internal.acme.corp/nimbus` points the CLI + Tauri UI at a private registry (queried instead of, or alongside, the public `registry.nimbus-agent.dev`). Each private registry carries its **own publisher trust root**: a per-registry baked pubkey set so an enterprise's internal extensions verify against the `I16` chain without trusting public keys. A static S3 / R2 / GCS bucket is a valid registry — no relational DB required. The on-ramp for enterprises whose internal connectors (bespoke deploy engines, internal HR systems) can never be published to the public internet; bridges the gap before the Phase 12 enterprise features.
-- [ ] **Extension dependencies** — extensions declare dependencies on other extensions in `nimbus.extension.json` (e.g. `"dependencies": {"github-connector": ">=1.2.0"}`); `nimbus extension install` resolves and installs the tree. **Scoped conservatively for v1:** exact-pin + explicit-trust only — every transitive dependency is surfaced and must be trusted by the user before install; no naive semver auto-resolution, because a silently-pulled transitive dependency would expand the sandbox/signature trust surface past what the user chose. Lets a community "Code Review Agent" depend on the official GitHub connector instead of reinventing auth + indexing.
-- [ ] **Starter packs (curated collections)** — publish + install named bundles: `nimbus extension install @nimbus/frontend-pack` pulls Vercel + Figma + Sentry + a React-expert agent in one step. A pack is a thin meta-manifest listing member extensions; install reuses the dependency resolver above. Turns first-run from a scavenger hunt into a one-click persona setup (DevSecOps / Frontend / PM).
-
-#### Quality Layer
-
-- [ ] **Quality score surfaced in marketplace UI** — both the CLI (`nimbus extension info`) and the Tauri Marketplace panel (already shipped in Phase 4 WS5-D) read the per-extension quality score persisted at publish time via Phase 9 Wave 5. Score is a numeric 0–100 plus a per-rubric breakdown (mandatory tool surface, HITL declaration correctness, item id format compliance, contract-test pass rate, eval-suite pass rate against the author's own evals).
-- [ ] **Cross-author eval cross-check** — the registry-side publish hook re-runs the contract tests in a fresh Bun sandbox before accepting the publish, so an author cannot ship a passing score they couldn't reproduce. The contract-test suite from `@nimbus-dev/sdk` is the canonical source.
-- [ ] **Quality regression watcher** — when an installed extension publishes a new version with a quality score lower than the installed version's score by more than a configurable threshold (default 10 points), the auto-update daemon **does not** apply the update; it queues an HITL prompt with the regression breakdown. Composes with the Phase 4 auto-update daemon.
-- [ ] **Permission transparency at install** — surface the exact sandbox permissions an extension declares (network hosts, filesystem read/write scope), read from the `I15` `ServerSpec` the sandbox already enforces, prominently on the registry page, in `nimbus extension info`, and in the interactive install confirmation. The Quality Score **auto-penalizes over-requesting**: an extension that declares `*` network or full-filesystem-write but is categorically a formatter is marked down, nudging authors toward least privilege. Composes with the Phase 9 Wave 5 eval framework that computes the score.
-- [ ] **`nimbus extension audit`** — observes what an installed extension *actually* calls at runtime (outbound hosts hit, filesystem paths touched) versus what its manifest *declared*, and flags drift (declared `*`, only ever contacted `api.github.com`). Feeds observed evidence back into the permission-transparency penalty so the Quality Score reflects real behaviour, not self-reported manifests. Built on the `I15` sandbox + the egress-ledger primitive (Phase 8 Wave 4).
-- [ ] **Connector liveness + golden-transcript replay** — connectors rot when the upstream SaaS API changes. The publish hook records a connector's MCP responses against a fixture once (the "golden transcript"); a periodic registry-side probe replays them to detect API drift **with no live call against any user's data**, and surfaces a "works as of `<date>`" freshness badge in the catalog. A connector whose golden transcript no longer reproduces is flagged stale.
-
-#### Trust Layer (Verified Publishers)
-
-- [ ] **Verified Publisher tier** — annual subscription ($X/yr; pricing decided when the tier opens, not on this commit) that funds the signing + verification operation. Subscribers get: (a) a checkmark next to their publisher name in CLI + marketplace, (b) their publisher key pre-shipped in the gateway's trust store so end users do not have to fetch it on first install, (c) KYC + abuse-monitoring SLA. Verification is on the **publisher**, not on individual extension quality.
-- [ ] **Pre-shipped trust store + first-install offline path** — gateway ships with a baked-in JSON manifest of verified-publisher pubkeys. Installing a verified-publisher extension from a tarball with no network call still verifies against this baked store. Refreshed on each gateway release; an out-of-band update mechanism is **explicitly out of scope** for this phase (the gateway release cadence is the rotation cadence; emergency publisher-key revocation is a Phase 12 enterprise concern).
-- [ ] **Publisher key rotation procedure** — documented one-time rotation flow: publisher signs a "next pubkey" announcement with the *current* key; the next gateway release picks it up; subsequent installs verify against the new key. No automated revocation list (CRL) — too much infra for this phase.
-- [ ] **Abuse reporting + takedown** — `nimbus extension report <id>` posts a structured complaint to a maintainer inbox. Takedowns are a manual moderation action that removes the manifest from the registry index (the tarball is left in place under its content-addressed URL — anyone who explicitly trusts the content hash can still install). Logged in a public moderation ledger so takedowns are themselves auditable.
-- [ ] **Reproducible-build / source-provenance attestation** — the registry verifies that a published tarball was built from the claimed source commit (SLSA-style build provenance) and records the attestation alongside the `I16` Ed25519 signature. The signature proves *who* published; the attestation proves *what source* it was built from. Surfaced as a "provenance verified" badge; verifiable offline against the baked trust store like the signature chain itself.
-
-#### Author Onboarding
-
-- [ ] **`nimbus connector init --from-openapi <url-or-path>`** — pre-M6 author tool that scaffolds a connector skeleton from an OpenAPI / AsyncAPI spec. Generates the manifest, the sync handler, the mapping function, and a contract test against the spec. Authors customize from there. Does **not** make the agent self-extending (that's still M6); it makes a human author 10× faster.
-- [ ] **20-extension grant program** — $1k/connector marketing spend to seed the registry with 20 community-authored extensions targeting categories the first-party set under-serves (e.g., niche vertical SaaS, regional SaaS, OSS tooling). Treated as marketing budget, not marketplace seed — authors keep the code AGPL or MIT under SDK terms; no Nimbus equity, no royalties.
-- [ ] **Extension Author Hub** — `nimbus-agent.dev/authors` static page consolidating: the SDK reference, the contract-test guide, the signing-keypair quickstart, the publishing workflow, the eval-suite authoring guide, the Verified Publisher application form, and the grant-program details.
-- [ ] **Author sponsorship** — a `funding` array in the extension manifest (GitHub Sponsors / Patreon / BuyMeACoffee / Stripe Payment Link); `nimbus extension sponsor <id>` opens the configured link and a "Sponsor Author" button appears on the registry page + Tauri Marketplace tile. Kickstarts the creator economy *before* the Marketplace v2 monetization (deferred to Phase 6) ships — zero payment infra on Nimbus's side, no tax, refund, or routing liability.
-- [ ] **`nimbus extension clone <id>`** — for any extension published under an open-source license, downloads the tarball, unpacks it locally, and registers it as a local development extension ready to edit. Reuses the existing dev-extension path (unsigned local code runs in the sandbox; signature verification is bypassed for local dev only). Makes "fork the community Code-Reviewer agent and tweak its system prompt for our C++ style guide" a one-command operation; leans into the open-source ethos.
-
-#### Acceptance Criteria
-
-- `registry.nimbus-agent.dev` is live and serves at least 30 distinct extensions (the 15 first-party Phase 5 connectors that migrate plus the 15 first-completed grant-program submissions) with valid signed manifests verifiable against the Phase 4 `I16` chain.
-- `nimbus extension publish` round-trips against the live registry: a new version of a test connector is published, becomes searchable, installs cleanly on a fresh gateway, and verifies the signature offline against the baked trust store.
-- At least 5 Verified Publishers (counted by distinct pubkeys, not extensions) are active and their keys are baked into the current gateway release's trust store; an installer of one of their extensions never sees a "publisher unknown" warning.
-- Phase 9 Wave 5 quality scores appear on every published extension's registry page and Tauri Marketplace tile; the score is reproducible by running `nimbus eval --extension <id>` locally and matches within rounding.
-- The quality-regression watcher fires on a controlled test: a v1.0.1 published with a deliberately worse eval-suite score does not auto-update an installed v1.0.0, and surfaces a structured HITL prompt with the per-rubric delta.
-- The abuse-reporting + takedown flow is exercised once against a deliberately-misbehaving test extension submitted by a maintainer; the takedown appears in the public moderation ledger within the agreed SLA.
-- Installing an extension that declares `*` network access surfaces an interactive over-request warning in both the CLI and Tauri install flow, and its registry Quality Score shows the least-privilege penalty.
-- `nimbus extension clone <id>` on an MIT/AGPL-licensed published extension round-trips to an editable local development extension that spawns in the sandbox without a signature error.
-- An extension installed from a configured private registry verifies its signature against that registry's own publisher trust root with no call to `registry.nimbus-agent.dev`.
-
----
-
 ### Phase 6 — Team
 
 **Goal:** Make Nimbus a collaborative layer for engineering teams — shared intelligence without surrendering local sovereignty.
 
 > **Composes with Phase 7 (Engineering Excellence):** the federation primitives, Team Vault, ChatOps, admin console, and org-level policy engine in this phase are the multipliers for Phase 7's service catalog, DORA metrics, feature-flag, and shared knowledge graph features. Phase 6 ships independently of Phase 7 — but when both are present, the `@nimbus excellence` ChatOps shortcut, embedded DORA panels in the admin console, and federated synchronisation of the Phase 7 knowledge graph + automation library all light up.
+
+#### Delivery Slices
+
+Phase 6 bundles several independent subsystems; it ships as **9 sequenced delivery slices** (one consumer-oriented slice was moved out to the new Phase 20 — Personal & Household Federation). **Slice 1 — Federation Core** is the substrate every other slice depends on; its full design lives in [`docs/superpowers/specs/2026-06-04-phase6-federation-core-design.md`](superpowers/specs/2026-06-04-phase6-federation-core-design.md). Each slice gets its own spec → plan → implementation cycle.
+
+| # | Slice | Depends on |
+|---|-------|-----------|
+| 1 | **Federation Core** — E2EE peer pairing, mDNS discovery, consent-scoped federated query primitive, shared scoped namespaces, expertise routing, protocol-layer RBAC, audit integration, invariant I17 | Phase 4 E2EE LAN + audit chain |
+| 2 | Team Vault + Multi-user/Quorum HITL | 1 |
+| 3 | Identity — SSO/OIDC/SAML + SCIM | 1 |
+| 4 | Org Policy Engine + Admin Console + Observability | 1 |
+| 5 | ChatOps (Slack/Teams bot, HITL-via-chat) | 1, 2 |
+| 6 | Cross-colleague intelligence (ghost reviewers, conflict detection, cloud janitor, huddle, tribal-knowledge, blast-radius preflight) | 1 |
+| 7 | Data Warehouse & BI connectors (Snowflake, Tableau, Looker, PowerBI, Monte Carlo, Bigeye) | 2, 3 |
+| 8 | Share & Virality primitives (`nimbus share`, verify-share, referral, recipe, replay) | 1, Phase 4 signing |
+| 9 | Deferred Phase 5 items (web clipper, Mendeley, Apple Mail/Cal, Workday, GitOps/ML writes) | mostly independent |
+
+Slices 2–8 may proceed in parallel once Slice 1 lands; Slice 7 waits on 2+3; Slice 9 is independent. Each slice maps to the feature subsections below as follows:
+
+- **Slice 1** ↔ "Federated Query Consent (foundational)" + the federation/namespace/discovery/conflict-detection parts of "Shared Infrastructure"
+- **Slice 2** ↔ "Shared Infrastructure" (Team Vault, Quorum HITL) + "Identity & Access" (Multi-user HITL)
+- **Slice 3** ↔ "Identity & Access" (SSO/OIDC/SAML, SCIM, role-based access control)
+- **Slice 4** ↔ "Shared Workflows & Policy" (org-level policy engine + enforcement) + "Admin & Observability"
+- **Slice 5** ↔ "ChatOps"
+- **Slice 6** ↔ "Shared Infrastructure" (ghost reviewers, cross-user conflict detection, cross-team cloud janitor) + "Shared Workflows & Policy" (huddle briefing, tribal-knowledge extraction, blast-radius preflight)
+- **Slice 7** ↔ "Data Warehouses & BI (SSO-gated)"
+- **Slice 8** ↔ "Share & Virality Primitives"
+- **Slice 9** ↔ "Deferred from Phase 5"
 
 #### Dependencies
 
@@ -842,16 +803,6 @@ Depends on Team Vault (above) so service-account / SSO credentials can be shared
 - [ ] **Admin console** — web UI served locally by the Gateway: user list, namespace health, connector status across the team, audit log viewer, policy editor
 - [ ] **Team audit log** — federation events appended to each member's local audit log; owner can request a merged view
 - [ ] **GDPR/compliance at org level** — `nimbus team purge --user <id>` removes a user's contributions from all shared namespaces; writes a signed deletion record
-
-#### Personal Federation (beyond the engineering team)
-
-The Phase 6 federation primitive is intentionally general — once two Gateways can share a scoped namespace, the same mesh primitive serves use cases that have **no cloud-vendor equivalent** because cloud agents cannot legally or commercially handle the data. This section calls out three: a personal CRM that no third party ever sees, family/couples shared agents for joint logistics that wouldn't otherwise survive a vendor's TOS, and a friend-group mode for the long tail of "I want an agent but trust no one with this data." Each builds on the federation channel + scoped namespaces + audit log without inventing new infrastructure.
-
-- [ ] **Personal CRM** — a `person` table extension + `interaction` item type that indexes a user's relational history from already-indexed connectors: email threads (Gmail / Outlook), calendar attendees (Google Calendar / Outlook), Slack DMs + tagged channels, LinkedIn export (manual import — no live connector), GitHub mentions. New built-in agent `nimbus contacts` answers "tell me about the last time I talked to Sara before our call," "who at Acme did I meet at the conference last year," "draft a follow-up to the people I had coffee with this week." Read-only; the data never leaves the machine. Cloud agents structurally cannot offer this because the data — joint communications, candid notes, social-graph inferences — is not data any third party can lawfully hold under most jurisdictions' privacy law for a multi-party relationship graph.
-- [ ] **Family / couples mode** — a `family` namespace shape with two-to-six paired Gateways federated via the mesh; shared item types limited to a conservative set (`event` from Calendar, structured `shopping_list` items, joint `expense` rows from Mercury / personal Stripe, custody/handover scheduling). HITL on every cross-device write. The shared namespace is **scoped narrower** than a team namespace — a contract test asserts no `email`, `pull_request`, `incident`, or work-item types are exposable through the family shape. Joint medical, joint financial, and joint legal data fall in the long tail of "no vendor can serve this" categories; family mode is the principled local answer.
-- [ ] **Friend-group mode** — same federation primitive as family mode, scoped to long-tail use cases that today have no cohesive home: D&D campaign trackers (initiative + party state + DM notes), fantasy-league rosters, "who's free this weekend" coordination across calendars without surrendering full calendar visibility, group-photo sharing without a cloud upload. The differentiating value is not the apps these replace — it's that there is no app combining them today *because* no cloud vendor wants the liability surface.
-- [ ] **Group-namespace policy fragments** — `[group.<name>].include_types = [...]` + `[group.<name>].exclude_services = [...]` enforced at the federation protocol layer; per-namespace HITL policy fragments live alongside the existing `nimbus.policy.toml` so a family namespace can carry stricter rules than a work namespace on the same Gateway.
-- [ ] **Privacy contract — narrowest-export-shape proof** — extends the existing privacy contract test: for every group/family namespace shape, the test asserts the federation protocol cannot expose any item type or `raw_meta` field not declared in the namespace shape. Verified by attempting a federated query for a non-included type and asserting empty result + audit log entry recording the rejected query.
 
 #### Share & Virality Primitives
 
@@ -1197,13 +1148,13 @@ Phase 5/6 already index model registry entries from MLflow / SageMaker / Vertex 
 
 #### Wave 5 — Extension Eval Framework (Marketplace prerequisite)
 
-This wave delivers the **author-facing eval surface** that Phase 5.5 Marketplace consumes as the quality column. Scoped narrowly to *extension authors*, not to end users — per-user calibration UIs are explicitly deferred until the post-Phase 5.5 install base supports statistically meaningful per-user sample sizes. The framing is **transparency, not comparison**: there are no "cloud equivalent cost" numbers (legally risky, gameable, and the providers reprice faster than we can chase). The framing is "here's what this extension scored against its own evals on a reproducible harness."
+This wave delivers the **author-facing eval surface** that the Phase 9.5 Marketplace consumes as the quality column. Scoped narrowly to *extension authors*, not to end users — per-user calibration UIs are explicitly deferred until the post-Phase 9.5 install base supports statistically meaningful per-user sample sizes. The framing is **transparency, not comparison**: there are no "cloud equivalent cost" numbers (legally risky, gameable, and the providers reprice faster than we can chase). The framing is "here's what this extension scored against its own evals on a reproducible harness."
 
 - [ ] **`nimbus eval` CLI + runner** — `nimbus eval [--extension <id>] [--suite <path>] [--json]`. Reads `evals/*.yaml` from the extension's package root (a frozen schema with `name`, `input`, `expected`, `rubric`, `weight` fields), runs each case against the extension's MCP tool surface inside the same sandbox the gateway uses at runtime (`I15`), and writes a deterministic numeric score plus a per-rubric breakdown. Output format is the canonical input to the marketplace quality column.
 - [ ] **Eval schema in `@nimbus-dev/sdk`** — frozen at SDK v1.1.0 (additive minor bump, no breaking change). Authors `import { defineEvalSuite } from "@nimbus-dev/sdk/eval"` and get a typed schema with editor autocomplete. Schema covers deterministic rubrics (string match, JSON shape match, set membership) only in v1; LLM-as-judge rubrics are a v1.2 follow-up (gated on a regression study against the deterministic baseline).
-- [ ] **Registry-side reproducibility check** — the Phase 5.5 publish hook re-runs `nimbus eval` in a fresh registry-side sandbox against the author-declared suite and verifies the score matches what the author submitted (within rounding). Mismatches reject the publish. Closes the "authors ship evals that pass for them but not anyone else" attack vector.
+- [ ] **Registry-side reproducibility check** — the Phase 9.5 publish hook re-runs `nimbus eval` in a fresh registry-side sandbox against the author-declared suite and verifies the score matches what the author submitted (within rounding). Mismatches reject the publish. Closes the "authors ship evals that pass for them but not anyone else" attack vector.
 - [ ] **Quality score persistence** — score + per-rubric breakdown stored as a signed field in the manifest at publish time; the gateway carries it in the extension registry table; the Tauri marketplace tile reads it directly with no live registry call. Score is part of the `I16`-signed manifest, so it cannot be tampered post-publish.
-- [ ] **Local quality regression test for end users** — `nimbus eval --installed` runs every installed extension's declared suite against the local environment. Useful for the user who wants to confirm an extension still scores what the marketplace claimed when their local connectors are configured. Exit code 1 on a configurable regression threshold; integrates with the auto-update HITL prompt (see Phase 5.5 "Quality regression watcher").
+- [ ] **Local quality regression test for end users** — `nimbus eval --installed` runs every installed extension's declared suite against the local environment. Useful for the user who wants to confirm an extension still scores what the marketplace claimed when their local connectors are configured. Exit code 1 on a configurable regression threshold; integrates with the auto-update HITL prompt (see Phase 9.5 "Quality regression watcher").
 - [ ] **Built-in agent eval suites** — the first-party `expert`, `impact`, `catchup`, `oncall`, `meeting-prep`, `standup`, `model-health`, `rag-health` agents ship with `evals/*.yaml` of their own. The CI gate runs them on every PR and refuses regressions beyond a threshold (default 5 points). The agents are dogfooding the framework before the registry hook does.
 - [ ] **Transparency-framed cost surface (not comparison)** — every brief output by the built-in agents carries a footer: `tokens: <local-count>, outbound: <count> calls, time: <wallclock-ms>`. **No "cloud equivalent" numbers** — the framing is "here's what we used," not "here's what a different product would have charged." Easy to add later if competitive framing becomes a deliberate marketing choice; safer to omit by default.
 
@@ -1234,11 +1185,79 @@ User-facing trust surfaces. "AI safety" as a product feature, not a marketing wo
 - AI cost watcher fires on a 50 % daily-spend spike against the 7-day rolling baseline; surfaces in morning briefing with per-key attribution
 - Policy-violation watcher blocks an LLM call routing to a non-policy model class (verified via LLM router integration test); decision recorded in audit log
 - Privacy contract: no LLM trace body content is exfiltrated; only per-trace metadata (latency, cost, model id, success/error) is indexed unless the user explicitly opts in via `[ai_engineering].index_trace_bodies = true`
-- Wave 5 reproducibility gate: `nimbus eval --extension <id>` against a sample first-party extension produces the same numeric score (within rounding) inside a fresh sandbox as the score persisted in that extension's signed manifest at publish time — verified by an integration test that publishes a test extension, fetches it back, runs `nimbus eval`, and asserts equality. This is the property Phase 5.5's registry-side reproducibility check depends on.
+- Wave 5 reproducibility gate: `nimbus eval --extension <id>` against a sample first-party extension produces the same numeric score (within rounding) inside a fresh sandbox as the score persisted in that extension's signed manifest at publish time — verified by an integration test that publishes a test extension, fetches it back, runs `nimbus eval`, and asserts equality. This is the property Phase 9.5's registry-side reproducibility check depends on.
 - Wave 5 built-in-agent CI gate: the first-party `expert`, `impact`, `catchup`, `oncall`, `meeting-prep`, `standup`, `model-health`, `rag-health` agents each ship with an `evals/*.yaml` suite; the CI gate refuses PRs that drop any agent's score by more than 5 points.
 - Wave 6: `nimbus audit calibration` against a seeded session history (100 user corrections across 5 agents) produces a per-agent Brier score and renders a 2-D calibration scatter in the Tauri dashboard
 - Wave 6: the bias-detector diagnostic against a controlled fixture (seeded reviewer-recommendation history with a known skew) correctly identifies the gender / recency / seniority / coverage axis the skew is on, with no false positive on a balanced fixture
 - Wave 6: `nimbus audit refusals` lists every refusal of the seeded session with reason code and originating query; contesting a refusal (`--contest <refusal-id>`) opens the would-be tool call for the user to inspect
+
+---
+
+### Phase 9.5 — Marketplace Registry
+
+**Goal:** Turn the connector + extension ecosystem into a discoverable, trustworthy, quality-scored economy without yet operating a payment processor. The v0.1.1 trigger "5 seed community extensions in the registry" is elevated to a full phase because the marketplace is the **ecosystem flywheel** that compounds every other piece of work — once authors are publishing, every new SaaS the world produces becomes a Nimbus connector within days. Payments wait until install base is large enough to support author rent (post-Phase 12); this phase ships the **registry, the quality layer, and the trust layer** only.
+
+> **Composes with Phase 9 (AI Engineering Loop):** quality scores in the marketplace listing are produced by the **`nimbus eval` framework** delivered in Phase 9 Wave 5 — see [§ Phase 9 → Wave 5](#phase-9--ai-engineering-loop). Wave 5 is a hard prerequisite delivered in the immediately preceding phase, so the marketplace UI consumes its quality scores from day one.
+>
+> **Composes with the S — Standards track:** registry-published extensions carry a Signed Connector Manifest produced by the same `I16` Ed25519 chain the Gateway already enforces at install + startup. The published manifest schema is the reference implementation for the SCM artifact in the [§ S — Standards (cross-phase)](#s--standards-cross-phase) track.
+
+#### Dependencies
+
+- Phase 3 Extension Registry v1 (manifest + sandbox + signing infra)
+- Phase 4 Plugin API v1 frozen + `@nimbus-dev/sdk` v1.0.0 published
+- Phase 4 `I16` extension-signature verification (publisher Ed25519 chain)
+- Phase 9 Wave 5 — `nimbus eval` framework + quality-score persistence (gating the marketplace UI's quality column)
+- Phase 4 auto-update daemon (`extension.checkForUpdates` / `extension.update` IPC; CLI-only)
+
+#### Hosted Registry
+
+- [ ] **`registry.nimbus-agent.dev`** — public read-only HTTP registry serving signed extension manifests + tarball URLs + version metadata. **No user accounts on the registry itself.** Authors publish via a one-shot signed POST whose payload is verified against a public-key chain rooted in the publisher Ed25519 key — the same chain `I16` already enforces at install. Registry is stateless against authorship: the keys are the identity. Static-hosting-friendly (S3 / R2 / GCS + CDN); no relational database; manifest index materialized from the on-disk tarball tree on each publish.
+- [ ] **Author publishing flow** — `nimbus extension publish` CLI: signs the manifest with the publisher key, uploads the tarball + manifest to the registry, returns a registry URL. Idempotent against a `<id>@<version>` tuple; refuses to overwrite an existing version (`I16` chain integrity). Pre-publish runs `nimbus eval` against the extension's declared eval suite (see Phase 9 Wave 5) and persists the score into the manifest.
+- [ ] **`nimbus extension search <query>` + `nimbus extension info <id>`** — CLI surfaces over the registry's manifest index. Output includes install count, quality score, last-published date, publisher verification status, declared `permissions`, and the cryptographic fingerprint of the signing key.
+- [ ] **Manifest browser at `nimbus-agent.dev/extensions`** — static-site catalog with search + filter by category / connector kind / quality threshold / verified-publisher only. Renders per-extension pages with the README, sandbox manifest, eval-suite summary, and the install command. No JavaScript on the read path; static HTML so it's archivable + auditable.
+
+#### Private & Composable Registries
+
+- [ ] **"Bring your own registry"** — `nimbus config set registry.url https://internal.acme.corp/nimbus` points the CLI + Tauri UI at a private registry (queried instead of, or alongside, the public `registry.nimbus-agent.dev`). Each private registry carries its **own publisher trust root**: a per-registry baked pubkey set so an enterprise's internal extensions verify against the `I16` chain without trusting public keys. A static S3 / R2 / GCS bucket is a valid registry — no relational DB required. The on-ramp for enterprises whose internal connectors (bespoke deploy engines, internal HR systems) can never be published to the public internet; bridges the gap before the Phase 12 enterprise features.
+- [ ] **Extension dependencies** — extensions declare dependencies on other extensions in `nimbus.extension.json` (e.g. `"dependencies": {"github-connector": ">=1.2.0"}`); `nimbus extension install` resolves and installs the tree. **Scoped conservatively for v1:** exact-pin + explicit-trust only — every transitive dependency is surfaced and must be trusted by the user before install; no naive semver auto-resolution, because a silently-pulled transitive dependency would expand the sandbox/signature trust surface past what the user chose. Lets a community "Code Review Agent" depend on the official GitHub connector instead of reinventing auth + indexing.
+- [ ] **Starter packs (curated collections)** — publish + install named bundles: `nimbus extension install @nimbus/frontend-pack` pulls Vercel + Figma + Sentry + a React-expert agent in one step. A pack is a thin meta-manifest listing member extensions; install reuses the dependency resolver above. Turns first-run from a scavenger hunt into a one-click persona setup (DevSecOps / Frontend / PM).
+
+#### Quality Layer
+
+- [ ] **Quality score surfaced in marketplace UI** — both the CLI (`nimbus extension info`) and the Tauri Marketplace panel (already shipped in Phase 4 WS5-D) read the per-extension quality score persisted at publish time via Phase 9 Wave 5. Score is a numeric 0–100 plus a per-rubric breakdown (mandatory tool surface, HITL declaration correctness, item id format compliance, contract-test pass rate, eval-suite pass rate against the author's own evals).
+- [ ] **Cross-author eval cross-check** — the registry-side publish hook re-runs the contract tests in a fresh Bun sandbox before accepting the publish, so an author cannot ship a passing score they couldn't reproduce. The contract-test suite from `@nimbus-dev/sdk` is the canonical source.
+- [ ] **Quality regression watcher** — when an installed extension publishes a new version with a quality score lower than the installed version's score by more than a configurable threshold (default 10 points), the auto-update daemon **does not** apply the update; it queues an HITL prompt with the regression breakdown. Composes with the Phase 4 auto-update daemon.
+- [ ] **Permission transparency at install** — surface the exact sandbox permissions an extension declares (network hosts, filesystem read/write scope), read from the `I15` `ServerSpec` the sandbox already enforces, prominently on the registry page, in `nimbus extension info`, and in the interactive install confirmation. The Quality Score **auto-penalizes over-requesting**: an extension that declares `*` network or full-filesystem-write but is categorically a formatter is marked down, nudging authors toward least privilege. Composes with the Phase 9 Wave 5 eval framework that computes the score.
+- [ ] **`nimbus extension audit`** — observes what an installed extension *actually* calls at runtime (outbound hosts hit, filesystem paths touched) versus what its manifest *declared*, and flags drift (declared `*`, only ever contacted `api.github.com`). Feeds observed evidence back into the permission-transparency penalty so the Quality Score reflects real behaviour, not self-reported manifests. Built on the `I15` sandbox + the egress-ledger primitive (Phase 8 Wave 4).
+- [ ] **Connector liveness + golden-transcript replay** — connectors rot when the upstream SaaS API changes. The publish hook records a connector's MCP responses against a fixture once (the "golden transcript"); a periodic registry-side probe replays them to detect API drift **with no live call against any user's data**, and surfaces a "works as of `<date>`" freshness badge in the catalog. A connector whose golden transcript no longer reproduces is flagged stale.
+
+#### Trust Layer (Verified Publishers)
+
+- [ ] **Verified Publisher tier** — annual subscription ($X/yr; pricing decided when the tier opens, not on this commit) that funds the signing + verification operation. Subscribers get: (a) a checkmark next to their publisher name in CLI + marketplace, (b) their publisher key pre-shipped in the gateway's trust store so end users do not have to fetch it on first install, (c) KYC + abuse-monitoring SLA. Verification is on the **publisher**, not on individual extension quality.
+- [ ] **Pre-shipped trust store + first-install offline path** — gateway ships with a baked-in JSON manifest of verified-publisher pubkeys. Installing a verified-publisher extension from a tarball with no network call still verifies against this baked store. Refreshed on each gateway release; an out-of-band update mechanism is **explicitly out of scope** for this phase (the gateway release cadence is the rotation cadence; emergency publisher-key revocation is a Phase 12 enterprise concern).
+- [ ] **Publisher key rotation procedure** — documented one-time rotation flow: publisher signs a "next pubkey" announcement with the *current* key; the next gateway release picks it up; subsequent installs verify against the new key. No automated revocation list (CRL) — too much infra for this phase.
+- [ ] **Abuse reporting + takedown** — `nimbus extension report <id>` posts a structured complaint to a maintainer inbox. Takedowns are a manual moderation action that removes the manifest from the registry index (the tarball is left in place under its content-addressed URL — anyone who explicitly trusts the content hash can still install). Logged in a public moderation ledger so takedowns are themselves auditable.
+- [ ] **Reproducible-build / source-provenance attestation** — the registry verifies that a published tarball was built from the claimed source commit (SLSA-style build provenance) and records the attestation alongside the `I16` Ed25519 signature. The signature proves *who* published; the attestation proves *what source* it was built from. Surfaced as a "provenance verified" badge; verifiable offline against the baked trust store like the signature chain itself.
+
+#### Author Onboarding
+
+- [ ] **`nimbus connector init --from-openapi <url-or-path>`** — pre-M6 author tool that scaffolds a connector skeleton from an OpenAPI / AsyncAPI spec. Generates the manifest, the sync handler, the mapping function, and a contract test against the spec. Authors customize from there. Does **not** make the agent self-extending (that's still M6); it makes a human author 10× faster.
+- [ ] **20-extension grant program** — $1k/connector marketing spend to seed the registry with 20 community-authored extensions targeting categories the first-party set under-serves (e.g., niche vertical SaaS, regional SaaS, OSS tooling). Treated as marketing budget, not marketplace seed — authors keep the code AGPL or MIT under SDK terms; no Nimbus equity, no royalties.
+- [ ] **Extension Author Hub** — `nimbus-agent.dev/authors` static page consolidating: the SDK reference, the contract-test guide, the signing-keypair quickstart, the publishing workflow, the eval-suite authoring guide, the Verified Publisher application form, and the grant-program details.
+- [ ] **Author sponsorship** — a `funding` array in the extension manifest (GitHub Sponsors / Patreon / BuyMeACoffee / Stripe Payment Link); `nimbus extension sponsor <id>` opens the configured link and a "Sponsor Author" button appears on the registry page + Tauri Marketplace tile. Kickstarts the creator economy *before* the Marketplace v2 monetization (deferred to Phase 6) ships — zero payment infra on Nimbus's side, no tax, refund, or routing liability.
+- [ ] **`nimbus extension clone <id>`** — for any extension published under an open-source license, downloads the tarball, unpacks it locally, and registers it as a local development extension ready to edit. Reuses the existing dev-extension path (unsigned local code runs in the sandbox; signature verification is bypassed for local dev only). Makes "fork the community Code-Reviewer agent and tweak its system prompt for our C++ style guide" a one-command operation; leans into the open-source ethos.
+
+#### Acceptance Criteria
+
+- `registry.nimbus-agent.dev` is live and serves at least 30 distinct extensions (the 15 first-party Phase 5 connectors that migrate plus the 15 first-completed grant-program submissions) with valid signed manifests verifiable against the Phase 4 `I16` chain.
+- `nimbus extension publish` round-trips against the live registry: a new version of a test connector is published, becomes searchable, installs cleanly on a fresh gateway, and verifies the signature offline against the baked trust store.
+- At least 5 Verified Publishers (counted by distinct pubkeys, not extensions) are active and their keys are baked into the current gateway release's trust store; an installer of one of their extensions never sees a "publisher unknown" warning.
+- Phase 9 Wave 5 quality scores appear on every published extension's registry page and Tauri Marketplace tile; the score is reproducible by running `nimbus eval --extension <id>` locally and matches within rounding.
+- The quality-regression watcher fires on a controlled test: a v1.0.1 published with a deliberately worse eval-suite score does not auto-update an installed v1.0.0, and surfaces a structured HITL prompt with the per-rubric delta.
+- The abuse-reporting + takedown flow is exercised once against a deliberately-misbehaving test extension submitted by a maintainer; the takedown appears in the public moderation ledger within the agreed SLA.
+- Installing an extension that declares `*` network access surfaces an interactive over-request warning in both the CLI and Tauri install flow, and its registry Quality Score shows the least-privilege penalty.
+- `nimbus extension clone <id>` on an MIT/AGPL-licensed published extension round-trips to an editable local development extension that spawns in the sandbox without a signature error.
+- An extension installed from a configured private registry verifies its signature against that registry's own publisher trust root with no call to `registry.nimbus-agent.dev`.
 
 ---
 
@@ -1856,13 +1875,13 @@ Native package-manager distribution; gated independently of the desktop tag, may
 - Phase 4 multi-agent orchestration + LLM router + Plugin API v1
 - Phase 5 Tier-1 connectors landed (Stripe, Mercury, Intercom, Zendesk, Greenhouse, Lever — already shipped; remaining tiers in flight)
 - Phase 9 Wave 5 eval framework (each persona agent ships with `evals/*.yaml` and is gated by it)
-- Phase 5.5 marketplace registry (long-tail personas land as community extensions; first-party set bounded)
+- Phase 9.5 marketplace registry (long-tail personas land as community extensions; first-party set bounded)
 
 #### Persona Briefs (read-only built-in agents)
 
 - [ ] **`nimbus founder` — solo-founder dashboard** — parallel sub-agents over Stripe (MRR / ARR / churn / top customers), Mercury (runway / burn rate / inflows), Intercom + Zendesk (top customer questions this week), Calendar (sales-call prep for the next 7 days), GitHub (this week's commits-to-features attribution). Output is a Markdown brief structured as: Money, People, Product, Calendar. Read-only; no HITL. **Composes with Stripe + Mercury connectors already shipped.** Daily watcher variant pushes the brief on the user's configured morning schedule. Cloud agents structurally can't do this — they don't have read access to Stripe + Mercury + Intercom + Calendar in one place under any reasonable enterprise contract.
 - [ ] **`nimbus maintainer` — open-source maintainer brief** — for OSS maintainers running Nimbus against their own project: parallel sub-agents over GitHub (new issues + pattern-match against historical bug clusters via the relationship graph, "this is a duplicate of #1234" detection, PR reviewer recommendations via the people graph, neglected PRs sorted by age × contributor seniority), Discord / Slack community channels (top-N questions asked but unanswered this week, sentiment trend), Linear (if the project uses it). Output is a Markdown brief structured as: Issues, PRs, Community, Contributors. Read-only; no HITL. **High-status audience** — OSS maintainers are advocates and influencers; this is a recruitment vector disguised as a feature.
-- [ ] **`nimbus creator` — indie-creator analytics agent** — for YouTubers / Patreon creators / Twitch streamers / newsletter-runners: pulls from a thin set of indexed connectors (YouTube Analytics export via the existing Filesystem v2 path, Patreon API, Twitch API, ConvertKit / Substack / Beehiiv export, Stripe for creator-economy revenue, Discord for community engagement). Output: per-week brief on what your audience asked for, which content matched, where churn fired, which platform's audience is most engaged. New first-party connectors here are minimal — most data lands via filesystem export from creator-platform CSVs. **Stretch:** dedicated YouTube + Patreon + Twitch MCP connectors land as community extensions per the Phase 5.5 marketplace pattern.
+- [ ] **`nimbus creator` — indie-creator analytics agent** — for YouTubers / Patreon creators / Twitch streamers / newsletter-runners: pulls from a thin set of indexed connectors (YouTube Analytics export via the existing Filesystem v2 path, Patreon API, Twitch API, ConvertKit / Substack / Beehiiv export, Stripe for creator-economy revenue, Discord for community engagement). Output: per-week brief on what your audience asked for, which content matched, where churn fired, which platform's audience is most engaged. New first-party connectors here are minimal — most data lands via filesystem export from creator-platform CSVs. **Stretch:** dedicated YouTube + Patreon + Twitch MCP connectors land as community extensions per the Phase 9.5 marketplace pattern.
 - [ ] **`nimbus academic` — research mode** — for researchers / grad students / academics: parallel sub-agents over Zotero (citation graph traversal, "which papers cite paper X that I've already read"), arXiv exports / RSS feeds (new papers in user-configured topic categories matched against the user's bibliography), Readwise / Raindrop (the user's own highlights + saved articles), filesystem (LaTeX project tree → "which papers are cited but not yet read"). Output: a "literature review pulse" brief per topic + per-paper "context" briefs ("what does my existing reading say about this paper's claims"). Closes the "Mendeley/Zotero never had AI" gap. Read-only; no HITL.
 - [ ] **`nimbus taxes` — annual tax-prep agent** — once-a-year flagship feature. Assembles a CPA-ready bundle from Stripe + Mercury + Expensify (Phase 5 deferred) + Ramp (Phase 5 deferred) + Mercury (the connector already shipped surfaces transactions but not categorized — the agent does the categorization). Output: a `.zip` containing categorized expense tables (XLSX + CSV), 1099 / international-equivalent receipt index, charitable-contribution summary, business-vs-personal split, cover memo. Annual willingness-to-pay is enormous; sticky feature; cloud agents can't legally aggregate financial data across providers under most consumer banking T&Cs.
 - [ ] **`nimbus health` — personal health-data brief (stretch)** — opt-in, off by default. For users who import Apple Health / Garmin / Whoop / Strava data via filesystem export, the agent surfaces a weekly brief: sleep + recovery trends, training load, anomalies. **Strict privacy contract:** the data never leaves the machine; the connector is read-only; the data is excluded from any federated namespace by default; a contract test asserts no `health.*` item type can be exposed in a Phase 6 federation namespace. Cloud agents face HIPAA-like constraints that make this category radioactive for them.
@@ -1932,6 +1951,35 @@ The flagship ambient surface. Promoted from Phase 13.5 stretch to Phase 19 core 
 
 ---
 
+### Phase 20 — Personal & Household Federation
+
+**Goal:** Extend the Phase 6 federation primitive to consumer/household use cases that have **no cloud-vendor equivalent** — a personal CRM no third party ever sees, family/couples shared agents for joint logistics, and friend-group coordination — without compromising the local-first, no-relay, HITL-gated architecture.
+
+> **Relocated from Phase 6** per guiding-principle #7 (Nimbus is built for professionals; consumer-oriented affordances are out of scope for the professional phases). These modes build **for free** on the Phase 6 Slice 1 federation core — no new infrastructure, only narrower namespace shapes and a different audience. Sequenced this late deliberately: the professional team-federation surface (Phase 6) must prove out first. A *professional* form of the narrowest-export-shape privacy proof stays in Phase 6 Slice 1; the family-namespace variant lives here.
+
+#### Dependencies
+
+- Phase 6 Slice 1 — Federation Core (E2EE peer pairing, scoped namespaces, the consent-scoped federated query primitive, audit integration)
+- Phase 6 federation protocol-layer RBAC + the narrowest-export-shape privacy contract (professional form)
+
+#### Personal & Household Federation
+
+The federation primitive is intentionally general — once two Gateways can share a scoped namespace, the same mesh primitive serves use cases that cloud agents cannot legally or commercially handle.
+
+- [ ] **Personal CRM** — a `person` table extension + `interaction` item type that indexes a user's relational history from already-indexed connectors: email threads (Gmail / Outlook), calendar attendees, Slack DMs + tagged channels, LinkedIn export (manual import), GitHub mentions. New built-in agent `nimbus contacts` answers "tell me about the last time I talked to Sara before our call," "who at Acme did I meet at the conference last year," "draft a follow-up to the people I had coffee with this week." Read-only; data never leaves the machine.
+- [ ] **Family / couples mode** — a `family` namespace shape with two-to-six paired Gateways; shared item types limited to a conservative set (`event` from Calendar, structured `shopping_list` items, joint `expense` rows, custody/handover scheduling). HITL on every cross-device write. A contract test asserts no `email`, `pull_request`, `incident`, or work-item types are exposable through the family shape.
+- [ ] **Friend-group mode** — same federation primitive as family mode, scoped to long-tail use cases with no cohesive home today: D&D campaign trackers, fantasy-league rosters, "who's free this weekend" coordination without surrendering full calendar visibility, group-photo sharing without a cloud upload.
+- [ ] **Group-namespace policy fragments** — `[group.<name>].include_types = [...]` + `[group.<name>].exclude_services = [...]` enforced at the federation protocol layer; per-namespace HITL policy fragments live alongside `nimbus.policy.toml` so a family namespace can carry stricter rules than a work namespace on the same Gateway.
+- [ ] **Privacy contract — narrowest-export-shape proof (household variant)** — for every group/family namespace shape, the test asserts the federation protocol cannot expose any item type or `raw_meta` field not declared in the namespace shape. Verified by attempting a federated query for a non-included type and asserting empty result + audit log entry recording the rejected query.
+
+#### Acceptance Criteria
+
+- Two paired personal Gateways share a `family` namespace; a contract test asserts no `email`, `pull_request`, `incident`, or work-item type is exposable through the family shape.
+- `nimbus contacts` answers a relational-history query entirely from the local index with no outbound call.
+- A federated query for a non-included type against a group namespace returns an empty result plus an audit-log entry recording the rejected query.
+
+---
+
 ### North-Star Capabilities (cross-phase)
 
 Audience-agnostic "no other tool does this" pillars, each enabled **because** of local-first / no-relay / HITL / audit. They thread through several phases rather than living in one; M1 and M3 are each strong enough to anchor a late phase.
@@ -1989,14 +2037,14 @@ Three of the four original standardization candidates (LAIP, PAT, SCM) are demot
 
 - [ ] **LAIP (Local Agent Interop Protocol)** — internal wire format for Nimbus-to-Nimbus federation (Phase 6, Phase 11). Documented in `docs/protocols/laip.md` as an internal spec. Not pursued as an external standard — bilateral protocol adoption requires industry incentive that doesn't exist.
 - [ ] **PAT (Portable Agent Trace)** — internal format for the M3 replay trace (reasoning + evidence + decision path). Documented as part of the M3 substrate work. The cross-agent handoff exporter (`nimbus export-session`) writes PAT; importers in Claude Code / Cursor are demoted from "phase deliverable" to "demo + courtesy bridge if a third party wants to consume it." No bet on bilateral adoption.
-- [ ] **SCM (Signed Connector Manifest)** — already implemented as the `I16` chain; the Phase 5.5 published manifest schema is its reference implementation. Documented as a section of the Phase 5.5 spec rather than a standalone RFC.
+- [ ] **SCM (Signed Connector Manifest)** — already implemented as the `I16` chain; the Phase 9.5 published manifest schema is its reference implementation. Documented as a section of the Phase 9.5 spec rather than a standalone RFC.
 
 #### Acceptance Criteria (track-level, not gated by a single phase)
 
 - EAF v0.1 + its verifier CLI + its conformance fixtures are published and reachable from `docs/standards/eaf/`.
 - Phase 12.5 bundles include EAF artifacts that the `eaf-verify` binary validates offline against the published Nimbus issuer pubkey.
 - At least one third party (an auditor, a security consultancy, or another local-first agent vendor) has run `eaf-verify` against a Nimbus-produced artifact and provided feedback — even rejecting feedback counts; the existence of an outside reader proves the artifact has crossed a credibility threshold.
-- The PAT and LAIP internal specs are documented enough that a future contributor can implement against them; SCM's reference implementation matches the Phase 5.5 manifest schema 1:1.
+- The PAT and LAIP internal specs are documented enough that a future contributor can implement against them; SCM's reference implementation matches the Phase 9.5 manifest schema 1:1.
 
 ---
 
