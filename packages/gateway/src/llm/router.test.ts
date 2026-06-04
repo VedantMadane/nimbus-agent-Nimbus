@@ -194,6 +194,98 @@ describe("LlmRouter context window overflow", () => {
   });
 });
 
+describe("LlmRouter.getStatus", () => {
+  test("populates modelName from localModel for ollama", async () => {
+    const router = new LlmRouter(DEFAULT_CONFIG);
+    router.registerProvider(makeFakeProvider("ollama", true));
+    const status = await router.getStatus();
+    expect(status.classification?.modelName).toBe(DEFAULT_CONFIG.localModel);
+  });
+
+  test("populates modelName from remoteModel for remote", async () => {
+    const config: LlmRouterConfig = { ...DEFAULT_CONFIG, preferLocal: false };
+    const router = new LlmRouter(config);
+    router.registerProvider(makeFakeProvider("remote", true));
+    const status = await router.getStatus();
+    expect(status.classification?.modelName).toBe(DEFAULT_CONFIG.remoteModel);
+  });
+
+  test("isAvailable is true when provider is reachable", async () => {
+    const router = new LlmRouter(DEFAULT_CONFIG);
+    router.registerProvider(makeFakeProvider("ollama", true));
+    const status = await router.getStatus();
+    expect(status.agent_step?.isAvailable).toBe(true);
+  });
+
+  test("isAvailable is false when preferred provider is registered but unreachable", async () => {
+    const router = new LlmRouter(DEFAULT_CONFIG);
+    router.registerProvider(makeFakeProvider("ollama", false));
+    const status = await router.getStatus();
+    expect(status.classification?.isAvailable).toBe(false);
+    expect(status.classification?.providerId).toBe("ollama");
+  });
+
+  test("returns undefined for task when no provider is registered at all", async () => {
+    const router = new LlmRouter(DEFAULT_CONFIG);
+    const status = await router.getStatus();
+    expect(status.classification).toBeUndefined();
+  });
+
+  test("reason is prefer-local when preferLocal=true and local provider selected", async () => {
+    const router = new LlmRouter(DEFAULT_CONFIG);
+    router.registerProvider(makeFakeProvider("ollama", true));
+    const status = await router.getStatus();
+    expect(status.classification?.reason).toBe("prefer-local");
+  });
+
+  test("reason is prefer-remote when preferLocal=false and remote provider selected", async () => {
+    const config: LlmRouterConfig = { ...DEFAULT_CONFIG, preferLocal: false };
+    const router = new LlmRouter(config);
+    router.registerProvider(makeFakeProvider("remote", true));
+    const status = await router.getStatus();
+    expect(status.classification?.reason).toBe("prefer-remote");
+  });
+
+  test("reason is air-gap when enforceAirGap=true and local provider selected", async () => {
+    const config: LlmRouterConfig = {
+      ...DEFAULT_CONFIG,
+      enforceAirGap: true,
+      preferLocal: true,
+    };
+    const router = new LlmRouter(config);
+    router.registerProvider(makeFakeProvider("ollama", true));
+    const status = await router.getStatus();
+    expect(status.classification?.reason).toBe("air-gap");
+  });
+
+  test("reason is no-local-provider when preferLocal=true but only remote is registered", async () => {
+    const router = new LlmRouter(DEFAULT_CONFIG);
+    router.registerProvider(makeFakeProvider("remote", true));
+    const status = await router.getStatus();
+    expect(status.classification?.reason).toBe("no-local-provider");
+  });
+
+  test("reason is no-remote-provider when preferLocal=false but only local is registered", async () => {
+    const config: LlmRouterConfig = { ...DEFAULT_CONFIG, preferLocal: false };
+    const router = new LlmRouter(config);
+    router.registerProvider(makeFakeProvider("ollama", true));
+    const status = await router.getStatus();
+    expect(status.classification?.reason).toBe("no-remote-provider");
+  });
+
+  test("returns all four task types", async () => {
+    const router = new LlmRouter(DEFAULT_CONFIG);
+    router.registerProvider(makeFakeProvider("ollama", true));
+    const status = await router.getStatus();
+    expect(Object.keys(status).sort((a, b) => a.localeCompare(b))).toEqual([
+      "agent_step",
+      "classification",
+      "reasoning",
+      "summarisation",
+    ]);
+  });
+});
+
 describe("midTruncate", () => {
   test("returns string unchanged when shorter than maxChars", () => {
     expect(midTruncate("hello", 100)).toBe("hello");

@@ -138,26 +138,76 @@ export class LlmRouter {
     return meta.parameterCount >= this.config.minReasoningParams;
   }
 
+  private modelNameFor(providerId: LlmProviderKind): string {
+    // NOTE: this returns the global local/remote model from config. Per-task overrides set via
+    // llm.setDefault (stored in llm_task_defaults) are not consulted here because the router
+    // has no DB access. If per-task dispatch is wired to respect those overrides in the future,
+    // this method should be updated to accept a task argument and query the registry.
+    return LOCAL_PROVIDER_IDS.has(providerId) ? this.config.localModel : this.config.remoteModel;
+  }
+
+  private reasonFor(providerId: LlmProviderKind): string {
+    const isLocal = LOCAL_PROVIDER_IDS.has(providerId);
+    if (this.config.enforceAirGap && isLocal) return "air-gap";
+    if (this.config.preferLocal && isLocal) return "prefer-local";
+    if (!this.config.preferLocal && !isLocal) return "prefer-remote";
+    // Preference could not be satisfied (no matching provider registered).
+    if (this.config.preferLocal && !isLocal) return "no-local-provider";
+    return "no-remote-provider";
+  }
+
+  // Finds the highest-priority provider for a task based on config (priority order, capability
+  // floor, air-gap) WITHOUT calling isAvailable(). Used by getStatus() so that the status entry
+  // reflects config intent; isAvailable() is then probed separately.
+  private findPreferred(task: LlmTaskType): LlmProvider | undefined {
+    const orderedIds = this.providerPriority(task);
+    for (const id of orderedIds) {
+      if (this.config.enforceAirGap && !LOCAL_PROVIDER_IDS.has(id)) continue;
+      if (!this.meetsCapabilityFloor(id, task)) continue;
+      const provider = this.providers.get(id);
+      if (provider !== undefined) return provider;
+    }
+    return undefined;
+  }
+
   async getStatus(): Promise<
-    Record<LlmTaskType, { providerId: string; modelName: string; reason: string } | undefined>
+    Record<
+      LlmTaskType,
+      | { providerId: LlmProviderKind; modelName: string; isAvailable: boolean; reason: string }
+      | undefined
+    >
   > {
     const tasks: LlmTaskType[] = ["classification", "reasoning", "summarisation", "agent_step"];
     const out: Partial<
-      Record<LlmTaskType, { providerId: string; modelName: string; reason: string } | undefined>
+      Record<
+        LlmTaskType,
+        | { providerId: LlmProviderKind; modelName: string; isAvailable: boolean; reason: string }
+        | undefined
+      >
     > = {};
     for (const t of tasks) {
-      const provider = await this.selectProvider(t);
-      if (provider === undefined) {
+      const preferred = this.findPreferred(t);
+      if (preferred === undefined) {
         out[t] = undefined;
         continue;
       }
-      const isLocal = LOCAL_PROVIDER_IDS.has(provider.providerId);
-      const reason = !isLocal && this.config.enforceAirGap ? "air-gap bypassed" : "default";
-      out[t] = { providerId: provider.providerId, modelName: "", reason };
+      let isAvailable = false;
+      try {
+        isAvailable = await preferred.isAvailable();
+      } catch {
+        /* treat availability check failure as unavailable */
+      }
+      out[t] = {
+        providerId: preferred.providerId,
+        modelName: this.modelNameFor(preferred.providerId),
+        isAvailable,
+        reason: this.reasonFor(preferred.providerId),
+      };
     }
     return out as Record<
       LlmTaskType,
-      { providerId: string; modelName: string; reason: string } | undefined
+      | { providerId: LlmProviderKind; modelName: string; isAvailable: boolean; reason: string }
+      | undefined
     >;
   }
 

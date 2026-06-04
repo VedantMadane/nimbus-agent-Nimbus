@@ -121,10 +121,13 @@ export async function dispatchLlmRpc(
   return dispatchByMethod<LlmRpcContext>(method, params, ctx, {
     "llm.listModels": async (_p, c) => ({ models: await c.registry.listAllModels() }),
     "llm.getStatus": async (_p, c) => ({ available: await c.registry.checkAvailability() }),
+    "llm.status": async (_p, c) => ({ decisions: await c.registry.getRouterStatus() }),
     "llm.pullModel": handlePullModel,
     "llm.cancelPull": (p) => handleCancelPull(p),
     "llm.loadModel": (p, c) => handleLoadOrUnload("load", p, c),
     "llm.unloadModel": (p, c) => handleLoadOrUnload("unload", p, c),
+    // llm.getRouterStatus is superseded by llm.status (same payload, richer model data).
+    // Kept for backwards compatibility with existing clients; prefer llm.status for new callers.
     "llm.getRouterStatus": async (_p, c) => ({ decisions: await c.registry.getRouterStatus() }),
     "llm.setDefault": handleSetDefault,
   });
