@@ -90,7 +90,7 @@ Comments at `ipc/consent.ts:29`, `ipc/data-rpc.ts:23`, and `ipc/server/vault-dis
 
 ### Migrated rationale (2026-05-28)
 
-The comment at `ipc/lan-rpc.ts:17` documents the `FORBIDDEN_OVER_LAN` set inline: `"security"` is listed as "exfiltration-class — credential locations must not leak to LAN peers"; `"connector.addMcp"` as "arbitrary command execution over network"; `"extension.checkForUpdates"` and `"extension.update"` as CLI-only per T2 PR 3; `"index.reembed"` and `"index.reembedCancel"` as write-class index methods per T6 PR 3. The comment at `ipc/lan-server.ts:160` confirms that the `checkLanMethodAllowed` call occurs before `onMessage`, making it structurally impossible for a caller to bypass by passing through a different dispatcher. The comment at `ipc/reindex-rpc.ts:8` and `ipc/reindex-rpc.test.ts:56` call out that `connector.reindex` is in `FORBIDDEN_OVER_LAN`.
+The comment at `ipc/lan-rpc.ts:17` documents the `FORBIDDEN_OVER_LAN` set inline: `"security"` is listed as "exfiltration-class — credential locations must not leak to LAN peers"; `"connector.addMcp"` as "arbitrary command execution over network"; `"extension.checkForUpdates"` and `"extension.update"` as CLI-only per T2 PR 3; `"index.reembed"` and `"index.reembedCancel"` as write-class index methods per T6 PR 3; `"extension.install"`, `"extension.enable"`, `"extension.disable"`, and `"extension.remove"` as CLI-only extension management (install is RCE-class; enable/disable/remove fully forbidden matching `connector.addMcp`, not merely write-gated). The comment at `ipc/lan-server.ts:160` confirms that the `checkLanMethodAllowed` call occurs before `onMessage`, making it structurally impossible for a caller to bypass by passing through a different dispatcher. The comment at `ipc/reindex-rpc.ts:8` and `ipc/reindex-rpc.test.ts:56` call out that `connector.reindex` is in `FORBIDDEN_OVER_LAN`.
 
 ---
 
@@ -121,6 +121,8 @@ No inline comments were mapped to I6 in the triage. No additional subsection nee
 **How to comply:** when adding to `ALLOWED_METHODS`, verify the gateway handler exists, route any write through `HITL_REQUIRED`, and update the allowlist test that asserts every entry resolves to a real handler.
 
 **T2 PR 3 additions (2026-05-20):** `extension.checkForUpdates` (read-only cache surface) and `extension.update` (HITL-gated via `extension.autoUpdate` / `extension.downgrade`) joined the allowlist, bumping `allowlist_exact_size` from 60 to 62. `extension.install` stays absent — the marketplace install flow continues to use the Rust-native file picker so chain C1 cannot be reintroduced via the auto-update surface.
+
+**Phase 6 Slice 1 additions (2026-06-05):** `federation.discover`, `federation.namespace.grant`, `federation.namespace.publish`, `federation.namespace.revoke`, and `federation.peers` joined the allowlist (62 → 67). `federation.pair` is deliberately absent (CLI-only, transmits an out-of-band pairing code — same class as `lan.pair`). `federation.query` and `federation.expertise` are over-the-wire answering methods routed through `query-gate.ts` (I17) and are never renderer-callable.
 
 ### Migrated rationale (2026-05-28)
 
@@ -311,6 +313,23 @@ The comments at `extensions/install-from-local.ts:120,404,556,558` document the 
 
 ---
 
+## I17 — Federated answering is intrinsic to the query gate
+
+**Statement:** `answerFederatedQuery` in `federation/query-gate.ts` is the ONLY function that answers an inbound `federation.query`; it is the ONLY federation module that imports the item-list read path (`item-list-query`). It enforces grant + role + consent + the namespace's declared filter, returns only the leak-proof `FederatedItem` shape (never `metadata`/`author_id`/`external_id`), and audits every outcome into the Blake3 chain. Over the LAN wire only `federation.query` and `federation.expertise` are admitted (I5); all management methods (`federation.namespace.publish/grant/revoke`, `federation.pair`, `federation.peers`, `federation.discover`) are local/Tauri-only.
+
+**Wired at:**
+
+- `packages/gateway/src/federation/query-gate.ts` `answerFederatedQuery` — the sole function that reads index items in response to a peer query. Enforces the grant table, role check, consent gate, namespace filter, and the `FederatedItem` projection.
+- `packages/gateway/src/ipc/lan-rpc.ts` `FORBIDDEN_OVER_LAN` — the 6 management methods (`federation.namespace.publish`, `federation.namespace.grant`, `federation.namespace.revoke`, `federation.pair`, `federation.peers`, `federation.discover`) are listed here, leaving only `federation.query` and `federation.expertise` admitted over the wire (I5).
+- Enforced statically by **D13** in `scripts/structure-audit/check-nimbus-invariants.ts` — any federation module other than `query-gate.ts` that imports `item-list-query` causes `audit:invariants` to exit 1.
+- Runtime test in `packages/gateway/src/security-invariants.test.ts` — the `I17` describe block.
+
+**Anti-pattern:** a federation module other than `query-gate.ts` that imports `item-list-query` (or otherwise reads index items to answer a peer), bypassing the gate's declared-filter / consent / audit chain. Note: `peer-pairing.ts` legitimately imports `LocalIndex` for the lan_peers registry — that is NOT an item-answer path and is not blocked. `expertise.ts` reads a content-free `COUNT(*)` and returns only a rank — also fine.
+
+**How to comply:** any new path that answers a peer's data request must be routed through `answerFederatedQuery` in `query-gate.ts`, never by adding a second item-read import in another federation module.
+
+---
+
 ## How a new invariant is added
 
 1. The defense ships with at least one production caller — never an orphan helper function.
@@ -331,12 +350,12 @@ function dispatchToolCall(toolId: string, scope: ReadonlySet<string>) {
 }
 ```
 
-**2. Entry in this file** — a new `## I17 — Sub-agent tool scope enforcement` section (the next free number after the current `I16`) naming the defense, the wiring site (`sub-agent.ts:dispatchToolCall`), the anti-pattern (any code that bypasses `dispatchToolCall`, or any mutable scope container), and the compliance recipe (always frozen sets; never call `tools[id].invoke()` directly).
+**2. Entry in this file** — a new `## I18 — Sub-agent tool scope enforcement` section (the next free number after the current `I17`) naming the defense, the wiring site (`sub-agent.ts:dispatchToolCall`), the anti-pattern (any code that bypasses `dispatchToolCall`, or any mutable scope container), and the compliance recipe (always frozen sets; never call `tools[id].invoke()` directly).
 
 **3. Enforcement test** — in `packages/gateway/src/security-invariants.test.ts`:
 
 ```typescript
-test("I17 — sub-agent dispatcher checks frozen tool scope", () => {
+test("I18 — sub-agent dispatcher checks frozen tool scope", () => {
   const source = readFileSync(
     join(REPO_ROOT, "packages/gateway/src/engine/sub-agent.ts"),
     "utf8"

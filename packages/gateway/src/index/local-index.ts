@@ -266,7 +266,7 @@ export interface LanPeerRow {
   last_seen_at: string | null;
 }
 
-export const CURRENT_SCHEMA_VERSION = 32;
+export const CURRENT_SCHEMA_VERSION = 33;
 
 const ALLOWED_META_KEYS = new Set<string>(["onboarding_completed"]);
 
@@ -876,9 +876,10 @@ export class LocalIndex {
   }
 
   public getLanPeerByPubkey(pubkey: Uint8Array): LanPeerRow | undefined {
-    return this.db
+    const row = this.db
       .query(`SELECT * FROM lan_peers WHERE peer_pubkey = ?`)
-      .get(Buffer.from(pubkey)) as LanPeerRow | undefined;
+      .get(Buffer.from(pubkey)) as LanPeerRow | null;
+    return row ?? undefined;
   }
 
   close(): void {

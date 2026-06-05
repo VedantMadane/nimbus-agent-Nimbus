@@ -43,9 +43,17 @@ export const EXCLUSIONS: readonly ExclusionPattern[] = Object.freeze([
   { kind: "exact", path: "packages/cli/src/commands/tui.tsx" },
   { kind: "exact", path: "packages/cli/src/commands/repl.ts" },
   { kind: "exact", path: "packages/cli/src/commands/doctor.ts" },
+  // `team.ts` runTeam is a CLI IPC command shell (no injection seam); the testable
+  // parseTeamArgs is covered by team.test.ts. Same exemption class as start/repl/doctor.
+  { kind: "exact", path: "packages/cli/src/commands/team.ts" },
 
   { kind: "exact", path: "packages/gateway/src/connectors/lazy-mesh/slot.ts" },
   { kind: "exact", path: "packages/gateway/src/ipc/server/options.ts" },
+  // `assemble.ts` is the boot-assembly I/O orchestrator (opens SQLite, spawns sidecars,
+  // wires every runtime together) — same untestable shell class as `gateway/src/index.ts`
+  // and `ipc/server/options.ts`. The new federation glue block is inert by default
+  // (federation.enabled = false); testing it requires a full subprocess boot.
+  { kind: "exact", path: "packages/gateway/src/platform/assemble.ts" },
   { kind: "exact", path: "packages/gateway/src/embedding/embedding-runtime.ts" },
   { kind: "exact", path: "packages/gateway/src/index/ranked-item.ts" },
   { kind: "exact", path: "packages/gateway/src/vault/nimbus-vault.ts" },
@@ -70,6 +78,13 @@ export const EXCLUSIONS: readonly ExclusionPattern[] = Object.freeze([
   // (mapping, cursor, transient-failure handling) lives in `imap-sync.ts` +
   // `imap-email-mapping.ts`, which ARE covered.
   { kind: "exact", path: "packages/gateway/src/connectors/_lib/imap-client.ts" },
+
+  // MdnsDiscoveryProvider is a thin bonjour-service socket shell (advertise/browse
+  // _nimbus._tcp) with no injection seam — real multicast can't run on CI, so it's
+  // exercised only by the skippable Task 15 mDNS E2E. The testable discovery logic
+  // (DiscoveryProvider interface + InMemoryDiscoveryProvider) lives in discovery.ts,
+  // which IS covered.
+  { kind: "exact", path: "packages/gateway/src/federation/mdns-discovery-provider.ts" },
 
   { kind: "pathRegex", re: /^packages\/mcp-connectors\/[^/]+\/src\/server\.ts$/ },
   // Each MCP connector's `src/tools.ts` is the same connect-shell class as its

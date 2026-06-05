@@ -89,3 +89,59 @@ describe("security namespace over LAN", () => {
     ).toThrow(LanError);
   });
 });
+
+describe("extension management over LAN (I5 — CLI-only)", () => {
+  test("install/enable/disable/remove are forbidden over LAN regardless of grant-write", () => {
+    for (const m of [
+      "extension.install",
+      "extension.enable",
+      "extension.disable",
+      "extension.remove",
+    ]) {
+      // forbidden even with writeAllowed: true (fully forbidden, not merely write-gated)
+      expect(() => checkLanMethodAllowed(m, { peerId: "p", writeAllowed: true })).toThrow(LanError);
+      expect(() => checkLanMethodAllowed(m, { peerId: "p", writeAllowed: false })).toThrow(
+        LanError,
+      );
+    }
+  });
+
+  test("extension.install rejection is ERR_METHOD_NOT_ALLOWED (not merely write-forbidden)", () => {
+    let thrown: LanError | undefined;
+    try {
+      checkLanMethodAllowed("extension.install", { peerId: "p", writeAllowed: true });
+    } catch (e) {
+      thrown = e as LanError;
+    }
+    expect(thrown).toBeInstanceOf(LanError);
+    expect(thrown?.message).toMatch(/ERR_METHOD_NOT_ALLOWED/);
+  });
+});
+
+describe("federation over LAN (I5 + I17)", () => {
+  const peer = { peerId: "p", writeAllowed: false };
+
+  test("federation.query and federation.expertise are admitted over LAN", () => {
+    expect(() => checkLanMethodAllowed("federation.query", peer)).not.toThrow();
+    expect(() => checkLanMethodAllowed("federation.expertise", peer)).not.toThrow();
+  });
+
+  test("federation management methods are forbidden over LAN", () => {
+    for (const m of [
+      "federation.discover",
+      "federation.pair",
+      "federation.peers",
+      "federation.namespace.publish",
+      "federation.namespace.grant",
+      "federation.namespace.revoke",
+    ]) {
+      expect(() => checkLanMethodAllowed(m, peer)).toThrow(LanError);
+    }
+  });
+
+  test("vault/data/extension remain forbidden over LAN", () => {
+    for (const m of ["vault.get", "data.export", "extension.sync"]) {
+      expect(() => checkLanMethodAllowed(m, peer)).toThrow(LanError);
+    }
+  });
+});

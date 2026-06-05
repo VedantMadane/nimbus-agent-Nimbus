@@ -469,8 +469,41 @@ describe("I7 — Tauri ALLOWED_METHODS surface for T2 PR 3", () => {
     expect(rust).not.toMatch(/^\s*"extension\.install",\s*$/m);
   });
 
-  test("allowlist_exact_size assertion is 62", async () => {
+  test("allowlist_exact_size assertion is 67", async () => {
     const rust = await read("packages/ui/src-tauri/src/gateway_bridge.rs");
-    expect(rust).toMatch(/assert_eq!\s*\(\s*ALLOWED_METHODS\.len\(\),\s*62\s*\)/);
+    expect(rust).toMatch(/assert_eq!\s*\(\s*ALLOWED_METHODS\.len\(\),\s*67\s*\)/);
+  });
+});
+
+describe("I17 — federated answering is intrinsic to the query gate", () => {
+  test("only query-gate.ts imports the item-list read path under federation/", async () => {
+    const dir = "packages/gateway/src/federation";
+    const files = (await readdir(resolve(REPO_ROOT, dir))).filter(
+      (f) => f.endsWith(".ts") && !f.endsWith(".test.ts"),
+    );
+    expect(files).toContain("query-gate.ts"); // guard: the gate file exists
+    for (const f of files) {
+      const src = await read(`${dir}/${f}`);
+      const importsItemRead = /from\s+["'][^"']*item-list-query/.test(src);
+      if (f === "query-gate.ts") {
+        expect(importsItemRead).toBe(true);
+      } else {
+        expect(importsItemRead).toBe(false);
+      }
+    }
+  });
+
+  test("only federation.query and federation.expertise are admitted over LAN (mgmt methods forbidden)", async () => {
+    const src = await read("packages/gateway/src/ipc/lan-rpc.ts");
+    for (const m of [
+      "federation.namespace.publish",
+      "federation.namespace.grant",
+      "federation.namespace.revoke",
+      "federation.pair",
+      "federation.peers",
+      "federation.discover",
+    ]) {
+      expect(src).toContain(`"${m}"`); // present in FORBIDDEN_OVER_LAN
+    }
   });
 });
