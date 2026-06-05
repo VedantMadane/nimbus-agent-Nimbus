@@ -122,7 +122,7 @@ No inline comments were mapped to I6 in the triage. No additional subsection nee
 
 **T2 PR 3 additions (2026-05-20):** `extension.checkForUpdates` (read-only cache surface) and `extension.update` (HITL-gated via `extension.autoUpdate` / `extension.downgrade`) joined the allowlist, bumping `allowlist_exact_size` from 60 to 62. `extension.install` stays absent — the marketplace install flow continues to use the Rust-native file picker so chain C1 cannot be reintroduced via the auto-update surface.
 
-**Phase 6 Slice 1 additions (2026-06-05):** `federation.discover`, `federation.namespace.grant`, `federation.namespace.publish`, `federation.namespace.revoke`, and `federation.peers` joined the allowlist (62 → 67). `federation.pair` is deliberately absent (CLI-only, transmits an out-of-band pairing code — same class as `lan.pair`). `federation.query` and `federation.expertise` are over-the-wire answering methods routed through `query-gate.ts` (I17) and are never renderer-callable.
+**Phase 6 Slice 1 additions (2026-06-05):** `federation.discover`, `federation.namespace.grant`, `federation.namespace.publish`, `federation.namespace.revoke`, and `federation.peers` joined the allowlist (62 → 67). `federation.pair` is deliberately absent (CLI-only, transmits an out-of-band pairing code — same class as `lan.pair`). `federation.query` and `federation.expertise` are over-the-wire answering methods routed through `query-gate.ts` (I17) and are never renderer-callable. `federation.consentRespond` (the owner's local consent-decision reply for the over-the-wire federation flow) also joined the allowlist (67 → 68); `federation.consentRequest` remains a notification delivered to the renderer, not a renderer-callable method.
 
 ### Migrated rationale (2026-05-28)
 
@@ -320,13 +320,15 @@ The comments at `extensions/install-from-local.ts:120,404,556,558` document the 
 **Wired at:**
 
 - `packages/gateway/src/federation/query-gate.ts` `answerFederatedQuery` — the sole function that reads index items in response to a peer query. Enforces the grant table, role check, consent gate, namespace filter, and the `FederatedItem` projection.
-- `packages/gateway/src/ipc/lan-rpc.ts` `FORBIDDEN_OVER_LAN` — the 6 management methods (`federation.namespace.publish`, `federation.namespace.grant`, `federation.namespace.revoke`, `federation.pair`, `federation.peers`, `federation.discover`) are listed here, leaving only `federation.query` and `federation.expertise` admitted over the wire (I5).
+- `packages/gateway/src/ipc/lan-rpc.ts` `FORBIDDEN_OVER_LAN` — the management methods (`federation.namespace.publish`, `federation.namespace.grant`, `federation.namespace.revoke`, `federation.pair`, `federation.peers`, `federation.discover`) **and** the local-only owner/asker methods (`federation.consentRespond`, `federation.ask`, `federation.askExpertise`) are listed here, leaving only `federation.query` and `federation.expertise` admitted over the wire (I5). `federation.consentRespond` is the owner's local consent-decision reply; `federation.ask`/`federation.askExpertise` are local asker entrypoints that *send* a query over the wire but are never *answered* over it.
 - Enforced statically by **D13** in `scripts/structure-audit/check-nimbus-invariants.ts` — any federation module other than `query-gate.ts` that imports `item-list-query` causes `audit:invariants` to exit 1.
 - Runtime test in `packages/gateway/src/security-invariants.test.ts` — the `I17` describe block.
 
 **Anti-pattern:** a federation module other than `query-gate.ts` that imports `item-list-query` (or otherwise reads index items to answer a peer), bypassing the gate's declared-filter / consent / audit chain. Note: `peer-pairing.ts` legitimately imports `LocalIndex` for the lan_peers registry — that is NOT an item-answer path and is not blocked. `expertise.ts` reads a content-free `COUNT(*)` and returns only a rank — also fine.
 
 **How to comply:** any new path that answers a peer's data request must be routed through `answerFederatedQuery` in `query-gate.ts`, never by adding a second item-read import in another federation module.
+
+**Over-the-wire path (Slice 1 follow-up, delivered 2026-06-05):** the over-the-wire answering path is now live. `buildFederationLanServer` in `federation/federation-server.ts` constructs a `LanServer` that is started at gateway boot from `platform/assemble.ts` (gated on `[federation].enabled`, transport from `[lan]`). Its `onMessage` handler routes inbound `federation.query` / `federation.expertise` through `query-gate.ts`. Critically, the answering `peerId` is **forced** from the NaCl-authenticated session (`const forced = { ...body, peerId: peer.peerId }` — R1): a body-supplied `peerId` field is silently overwritten and cannot impersonate another peer. A regression that drops this override will fail the I17/R1 test in `security-invariants.test.ts`.
 
 ---
 

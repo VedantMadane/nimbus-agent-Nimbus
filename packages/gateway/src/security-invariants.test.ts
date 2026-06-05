@@ -469,9 +469,9 @@ describe("I7 — Tauri ALLOWED_METHODS surface for T2 PR 3", () => {
     expect(rust).not.toMatch(/^\s*"extension\.install",\s*$/m);
   });
 
-  test("allowlist_exact_size assertion is 67", async () => {
+  test("allowlist_exact_size assertion is 68", async () => {
     const rust = await read("packages/ui/src-tauri/src/gateway_bridge.rs");
-    expect(rust).toMatch(/assert_eq!\s*\(\s*ALLOWED_METHODS\.len\(\),\s*67\s*\)/);
+    expect(rust).toMatch(/assert_eq!\s*\(\s*ALLOWED_METHODS\.len\(\),\s*68\s*\)/);
   });
 });
 
@@ -502,8 +502,18 @@ describe("I17 — federated answering is intrinsic to the query gate", () => {
       "federation.pair",
       "federation.peers",
       "federation.discover",
+      // local-only owner/asker methods — never answerable over the wire (Slice 1 over-the-wire)
+      "federation.consentRespond",
+      "federation.ask",
+      "federation.askExpertise",
     ]) {
       expect(src).toContain(`"${m}"`); // present in FORBIDDEN_OVER_LAN
     }
+  });
+
+  test("I17/R1 — the over-the-wire answerer forces peerId from the authenticated session (not the request body)", async () => {
+    const src = await read("packages/gateway/src/federation/federation-server.ts");
+    // onMessage must override any body-supplied peerId with the NaCl-authenticated peer.peerId.
+    expect(src).toMatch(/peerId:\s*peer\.peerId/);
   });
 });
