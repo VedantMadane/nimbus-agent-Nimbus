@@ -1,6 +1,12 @@
+import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { encodeBase64, generateEd25519Keypair } from "@nimbus-dev/sdk";
+import { runIndexedSchemaMigrations } from "./index/migrations/runner.ts";
+import { type LocalBaseline, PolicyGate } from "./policy/policy-gate.ts";
+import { signPolicy } from "./policy/policy-signing.ts";
+import { PolicyStore } from "./policy/policy-store.ts";
 
 const SRC_ROOT = import.meta.dir;
 const REPO_ROOT = resolve(SRC_ROOT, "..", "..", "..");
@@ -265,8 +271,12 @@ describe("I11 — Tool-result envelope on the LLM-facing path", () => {
 describe("I13 — HTTP write routes go through allowlist + bearer auth", () => {
   test("http-server.ts imports dispatchWriteRoute from ./http-write-routes.ts", async () => {
     const src = await read("packages/gateway/src/ipc/http-server.ts");
+    // The named-import block may span multiple lines and carry sibling imports
+    // (e.g. `type PolicyAuthorResult`, `WRITE_ROUTE_ALLOWLIST`); assert the
+    // braced block both contains `dispatchWriteRoute` and resolves to the
+    // `./http-write-routes.ts` module.
     expect(src).toMatch(
-      /import\s*\{\s*dispatchWriteRoute\s*(?:,\s*\w+\s*)?\}\s*from\s*['"]\.\/http-write-routes\.ts['"]/,
+      /import\s*\{[\s\S]*?\bdispatchWriteRoute\b[\s\S]*?\}\s*from\s*['"]\.\/http-write-routes\.ts['"]/,
     );
   });
 
@@ -278,16 +288,18 @@ describe("I13 — HTTP write routes go through allowlist + bearer auth", () => {
     expect(writableOpens).toBeLessThanOrEqual(1);
   });
 
-  test("WRITE_ROUTE_ALLOWLIST is exactly the deployment + SCIM provisioning routes", async () => {
+  test("WRITE_ROUTE_ALLOWLIST is exactly the deployment + SCIM provisioning + admin-policy routes", async () => {
     const { WRITE_ROUTE_ALLOWLIST } = await import("./ipc/http-write-routes.ts");
     // The count IS the integrity check (see nimbus-http-write-surface). Adding a write route
-    // requires bumping this assertion in the same commit. 1 deploy route + 3 SCIM routes.
-    expect(WRITE_ROUTE_ALLOWLIST.length).toBe(4);
+    // requires bumping this assertion in the same commit. 1 deploy route + 3 SCIM routes +
+    // 1 admin-console anchor-policy route (PUT /v1/admin/policy, Task 18b).
+    expect(WRITE_ROUTE_ALLOWLIST.length).toBe(5);
     expect([...WRITE_ROUTE_ALLOWLIST]).toEqual([
       "POST /v1/deployments",
       "POST /scim/v2/Users",
       "PATCH /scim/v2/Users/{id}",
       "DELETE /scim/v2/Users/{id}",
+      "PUT /v1/admin/policy",
     ]);
   });
 });
@@ -503,9 +515,21 @@ describe("I7 — Tauri ALLOWED_METHODS surface for T2 PR 3", () => {
     expect(rust).not.toMatch(/^\s*"extension\.install",\s*$/m);
   });
 
-  test("allowlist_exact_size assertion is 79", async () => {
+  test("allowlist_exact_size assertion is 82", async () => {
     const rust = await read("packages/ui/src-tauri/src/gateway_bridge.rs");
-    expect(rust).toMatch(/assert_eq!\s*\(\s*ALLOWED_METHODS\.len\(\),\s*79\s*\)/);
+    expect(rust).toMatch(/assert_eq!\s*\(\s*ALLOWED_METHODS\.len\(\),\s*82\s*\)/);
+  });
+
+  test("Slice 4: read-only admin/policy/team-audit methods are allowed; privileged policy/team-purge methods stay absent", async () => {
+    const rust = await read("packages/ui/src-tauri/src/gateway_bridge.rs");
+    // Read-only observability/admin surfaces are renderer-callable.
+    for (const m of ["admin.status", "policy.show", "team.auditMerged"]) {
+      expect(rust).toContain(`"${m}"`);
+    }
+    // Trust-establishing / destructive methods must NOT be renderer-callable.
+    for (const m of ["policy.sign", "policy.trust", "policy.refetch", "team.purge"]) {
+      expect(rust).not.toMatch(new RegExp(`^\\s*"${m.replace(".", "\\.")}",\\s*$`, "m"));
+    }
   });
 
   test("Slice 2: renderer-SAFE team methods are allowed; secret/RCE-class ones stay absent", async () => {
@@ -553,7 +577,7 @@ describe("I17 — federated answering is intrinsic to the query gate", () => {
     }
   });
 
-  test("only federation.query and federation.expertise are admitted over LAN (mgmt methods forbidden)", async () => {
+  test("only read-only federation answers (query/expertise/policy/auditExport) are admitted over LAN; management/asker methods + the team namespace are forbidden", async () => {
     const src = await read("packages/gateway/src/ipc/lan-rpc.ts");
     for (const m of [
       "federation.namespace.publish",
@@ -569,6 +593,9 @@ describe("I17 — federated answering is intrinsic to the query gate", () => {
     ]) {
       expect(src).toContain(`"${m}"`); // present in FORBIDDEN_OVER_LAN
     }
+    // The whole `team` namespace (team.auditMerged — the local-only asker that fans out
+    // federation.auditExport) is forbidden over LAN; only the answerer side is admitted.
+    expect(src).toContain('"team"');
   });
 
   test("I17/R1 — the over-the-wire answerer forces peerId from the authenticated session (not the request body)", async () => {
@@ -661,5 +688,44 @@ describe("I21 — quorum counts only DISTINCT authenticated peers", () => {
     coord.respond(ids[0] ?? "", "peer:a", true); // duplicate — must NOT count
     const r = await p;
     expect(r.outcome).toBe("failed"); // window elapses with only 1 distinct approver
+  });
+});
+
+describe("I22 — org policy applied only from a signature-verified bundle, monotonic-stricter", () => {
+  const baseline: LocalBaseline = {
+    retentionDays: 7,
+    hitlRequired: new Set(["git.force_push_main"]),
+    quorum: new Map(),
+  };
+
+  function gateWith(toml: string, sig: string, pubkeyB64: string): PolicyGate {
+    const db = new Database(":memory:");
+    runIndexedSchemaMigrations(db, 36);
+    const store = new PolicyStore(db);
+    store.pinAnchorPubkey(pubkeyB64, "manual", 1);
+    store.persist({ toml, sig, org: "acme", version: 1, source: "peer", fetchedAt: 1 });
+    return new PolicyGate(store, baseline);
+  }
+
+  test("(a) a tampered policy is rejected; the gate stays ungoverned (falls back to baseline)", () => {
+    const kp = generateEd25519Keypair();
+    const good = `[policy]\nversion=1\norg="acme"\n[policy.retention]\nmin_days=30\n`;
+    const sig = signPolicy(good, encodeBase64(kp.privkey));
+    const tampered = good.replace("min_days=30", "min_days=99");
+    const gate = gateWith(tampered, sig, encodeBase64(kp.pubkey));
+    expect(gate.status().signatureValid).toBe(false);
+    expect(gate.enforced().retentionDays).toBe(7); // baseline, NOT 99
+  });
+
+  test("(b) a valid policy below baseline cannot weaken HITL/quorum/retention", () => {
+    const kp = generateEd25519Keypair();
+    const toml = `[policy]\nversion=1\norg="acme"\n[policy.retention]\nmin_days=3\n[policy.hitl]\nrequire=[]\n`;
+    const gate = gateWith(
+      toml,
+      signPolicy(toml, encodeBase64(kp.privkey)),
+      encodeBase64(kp.pubkey),
+    );
+    expect(gate.enforced().retentionDays).toBe(7);
+    expect(gate.enforced().hitlRequired.has("git.force_push_main")).toBe(true);
   });
 });

@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { loadNimbusServiceConfigsFromConfigDir } from "../config/nimbus-toml.ts";
 import { getAllConnectorHealth } from "../connectors/health.ts";
 import { dbRun } from "../db/write.ts";
@@ -7,8 +7,16 @@ import { NamespaceStore } from "../federation/namespace-store.ts";
 import { IdentityStore } from "../identity/identity-store.ts";
 import { dispatchScimRead, isScimPath } from "../identity/scim-http-routes.ts";
 import { buildItemListSql, parseRelativeSinceToWindowMs } from "../index/item-list-query.ts";
+import { formatPrometheus } from "../status/prometheus-format.ts";
+import { contentTypeFor, resolveConsoleDist, safeAssetPath } from "./admin-console-assets.ts";
+import { buildStatus, type StatusReaders } from "./admin-status-rpc.ts";
+import { requireBearer } from "./http-auth.ts";
 import { HttpWriteRateLimiter } from "./http-rate-limit.ts";
-import { dispatchWriteRoute, WRITE_ROUTE_ALLOWLIST } from "./http-write-routes.ts";
+import {
+  dispatchWriteRoute,
+  type PolicyAuthorResult,
+  WRITE_ROUTE_ALLOWLIST,
+} from "./http-write-routes.ts";
 import { dispatchMetricsRpc, MetricsRpcError } from "./metrics-rpc.ts";
 import { loadOpenApiJsonBytes } from "./openapi-loader.ts";
 import { dispatchPreflightRpc, PreflightRpcError } from "./preflight-rpc.ts";
@@ -18,6 +26,16 @@ export type ReadOnlyHttpServerOptions = {
   readonly nowMs?: () => number;
   readonly resolveDeploymentToken?: () => Promise<string>;
   readonly resolveScimToken?: () => Promise<string>;
+  // Observability snapshot (Task 15). When BOTH are present, GET /v1/admin/status (JSON) and
+  // GET /metrics (Prometheus text) are served, gated by a constant-time bearer check against
+  // resolveAdminToken(). Absent either → the routes 404 (surface not mounted).
+  readonly statusReaders?: StatusReaders;
+  readonly resolveAdminToken?: () => Promise<string>;
+  // Anchor policy write surface (Task 18b). When BOTH are present, PUT /v1/admin/policy is mounted
+  // on the I13 write dispatcher (bearer = resolveAdminToken). `authorPolicy` is a policy/-resident
+  // closure that validates+signs (Vault-only anchor key)+persists+applies — the route never parses
+  // TOML itself (D16). Absent either → the route 404s (surface not mounted).
+  readonly authorPolicy?: (toml: string) => Promise<PolicyAuthorResult>;
 };
 
 export type ReadOnlyHttpServerHandle = {
@@ -233,12 +251,89 @@ async function handleDeployPreflight(
   return json(out.value);
 }
 
-async function dispatchReadOnlyGet(
+// Observability (Task 15). The admin snapshot + Prometheus metrics share one bearer-gated surface:
+// both require statusReaders + a resolveAdminToken. The bearer check is the EXACT I13 mechanism
+// (requireBearer → constantTimeStringEqual) — a missing/empty token fails closed (surfaceDisabled).
+async function handleAdminStatus(
+  req: Request,
+  opts: ReadOnlyHttpServerOptions,
+): Promise<Response | null> {
+  const readers = opts.statusReaders;
+  if (readers === undefined || opts.resolveAdminToken === undefined) return null;
+  const expectedToken = await opts.resolveAdminToken();
+  if (!requireBearer(req, { expectedToken }).ok) {
+    return json({ error: "unauthorized" }, 401);
+  }
+  return json({ data: buildStatus(readers) });
+}
+
+async function handleMetrics(
+  req: Request,
+  opts: ReadOnlyHttpServerOptions,
+): Promise<Response | null> {
+  const readers = opts.statusReaders;
+  if (readers === undefined || opts.resolveAdminToken === undefined) return null;
+  const expectedToken = await opts.resolveAdminToken();
+  if (!requireBearer(req, { expectedToken }).ok) {
+    return new Response("unauthorized\n", {
+      status: 401,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
+  }
+  return new Response(formatPrometheus(buildStatus(readers)), {
+    status: 200,
+    headers: { "content-type": "text/plain; version=0.0.4; charset=utf-8" },
+  });
+}
+
+// Admin console static assets (Task 17). Bearer-gated by the SAME resolveAdminToken used by
+// /v1/admin/status: absent surface (no resolveAdminToken) → null (404, surface not mounted);
+// invalid bearer → 401; console not built → 503; traversal → 400. GET-only, path-traversal-safe.
+async function handleAdminConsole(
+  req: Request,
+  url: URL,
+  opts: ReadOnlyHttpServerOptions,
+): Promise<Response | null> {
+  if (opts.resolveAdminToken === undefined) return null;
+  const expectedToken = await opts.resolveAdminToken();
+  if (!requireBearer(req, { expectedToken }).ok) {
+    return new Response("unauthorized\n", {
+      status: 401,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
+  }
+  const dist = resolveConsoleDist(import.meta.dir);
+  if (dist === undefined) {
+    return new Response(
+      "admin console not built — run: bun --filter @nimbus-dev/admin-console build\n",
+      {
+        status: 503,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      },
+    );
+  }
+  const rel = safeAssetPath(url.pathname);
+  if (rel === undefined) {
+    return new Response("bad request\n", {
+      status: 400,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
+  }
+  const file = Bun.file(join(dist, rel));
+  if (!(await file.exists())) {
+    return new Response("Not Found", { status: 404 });
+  }
+  return new Response(file, { headers: { "content-type": contentTypeFor(rel) } });
+}
+
+// Read-only data routes (no bearer gate, never fall through). Returns null when `path` matches no
+// data route, so the caller can try the bearer-gated admin routes before 404.
+function dispatchReadOnlyDataGet(
   path: string,
   url: URL,
   db: Database,
   opts: ReadOnlyHttpServerOptions,
-): Promise<Response> {
+): Promise<Response> | Response | null {
   if (path === "/v1/health") {
     return json({ status: "ok", gateway: "read_only_http" });
   }
@@ -269,7 +364,77 @@ async function dispatchReadOnlyGet(
   if (path === "/v1/openapi.json") {
     return handleOpenApiJson();
   }
+  return null;
+}
+
+// Bearer-gated admin routes (Task 15/17). Each handler returns null when its surface is not mounted
+// (so the route falls through to 404); a non-null response (200/401/503/400) is served verbatim.
+async function dispatchAdminGet(
+  req: Request,
+  path: string,
+  url: URL,
+  opts: ReadOnlyHttpServerOptions,
+): Promise<Response | null> {
+  if (path === "/v1/admin/status") {
+    return handleAdminStatus(req, opts);
+  }
+  if (path === "/metrics") {
+    return handleMetrics(req, opts);
+  }
+  if (path === "/admin" || path.startsWith("/admin/")) {
+    return handleAdminConsole(req, url, opts);
+  }
+  return null;
+}
+
+async function dispatchReadOnlyGet(
+  req: Request,
+  path: string,
+  url: URL,
+  db: Database,
+  opts: ReadOnlyHttpServerOptions,
+): Promise<Response> {
+  const dataRes = dispatchReadOnlyDataGet(path, url, db, opts);
+  if (dataRes !== null) {
+    return dataRes;
+  }
+  const adminRes = await dispatchAdminGet(req, path, url, opts);
+  if (adminRes !== null) {
+    return adminRes;
+  }
   return new Response("Not Found", { status: 404 });
+}
+
+type ScimWriteDeps = NonNullable<Parameters<typeof dispatchWriteRoute>[1]["scim"]>;
+type PolicyWriteDeps = NonNullable<Parameters<typeof dispatchWriteRoute>[1]["policy"]>;
+
+// SCIM provisioning seam — present only when a SCIM bearer resolver is wired.
+async function resolveScimWriteDeps(
+  writeDb: Database,
+  opts: ReadOnlyHttpServerOptions,
+): Promise<ScimWriteDeps | undefined> {
+  if (opts.resolveScimToken === undefined) {
+    return undefined;
+  }
+  return {
+    token: await opts.resolveScimToken(),
+    store: new NamespaceStore(writeDb),
+    identity: new IdentityStore(writeDb),
+  };
+}
+
+// Policy write surface: present only when an admin token resolver AND an authorPolicy closure are
+// both wired. The bearer is the SAME admin token used by /v1/admin/status + /metrics.
+async function resolvePolicyWriteDeps(
+  opts: ReadOnlyHttpServerOptions,
+): Promise<PolicyWriteDeps | undefined> {
+  if (opts.authorPolicy === undefined || opts.resolveAdminToken === undefined) {
+    return undefined;
+  }
+  return {
+    token: await opts.resolveAdminToken(),
+    authorPolicy: opts.authorPolicy,
+  };
 }
 
 // Every HTTP write (deployment annotation + SCIM provisioning) flows through the single I13
@@ -292,14 +457,8 @@ async function handleWrite(
       cfgDir === undefined
         ? (): readonly string[] => []
         : (): readonly string[] => Array.from(loadNimbusServiceConfigsFromConfigDir(cfgDir).keys());
-    const scim =
-      opts.resolveScimToken === undefined
-        ? undefined
-        : {
-            token: await opts.resolveScimToken(),
-            store: new NamespaceStore(writeDb),
-            identity: new IdentityStore(writeDb),
-          };
+    const scim = await resolveScimWriteDeps(writeDb, opts);
+    const policy = await resolvePolicyWriteDeps(opts);
     return await dispatchWriteRoute(req, {
       writeDb,
       expectedToken,
@@ -307,6 +466,7 @@ async function handleWrite(
       nowMs: opts.nowMs ?? ((): number => Date.now()),
       knownServices,
       ...(scim === undefined ? {} : { scim }),
+      ...(policy === undefined ? {} : { policy }),
     });
   } catch {
     return json({ error: "internal_error" }, 500);
@@ -314,16 +474,19 @@ async function handleWrite(
 }
 
 async function handleGet(
+  req: Request,
   url: URL,
   db: Database,
   opts: ReadOnlyHttpServerOptions,
 ): Promise<Response> {
   const path = url.pathname;
-  if (WRITE_ROUTE_ALLOWLIST.some((r) => r.endsWith(` ${path}`))) {
-    return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
+  const matchedRoute = WRITE_ROUTE_ALLOWLIST.find((r) => r.endsWith(` ${path}`));
+  if (matchedRoute !== undefined) {
+    const allow = matchedRoute.split(" ")[0] ?? "POST";
+    return new Response("Method Not Allowed", { status: 405, headers: { Allow: allow } });
   }
   try {
-    return await dispatchReadOnlyGet(path, url, db, opts);
+    return await dispatchReadOnlyGet(req, path, url, db, opts);
   } catch {
     return json({ error: "internal_error" }, 500);
   }
@@ -337,10 +500,16 @@ export function startReadOnlyHttpServer(
   const db = new Database(dbPath, { readonly: true, create: false });
   dbRun(db, "PRAGMA query_only = ON");
 
-  // Single writable DB (I13). Opened when EITHER the deployment-write surface OR the SCIM
-  // provisioning surface is enabled — SCIM must work on a gateway that has not enabled deployment writes.
+  // Single writable DB (I13). Opened when ANY write surface is enabled — deployment writes, SCIM
+  // provisioning, OR the anchor policy write — each must work independently of the others.
+  // The policy write surface mounts only when BOTH authorPolicy AND resolveAdminToken
+  // are wired (see the `policy` gate below). Opening the writable handle on authorPolicy
+  // alone would over-elevate the server when the admin token is absent and the surface is
+  // not actually mountable — so require both for the policy branch.
   const writeDb =
-    opts.resolveDeploymentToken === undefined && opts.resolveScimToken === undefined
+    opts.resolveDeploymentToken === undefined &&
+    opts.resolveScimToken === undefined &&
+    (opts.authorPolicy === undefined || opts.resolveAdminToken === undefined)
       ? null
       : new Database(dbPath, { create: false, readwrite: true });
   const rateLimiter = new HttpWriteRateLimiter({ maxRequests: 60, windowMs: 60_000 });
@@ -360,15 +529,20 @@ export function startReadOnlyHttpServer(
         const scimToken = await opts.resolveScimToken();
         return dispatchScimRead(req, { identity: new IdentityStore(writeDb), scimToken });
       }
-      // All writes (deployment POST + SCIM POST/PATCH/DELETE) → the single I13 dispatcher.
-      if (req.method === "POST" || req.method === "PATCH" || req.method === "DELETE") {
+      // All writes (deployment POST + SCIM POST/PATCH/DELETE + policy PUT) → the single I13 dispatcher.
+      if (
+        req.method === "POST" ||
+        req.method === "PATCH" ||
+        req.method === "DELETE" ||
+        req.method === "PUT"
+      ) {
         return handleWrite(req, writeDb, rateLimiter, opts);
       }
       if (req.method !== "GET") {
         const allow = writeDb === null ? "GET" : "GET, POST";
         return new Response("Method Not Allowed", { status: 405, headers: { Allow: allow } });
       }
-      return handleGet(url, db, opts);
+      return handleGet(req, url, db, opts);
     },
   });
 

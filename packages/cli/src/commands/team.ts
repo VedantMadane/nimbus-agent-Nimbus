@@ -35,7 +35,9 @@ export type TeamCommand =
       expires: number;
     }
   | { kind: "delegations" }
-  | { kind: "respond"; requestId: string; approved: boolean; as: string };
+  | { kind: "respond"; requestId: string; approved: boolean; as: string }
+  | { kind: "audit"; namespace: string; purpose: string; sinceMs: number }
+  | { kind: "purge"; externalId: string; yes: boolean };
 
 /** Minimal IPC surface the team-vault/invoke/delegation subcommands need (injectable for tests). */
 export interface TeamRpcClient {
@@ -198,6 +200,30 @@ function parseDelegate(rest: string[]): TeamCommand {
   };
 }
 
+function parseAudit(rest: string[]): TeamCommand {
+  const namespace = rest[0];
+  if (!namespace || namespace.startsWith("--")) {
+    throw new Error('Usage: nimbus team audit <namespace> [--purpose "<why>"] [--since <unixMs>]');
+  }
+  const purpose = flagValue(rest, "--purpose") ?? "team-audit";
+  const sinceRaw = flagValue(rest, "--since");
+  let sinceMs = 0;
+  if (sinceRaw !== undefined) {
+    sinceMs = Number.parseInt(sinceRaw, 10);
+    if (!Number.isFinite(sinceMs) || sinceMs < 0)
+      throw new Error("--since must be a non-negative unix-ms timestamp");
+  }
+  return { kind: "audit", namespace, purpose, sinceMs };
+}
+
+function parsePurge(rest: string[]): TeamCommand {
+  const externalId = flagValue(rest, "--user");
+  if (typeof externalId !== "string" || externalId.length === 0) {
+    throw new Error("Usage: nimbus team purge --user <externalId> [--yes]");
+  }
+  return { kind: "purge", externalId, yes: rest.includes("--yes") || rest.includes("--force") };
+}
+
 export function parseTeamArgs(argv: string[]): TeamCommand {
   const [sub, ...rest] = argv;
   switch (sub) {
@@ -224,6 +250,10 @@ export function parseTeamArgs(argv: string[]): TeamCommand {
       return parseDelegate(rest);
     case "delegations":
       return { kind: "delegations" };
+    case "audit":
+      return parseAudit(rest);
+    case "purge":
+      return parsePurge(rest);
     case "approve":
     case "deny": {
       const requestId = rest[0];
@@ -237,9 +267,32 @@ export function parseTeamArgs(argv: string[]): TeamCommand {
     }
     default:
       throw new Error(
-        `Unknown subcommand: ${sub}\nUsage: nimbus team [discover|pair|namespace|query|who-knows|vault|invoke|delegate|delegations|approve|deny]`,
+        `Unknown subcommand: ${sub}\nUsage: nimbus team [discover|pair|namespace|query|who-knows|vault|invoke|delegate|delegations|approve|deny|audit|purge]`,
       );
   }
+}
+
+interface MergedAuditRow {
+  peerId?: unknown;
+  actionType?: unknown;
+  hitlStatus?: unknown;
+  hash?: unknown;
+  timestamp?: unknown;
+}
+
+/** Renders the merged team-audit timeline as a fixed-width table (timestamp, peer, action, hitl, hash). */
+function renderAuditTable(entries: MergedAuditRow[]): string {
+  const header = ["TIMESTAMP", "PEER", "ACTION", "HITL", "HASH"];
+  const rows = entries.map((e) => [
+    typeof e.timestamp === "number" ? new Date(e.timestamp).toISOString() : String(e.timestamp),
+    String(e.peerId ?? ""),
+    String(e.actionType ?? ""),
+    String(e.hitlStatus ?? ""),
+    String(e.hash ?? "").slice(0, 12),
+  ]);
+  const widths = header.map((h, i) => Math.max(h.length, ...rows.map((r) => (r[i] ?? "").length)));
+  const fmt = (cols: string[]): string => cols.map((c, i) => c.padEnd(widths[i] ?? 0)).join("  ");
+  return [fmt(header), ...rows.map(fmt)].join("\n");
 }
 
 async function respondToConsent(
@@ -388,6 +441,25 @@ export async function runTeamVaultRpc(client: TeamRpcClient, cmd: TeamCommand): 
       process.stdout.write(`${cmd.approved ? "approved" : "denied"} ${cmd.requestId}\n`);
       return true;
     }
+    case "purge": {
+      // GDPR purge is irreversible: confirm before dispatching unless --yes/--force was passed.
+      if (!cmd.yes) {
+        const ok = await confirm({
+          message: `Purge ALL data for user "${cmd.externalId}" across the team? This is irreversible.`,
+        });
+        if (isCancel(ok) || ok !== true) {
+          process.stdout.write("aborted\n");
+          return true;
+        }
+      }
+      const r = await client.call<{ jobId?: string; localDeleted?: number }>("team.purge", {
+        externalId: cmd.externalId,
+      });
+      process.stdout.write(
+        `GDPR purge started for ${cmd.externalId}: job ${r.jobId ?? "?"} (${r.localDeleted ?? 0} local grant(s) revoked)\n`,
+      );
+      return true;
+    }
     default:
       return false;
   }
@@ -488,6 +560,20 @@ export async function runTeam(argv: string[]): Promise<void> {
       case "listen":
         await runConsentListener(client);
         break;
+      case "audit": {
+        const r = await client.call<{ entries: MergedAuditRow[] }>("team.auditMerged", {
+          namespace: cmd.namespace,
+          purpose: cmd.purpose,
+          sinceMs: cmd.sinceMs,
+        });
+        const entries = Array.isArray(r.entries) ? r.entries : [];
+        if (entries.length === 0) {
+          process.stdout.write("No federation-audit entries across the team.\n");
+        } else {
+          process.stdout.write(`${renderAuditTable(entries)}\n`);
+        }
+        break;
+      }
     }
   } finally {
     await client.disconnect().catch(() => {});
