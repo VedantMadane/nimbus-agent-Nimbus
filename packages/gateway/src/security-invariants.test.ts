@@ -288,18 +288,20 @@ describe("I13 — HTTP write routes go through allowlist + bearer auth", () => {
     expect(writableOpens).toBeLessThanOrEqual(1);
   });
 
-  test("WRITE_ROUTE_ALLOWLIST is exactly the deployment + SCIM provisioning + admin-policy routes", async () => {
+  test("WRITE_ROUTE_ALLOWLIST is exactly the deployment + SCIM provisioning + admin-policy + teams-events routes", async () => {
     const { WRITE_ROUTE_ALLOWLIST } = await import("./ipc/http-write-routes.ts");
     // The count IS the integrity check (see nimbus-http-write-surface). Adding a write route
     // requires bumping this assertion in the same commit. 1 deploy route + 3 SCIM routes +
-    // 1 admin-console anchor-policy route (PUT /v1/admin/policy, Task 18b).
-    expect(WRITE_ROUTE_ALLOWLIST.length).toBe(5);
+    // 1 admin-console anchor-policy route (PUT /v1/admin/policy, Task 18b) +
+    // 1 ChatOps Teams inbound route (POST /v1/messaging/teams/events, Slice 5 — Bot Framework JWT).
+    expect(WRITE_ROUTE_ALLOWLIST.length).toBe(6);
     expect([...WRITE_ROUTE_ALLOWLIST]).toEqual([
       "POST /v1/deployments",
       "POST /scim/v2/Users",
       "PATCH /scim/v2/Users/{id}",
       "DELETE /scim/v2/Users/{id}",
       "PUT /v1/admin/policy",
+      "POST /v1/messaging/teams/events",
     ]);
   });
 });
@@ -515,9 +517,9 @@ describe("I7 — Tauri ALLOWED_METHODS surface for T2 PR 3", () => {
     expect(rust).not.toMatch(/^\s*"extension\.install",\s*$/m);
   });
 
-  test("allowlist_exact_size assertion is 82", async () => {
+  test("allowlist_exact_size assertion is 83", async () => {
     const rust = await read("packages/ui/src-tauri/src/gateway_bridge.rs");
-    expect(rust).toMatch(/assert_eq!\s*\(\s*ALLOWED_METHODS\.len\(\),\s*82\s*\)/);
+    expect(rust).toMatch(/assert_eq!\s*\(\s*ALLOWED_METHODS\.len\(\),\s*83\s*\)/);
   });
 
   test("Slice 4: read-only admin/policy/team-audit methods are allowed; privileged policy/team-purge methods stay absent", async () => {
@@ -688,6 +690,35 @@ describe("I21 — quorum counts only DISTINCT authenticated peers", () => {
     coord.respond(ids[0] ?? "", "peer:a", true); // duplicate — must NOT count
     const r = await p;
     expect(r.outcome).toBe("failed"); // window elapses with only 1 distinct approver
+  });
+});
+
+describe("I23 — ChatOps operational posts are bounded to originating / policy-notify channels", () => {
+  test("(a) ReplyDispatcher derives the destination from a server-side ReplyTarget, not caller input", async () => {
+    const src = await readFile(resolve(import.meta.dir, "chatops/reply-dispatcher.ts"), "utf8");
+    expect(src).toMatch(/send\(target: ReplyTarget, text: string\)/);
+    expect(src).toMatch(/target\.kind === "originating"/);
+    expect(src).toMatch(/notifyChannelsFor\(target\.namespace\)/);
+  });
+
+  test("(b) no chatops module outside reply-dispatcher/transport references the connector post tools (D17)", async () => {
+    const dir = resolve(import.meta.dir, "chatops");
+    const offenders: string[] = [];
+    async function walk(d: string, rel: string): Promise<void> {
+      for (const ent of await readdir(d, { withFileTypes: true })) {
+        const childRel = rel === "" ? ent.name : `${rel}/${ent.name}`;
+        if (ent.isDirectory()) {
+          await walk(resolve(d, ent.name), childRel);
+          continue;
+        }
+        if (!ent.name.endsWith(".ts") || ent.name.endsWith(".test.ts")) continue;
+        if (childRel === "reply-dispatcher.ts" || childRel.startsWith("transport/")) continue;
+        const c = await readFile(resolve(d, ent.name), "utf8");
+        if (/\b(?:slack_chat_post|teams_chat_post)\b/.test(c)) offenders.push(childRel);
+      }
+    }
+    await walk(dir, "");
+    expect(offenders).toEqual([]);
   });
 });
 
