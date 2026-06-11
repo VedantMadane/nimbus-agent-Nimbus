@@ -266,7 +266,7 @@ export interface LanPeerRow {
   last_seen_at: string | null;
 }
 
-export const CURRENT_SCHEMA_VERSION = 37;
+export const CURRENT_SCHEMA_VERSION = 38;
 
 const ALLOWED_META_KEYS = new Set<string>(["onboarding_completed"]);
 
@@ -873,6 +873,7 @@ export class LocalIndex {
 
   public removeLanPeer(peerId: string): void {
     dbRun(this.db, `DELETE FROM lan_peers WHERE peer_id = ?`, [peerId]);
+    dbRun(this.db, `DELETE FROM federation_known_namespaces WHERE peer_id = ?`, [peerId]);
   }
 
   public getLanPeerByPubkey(pubkey: Uint8Array): LanPeerRow | undefined {

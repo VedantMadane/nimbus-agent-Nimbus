@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, it, mock, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -495,5 +495,106 @@ describe("dispatchAgentsRpc — agents.catchup configDir + mePersonId arms", () 
     const ctx = makeCtx(freshDb(), { configDir: dir });
     const out = await dispatchAgentsRpc("agents.catchup", {}, ctx);
     expect(out.kind).toBe("hit");
+  });
+});
+
+describe("agents.ghost / conflicts / huddle dispatch", () => {
+  function ctxWithFederation() {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    const index = new LocalIndex(db);
+    return {
+      db,
+      notify: mock(() => {}),
+      index,
+      selfIdentity: { publicKey: new Uint8Array(32), secretKey: new Uint8Array(32) },
+      sendOverWire: async () => ({ kind: "ok" as const, response: { items: [] } }),
+    };
+  }
+
+  it("agents.ghost returns a sessionId (hit)", async () => {
+    const out = await dispatchAgentsRpc("agents.ghost", { file: "auth.ts" }, ctxWithFederation());
+    expect(out.kind).toBe("hit");
+  });
+
+  it("agents.conflicts validates the file param", async () => {
+    await expect(dispatchAgentsRpc("agents.conflicts", {}, ctxWithFederation())).rejects.toThrow();
+  });
+
+  it("agents.huddle works with no file param", async () => {
+    const out = await dispatchAgentsRpc("agents.huddle", { sinceMs: 1000 }, ctxWithFederation());
+    expect(out.kind).toBe("hit");
+  });
+
+  it("agents.ghost accepts namespaces array", async () => {
+    const out = await dispatchAgentsRpc(
+      "agents.ghost",
+      { file: "auth.ts", namespaces: ["a", "b"] },
+      ctxWithFederation(),
+    );
+    expect(out.kind).toBe("hit");
+  });
+
+  it("agents.ghost without federation deps still returns a brief (degraded)", async () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    const out = await dispatchAgentsRpc(
+      "agents.ghost",
+      { file: "auth.ts" },
+      { db, notify: mock(() => {}) },
+    );
+    expect(out.kind).toBe("hit");
+  });
+
+  it("agents.conflicts returns a hit for a valid file", async () => {
+    const out = await dispatchAgentsRpc(
+      "agents.conflicts",
+      { file: "src/x.ts" },
+      ctxWithFederation(),
+    );
+    expect(out.kind).toBe("hit");
+  });
+
+  it("agents.ghost rejects an empty file", async () => {
+    await expect(
+      dispatchAgentsRpc("agents.ghost", { file: "   " }, ctxWithFederation()),
+    ).rejects.toThrow();
+  });
+
+  it("agents.ghost rejects a file over the length limit", async () => {
+    await expect(
+      dispatchAgentsRpc("agents.ghost", { file: "a".repeat(3000) }, ctxWithFederation()),
+    ).rejects.toThrow();
+  });
+
+  it("agents.ghost rejects an empty-string namespace", async () => {
+    await expect(
+      dispatchAgentsRpc("agents.ghost", { file: "x.ts", namespaces: [""] }, ctxWithFederation()),
+    ).rejects.toThrow();
+  });
+
+  it("agents.ghost accepts a singular namespace string", async () => {
+    const out = await dispatchAgentsRpc(
+      "agents.ghost",
+      { file: "x.ts", namespace: "single" },
+      ctxWithFederation(),
+    );
+    expect(out.kind).toBe("hit");
+  });
+
+  it("agents.huddle rejects a negative sinceMs", async () => {
+    await expect(
+      dispatchAgentsRpc("agents.huddle", { sinceMs: -5 }, ctxWithFederation()),
+    ).rejects.toThrow();
+  });
+
+  it("agents.huddle rejects a too-large sinceMs", async () => {
+    await expect(
+      dispatchAgentsRpc(
+        "agents.huddle",
+        { sinceMs: 999 * 24 * 60 * 60 * 1000 },
+        ctxWithFederation(),
+      ),
+    ).rejects.toThrow();
   });
 });
