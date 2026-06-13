@@ -85,6 +85,12 @@ export const CONNECTOR_SERVICE_IDS = [
   "localdb",
   "storybook",
   "dataprofile",
+  "snowflake",
+  "tableau",
+  "looker",
+  "powerbi",
+  "montecarlo",
+  "bigeye",
 ] as const;
 
 export type ConnectorServiceId = (typeof CONNECTOR_SERVICE_IDS)[number];
@@ -195,6 +201,12 @@ const CONNECTOR_SYNC_INTERVAL_MS: { readonly [K in ConnectorServiceId]: number }
   localdb: MIN10,
   storybook: MIN10,
   dataprofile: MIN10,
+  snowflake: MIN10,
+  tableau: MIN10,
+  looker: MIN10,
+  powerbi: MIN10,
+  montecarlo: MIN10,
+  bigeye: MIN10,
 };
 
 export function normalizeConnectorServiceId(raw: string): ConnectorServiceId | null {
@@ -301,6 +313,17 @@ const OAUTH_UNSUPPORTED_DETAILS: Partial<Record<ConnectorServiceId, string>> = {
     "reads a local Storybook manifest from a configured output dir (connector.auth storybook) — no live credentials",
   dataprofile:
     "profiles local data files (parquet/csv/jsonl/json) in a configured dir for schema only (connector.auth dataprofile) — no live credentials",
+  snowflake:
+    "uses an OAuth token or key-pair JWT + account identifier (connector.auth snowflake) — no PKCE flow",
+  tableau:
+    "uses a Personal Access Token (PAT name + secret) + server URL (connector.auth tableau) — no PKCE flow",
+  looker:
+    "uses OAuth2 client-credentials (client id + client secret) + instance base URL (connector.auth looker) — no PKCE flow",
+  powerbi:
+    "uses Azure AD client-credentials (tenant id + client id + client secret) against the Power BI REST API (connector.auth powerbi) — no PKCE flow",
+  montecarlo:
+    "uses an API key pair (api_id + api_token) against the Monte Carlo GraphQL API (connector.auth montecarlo) — no PKCE flow",
+  bigeye: "uses a Bearer API key + per-tenant base URL (connector.auth bigeye) — no PKCE flow",
 };
 
 export function oauthProfileForService(serviceId: ConnectorServiceId): ConnectorOAuthProfile {

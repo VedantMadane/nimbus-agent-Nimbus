@@ -4,6 +4,7 @@ import { createArgocdSyncable } from "../connectors/argocd-sync.ts";
 import { createAthenaSyncable } from "../connectors/athena-sync.ts";
 import { createAwsSyncable } from "../connectors/aws-sync.ts";
 import { createAzureSyncable } from "../connectors/azure-sync.ts";
+import { createBigeyeSyncable } from "../connectors/bigeye-sync.ts";
 import { createBigquerySyncable } from "../connectors/bigquery-sync.ts";
 import { createBitbucketSyncable } from "../connectors/bitbucket-sync.ts";
 import { createBitriseSyncable } from "../connectors/bitrise-sync.ts";
@@ -49,10 +50,12 @@ import type { LazyConnectorMesh } from "../connectors/lazy-mesh/index.ts";
 import { createLeverSyncable } from "../connectors/lever-sync.ts";
 import { createLinearSyncable } from "../connectors/linear-sync.ts";
 import { createLocaldbSyncable } from "../connectors/localdb-sync.ts";
+import { createLookerSyncable } from "../connectors/looker-sync.ts";
 import { createMercurySyncable } from "../connectors/mercury-sync.ts";
 import { createMetabaseSyncable } from "../connectors/metabase-sync.ts";
 import { createMiroSyncable } from "../connectors/miro-sync.ts";
 import { createMlflowSyncable } from "../connectors/mlflow-sync.ts";
+import { createMonteCarloSyncable } from "../connectors/monte-carlo-sync.ts";
 import { createNetlifySyncable } from "../connectors/netlify-sync.ts";
 import { createNewrelicSyncable } from "../connectors/newrelic-sync.ts";
 import { createNotionSyncable } from "../connectors/notion-sync.ts";
@@ -60,6 +63,7 @@ import { createOneDriveSyncable } from "../connectors/onedrive-sync.ts";
 import { createOutlookSyncable } from "../connectors/outlook-sync.ts";
 import { createPagerdutySyncable } from "../connectors/pagerduty-sync.ts";
 import { createPipedriveSyncable } from "../connectors/pipedrive-sync.ts";
+import { createPowerBiSyncable } from "../connectors/powerbi-sync.ts";
 import { createPrefectSyncable } from "../connectors/prefect-sync.ts";
 import { createProtonmailSyncable } from "../connectors/protonmail-sync.ts";
 import { createRaindropSyncable } from "../connectors/raindrop-sync.ts";
@@ -70,12 +74,14 @@ import { createSalesforceSyncable } from "../connectors/salesforce-sync.ts";
 import { createSemgrepSyncable } from "../connectors/semgrep-sync.ts";
 import { createSentrySyncable } from "../connectors/sentry-sync.ts";
 import { createSlackSyncable } from "../connectors/slack-sync.ts";
+import { createSnowflakeSyncable } from "../connectors/snowflake-sync.ts";
 import { createSnykSyncable } from "../connectors/snyk-sync.ts";
 import { createSonarqubeSyncable } from "../connectors/sonarqube-sync.ts";
 import { createStackOverflowSyncable } from "../connectors/stackoverflow-sync.ts";
 import { createStorybookSyncable } from "../connectors/storybook-sync.ts";
 import { createStripeSyncable } from "../connectors/stripe-sync.ts";
 import { createSupersetSyncable } from "../connectors/superset-sync.ts";
+import { createTableauSyncable } from "../connectors/tableau-sync.ts";
 import { createTeamsSyncable } from "../connectors/teams-sync.ts";
 import { createTestflightSyncable } from "../connectors/testflight-sync.ts";
 import { createVercelSyncable } from "../connectors/vercel-sync.ts";
@@ -342,6 +348,26 @@ export function registerConnectorMeshSyncables(
     }),
   );
   syncScheduler.register(
+    createSnowflakeSyncable({
+      ensureSnowflakeMcpRunning: () => connectorMesh.ensurePhase3BundleRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createTableauSyncable({
+      ensureTableauMcpRunning: () => connectorMesh.ensurePhase3BundleRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createLookerSyncable({
+      ensureLookerMcpRunning: () => connectorMesh.ensurePhase3BundleRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createPowerBiSyncable({
+      ensurePowerBiMcpRunning: () => connectorMesh.ensurePhase3BundleRunning(),
+    }),
+  );
+  syncScheduler.register(
     createSupersetSyncable({
       ensureSupersetMcpRunning: () => connectorMesh.ensurePhase3BundleRunning(),
     }),
@@ -516,6 +542,16 @@ export function registerConnectorMeshSyncables(
   syncScheduler.register(
     createGreatExpectationsSyncable({
       ensureGreatExpectationsMcpRunning: () => connectorMesh.ensurePhase3BundleRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createMonteCarloSyncable({
+      ensureMonteCarloMcpRunning: () => connectorMesh.ensurePhase3BundleRunning(),
+    }),
+  );
+  syncScheduler.register(
+    createBigeyeSyncable({
+      ensureBigeyeMcpRunning: () => connectorMesh.ensurePhase3BundleRunning(),
     }),
   );
 }

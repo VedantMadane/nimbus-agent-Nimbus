@@ -147,6 +147,36 @@ export const CONNECTOR_VAULT_SECRET_KEYS = {
   // Local data profiling: a single non-secret PATH to the dir holding local data
   // files (.parquet/.csv/.jsonl/.json) to schema-profile. No live credential.
   dataprofile: ["dataprofile.dir"],
+  // Snowflake (Tier-3 no-row-data warehouse). Uses OAuth token or key-pair JWT
+  // for auth against the Snowflake SQL REST API. Indexes schema/table metadata
+  // (column names + tags, row-count estimates) only — NEVER row data.
+  snowflake: ["snowflake.account", "snowflake.oauth_token", "snowflake.key_pair_jwt"],
+  // Tableau (Tier-3 no-row-data BI). Uses a Personal Access Token (PAT name +
+  // secret) against the Tableau REST API. Indexes dashboards/views as metadata
+  // only — NEVER row data or underlying cell values.
+  tableau: ["tableau.url", "tableau.pat_name", "tableau.pat_secret"],
+  // Looker (Tier-3 no-row-data BI). Uses OAuth2 client-credentials
+  // (client_id + client_secret) against the Looker API 4.0. Indexes dashboards
+  // and LookML views as metadata only — NEVER row data or underlying cell values.
+  // LookML view sql_table_name fields are normalized via normalizeDataModelKey
+  // to produce cross-connector lineage edges (Looker→dbt).
+  looker: ["looker.base_url", "looker.client_id", "looker.client_secret"],
+  // Power BI (Tier-3 no-row-data BI). Uses Azure AD client-credentials
+  // (tenant_id + client_id + client_secret) against the Power BI REST API.
+  // Indexes reports/dashboards as metadata only — NEVER row data or cell values.
+  // Dataset table names are normalized via normalizeDataModelKey to produce
+  // cross-connector lineage edges (Power BI → data warehouse).
+  powerbi: ["powerbi.tenant_id", "powerbi.client_id", "powerbi.client_secret"],
+  // Monte Carlo (Tier-3 data-quality observability). Uses an API key pair
+  // (api_id + api_token) against the Monte Carlo GraphQL API at the fixed static
+  // host api.getmontecarlo.com. Indexes data-quality incidents as
+  // data_quality_test items with monitoredDataModelKeys lineage edges.
+  montecarlo: ["montecarlo.api_id", "montecarlo.api_token"],
+  // Bigeye (Tier-3 data-quality observability). Uses an API key (Bearer token)
+  // against a per-tenant Bigeye instance (base_url + api_key). Indexes
+  // data-quality issues as data_quality_test items with monitoredDataModelKeys
+  // lineage edges. base_url is per-tenant (like Looker/Tableau).
+  bigeye: ["bigeye.base_url", "bigeye.api_key"],
 } as const satisfies {
   readonly [K in ConnectorServiceId]: readonly string[];
 };

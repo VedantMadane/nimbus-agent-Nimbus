@@ -3,6 +3,7 @@ import type { Database } from "bun:sqlite";
 import { dbRun } from "../db/write.ts";
 import { readIndexedUserVersion } from "../index/migrations/runner.ts";
 import {
+  ensureGraphEntity,
   isItemLinkedGraphType,
   upsertGraphEntity,
   upsertGraphRelation,
@@ -20,6 +21,13 @@ export type IndexedItemGraphInput = {
 function stringField(meta: Record<string, unknown>, key: string): string | undefined {
   const v = meta[key];
   return typeof v === "string" && v.trim() !== "" ? v : undefined;
+}
+
+function stringArrayField(meta: Record<string, unknown>, key: string): string[] {
+  const v = meta[key];
+  return Array.isArray(v)
+    ? v.filter((x): x is string => typeof x === "string" && x.trim() !== "")
+    : [];
 }
 
 function repoPathFromMetadata(meta: Record<string, unknown>): string | undefined {
@@ -294,6 +302,72 @@ function syncMessageGraph(db: Database, row: IndexedItemGraphInput, now: number)
   }
 }
 
+function syncDataModelGraph(db: Database, row: IndexedItemGraphInput, now: number): void {
+  const key = stringField(row.metadata, "dataModelKey") ?? row.id;
+  const modelId = upsertGraphEntity(db, {
+    type: "data_model",
+    externalId: key,
+    label: row.title,
+    service: row.service,
+  });
+  // Clear only the derived_from edges THIS handler owns (from_id = modelId).
+  // Do NOT call clearRelationsTouchingEntity — the data_model node is SHARED
+  // across connectors, and upstream_refs (written by syncDashboardGraph) and
+  // monitors (written by syncDataQualityTestGraph) edges must not be deleted.
+  dbRun(db, "DELETE FROM graph_relation WHERE from_id = ? AND type = 'derived_from'", [modelId]);
+  for (const upstream of stringArrayField(row.metadata, "derivedFromKeys")) {
+    const upId = ensureGraphEntity(db, {
+      type: "data_model",
+      externalId: upstream,
+      label: upstream,
+      service: null,
+    });
+    upsertGraphRelation(db, modelId, upId, "derived_from", now);
+  }
+}
+
+function syncDashboardGraph(db: Database, row: IndexedItemGraphInput, now: number): void {
+  const dashId = upsertGraphEntity(db, {
+    type: "dashboard",
+    externalId: row.id,
+    label: row.title,
+    service: row.service,
+  });
+  clearRelationsTouchingEntity(db, dashId);
+  for (const upstream of stringArrayField(row.metadata, "upstreamDataModelKeys")) {
+    // Use ensureGraphEntity so a tableau/powerbi reference stub does NOT
+    // overwrite the service/label of a real snowflake data_model node.
+    const modelId = ensureGraphEntity(db, {
+      type: "data_model",
+      externalId: upstream,
+      label: upstream,
+      service: null,
+    });
+    upsertGraphRelation(db, modelId, dashId, "upstream_refs", now);
+  }
+}
+
+function syncDataQualityTestGraph(db: Database, row: IndexedItemGraphInput, now: number): void {
+  const dqId = upsertGraphEntity(db, {
+    type: "data_quality_test",
+    externalId: row.id,
+    label: row.title,
+    service: row.service,
+  });
+  clearRelationsTouchingEntity(db, dqId);
+  for (const table of stringArrayField(row.metadata, "monitoredDataModelKeys")) {
+    // Use ensureGraphEntity so a montecarlo/bigeye reference stub does NOT
+    // overwrite the service/label of a real snowflake data_model node.
+    const modelId = ensureGraphEntity(db, {
+      type: "data_model",
+      externalId: table,
+      label: table,
+      service: null,
+    });
+    upsertGraphRelation(db, dqId, modelId, "monitors", now);
+  }
+}
+
 export function syncGraphFromIndexedItem(db: Database, row: IndexedItemGraphInput): void {
   if (readIndexedUserVersion(db) < 7) {
     return;
@@ -334,5 +408,17 @@ export function syncGraphFromIndexedItem(db: Database, row: IndexedItemGraphInpu
   }
   if (row.type === "obsidian_note") {
     syncObsidianNoteGraph(db, row, now);
+    return;
+  }
+  if (row.type === "data_model") {
+    syncDataModelGraph(db, row, now);
+    return;
+  }
+  if (row.type === "dashboard") {
+    syncDashboardGraph(db, row, now);
+    return;
+  }
+  if (row.type === "data_quality_test") {
+    syncDataQualityTestGraph(db, row, now);
   }
 }

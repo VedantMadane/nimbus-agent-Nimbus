@@ -274,6 +274,55 @@ export const FIRST_PARTY_MANIFESTS: Record<string, ExtensionManifest> = {
     filesystem: { read: [], write: [] },
   }),
 
+  // Snowflake (Tier-3, metadata-only). Per-tenant host
+  // (${account}.snowflakecomputing.com) is derived at spawn time by
+  // phase3AddSnowflakeMcp via manifestWithExtraNetworkHosts.
+  snowflake: baseManifest("com.nimbus.snowflake", {
+    network: [],
+    filesystem: { read: [], write: [] },
+  }),
+
+  // Tableau (Tier-3, metadata-only). Per-tenant host (derived from
+  // tableau.url) is added at spawn time by phase3AddTableauMcp via
+  // manifestWithExtraNetworkHosts.
+  tableau: baseManifest("com.nimbus.tableau", {
+    network: [],
+    filesystem: { read: [], write: [] },
+  }),
+
+  // Looker (Tier-3, metadata-only). Per-tenant host (derived from
+  // looker.base_url) is added at spawn time by phase3AddLookerMcp via
+  // manifestWithExtraNetworkHosts.
+  looker: baseManifest("com.nimbus.looker", {
+    network: [],
+    filesystem: { read: [], write: [] },
+  }),
+
+  // Power BI (Tier-3, metadata-only). Uses fixed well-known hosts:
+  // login.microsoftonline.com for AAD client-credentials token, and
+  // api.powerbi.com for the Power BI REST API. No per-tenant host derivation
+  // is needed — the static hosts are declared directly in the manifest.
+  powerbi: baseManifest("com.nimbus.powerbi", {
+    network: ["login.microsoftonline.com", "api.powerbi.com"],
+    filesystem: { read: [], write: [] },
+  }),
+
+  // Monte Carlo (Tier-3, data-quality observability). Uses a fixed static host
+  // api.getmontecarlo.com for the Monte Carlo GraphQL API. An API key pair
+  // (api_id + api_token) is passed as headers — no per-tenant host derivation.
+  montecarlo: baseManifest("com.nimbus.monte-carlo", {
+    network: ["api.getmontecarlo.com"],
+    filesystem: { read: [], write: [] },
+  }),
+
+  // Bigeye (Tier-3, data-quality observability). Per-tenant host (derived from
+  // bigeye.base_url) is added at spawn time by phase3AddBigeyeMcp via
+  // manifestWithExtraNetworkHosts — mirrors the Looker/Tableau pattern.
+  bigeye: baseManifest("com.nimbus.bigeye", {
+    network: [],
+    filesystem: { read: [], write: [] },
+  }),
+
   superset: baseManifest("com.nimbus.superset", {
     network: [],
     filesystem: { read: [], write: [] },

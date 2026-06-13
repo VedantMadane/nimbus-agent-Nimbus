@@ -39,6 +39,24 @@ function isSafeRegion(value: string): boolean {
 }
 
 /**
+ * Shared argv flag-smuggling guard for host-identifier-style values (Snowflake
+ * account identifiers, Power BI tenant ids, etc.) before they are interpolated
+ * into URLs or spawned-MCP env vars. A value that is empty, over-long, `-`-prefixed,
+ * or carries control characters is rejected so the caller noops.
+ */
+function isSafeHostIdentifier(value: string): boolean {
+  if (value.length === 0 || value.length > 253 || value.startsWith("-")) {
+    return false;
+  }
+  for (let i = 0; i < value.length; i += 1) {
+    if ((value.codePointAt(i) ?? 0x20) < 0x20) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Parse a per-tenant IMAP/SMTP port string into a valid TCP port, falling back
  * to `fallback` when empty or out of range. Mirrors the validator's 1..65535
  * bound so the spawned host:port network entry is always well-formed.
@@ -845,6 +863,124 @@ export async function phase3AddMetabaseMcp(
   );
 }
 
+export async function phase3AddSnowflakeMcp(
+  vault: NimbusVault,
+  servers: Record<string, ServerSpec>,
+  sandboxCwd: string,
+): Promise<void> {
+  const account = (await readConnectorSecret(vault, "snowflake", "account"))?.trim() ?? "";
+  const oauth = (await readConnectorSecret(vault, "snowflake", "oauth_token"))?.trim();
+  const jwt = (await readConnectorSecret(vault, "snowflake", "key_pair_jwt"))?.trim();
+  // Use empty-string check (not ??) so a blank vault value falls through to the next option.
+  let token = "";
+  if (oauth !== undefined && oauth !== "") {
+    token = oauth;
+  } else if (jwt !== undefined && jwt !== "") {
+    token = jwt;
+  }
+  if (account === "" || token === "" || !isSafeHostIdentifier(account)) {
+    return;
+  }
+  const host = `${account}.snowflakecomputing.com`;
+  const manifest = manifestWithExtraNetworkHosts("snowflake", [host]);
+  servers["snowflake"] = wrapServerSpec(
+    {
+      command: "bun",
+      args: [mcpConnectorServerScript("snowflake")],
+      env: extensionProcessEnv({ SNOWFLAKE_ACCOUNT: account, SNOWFLAKE_TOKEN: token }),
+    },
+    manifest,
+    sandboxCwd,
+  );
+}
+
+export async function phase3AddTableauMcp(
+  vault: NimbusVault,
+  servers: Record<string, ServerSpec>,
+  sandboxCwd: string,
+): Promise<void> {
+  const url = (await readConnectorSecret(vault, "tableau", "url"))?.trim() ?? "";
+  const patName = (await readConnectorSecret(vault, "tableau", "pat_name"))?.trim() ?? "";
+  const patSecret = (await readConnectorSecret(vault, "tableau", "pat_secret"))?.trim() ?? "";
+  if (url === "" || patName === "" || patSecret === "") {
+    return;
+  }
+  const host = hostnameFromUrl(url);
+  const manifest = manifestWithExtraNetworkHosts("tableau", host === null ? [] : [host]);
+  servers["tableau"] = wrapServerSpec(
+    {
+      command: "bun",
+      args: [mcpConnectorServerScript("tableau")],
+      env: extensionProcessEnv({
+        TABLEAU_URL: url,
+        TABLEAU_PAT_NAME: patName,
+        TABLEAU_PAT_SECRET: patSecret,
+      }),
+    },
+    manifest,
+    sandboxCwd,
+  );
+}
+
+export async function phase3AddLookerMcp(
+  vault: NimbusVault,
+  servers: Record<string, ServerSpec>,
+  sandboxCwd: string,
+): Promise<void> {
+  const baseUrl = (await readConnectorSecret(vault, "looker", "base_url"))?.trim() ?? "";
+  const clientId = (await readConnectorSecret(vault, "looker", "client_id"))?.trim() ?? "";
+  const clientSecret = (await readConnectorSecret(vault, "looker", "client_secret"))?.trim() ?? "";
+  if (baseUrl === "" || clientId === "" || clientSecret === "") {
+    return;
+  }
+  const host = hostnameFromUrl(baseUrl);
+  const manifest = manifestWithExtraNetworkHosts("looker", host === null ? [] : [host]);
+  servers["looker"] = wrapServerSpec(
+    {
+      command: "bun",
+      args: [mcpConnectorServerScript("looker")],
+      env: extensionProcessEnv({
+        LOOKER_BASE_URL: baseUrl,
+        LOOKER_CLIENT_ID: clientId,
+        LOOKER_CLIENT_SECRET: clientSecret,
+      }),
+    },
+    manifest,
+    sandboxCwd,
+  );
+}
+
+export async function phase3AddPowerBiMcp(
+  vault: NimbusVault,
+  servers: Record<string, ServerSpec>,
+  sandboxCwd: string,
+): Promise<void> {
+  const tenantId = (await readConnectorSecret(vault, "powerbi", "tenant_id"))?.trim() ?? "";
+  const clientId = (await readConnectorSecret(vault, "powerbi", "client_id"))?.trim() ?? "";
+  const clientSecret = (await readConnectorSecret(vault, "powerbi", "client_secret"))?.trim() ?? "";
+  if (
+    tenantId === "" ||
+    clientId === "" ||
+    clientSecret === "" ||
+    !isSafeHostIdentifier(tenantId)
+  ) {
+    return;
+  }
+  servers["powerbi"] = wrap(
+    {
+      command: "bun",
+      args: [mcpConnectorServerScript("powerbi")],
+      env: extensionProcessEnv({
+        POWERBI_TENANT_ID: tenantId,
+        POWERBI_CLIENT_ID: clientId,
+        POWERBI_CLIENT_SECRET: clientSecret,
+      }),
+    },
+    "powerbi",
+    sandboxCwd,
+  );
+}
+
 export async function phase3AddSupersetMcp(
   vault: NimbusVault,
   servers: Record<string, ServerSpec>,
@@ -1504,6 +1640,56 @@ export async function phase3AddGreatExpectationsMcp(
   });
 }
 
+export async function phase3AddMonteCarloMcp(
+  vault: NimbusVault,
+  servers: Record<string, ServerSpec>,
+  sandboxCwd: string,
+): Promise<void> {
+  const apiId = (await readConnectorSecret(vault, "montecarlo", "api_id"))?.trim() ?? "";
+  const apiToken = (await readConnectorSecret(vault, "montecarlo", "api_token"))?.trim() ?? "";
+  if (apiId === "" || apiToken === "") {
+    return;
+  }
+  servers["montecarlo"] = wrap(
+    {
+      command: "bun",
+      args: [mcpConnectorServerScript("monte-carlo")],
+      env: extensionProcessEnv({
+        MONTECARLO_API_ID: apiId,
+        MONTECARLO_API_TOKEN: apiToken,
+      }),
+    },
+    "montecarlo",
+    sandboxCwd,
+  );
+}
+
+export async function phase3AddBigeyeMcp(
+  vault: NimbusVault,
+  servers: Record<string, ServerSpec>,
+  sandboxCwd: string,
+): Promise<void> {
+  const baseUrl = (await readConnectorSecret(vault, "bigeye", "base_url"))?.trim() ?? "";
+  const apiKey = (await readConnectorSecret(vault, "bigeye", "api_key"))?.trim() ?? "";
+  if (baseUrl === "" || apiKey === "") {
+    return;
+  }
+  const host = hostnameFromUrl(baseUrl);
+  const manifest = manifestWithExtraNetworkHosts("bigeye", host === null ? [] : [host]);
+  servers["bigeye"] = wrapServerSpec(
+    {
+      command: "bun",
+      args: [mcpConnectorServerScript("bigeye")],
+      env: extensionProcessEnv({
+        BIGEYE_BASE_URL: baseUrl,
+        BIGEYE_API_KEY: apiKey,
+      }),
+    },
+    manifest,
+    sandboxCwd,
+  );
+}
+
 export async function buildPhase3Servers(
   vault: NimbusVault,
   sandboxCwd: string,
@@ -1537,6 +1723,10 @@ export async function buildPhase3Servers(
   await phase3AddFluxMcp(vault, servers, sandboxCwd);
   await phase3AddDbtMcp(vault, servers, sandboxCwd);
   await phase3AddMetabaseMcp(vault, servers, sandboxCwd);
+  await phase3AddSnowflakeMcp(vault, servers, sandboxCwd);
+  await phase3AddTableauMcp(vault, servers, sandboxCwd);
+  await phase3AddLookerMcp(vault, servers, sandboxCwd);
+  await phase3AddPowerBiMcp(vault, servers, sandboxCwd);
   await phase3AddSupersetMcp(vault, servers, sandboxCwd);
   await phase3AddDatabricksMcp(vault, servers, sandboxCwd);
   await phase3AddMlflowMcp(vault, servers, sandboxCwd);
@@ -1566,5 +1756,7 @@ export async function buildPhase3Servers(
   await phase3AddStorybookMcp(vault, servers, sandboxCwd);
   await phase3AddDataprofileMcp(vault, servers, sandboxCwd);
   await phase3AddGreatExpectationsMcp(vault, servers, sandboxCwd);
+  await phase3AddMonteCarloMcp(vault, servers, sandboxCwd);
+  await phase3AddBigeyeMcp(vault, servers, sandboxCwd);
   return servers;
 }

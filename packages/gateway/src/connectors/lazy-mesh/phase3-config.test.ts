@@ -11,6 +11,7 @@ import {
   phase3AddArgocdMcp,
   phase3AddAwsMcp,
   phase3AddAzureMcp,
+  phase3AddBigeyeMcp,
   phase3AddDagsterMcp,
   phase3AddDatabricksMcp,
   phase3AddDatadogMcp,
@@ -29,24 +30,29 @@ import {
   phase3AddLaunchdarklyMcp,
   phase3AddLeverMcp,
   phase3AddLocaldbMcp,
+  phase3AddLookerMcp,
   phase3AddMercuryMcp,
   phase3AddMetabaseMcp,
   phase3AddMlflowMcp,
+  phase3AddMonteCarloMcp,
   phase3AddNetlifyMcp,
   phase3AddNewrelicMcp,
   phase3AddPipedriveMcp,
+  phase3AddPowerBiMcp,
   phase3AddPrefectMcp,
   phase3AddRaindropMcp,
   phase3AddRampMcp,
   phase3AddReadwiseMcp,
   phase3AddSemgrepMcp,
   phase3AddSentryMcp,
+  phase3AddSnowflakeMcp,
   phase3AddSnykMcp,
   phase3AddSonarqubeMcp,
   phase3AddStackoverflowMcp,
   phase3AddStorybookMcp,
   phase3AddStripeMcp,
   phase3AddSupersetMcp,
+  phase3AddTableauMcp,
   phase3AddVercelMcp,
   phase3AddWizMcp,
   phase3AddZendeskMcp,
@@ -823,6 +829,313 @@ describe("phase3AddMetabaseMcp", () => {
     if (spec === undefined) return;
     expectSandboxed(spec);
     expect(spec.env?.["METABASE_URL"]).toBe("not a url");
+  });
+});
+
+describe("phase3AddSnowflakeMcp", () => {
+  test("no-op without snowflake.account + token", async () => {
+    const vault = createMockVault();
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddSnowflakeMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["snowflake"]).toBeUndefined();
+  });
+
+  test("no-op when account is present but token is missing", async () => {
+    const vault = createMockVault();
+    await vault.set("snowflake.account", "acme-xy12345");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddSnowflakeMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["snowflake"]).toBeUndefined();
+  });
+
+  test("no-op when token is present but account is missing", async () => {
+    const vault = createMockVault();
+    await vault.set("snowflake.oauth_token", "tok");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddSnowflakeMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["snowflake"]).toBeUndefined();
+  });
+
+  test("no-op when both are whitespace-only", async () => {
+    const vault = createMockVault();
+    await vault.set("snowflake.account", "   ");
+    await vault.set("snowflake.oauth_token", "   ");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddSnowflakeMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["snowflake"]).toBeUndefined();
+  });
+
+  test("spawns with SNOWFLAKE_ACCOUNT/SNOWFLAKE_TOKEN env + derived host in manifest", async () => {
+    const vault = createMockVault();
+    await vault.set("snowflake.account", "acme-xy12345");
+    await vault.set("snowflake.oauth_token", "tok-test");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddSnowflakeMcp(vault, servers, SANDBOX_CWD);
+    const spec = servers["snowflake"];
+    expect(spec).toBeDefined();
+    if (spec === undefined) return;
+    expectSandboxed(spec, "acme-xy12345.snowflakecomputing.com");
+    expect(spec.env?.["SNOWFLAKE_ACCOUNT"]).toBe("acme-xy12345");
+    expect(spec.env?.["SNOWFLAKE_TOKEN"]).toBe("tok-test");
+  });
+
+  test("prefers oauth_token over key_pair_jwt when both are set", async () => {
+    const vault = createMockVault();
+    await vault.set("snowflake.account", "acme-xy12345");
+    await vault.set("snowflake.oauth_token", "oauth-tok");
+    await vault.set("snowflake.key_pair_jwt", "jwt-tok");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddSnowflakeMcp(vault, servers, SANDBOX_CWD);
+    const spec = servers["snowflake"];
+    expect(spec).toBeDefined();
+    if (spec === undefined) return;
+    expect(spec.env?.["SNOWFLAKE_TOKEN"]).toBe("oauth-tok");
+  });
+
+  test("falls back to key_pair_jwt when oauth_token is absent", async () => {
+    const vault = createMockVault();
+    await vault.set("snowflake.account", "acme-xy12345");
+    await vault.set("snowflake.key_pair_jwt", "jwt-only");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddSnowflakeMcp(vault, servers, SANDBOX_CWD);
+    const spec = servers["snowflake"];
+    expect(spec).toBeDefined();
+    if (spec === undefined) return;
+    expect(spec.env?.["SNOWFLAKE_TOKEN"]).toBe("jwt-only");
+  });
+
+  test("no-op when account has a leading dash (unsafe)", async () => {
+    const vault = createMockVault();
+    await vault.set("snowflake.account", "-bad-account");
+    await vault.set("snowflake.oauth_token", "tok");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddSnowflakeMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["snowflake"]).toBeUndefined();
+  });
+
+  test("no-op when account contains a control character (unsafe)", async () => {
+    const vault = createMockVault();
+    await vault.set("snowflake.account", "acme\x01xy");
+    await vault.set("snowflake.oauth_token", "tok");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddSnowflakeMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["snowflake"]).toBeUndefined();
+  });
+
+  test("no-op when account exceeds 253 characters (unsafe)", async () => {
+    const vault = createMockVault();
+    await vault.set("snowflake.account", "a".repeat(254));
+    await vault.set("snowflake.oauth_token", "tok");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddSnowflakeMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["snowflake"]).toBeUndefined();
+  });
+});
+
+describe("phase3AddTableauMcp", () => {
+  test("no-op without tableau.url + pat_name + pat_secret", async () => {
+    const vault = createMockVault();
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddTableauMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["tableau"]).toBeUndefined();
+  });
+
+  test("no-op when only tableau.url is set (pat_name + pat_secret missing)", async () => {
+    const vault = createMockVault();
+    await vault.set("tableau.url", "https://tableau.example.com");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddTableauMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["tableau"]).toBeUndefined();
+  });
+
+  test("no-op when pat_name is missing (url + pat_secret only)", async () => {
+    const vault = createMockVault();
+    await vault.set("tableau.url", "https://tableau.example.com");
+    await vault.set("tableau.pat_secret", "secret");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddTableauMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["tableau"]).toBeUndefined();
+  });
+
+  test("no-op when credentials are whitespace-only", async () => {
+    const vault = createMockVault();
+    await vault.set("tableau.url", "   ");
+    await vault.set("tableau.pat_name", "   ");
+    await vault.set("tableau.pat_secret", "   ");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddTableauMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["tableau"]).toBeUndefined();
+  });
+
+  test("spawns with TABLEAU_URL/TABLEAU_PAT_NAME/TABLEAU_PAT_SECRET env + parsed host in manifest", async () => {
+    const vault = createMockVault();
+    await vault.set("tableau.url", "https://tableau.example.com");
+    await vault.set("tableau.pat_name", "my-pat");
+    await vault.set("tableau.pat_secret", "my-secret");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddTableauMcp(vault, servers, SANDBOX_CWD);
+    const spec = servers["tableau"];
+    expect(spec).toBeDefined();
+    if (spec === undefined) return;
+    expectSandboxed(spec, "tableau.example.com");
+    expect(spec.env?.["TABLEAU_URL"]).toBe("https://tableau.example.com");
+    expect(spec.env?.["TABLEAU_PAT_NAME"]).toBe("my-pat");
+    expect(spec.env?.["TABLEAU_PAT_SECRET"]).toBe("my-secret");
+  });
+
+  test("spawns even when tableau.url is not a parseable URL (hostname=null branch)", async () => {
+    const vault = createMockVault();
+    await vault.set("tableau.url", "not a url");
+    await vault.set("tableau.pat_name", "pat");
+    await vault.set("tableau.pat_secret", "secret");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddTableauMcp(vault, servers, SANDBOX_CWD);
+    const spec = servers["tableau"];
+    expect(spec).toBeDefined();
+    if (spec === undefined) return;
+    expectSandboxed(spec);
+    expect(spec.env?.["TABLEAU_URL"]).toBe("not a url");
+  });
+});
+
+describe("phase3AddLookerMcp", () => {
+  test("no-op without looker.base_url + client_id + client_secret", async () => {
+    const vault = createMockVault();
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddLookerMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["looker"]).toBeUndefined();
+  });
+
+  test("no-op when only base_url is set (client_id + client_secret missing)", async () => {
+    const vault = createMockVault();
+    await vault.set("looker.base_url", "https://looker.example.com");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddLookerMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["looker"]).toBeUndefined();
+  });
+
+  test("no-op when client_id is missing (base_url + client_secret only)", async () => {
+    const vault = createMockVault();
+    await vault.set("looker.base_url", "https://looker.example.com");
+    await vault.set("looker.client_secret", "secret");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddLookerMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["looker"]).toBeUndefined();
+  });
+
+  test("no-op when credentials are whitespace-only", async () => {
+    const vault = createMockVault();
+    await vault.set("looker.base_url", "   ");
+    await vault.set("looker.client_id", "   ");
+    await vault.set("looker.client_secret", "   ");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddLookerMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["looker"]).toBeUndefined();
+  });
+
+  test("spawns with LOOKER_BASE_URL/LOOKER_CLIENT_ID/LOOKER_CLIENT_SECRET env + parsed host in manifest", async () => {
+    const vault = createMockVault();
+    await vault.set("looker.base_url", "https://looker.example.com");
+    await vault.set("looker.client_id", "my-client-id");
+    await vault.set("looker.client_secret", "my-secret");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddLookerMcp(vault, servers, SANDBOX_CWD);
+    const spec = servers["looker"];
+    expect(spec).toBeDefined();
+    if (spec === undefined) return;
+    expectSandboxed(spec, "looker.example.com");
+    expect(spec.env?.["LOOKER_BASE_URL"]).toBe("https://looker.example.com");
+    expect(spec.env?.["LOOKER_CLIENT_ID"]).toBe("my-client-id");
+    expect(spec.env?.["LOOKER_CLIENT_SECRET"]).toBe("my-secret");
+  });
+
+  test("spawns even when looker.base_url is not a parseable URL (hostname=null branch)", async () => {
+    const vault = createMockVault();
+    await vault.set("looker.base_url", "not a url");
+    await vault.set("looker.client_id", "id");
+    await vault.set("looker.client_secret", "secret");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddLookerMcp(vault, servers, SANDBOX_CWD);
+    const spec = servers["looker"];
+    expect(spec).toBeDefined();
+    if (spec === undefined) return;
+    expectSandboxed(spec);
+    expect(spec.env?.["LOOKER_BASE_URL"]).toBe("not a url");
+  });
+});
+
+describe("phase3AddPowerBiMcp", () => {
+  test("no-op without powerbi.tenant_id + client_id + client_secret", async () => {
+    const vault = createMockVault();
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddPowerBiMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["powerbi"]).toBeUndefined();
+  });
+
+  test("no-op when only tenant_id is set (client_id + client_secret missing)", async () => {
+    const vault = createMockVault();
+    await vault.set("powerbi.tenant_id", "my-tenant");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddPowerBiMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["powerbi"]).toBeUndefined();
+  });
+
+  test("no-op when client_secret is missing (tenant_id + client_id only)", async () => {
+    const vault = createMockVault();
+    await vault.set("powerbi.tenant_id", "my-tenant");
+    await vault.set("powerbi.client_id", "my-client");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddPowerBiMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["powerbi"]).toBeUndefined();
+  });
+
+  test("no-op when credentials are whitespace-only", async () => {
+    const vault = createMockVault();
+    await vault.set("powerbi.tenant_id", "   ");
+    await vault.set("powerbi.client_id", "   ");
+    await vault.set("powerbi.client_secret", "   ");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddPowerBiMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["powerbi"]).toBeUndefined();
+  });
+
+  test("no-op when tenant_id has a leading dash (unsafe)", async () => {
+    const vault = createMockVault();
+    await vault.set("powerbi.tenant_id", "-bad-tenant");
+    await vault.set("powerbi.client_id", "my-client-id");
+    await vault.set("powerbi.client_secret", "my-client-secret");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddPowerBiMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["powerbi"]).toBeUndefined();
+  });
+
+  test("no-op when tenant_id contains a control character (unsafe)", async () => {
+    const vault = createMockVault();
+    await vault.set("powerbi.tenant_id", "acme\x01tenant");
+    await vault.set("powerbi.client_id", "my-client-id");
+    await vault.set("powerbi.client_secret", "my-client-secret");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddPowerBiMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["powerbi"]).toBeUndefined();
+  });
+
+  test("spawns with POWERBI_TENANT_ID/CLIENT_ID/CLIENT_SECRET env + static hosts in manifest", async () => {
+    const vault = createMockVault();
+    await vault.set("powerbi.tenant_id", "my-tenant-id");
+    await vault.set("powerbi.client_id", "my-client-id");
+    await vault.set("powerbi.client_secret", "my-client-secret");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddPowerBiMcp(vault, servers, SANDBOX_CWD);
+    const spec = servers["powerbi"];
+    expect(spec).toBeDefined();
+    if (spec === undefined) return;
+    expectSandboxed(spec, "login.microsoftonline.com");
+    const manifest = readManifest(spec);
+    expect(manifest.permissions.network).toContain("login.microsoftonline.com");
+    expect(manifest.permissions.network).toContain("api.powerbi.com");
+    expect(spec.env?.["POWERBI_TENANT_ID"]).toBe("my-tenant-id");
+    expect(spec.env?.["POWERBI_CLIENT_ID"]).toBe("my-client-id");
+    expect(spec.env?.["POWERBI_CLIENT_SECRET"]).toBe("my-client-secret");
   });
 });
 
@@ -1991,5 +2304,120 @@ describe("dir-manifest connectors (addDirManifestServer)", () => {
     if (spec === undefined) return;
     expectSandboxed(spec);
     expect(spec.env?.["GREAT_EXPECTATIONS_RESULTS_DIR"]).toBe("/gx/uncommitted");
+  });
+});
+
+describe("phase3AddMonteCarloMcp", () => {
+  test("no-op when both credentials are absent", async () => {
+    const vault = createMockVault();
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddMonteCarloMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["montecarlo"]).toBeUndefined();
+  });
+
+  test("no-op when api_id is missing", async () => {
+    const vault = createMockVault();
+    await vault.set("montecarlo.api_token", "tok");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddMonteCarloMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["montecarlo"]).toBeUndefined();
+  });
+
+  test("no-op when api_token is missing", async () => {
+    const vault = createMockVault();
+    await vault.set("montecarlo.api_id", "id");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddMonteCarloMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["montecarlo"]).toBeUndefined();
+  });
+
+  test("spawns sandboxed server with MONTECARLO_API_ID and MONTECARLO_API_TOKEN env", async () => {
+    const vault = createMockVault();
+    await vault.set("montecarlo.api_id", "my-api-id");
+    await vault.set("montecarlo.api_token", "my-api-token");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddMonteCarloMcp(vault, servers, SANDBOX_CWD);
+    const spec = servers["montecarlo"];
+    expect(spec).toBeDefined();
+    if (spec === undefined) return;
+    expectSandboxed(spec, "api.getmontecarlo.com");
+    expect(spec.env?.["MONTECARLO_API_ID"]).toBe("my-api-id");
+    expect(spec.env?.["MONTECARLO_API_TOKEN"]).toBe("my-api-token");
+  });
+
+  test("manifest declares api.getmontecarlo.com in network", async () => {
+    const vault = createMockVault();
+    await vault.set("montecarlo.api_id", "id");
+    await vault.set("montecarlo.api_token", "tok");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddMonteCarloMcp(vault, servers, SANDBOX_CWD);
+    const spec = servers["montecarlo"];
+    if (spec === undefined) return;
+    const manifest = readManifest(spec);
+    expect(manifest.permissions.network).toContain("api.getmontecarlo.com");
+  });
+});
+
+describe("phase3AddBigeyeMcp", () => {
+  test("no-op when both credentials are absent", async () => {
+    const vault = createMockVault();
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddBigeyeMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["bigeye"]).toBeUndefined();
+  });
+
+  test("no-op when base_url is missing", async () => {
+    const vault = createMockVault();
+    await vault.set("bigeye.api_key", "key");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddBigeyeMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["bigeye"]).toBeUndefined();
+  });
+
+  test("no-op when api_key is missing", async () => {
+    const vault = createMockVault();
+    await vault.set("bigeye.base_url", "https://app.bigeye.com");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddBigeyeMcp(vault, servers, SANDBOX_CWD);
+    expect(servers["bigeye"]).toBeUndefined();
+  });
+
+  test("spawns sandboxed server with BIGEYE_BASE_URL and BIGEYE_API_KEY env + parsed host in manifest", async () => {
+    const vault = createMockVault();
+    await vault.set("bigeye.base_url", "https://app.bigeye.com");
+    await vault.set("bigeye.api_key", "my-api-key");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddBigeyeMcp(vault, servers, SANDBOX_CWD);
+    const spec = servers["bigeye"];
+    expect(spec).toBeDefined();
+    if (spec === undefined) return;
+    expectSandboxed(spec, "app.bigeye.com");
+    expect(spec.env?.["BIGEYE_BASE_URL"]).toBe("https://app.bigeye.com");
+    expect(spec.env?.["BIGEYE_API_KEY"]).toBe("my-api-key");
+  });
+
+  test("manifest contains parsed host from base_url", async () => {
+    const vault = createMockVault();
+    await vault.set("bigeye.base_url", "https://app.bigeye.com");
+    await vault.set("bigeye.api_key", "key");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddBigeyeMcp(vault, servers, SANDBOX_CWD);
+    const spec = servers["bigeye"];
+    if (spec === undefined) return;
+    const manifest = readManifest(spec);
+    expect(manifest.permissions.network).toContain("app.bigeye.com");
+  });
+
+  test("spawns even when base_url is not a parseable URL (hostname=null branch)", async () => {
+    const vault = createMockVault();
+    await vault.set("bigeye.base_url", "not a url");
+    await vault.set("bigeye.api_key", "key");
+    const servers: Record<string, ServerSpec> = {};
+    await phase3AddBigeyeMcp(vault, servers, SANDBOX_CWD);
+    const spec = servers["bigeye"];
+    expect(spec).toBeDefined();
+    if (spec === undefined) return;
+    expectSandboxed(spec);
+    expect(spec.env?.["BIGEYE_BASE_URL"]).toBe("not a url");
   });
 });
