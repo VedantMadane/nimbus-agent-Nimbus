@@ -39,13 +39,15 @@ export const EXCLUSIONS: readonly ExclusionPattern[] = Object.freeze([
   { kind: "exact", path: "packages/gateway/src/index.ts" },
   { kind: "exact", path: "packages/cli/src/index.ts" },
   { kind: "exact", path: "packages/cli/src/lib/gateway-process.ts" },
+  // `start.ts`: the testable pure helpers (`decideStartAction`, `wantsNoWizard`) are exported +
+  // unit-tested by `start.test.ts`; the residual is irreducible subprocess/socket/timer boot glue
+  // (`spawnGateway`, the IPC ready-poll race, the TTY onboarding loop) with no injection seam —
+  // same untestable I/O-shell class as a connector `server.ts`. (`decideStartAction` is also
+  // currently dead — inlined by `handleExistingGatewayState`; a surgical fast-follow can remove it.)
   { kind: "exact", path: "packages/cli/src/commands/start.ts" },
   { kind: "exact", path: "packages/cli/src/commands/tui.tsx" },
   { kind: "exact", path: "packages/cli/src/commands/repl.ts" },
   { kind: "exact", path: "packages/cli/src/commands/doctor.ts" },
-  // `team.ts` runTeam is a CLI IPC command shell (no injection seam); the testable
-  // parseTeamArgs is covered by team.test.ts. Same exemption class as start/repl/doctor.
-  { kind: "exact", path: "packages/cli/src/commands/team.ts" },
   // `assemble-sync-registrations.ts` is boot glue: ~89 hardcoded `syncScheduler.register(...)`
   // calls whose line coverage depends on which connectors the integration/boot tests happen to
   // spawn — it flakes ±0.6% between identical runs, which a one-directional ratchet can't absorb.
@@ -82,7 +84,6 @@ export const EXCLUSIONS: readonly ExclusionPattern[] = Object.freeze([
   { kind: "exact", path: "packages/gateway/src/updater/updater-test-fixtures.ts" },
 
   { kind: "exact", path: "packages/gateway/src/connectors/lazy-mesh/slot.ts" },
-  { kind: "exact", path: "packages/gateway/src/ipc/server/options.ts" },
   // `assemble.ts` is the boot-assembly I/O orchestrator (opens SQLite, spawns sidecars,
   // wires every runtime together) — same untestable shell class as `gateway/src/index.ts`
   // and `ipc/server/options.ts`. The new federation glue block is inert by default
@@ -109,14 +110,12 @@ export const EXCLUSIONS: readonly ExclusionPattern[] = Object.freeze([
   // type-only class as the `types.ts` basenameRegex above; excluded for the identical reason.
   { kind: "exact", path: "packages/gateway/src/chatops/transport/transport.ts" },
 
-  { kind: "pathRegex", re: /^packages\/github-actions\/[^/]+\/src\/main\.ts$/ },
+  // `ipc/server/options.ts` is a types-only module (`CreateIpcServerOptions` + `BunSessionData`
+  // over `import type` lines, zero executable statements) — lcov emits no SF: record, so the gate
+  // reads it as 0%. Same type-only class as the `types.ts` basenameRegex and `transport.ts`.
+  { kind: "exact", path: "packages/gateway/src/ipc/server/options.ts" },
 
-  // The gateway-side IMAP fetcher is a thin imapflow socket adapter (constructs
-  // `new ImapFlow(...)` and opens a real TLS connection) with no injection seam —
-  // the same untestable I/O shell as a connector `server.ts`. The testable logic
-  // (mapping, cursor, transient-failure handling) lives in `imap-sync.ts` +
-  // `imap-email-mapping.ts`, which ARE covered.
-  { kind: "exact", path: "packages/gateway/src/connectors/_lib/imap-client.ts" },
+  { kind: "pathRegex", re: /^packages\/github-actions\/[^/]+\/src\/main\.ts$/ },
 
   { kind: "pathRegex", re: /^packages\/mcp-connectors\/[^/]+\/src\/server\.ts$/ },
   // Each MCP connector's `src/tools.ts` is the same connect-shell class as its
