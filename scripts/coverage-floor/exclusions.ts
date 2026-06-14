@@ -24,9 +24,6 @@ export const EXCLUSIONS: readonly ExclusionPattern[] = Object.freeze([
   { kind: "exact", path: "packages/gateway/src/platform/sandbox/index.ts" },
   { kind: "exact", path: "packages/gateway/src/connectors/index.ts" },
   { kind: "exact", path: "packages/gateway/src/connectors/mapped-row.ts" },
-  // Team-vault ephemeral connector spawn: real MCPClient subprocess lifecycle (I/O glue, reuses the
-  // existing per-service spawners). Exercised end-to-end by the two-gateway invoke integration test.
-  { kind: "exact", path: "packages/gateway/src/teamvault/team-tool-spawn.ts" },
   { kind: "exact", path: "packages/client/src/index.ts" },
   { kind: "exact", path: "packages/client/src/stream-events.ts" },
   { kind: "exact", path: "packages/sdk/src/ipc/index.ts" },
@@ -68,16 +65,6 @@ export const EXCLUSIONS: readonly ExclusionPattern[] = Object.freeze([
   // the runChatops wrapper — a CLI IPC shell that reads gateway state, constructs a real
   // `IPCClient`, and calls `process.exit`, with no injection seam. Same exemption class as team.ts.
   { kind: "exact", path: "packages/cli/src/commands/chatops.ts" },
-
-  // `chatops-bot-spawn-call.ts` (Phase 6 Slice 5): the ephemeral bot-credentialed spawn-and-call —
-  // it constructs a real `new MCPClient(...)` and opens a connector subprocess with no injection
-  // seam. Identical untestable real-subprocess I/O shell as the already-exempt
-  // `teamvault/team-tool-spawn.ts` (`spawnTeamToolAndCall`), and lives under `chatops/` for the
-  // same reason (it only REUSES the lazy-mesh sandbox-wrapped spec builders, never authors a
-  // ServerSpec). The testable spec builders (`chatopsSlackBotServers` / `chatopsTeamsBotServers`)
-  // live in `chatops-bot-spawn.ts` and ARE covered; this glue is exercised end-to-end by the
-  // ChatOps e2e + chatops-bot-spawn.test.ts.
-  { kind: "exact", path: "packages/gateway/src/chatops/chatops-bot-spawn-call.ts" },
 
   // `chatops-tool-runner-e2e-sink.ts` (Phase 6 Slice 5): a TEST-ONLY file-backed mock ChatOps
   // transport, reachable only via the `NIMBUS_CHATOPS_E2E_SINK_DIR` env seam (same precedent class
@@ -130,13 +117,6 @@ export const EXCLUSIONS: readonly ExclusionPattern[] = Object.freeze([
   // (mapping, cursor, transient-failure handling) lives in `imap-sync.ts` +
   // `imap-email-mapping.ts`, which ARE covered.
   { kind: "exact", path: "packages/gateway/src/connectors/_lib/imap-client.ts" },
-
-  // MdnsDiscoveryProvider is a thin bonjour-service socket shell (advertise/browse
-  // _nimbus._tcp) with no injection seam — real multicast can't run on CI, so it's
-  // exercised only by the skippable Task 15 mDNS E2E. The testable discovery logic
-  // (DiscoveryProvider interface + InMemoryDiscoveryProvider) lives in discovery.ts,
-  // which IS covered.
-  { kind: "exact", path: "packages/gateway/src/federation/mdns-discovery-provider.ts" },
 
   { kind: "pathRegex", re: /^packages\/mcp-connectors\/[^/]+\/src\/server\.ts$/ },
   // Each MCP connector's `src/tools.ts` is the same connect-shell class as its
