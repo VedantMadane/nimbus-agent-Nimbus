@@ -4,8 +4,10 @@ import { runIndexedSchemaMigrations } from "../index/migrations/runner.ts";
 import { TeamVaultStore } from "../teamvault/team-vault-store.ts";
 import {
   answerFederatedInvoke,
+  answerLocalOperatorInvoke,
   answerLocalOperatorList,
   type InvokeGateCtx,
+  type LocalOperatorInvokeCtx,
   type LocalOperatorListCtx,
 } from "./invoke-gate.ts";
 
@@ -195,6 +197,264 @@ describe("answerLocalOperatorList (I19 — localOperator principal)", () => {
     });
     expect(r).toEqual({ kind: "error", error: "identity_invalid" });
     expect(called).toBe(false);
+    const audited = db
+      .query(`SELECT action_type FROM audit_log ORDER BY id DESC LIMIT 1`)
+      .get() as { action_type: string };
+    expect(audited.action_type).toBe("teamvault.invoke.identity_invalid");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// I26 tests
+// ---------------------------------------------------------------------------
+
+function freshI26Ctx(over: Partial<InvokeGateCtx> = {}): { db: Database; ctx: InvokeGateCtx } {
+  const db = new Database(":memory:");
+  runIndexedSchemaMigrations(db, 35);
+  const store = new TeamVaultStore(db);
+  store.createEntry("warehouse", "tableau", "owner", 1000);
+  store.grant("warehouse", "peer-1", "tableau_datasource_refresh", 1000);
+  store.grant("warehouse", "peer-1", "tableau_list", 1000);
+  const ctx: InvokeGateCtx = {
+    db,
+    store,
+    quorumFor: () => undefined,
+    runQuorum: async () => ({ outcome: "approved", approvers: [] }),
+    runTool: async () => ({ ok: true }),
+    now: () => 9000,
+    ...over,
+  };
+  return { db, ctx };
+}
+
+function freshLocalInvokeCtx(over: Partial<LocalOperatorInvokeCtx> = {}): {
+  db: Database;
+  ctx: LocalOperatorInvokeCtx;
+} {
+  const db = new Database(":memory:");
+  runIndexedSchemaMigrations(db, 35);
+  const store = new TeamVaultStore(db);
+  store.createEntry("warehouse", "tableau", "owner", 1000);
+  const ctx: LocalOperatorInvokeCtx = {
+    db,
+    store,
+    runTool: async () => ({ ok: true }),
+    now: () => 9000,
+    ...over,
+  };
+  return { db, ctx };
+}
+
+describe("I26 — federated peer gate fail-closed rejects write tool ids", () => {
+  it("a granted write tool id is rejected; runTool is never called", async () => {
+    let ran = false;
+    const { db, ctx } = freshI26Ctx({
+      runTool: async () => {
+        ran = true;
+        return { ok: true };
+      },
+      isWriteForbiddenToolId: (id) => id === "tableau_datasource_refresh",
+    });
+    const result = await answerFederatedInvoke(ctx, {
+      peerId: "peer-1",
+      entry: "warehouse",
+      toolId: "tableau_datasource_refresh",
+      purpose: "p",
+      args: {},
+    });
+    expect(result).toEqual({ kind: "error", error: "no_grant" });
+    expect(ran).toBe(false);
+    // M3: audit log must record write_forbidden
+    const audited = db
+      .query(`SELECT action_type FROM audit_log ORDER BY id DESC LIMIT 1`)
+      .get() as { action_type: string };
+    expect(audited.action_type).toBe("teamvault.invoke.write_forbidden");
+  });
+
+  it("a read tool id is unaffected by the predicate", async () => {
+    let ran = false;
+    const { ctx } = freshI26Ctx({
+      runTool: async () => {
+        ran = true;
+        return { ok: true };
+      },
+      isWriteForbiddenToolId: (id) => id === "tableau_datasource_refresh",
+    });
+    const result = await answerFederatedInvoke(ctx, {
+      peerId: "peer-1",
+      entry: "warehouse",
+      toolId: "tableau_list",
+      purpose: "p",
+      args: {},
+    });
+    expect(result).toEqual({ kind: "ok", result: { ok: true } });
+    expect(ran).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveIdentitySubject threading (Wave 7b deferral — I19 audit enrichment)
+// ---------------------------------------------------------------------------
+
+describe("resolveIdentitySubject threading", () => {
+  it("answerFederatedInvoke: answered audit row carries identity_subject when resolver returns a value", async () => {
+    const { db, ctx } = freshCtx({
+      resolveIdentitySubject: () => "operator@example.com",
+    });
+    const r = await answerFederatedInvoke(ctx, {
+      peerId: "peer:abc",
+      entry: "prod-aws",
+      toolId: "aws.ec2.instance.stop",
+      args: {},
+      purpose: "enrichment test",
+    });
+    expect(r.kind).toBe("ok");
+    const row = db
+      .query(`SELECT federation_json FROM audit_log ORDER BY id DESC LIMIT 1`)
+      .get() as { federation_json: string };
+    const parsed = JSON.parse(row.federation_json);
+    expect(parsed.identity_subject).toBe("operator@example.com");
+  });
+
+  it("answerFederatedInvoke: answered audit row OMITS identity_subject when resolver returns undefined", async () => {
+    const { db, ctx } = freshCtx({
+      resolveIdentitySubject: () => undefined,
+    });
+    const r = await answerFederatedInvoke(ctx, {
+      peerId: "peer:abc",
+      entry: "prod-aws",
+      toolId: "aws.ec2.instance.stop",
+      args: {},
+      purpose: "omit test",
+    });
+    expect(r.kind).toBe("ok");
+    const row = db
+      .query(`SELECT federation_json FROM audit_log ORDER BY id DESC LIMIT 1`)
+      .get() as { federation_json: string };
+    const parsed = JSON.parse(row.federation_json);
+    expect("identity_subject" in parsed).toBe(false);
+  });
+
+  it("answerLocalOperatorList: answered audit row carries identity_subject when resolver returns a value", async () => {
+    const { db, ctx } = freshLocalCtx({
+      resolveIdentitySubject: () => "local@example.com",
+    });
+    const r = await answerLocalOperatorList(ctx, {
+      entry: "dw-snowflake",
+      service: "snowflake",
+      listToolId: "snowflake_list_schemas",
+    });
+    expect(r.kind).toBe("ok");
+    const row = db
+      .query(`SELECT federation_json FROM audit_log ORDER BY id DESC LIMIT 1`)
+      .get() as { federation_json: string };
+    const parsed = JSON.parse(row.federation_json);
+    expect(parsed.identity_subject).toBe("local@example.com");
+  });
+
+  it("answerLocalOperatorList: answered audit row OMITS identity_subject when resolver returns undefined", async () => {
+    const { db, ctx } = freshLocalCtx({
+      resolveIdentitySubject: () => undefined,
+    });
+    const r = await answerLocalOperatorList(ctx, {
+      entry: "dw-snowflake",
+      service: "snowflake",
+      listToolId: "snowflake_list_schemas",
+    });
+    expect(r.kind).toBe("ok");
+    const row = db
+      .query(`SELECT federation_json FROM audit_log ORDER BY id DESC LIMIT 1`)
+      .get() as { federation_json: string };
+    const parsed = JSON.parse(row.federation_json);
+    expect("identity_subject" in parsed).toBe(false);
+  });
+
+  it("answerLocalOperatorInvoke: answered audit row carries identity_subject when resolver returns a value", async () => {
+    const { db, ctx } = freshLocalInvokeCtx({
+      resolveIdentitySubject: () => "invoke@example.com",
+    });
+    const r = await answerLocalOperatorInvoke(ctx, {
+      entry: "warehouse",
+      service: "tableau",
+      toolId: "tableau_datasource_refresh",
+      args: {},
+    });
+    expect(r.kind).toBe("ok");
+    const row = db
+      .query(`SELECT federation_json FROM audit_log ORDER BY id DESC LIMIT 1`)
+      .get() as { federation_json: string };
+    const parsed = JSON.parse(row.federation_json);
+    expect(parsed.identity_subject).toBe("invoke@example.com");
+  });
+
+  it("answerLocalOperatorInvoke: answered audit row OMITS identity_subject when resolver returns undefined", async () => {
+    const { db, ctx } = freshLocalInvokeCtx({
+      resolveIdentitySubject: () => undefined,
+    });
+    const r = await answerLocalOperatorInvoke(ctx, {
+      entry: "warehouse",
+      service: "tableau",
+      toolId: "tableau_datasource_refresh",
+      args: {},
+    });
+    expect(r.kind).toBe("ok");
+    const row = db
+      .query(`SELECT federation_json FROM audit_log ORDER BY id DESC LIMIT 1`)
+      .get() as { federation_json: string };
+    const parsed = JSON.parse(row.federation_json);
+    expect("identity_subject" in parsed).toBe(false);
+  });
+});
+
+describe("answerLocalOperatorInvoke — local owner may invoke a write tool id", () => {
+  it("runs the tool and returns its result", async () => {
+    const { ctx } = freshLocalInvokeCtx({
+      runTool: async (input) => ({ echoed: input.toolId }),
+    });
+    const result = await answerLocalOperatorInvoke(ctx, {
+      entry: "warehouse",
+      service: "tableau",
+      toolId: "tableau_datasource_refresh",
+      args: {},
+    });
+    expect(result).toEqual({ kind: "ok", result: { echoed: "tableau_datasource_refresh" } });
+  });
+
+  it("fail-closed on entry/service mismatch — runTool is NEVER called (M1)", async () => {
+    let ran = false;
+    const { ctx } = freshLocalInvokeCtx({
+      runTool: async () => {
+        ran = true;
+        return { ok: true };
+      },
+    });
+    const result = await answerLocalOperatorInvoke(ctx, {
+      entry: "warehouse",
+      service: "looker", // wrong service
+      toolId: "tableau_datasource_refresh",
+      args: {},
+    });
+    expect(result).toEqual({ kind: "error", error: "no_grant" });
+    expect(ran).toBe(false);
+  });
+
+  it("returns identity_invalid (non-opaque) and does NOT call runTool when identity is invalid (M2)", async () => {
+    let ran = false;
+    const { db, ctx } = freshLocalInvokeCtx({
+      identity: { enabled: true, isOperatorValid: () => false },
+      runTool: async () => {
+        ran = true;
+        return { ok: true };
+      },
+    });
+    const result = await answerLocalOperatorInvoke(ctx, {
+      entry: "warehouse",
+      service: "tableau",
+      toolId: "tableau_datasource_refresh",
+      args: {},
+    });
+    expect(result).toEqual({ kind: "error", error: "identity_invalid" });
+    expect(ran).toBe(false);
     const audited = db
       .query(`SELECT action_type FROM audit_log ORDER BY id DESC LIMIT 1`)
       .get() as { action_type: string };

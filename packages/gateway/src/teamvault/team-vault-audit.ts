@@ -6,7 +6,8 @@ export type TeamVaultDecision =
   | "no_grant"
   | "identity_invalid"
   | "quorum_failed"
-  | "quorum_denied";
+  | "quorum_denied"
+  | "write_forbidden";
 
 /** I19 — polymorphic principal for team-vault audit entries.
  *  "peer" = an inbound federated invoke from a remote peer (the classic path).
@@ -22,6 +23,9 @@ export interface TeamVaultAuditFields {
   readonly decision: TeamVaultDecision;
   readonly timestamp: number;
   readonly approvers?: readonly string[];
+  /** Wave 7b deferral: resolved identity subject when identity is enabled; omitted otherwise so the
+   *  tamper-evident trail never implies a verified identity that was not actually verified. */
+  readonly identitySubject?: string;
 }
 
 /** Tamper-evident audit for a team-vault invoke (answered or rejected). */
@@ -34,6 +38,7 @@ export function appendTeamVaultAudit(db: Database, f: TeamVaultAuditFields): voi
     decision: f.decision,
     method: "federation.invoke",
     ...(f.approvers === undefined ? {} : { approvers: f.approvers }),
+    ...(f.identitySubject === undefined ? {} : { identity_subject: f.identitySubject }),
   });
   appendAuditEntry(db, {
     actionType: `teamvault.invoke.${f.decision}`,
