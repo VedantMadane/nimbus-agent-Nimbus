@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781638445468,
+  "lastUpdate": 1781639236275,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -407,6 +407,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 293.28471820000414,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0adc755606273f86407af8135fe303a5ef0acdba",
+          "message": "chore(sonar): cleanup 8 — clear 11 smells, cut duplication, raise coverage (#662)\n\n## Summary\n\nSonarCloud hygiene pass (cleanup 8). The quality gate on `main` was\nalready **PASS** (0 bugs, 0 vulns, 0 unreviewed hotspots) — this clears\nthe 11 outstanding `CODE_SMELL` findings, reduces duplication, and\nraises coverage on the most tractable partial file. Fix-not-exclude per\nrepo convention.\n\n## Issues cleared (11)\n- **3× S3776** (cognitive complexity): `parseNimbusConnectorsToml` →\n`accumulateConnectorTables` + `resolveConnectorConfig`;\n`assemblePlatformServices` → `buildTeamCredentialContexts` +\n`bootChatopsIntoAssembly` (the late-bound `identityBootRef` became a\nholder; the two duplicated identity spreads collapsed into one);\n`aggregateContributions` → `collectPeerItems`\n- **2× S6582**: optional-chain in `invoke-gate.ts` (I19/I26 load-bearing\n— behavior identical, invariants preserved)\n- **2× S7747**: dropped redundant array-spread in\n`embedding-worker-core` `idle()`\n- **2× S6353**: `\\w` over `[A-Za-z0-9_]` in `format-audit-payload`\n(`_`-boundary semantics preserved)\n- **S4325**: removed redundant `BonjourLike` type assertion\n- **S7781**: `replaceAll` over `replace(/'/g)` in snowflake `sfLiteral`\n\n## Duplication\n- Hoisted the byte-identical GitHub Actions I/O helpers\n(`safeString`/`safeInt`/`getInput`/`getBooleanInput`/`getIntInput`/`writeJobSummary`/`emitAnnotation`)\nplus a `makeSetOutput(allowedNames)` factory into a new\n`packages/github-actions/shared/gha-io.ts`. `preflight-query` +\n`annotate-action` import and re-export what their tests need; dist\nbundles rebuilt. Kills the 83%/81% `output.ts` and the `main.ts`\nscaffolding twins.\n- `monte-carlo/search-filter` now uses the shared `fieldsFromKeys`\n(drops its duplicate `stringAt`/`fieldsOf`), matching the\nbitrise/codemagic pattern.\n\n## Coverage\n- `connector.ts` **91.2% → 95.6%**: real behavior tests for the\n`relTime`/`fmtNextSync` time buckets, `truncateText`, `fmtHealthRetry`,\nand flag-value validation edges.\n- `assemble-sync-registrations.ts` (53%) intentionally **not** chased —\nit is explicitly excluded from the coverage floor as boot wiring-glue,\nand covering its ~95 connector closures would require running 95 real\nsync paths for zero gate value.\n\n## Validation\n- Full sequential typecheck (all packages) ✓\n- Gateway full suite (10006 pass) + CLI (1693) + monte-carlo + gha (55)\n✓\n- Security-invariant structure audit (I19/I22/I25) ✓\n- **Docker Linux-authoritative coverage-floor: ok** (1002 files scanned)\n✓\n- Biome (`bunx biome check packages scripts`, 2765 files) ✓\n- Independent code review of the diff: no blocking issues ✓\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n* **Refactor**\n* Centralized GitHub Actions input/output, annotations, and job\nsummaries into a shared module; updated related actions to re-use shared\nhelpers.\n* Refined Nimbus TOML connector parsing/validation and improved gateway\ncontribution aggregation; extracted helpers across related query and\nassembly flows.\n* **Bug Fixes**\n* Tightened fine-grained GitHub credential redaction patterns and\nimproved Snowflake single-quote escaping.\n* **Tests**\n* Expanded CLI list/auth edge-case tests (time/health buckets,\nformatting, truncation) and added shared action utility unit tests.\n* **Documentation / CI**\n* Updated link checking to use an API token and improved CI coverage for\nshared action utilities.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-16T22:26:57+03:00",
+          "tree_id": "e53ab24ae3f641469c1211f607821cdcba069244",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/0adc755606273f86407af8135fe303a5ef0acdba"
+        },
+        "date": 1781639235082,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 299.2876376000007,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 297.1360037499915,
             "unit": "ms"
           }
         ]
