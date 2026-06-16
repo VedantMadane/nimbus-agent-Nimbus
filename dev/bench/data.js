@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781632053437,
+  "lastUpdate": 1781638445468,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -373,6 +373,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 288.1129804500066,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c4f12d382be6e8601858605089b664f7c5604e0c",
+          "message": "feat(share): Phase 6 Slice 8a — Share foundation (I27 share-gate, verify-share, V41) (#661)\n\n## Phase 6 Slice 8a — Share & Virality foundation\n\nShips the foundation of the Share subsystem: the **first deliberate\noutbound data path** in Nimbus, behind new structural invariant **I27 /\nstatic D21**, migration **V41**.\n\nAn outbound share leaves the machine only through `share/share-gate.ts`\n`createShare()`: collect session → default+caller **redaction** → the\nLOCAL owner approves the **exact redacted preview bytes** via the\n`share.publish` HITL action (I2 frozen set) → **Ed25519 sign** with a\nVault-only key → persist to `share_records` → **audit-log** the applied\nredaction set. A denied/timed-out approval persists + signs + emits\n**nothing** (fail-closed). `verify-share` reuses the same codec.\n\n### What's here\n- **`share/` subsystem** — `share-redaction` (secrets + PII families +\ncaller patterns), `safe-fetch` (SSRF-guarded, documented DNS-rebind\nresidual), `share-keypair` (Vault-only `share.signing.*`),\n`share-format` (`nimbus-share/v1` codec: canonical body, BLAKE3 hash,\nsign/verify, **advisory** expiry), `share-store` (V41 CRUD),\n`share-gate` (the I27 chokepoint) + `share-consent-broker`,\n`verify-share`.\n- **Migration V41** — `share_records` ledger. `CURRENT_SCHEMA_VERSION` →\n41.\n- **Surfaces** —\n`share.{create,verify,list,get,pubkey,prune,approvalRespond}` IPC\n(`share.create`/`prune` LAN-forbidden); `nimbus share\n<create|list|prune|pubkey|approve|reject>` + `nimbus verify-share\n<file|url>` CLI; config-pinned `[share.http_sink]`; the 4 read-only\n`share.{get,list,pubkey,verify}` on the Tauri renderer allowlist\n(mutating methods stay CLI-only, I7).\n- **Invariant I27 / static D21** — runtime block in\n`security-invariants.test.ts` (`share.publish ∈ HITL_REQUIRED`;\nLAN-forbid of create/prune) + static confinement of the `share.publish`\nliteral, the `share.signing.privkey` Vault key, and the `createShare`\ncall site, plus an assemble-wiring assertion.\n- **Docs** — I27 + D21 in `SECURITY-INVARIANTS.md`, CLAUDE.md/GEMINI.md\ninvariant list, CHANGELOG.\n\nOut of 8a scope (Waves 8b–8d): recipe, replay, peer forwarding — the\n`forwarding` field ships inert.\n\n### Verification (all green)\n- typecheck (all packages), biome, markdown lint, all `audit:*` static\ngates, jscpd, js-licenses — ✓\n- build ✓ · unit **13151**, integration **358**, gateway-e2e **140**\n(incl. a real-gateway share create→approve→verify round-trip), cli-e2e\n**26** — 0 fail\n- **coverage-floor: ok** against a Docker-Linux-authoritative lcov\n(baseline `files: {}`; every share file clears ≥80% line+branch) ·\nlychee ✓\n- `origin/main` merged in (clean).\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n* Added `share` and `verify-share` CLI commands enabling users to\ncreate, list, verify, and manage shared session artifacts with HITL\napproval gating and PII redaction.\n* Share artifacts now support multiple sinks (file, HTTP, peer) with\nconfigurable HTTP endpoint via `[share.http_sink]` in `nimbus.toml`.\n* Added four new IPC read-only methods for renderer access:\n`share.verify`, `share.list`, `share.get`, `share.pubkey`.\n\n* **Documentation**\n* Documented security invariant **I27** defining the single outbound\nshare emission path with mandatory owner approval, Vault-only signing,\nand automatic PII redaction.\n\n* **Chores**\n* Database schema updated to v41 with new `share_records` ledger for\npersistent share storage.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-16T19:13:33Z",
+          "tree_id": "8afc92a25b9a989e7b284fd0546ca9110ee3af5f",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/c4f12d382be6e8601858605089b664f7c5604e0c"
+        },
+        "date": 1781638444897,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 298.51003695000327,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 293.28471820000414,
             "unit": "ms"
           }
         ]
