@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781639236275,
+  "lastUpdate": 1781649391423,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -441,6 +441,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 297.1360037499915,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0870362301fecd1c6742c799ece667edf1d8f671",
+          "message": "fix(ci): session-memory getRecentTurns must not require sqlite-vec (share e2e I27) (#664)\n\n## Problem\n\nThe I27 share e2e redaction round-trip (`approved create redacts PII,\nsigns, writes the file; verify reports a VALID signature`) fails\n**identically on all 3 OS legs** of the push-to-`main` matrix (run\n27642549323). It is a logic bug, not a platform flake.\n\nThe written share body carried `\"turns\":[]`, `\"toolCalls\":[]`,\n`\"redactionSet\":[]`, so redaction had no PII to strip and the\n`expect(fileText).toContain(\"[REDACTED]\")` assertion failed.\n\n## Root cause\n\n`SessionMemoryStore.getRecentTurns` gated on `ensureReady()`, which\nrequires the **optional sqlite-vec extension** to load\n(`ensureSqliteVecForConnection`). On CI runners with no sqlite-vec\nprebuilt and no `vec0.*` sidecar, the read short-circuited to `[]` —\neven though the seeded `session_memory` rows were present and the\n`SELECT` touches only the `session_memory` table, never a vec virtual\ntable.\n\nThe unit suite is `describe.skipIf(!VEC_AVAILABLE)`, so it's silently\nskipped on those runners — only the unguarded e2e test caught the\nregression. The sibling reads (`listSessions`, `deleteSession`)\ncorrectly gate on table existence (`user_version >= 10`) only.\n\n## Fix\n\nGate `getRecentTurns` on `readIndexedUserVersion(this.db) < 10` (table\nexistence) only, mirroring `listSessions()`/`deleteSession()`. The vec\ndependency was spurious for this read.\n\nThis also restores **platform equality** (Non-Negotiable #5):\nsession-transcript recall now works on any box at schema V10, regardless\nof whether the optional vec extension loaded.\n\n## Verification\n\n- `bun test packages/gateway/src/memory/session-memory-store.test.ts\npackages/gateway/test/e2e/share-e2e.test.ts` → 23 pass / 0 fail.\n- `bun run preflight:fast` → PASSED (typecheck, biome, all static\naudits, duplication).\n- The `version < 10 → []` unit case is preserved.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n* Improved session memory retrieval to work reliably without requiring\noptional extension support, ensuring consistent access to session data\nacross all environments and configurations.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-16T22:24:17Z",
+          "tree_id": "a2ef6254478c58f0754bb6f6028d441af44d3533",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/0870362301fecd1c6742c799ece667edf1d8f671"
+        },
+        "date": 1781649390917,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 316.8974438500041,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 318.5835399999974,
             "unit": "ms"
           }
         ]
