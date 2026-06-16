@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781627168264,
+  "lastUpdate": 1781629421644,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -271,6 +271,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 280.1991967000049,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f5f246fb9713a023ef8c1eaf8f09ffbac6804b80",
+          "message": "fix(ci): publish package managers after Release uploads assets (kill the asset-race) (#658)\n\n## Problem\n\nThe `Publish package managers` (brew/scoop + winget) and `Publish Linux\nrepo` (apt/yum) workflows trigger on `release: [released]`.\nrelease-please publishes the **(empty)** GitHub Release the instant the\nrelease PR merges, which fires `released` **~18 min before**\n`release.yml` finishes building and attaching `SHA256SUMS` / `.deb` /\n`.rpm` / `.msi` / binaries.\n\nSo the publish jobs always raced an asset-less release and died:\n\n```\ngh release download v0.9.1 ... → \"no assets to download\" → exit 1\n```\n\nThis has reddened these two jobs on **every release since v0.7.0**\n(v0.7.0, v0.8.0, v0.9.0, v0.9.1, plus sdk-*/client-* tags that have no\ninstallers at all). The assets *do* land eventually (v0.9.0 has 33), but\nthe publish jobs already failed and don't auto-retry.\n\nRoot-cause runs:\n[27631725421](https://github.com/nimbus-agent/Nimbus/actions/runs/27631725421)\n·\n[27631724623](https://github.com/nimbus-agent/Nimbus/actions/runs/27631724623).\n\n## Fix\n\nRe-trigger the publish workflows via **`workflow_run` on the `Release`\nworkflow completing**, so assets are guaranteed present before `gh\nrelease download` runs.\n\nEach job's `if` gates on:\n- `conclusion == 'success'` — never publish off a failed build\n- `startsWith(head_branch, 'v')` — installer-bearing app releases only\n(sdk-*/client-* don't trigger `release.yml` anyway → doubly excluded)\n- `!contains(head_branch, '-')` — non-prerelease only, preserving the\nold \"`released` fires only for stable\" semantics\n\nSide benefit: prerelease/failed Release runs now yield **skipped**\n(neutral) jobs instead of red, so the chronic red in the run list stops.\n\n### Details\n- Tag plumbing: `github.event.release.tag_name` →\n`github.event.workflow_run.head_branch` throughout; the\n`workflow_dispatch` tag-input path is unchanged for manual re-runs.\n- Checkout pins `ref: head_sha` (workflow_run otherwise defaults to the\ndefault branch) so helper scripts come from the released tag's tree —\nmatching the prior `release:`-event behavior.\n\n## Follow-up (not in this PR)\n- **v0.9.1 still needs a one-time manual publish** once its in-flight\nRelease build attaches assets — `workflow_run` only engages for releases\n*after* this merges to main:\n  ```\n  gh workflow run publish-package-managers.yml -f tag_name=v0.9.1\n  gh workflow run publish-linux-repo.yml      -f tag_name=v0.9.1\n  ```\n\n## Validation\n- Both workflows parse cleanly; no stray `github.event.release`\nreferences remain.\n- Pure CI-workflow change — no product code touched.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-16T19:42:20+03:00",
+          "tree_id": "5cc08032c6cbadb6990d8deca7e67e321feebc67",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/f5f246fb9713a023ef8c1eaf8f09ffbac6804b80"
+        },
+        "date": 1781629420338,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 291.69431325000517,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 293.964792650002,
             "unit": "ms"
           }
         ]
