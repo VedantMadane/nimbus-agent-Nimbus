@@ -113,6 +113,18 @@ describe("I5 — LAN method allowlist is intrinsic to LanServer", () => {
     expect(src).toMatch(/"extension\.update"/);
   });
 
+  test("FORBIDDEN_OVER_LAN blocks share.create + share.prune + share.approvalRespond (Slice 8 / I27)", async () => {
+    const { checkLanMethodAllowed } = await import("./ipc/lan-rpc.ts");
+    const peer = { peerId: "peer:x", writeAllowed: true };
+    // The outbound chokepoint, the local prune, and the LOCAL-owner approval answer are all
+    // un-callable over the wire — a remote peer must never approve/trigger an outbound publish.
+    expect(() => checkLanMethodAllowed("share.create", peer)).toThrow();
+    expect(() => checkLanMethodAllowed("share.prune", peer)).toThrow();
+    expect(() => checkLanMethodAllowed("share.approvalRespond", peer)).toThrow();
+    // Read-only share methods remain admitted (gated downstream like federation reads).
+    expect(() => checkLanMethodAllowed("share.verify", peer)).not.toThrow();
+  });
+
   test("admits the team-vault wire methods but FORBIDS team-vault/HITL management over LAN (Slice 2)", async () => {
     const { checkLanMethodAllowed } = await import("./ipc/lan-rpc.ts");
     const peer = { peerId: "peer:x", writeAllowed: true };
@@ -521,9 +533,9 @@ describe("I7 — Tauri ALLOWED_METHODS surface for T2 PR 3", () => {
     expect(rust).not.toMatch(/^\s*"extension\.install",\s*$/m);
   });
 
-  test("allowlist_exact_size assertion is 90", async () => {
+  test("allowlist_exact_size assertion is 94", async () => {
     const rust = await read("packages/ui/src-tauri/src/gateway_bridge.rs");
-    expect(rust).toMatch(/assert_eq!\s*\(\s*ALLOWED_METHODS\.len\(\),\s*90\s*\)/);
+    expect(rust).toMatch(/assert_eq!\s*\(\s*ALLOWED_METHODS\.len\(\),\s*94\s*\)/);
   });
 
   test("Slice 6c: read-only tribal.status/list allowed; control-plane tribal methods stay absent", async () => {
@@ -1015,5 +1027,12 @@ describe("I26 — warehouse/BI writes are confined to the local I2 path; federat
     const audit = await read("scripts/structure-audit/check-nimbus-invariants.ts");
     expect(audit).toContain("D20-warehouse-write");
     expect(audit).toContain("D20-invoke-gate-predicate");
+  });
+});
+
+describe("I27 — outbound share gated by share.publish HITL action", () => {
+  test("HITL_REQUIRED includes share.publish", async () => {
+    const { HITL_REQUIRED } = await import("./engine/executor.ts");
+    expect(HITL_REQUIRED.has("share.publish")).toBe(true);
   });
 });
