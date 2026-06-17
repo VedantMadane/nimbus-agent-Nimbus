@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781719732029,
+  "lastUpdate": 1781721292168,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -985,6 +985,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 307.98770365000235,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8535f4db75a68806806813131e7fb0a34327fba7",
+          "message": "feat(share): Phase 6 Slice 8c — replay (verify-share --replay, recipe-runner) (#684)\n\n## Phase 6 Slice 8c — Replay\n\nAdds **`nimbus verify-share <file|url> --replay`**: a deterministic,\nLLM-free local re-execution of a shared recipe's (or a transcript\nshare's) tool calls, classifying each step against the shared original\ninto a divergence report — *\"watch what ran on their data run on\nyours.\"*\n\nPer-step outcomes: `match` / `diverged` / `missing-connector` /\n`skipped-non-read` / `error`, plus a summary.\n\nImplements spec §8\n(`docs/superpowers/specs/2026-06-15-slice8-share-virality-design.md`);\nrealizes the spec's `share verify --replay` intent via the\nalready-shipped `verify-share` command (no duplicate verify surface).\nPlan: `docs/superpowers/plans/2026-06-17-slice8c-replay.md`.\n\n### What's new\n- **`share/read-tool-registry.ts`** — the security-load-bearing\n**POSITIVE** read-only allowlist (`isReadOnlyToolId`): a step runs only\nif its tool is positively classified read-only by connector read-verb\nnaming (`*_list`/`*_get`/`*_query`/`*_search` + a curated read surface),\n**never** by \"absent from `HITL_REQUIRED_BACKING`.\" A write tool missing\nfrom the HITL set is still skipped.\n- **`share/recipe-runner.ts`** — `stepsFromShare` (normalizes recipe or\ntranscript → ordered steps; fail-safe on malformed input),\n`replayRecipe` (per-step classification, executor invoked only past the\nread-only gate, never consults `dependsOn`), `replayShare` (entry\npoint).\n- **`share.replay` RPC** + `verify-share` loader/parse helpers\n(`loadShareBytes`, `parseShareFile`); mesh-backed `listReplayTools` ctx\ndep wired in `assemble.ts`.\n- **CLI** `verify-share --replay` + a pure `formatReplayReport`\nrenderer.\n- **E2E** recipe-replay round-trip (create `--as-recipe` → approve →\nreplay).\n\n### Safety / scope\n- **No new invariant, no migration** (schema stays V42). **I27/D21\nuntouched** — no new `share.publish` / `share.signing.privkey` /\n`createShare` references; `security-invariants` 83/83 unchanged.\n- Replay is **read-only + LLM-free**: never re-invokes the LLM, never\nfires a write/HITL action. The read-only guarantee is proven by a unit\nsecurity test (real classifier; both a HITL-absent write `acme_destroy`\nand a HITL-present write `snowflake_tag_set` are skipped, only\n`gmail_get` executes) and the e2e.\n- Deterministic: same share + same connector outcomes → identical\nreport.\n\n### Verification (all green before first push)\ngateway+cli tsc 0 · biome clean · structure-audit (D21) exit 0 ·\nsecurity-invariants 83/83 · unit (share/registry/runner/rpc) green ·\nintegration 354 pass / 0 fail · e2e 4/4 · cross-platform clean ·\nmarkdownlint 0 · CI-jscpd 3.18% (<5%) · js-licenses ✅ · lychee ✅ ·\n**Docker-Linux coverage-floor: ok** (new files clear ≥80% line+branch) ·\nwhole-branch opus review = ready-to-merge.\n\nBuilt subagent-driven (fresh implementer + two-stage review per task +\nopus whole-branch review). Deferred-Minor follow-ups (test-comment\npolish, etc.) tracked in the plan; the 3 FIX-NOW review items\n(parseShareFile `sig` null-guard, e2e handler cleanup,\nreverse-divergence assertion) are applied.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n* **New Features**\n* Added `--replay` to `nimbus verify-share <file|url>` to\ndeterministically re-run shared recipe/transcript tool calls locally and\nprint signature validity/expiry plus a per-step divergence report\n(`match`, `diverged`, `missing-connector`, `skipped-non-read`, `error`).\n* Implemented `share.replay` gateway support with read-only enforcement\nvia a positive allowlist.\n* **Bug Fixes**\n* Improved CLI robustness for local share loading (graceful failures and\ncorrect exit codes).\n* **Documentation**\n* Updated Phase 6 (Slice 8c) changelog and architecture/spec/review\nnotes for replay.\n* **Tests**\n* Added unit and end-to-end coverage for replay reporting,\nparsing/loading, dispatcher behavior, and read-only classification.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-06-17T18:20:07Z",
+          "tree_id": "c1afcd41577dbe35bee2df6dc0e222151b89fa26",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/8535f4db75a68806806813131e7fb0a34327fba7"
+        },
+        "date": 1781721290410,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 299.99145104999695,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 299.9659380500005,
             "unit": "ms"
           }
         ]
