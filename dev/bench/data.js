@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781726504786,
+  "lastUpdate": 1781727595844,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -1053,6 +1053,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 285.2832019000074,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4d2881d8cffba96c65690ca5f364ff0d72e25ae4",
+          "message": "docs+chore: status-drift sweep + status-drift/sha-pin gates + workflow hardening (#685)\n\nSingle PR consolidating the docs / skills / scripts / CI / workflow\nimprovements from this session's audits (kept to one PR by request).\n\n## 1. Docs & skills — kill the status drift\nThe repo had moved to **v0.11.2 / schema V42 / invariant I27 / Phase 6\nnearly complete**, but the docs lagged at v0.6.1 / V40 / I26.\n\n- **CLAUDE.md, GEMINI.md, README, SECURITY.md** —\nrelease/version/badges/supported-versions corrected.\n- **architecture.md** — verbose status block → one-line CHANGELOG\npointer (per convention); `I1–I26`→`I1–I27`; added static rules\n`D18–D21`; `WRITE_ROUTE_ALLOWLIST` 5→**6**; Tauri allowlist count →\n**94**; added the Share subsystem.\n- **SECURITY-INVARIANTS.md** — allowlist size `74`→**94**; \"Current\nceiling\" header; worked example `I18`→`I28`.\n- **cli-reference.md** — **new `nimbus share` (Sharing) section** (the\nwhole Slice-8 surface was undocumented); completed the LAN\nforbidden-namespace list.\n- **Skills** — new **`nimbus-share-virality`** skill; `nimbus-file-map`\ngains the Phase-6 subsystems + CLI rows; `nimbus-architecture` IPC\nnamespace table + phase line; fixed `I1–I23`→`I1–I27`;\n**`nimbus-preflight` now states the Sonar quality gate IS blocking** (it\nwas documented as non-blocking — it `exit 1`s on ERROR) + a \"can't\nreproduce locally\" guide.\n\nAll counts verified against code (`gateway_bridge.rs` = 94,\n`http-write-routes.ts` = 6, `CURRENT_SCHEMA_VERSION` = 42,\n`security-invariants.test.ts` max = I27).\n\n## 2. New preventive gates (wired into preflight fast tier + the static\nCI job)\n- **`audit:status-drift`** — keeps the doc status surfaces in sync with\nthe canonical invariant (`I<N>`) + schema (`V<N>`) read from code. *This\nprevents the exact drift this PR fixes from recurring.*\n- **`audit:action-sha-pins`** — asserts every third-party `uses:` is a\nfull 40-hex SHA. Guards the **org-level SHA-pinning requirement** so an\nunpinned ref is caught locally, not at run time.\n\nBoth ship with unit tests (10 new, all green); the preflight drift test\npasses.\n\n## 3. Real bug found en route\n`share` + `verify-share` are dispatched in `index.ts` but were **missing\nfrom `registry.ts`'s `COMMAND_NAMES`** — caught by `audit:readme-cli`\nonce the README referenced `nimbus share`. Now registered.\n\n## 4. Misc workflow hardening\n- Local convenience wrappers: `audit:secrets` (gitleaks), `audit:links`\n(lychee).\n- Pinned floating `ubuntu-latest` runners → `ubuntu-24.04`;\n`labeler.yml` `pull_request_target` guard comment.\n- Deleted dead scripts `bump-deps.ts`, `spike-darwin-sandbox-exec.sh`.\n\n## Deferred (higher-risk, noted for a focused follow-up)\nThe 26-leg `coverage-gates` matrix dedup, a per-OS-setup composite\naction, and the macOS/Windows runner **image** bumps — these carry real\nCI-behavior risk (and the matrix one could weaken coverage enforcement),\nso they're intentionally out of this otherwise-low-risk PR.\n\n## Verification\n`bun run preflight:fast` — **all 18 gates green** (incl. the 2 new\nones). Full `typecheck`, `lint`, `lint:markdown`, `audit:doc-refs`\nclean. New audit tests + `registry.test.ts` + share CLI tests pass.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n## Release Notes\n\n* **New Features**\n* Share & Virality subsystem shipped: `nimbus share` command for\ncreating session shares with redaction, signing, and owner-gated\npublication\n  * New share verification and records management capabilities\n\n* **Documentation**\n* Phase 6 progress updated (Slices 1–8 shipped, security invariants\nthrough I27, schema V42)\n  * Expanded CLI reference with complete sharing command documentation\n* Enhanced security policy covering outbound share gates and LAN access\ncontrols\n\n* **Chores**\n  * Updated CI/CD workflows to use Ubuntu 24.04\n  * Added audit tooling for status consistency and security scanning\n  * Removed legacy scripts\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-17T23:03:24+03:00",
+          "tree_id": "f93dd9b6b77a638f3605bb3ee0cee10e95a26cf0",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/4d2881d8cffba96c65690ca5f364ff0d72e25ae4"
+        },
+        "date": 1781727594575,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 310.197267450003,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 308.11195645000555,
             "unit": "ms"
           }
         ]
