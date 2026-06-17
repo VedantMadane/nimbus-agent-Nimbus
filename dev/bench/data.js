@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781680167602,
+  "lastUpdate": 1781681219831,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -713,6 +713,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 268.4895493999975,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c6ebd1dc885d1c358ee2920c0b8755f562ba7b2d",
+          "message": "chore(main): release 0.11.1 (#674)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n##\n[0.11.1](https://github.com/nimbus-agent/Nimbus/compare/v0.11.0...v0.11.1)\n(2026-06-17)\n\n\n### Bug Fixes\n\n* **ci:** gitleaks allowlist synthetic TestFlight PEM fixture\n([#670](https://github.com/nimbus-agent/Nimbus/issues/670))\n([3da4609](https://github.com/nimbus-agent/Nimbus/commit/3da460991b487b68fad2ea1febc9c32a148db807))\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n* Fixed TestFlight certificate handling in the continuous integration\npipeline.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-06-17T07:14:31Z",
+          "tree_id": "471527c9497c13d77e37a1a34e5633c030debad5",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/c6ebd1dc885d1c358ee2920c0b8755f562ba7b2d"
+        },
+        "date": 1781681218745,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 302.8520562500038,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 305.03910519999374,
             "unit": "ms"
           }
         ]
