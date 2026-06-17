@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781653226116,
+  "lastUpdate": 1781673194527,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -543,6 +543,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 302.21301004999805,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3da460991b487b68fad2ea1febc9c32a148db807",
+          "message": "fix(ci): gitleaks allowlist synthetic TestFlight PEM fixture (#670)\n\n## Summary\n\nAdds `packages/gateway/src/connectors/lazy-mesh/phase3-config.test.ts`\nto the `.gitleaks.toml` path allowlist.\n\n## Why\n\nThe lazy-mesh phase-3 connector spawn test sets a **synthetic**\nTestFlight credential:\n\n```ts\nawait vault.set(\"testflight.private_key\", \"-----BEGIN PRIVATE KEY-----\\nabc\\n\");\n```\n\nThe `-----BEGIN PRIVATE KEY-----` header trips gitleaks' default\n`private-key` rule on the full-history/all-refs scan, but the body is\nthe literal `abc` — **never a real key**. This is the same\nfalse-positive class already handled for four other fixture files\n(secret-patterns.test.ts, gateway-log-file.test.ts, etc.), so it gets\nthe same durable **path-based** allowlist (fingerprint pins break on\nsquash-merge — see the config header).\n\nThe fixture was introduced on a coverage branch and surfaced gitleaks\nfailures across unrelated PRs (e.g. a docs-only PR) because the scan\ncrosses refs. Landing the allowlist on `main` clears it for every branch\non update.\n\nNo code change; one path added to the existing allowlist.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Chores**\n* Updated security scanning configuration to accommodate test fixtures\ncontaining synthetic credentials.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-06-17T08:02:41+03:00",
+          "tree_id": "f3c0c889087f92099db03147caae667b1739b06b",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/3da460991b487b68fad2ea1febc9c32a148db807"
+        },
+        "date": 1781673193551,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 232.36495715000018,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 230.5147353999957,
             "unit": "ms"
           }
         ]
