@@ -2,6 +2,8 @@ import type { Database } from "bun:sqlite";
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { asRecord } from "../connectors/unknown-record.ts";
+import { buildRecipeFromSession } from "../share/recipe.ts";
+import { serializeShareFileToYaml } from "../share/recipe-yaml.ts";
 import { safeFetch } from "../share/safe-fetch.ts";
 import { type CreateShareRequest, createShare, type ShareSink } from "../share/share-gate.ts";
 import { ensureShareKeypair } from "../share/share-keypair.ts";
@@ -154,7 +156,10 @@ const HANDLERS: RpcMethodHandlerMap<ShareRpcCtx> = {
       ? redactRaw.filter((x): x is string => typeof x === "string").map(literalToRegExp)
       : [];
 
-    const content = await ctx.collectSession(sessionId);
+    // Only the transcript path consumes `content`; the recipe path builds from tool_call_log via
+    // buildRecipe, so skip the session-memory read entirely for recipes (no wasted DB query).
+    const content =
+      kind === "transcript" ? await ctx.collectSession(sessionId) : { turns: [], toolCalls: [] };
     const req: CreateShareRequest = { sessionId, kind, sink, expiresAt, callerPatterns };
 
     const result = await createShare(req, {
@@ -163,6 +168,7 @@ const HANDLERS: RpcMethodHandlerMap<ShareRpcCtx> = {
       label: ctx.label,
       now: ctx.now,
       collectSession: () => content,
+      buildRecipe: (sid) => buildRecipeFromSession(ctx.db, sid, ctx.now),
       requestApproval: (preview, redactionSet) =>
         ctx.requestApproval(sessionId, kind, sink.type, preview, redactionSet),
       recordAudit: ctx.recordAudit,
@@ -175,7 +181,9 @@ const HANDLERS: RpcMethodHandlerMap<ShareRpcCtx> = {
     const json = JSON.stringify(result.share);
     if (sink.type === "file") {
       if (filePath !== undefined) {
-        await emitFile(filePath, json);
+        const wantsYaml = kind === "recipe" || /\.ya?ml$/i.test(filePath);
+        const out = wantsYaml ? serializeShareFileToYaml(result.share) : json;
+        await emitFile(filePath, out);
       }
     } else if (sink.type === "http") {
       await emitHttp(ctx, json);

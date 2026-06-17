@@ -1,8 +1,11 @@
 import type { Database } from "bun:sqlite";
 
+import { redactAuditPayload } from "../audit/format-audit-payload.ts";
 import { dbRun } from "./write.ts";
 
 export const MAX_ENVELOPE_BYTES = 65_536;
+/** Byte budget for stored params JSON — larger than redactAuditPayload's 4096 default so typical params survive. */
+export const MAX_PARAMS_JSON_BYTES = 16_384;
 
 export interface ToolCallLogEntry {
   sessionId: string | null;
@@ -12,10 +15,12 @@ export interface ToolCallLogEntry {
   durationMs: number;
   resultEnvelope: string;
   status: "ok" | "error";
+  params?: unknown;
 }
 
 export interface ToolCallLogReadEntry extends ToolCallLogEntry {
   id: number;
+  params: unknown;
 }
 
 export interface ToolCallLogFilter {
@@ -34,6 +39,32 @@ export interface ToolCallLogReadResult {
   nextCursor: { calledAt: number; id: number } | null;
 }
 
+function parseParamsJson(raw: string | null): unknown {
+  if (raw === null) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Redact params and guarantee the result is always valid JSON (or SQL NULL when params
+ * is undefined). If redactAuditPayload truncates mid-JSON (producing an invalid string),
+ * a visible sentinel `{"truncated":true}` is stored so the loss is explicit on read,
+ * never silently dropped to null.
+ */
+function redactedParamsJson(params: unknown): string {
+  const s = redactAuditPayload(params, MAX_PARAMS_JSON_BYTES);
+  try {
+    JSON.parse(s);
+    return s; // valid JSON within budget
+  } catch {
+    // redaction truncated mid-JSON → store a VALID sentinel so the loss is visible
+    return JSON.stringify({ truncated: true });
+  }
+}
+
 function truncateEnvelope(envelope: string): string {
   const total = Buffer.byteLength(envelope, "utf8");
   if (total <= MAX_ENVELOPE_BYTES) return envelope;
@@ -46,13 +77,17 @@ function truncateEnvelope(envelope: string): string {
 
 const INSERT_SQL = `
 INSERT INTO tool_call_log
-  (session_id, tool_id, service, called_at, duration_ms, result_envelope, status)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+  (session_id, tool_id, service, called_at, duration_ms, result_envelope, status, params_json)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `.trim();
 
 export function writeToolCallLog(db: Database, entry: ToolCallLogEntry): void {
-  const envelope = truncateEnvelope(entry.resultEnvelope);
   try {
+    // Compute envelope + redacted params INSIDE the try: audit logging is strictly best-effort,
+    // so redaction/serialization throwing on pathological input (e.g. a circular ref) must never
+    // break the caller's tool call.
+    const envelope = truncateEnvelope(entry.resultEnvelope);
+    const paramsJson = entry.params === undefined ? null : redactedParamsJson(entry.params);
     dbRun(db, INSERT_SQL, [
       entry.sessionId,
       entry.toolId,
@@ -61,6 +96,7 @@ export function writeToolCallLog(db: Database, entry: ToolCallLogEntry): void {
       entry.durationMs,
       envelope,
       entry.status,
+      paramsJson,
     ]);
   } catch {
     // Best-effort. The two wiring sites are not allowed to throw because of
@@ -104,7 +140,7 @@ export function readToolCallLog(db: Database, filter: ToolCallLogFilter): ToolCa
 
   const whereClause = where.length === 0 ? "" : `WHERE ${where.join(" AND ")}`;
   const sql = `
-SELECT id, session_id, tool_id, service, called_at, duration_ms, result_envelope, status
+SELECT id, session_id, tool_id, service, called_at, duration_ms, result_envelope, status, params_json
 FROM tool_call_log
 ${whereClause}
 ORDER BY called_at ASC, id ASC
@@ -120,6 +156,7 @@ LIMIT ?
     duration_ms: number;
     result_envelope: string;
     status: "ok" | "error";
+    params_json: string | null;
   };
 
   const rows = db.query(sql).all(...args, limit + 1) as Row[];
@@ -135,6 +172,7 @@ LIMIT ?
     durationMs: r.duration_ms,
     resultEnvelope: r.result_envelope,
     status: r.status,
+    params: parseParamsJson(r.params_json),
   }));
 
   const last = toolCalls.at(-1);
