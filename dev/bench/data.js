@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781675771917,
+  "lastUpdate": 1781678943855,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -645,6 +645,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 277.75554134999913,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f4a9a75d6a07bb787675973c8411d9b1c0a27eef",
+          "message": "chore(sonar): cleanup 9 follow-up — land the share-subsystem smell fixes + coverage/dedup orphaned by #669 (#672)\n\n@\n## Why\n\nPR #669 (\"cleanup 9 — clear all 16 smells…\") was **squash-merged but\nonly captured part of the branch**. The squash commit `bb54d743` on\n`main` does **not** touch a single `share/*` file, so SonarCloud still\nreports **16 open code smells** — all in the Slice 8a share subsystem —\ndespite the #669 title claiming they were cleared.\n\nThe fixing commit `ae48ff33` (\"clear all 16 share-subsystem\nmaintainability smells\") — plus several coverage/dedup/build-lcov\ncommits — live on the branch but never reached `main`. #669 is already\nmerged/closed, so this is a fresh PR to land the orphaned work.\n\n## What this lands\n\n- **`ae48ff33`** — clears all 16 SonarCloud share-subsystem smells:\n- **S3358** nested ternaries → extract shared `codeUnitCompare` into\n`util/code-unit-compare.ts` (kills the `share-format.ts` +\n`share-redaction.ts` duplicates) + de-nest the CLI share-sink ternary\n  - **S7735** negated conditions → positive share-sink resolution\n  - **S4325** redundant type assertions dropped in `share-format.ts`\n  - **S6551** default stringification → explicit in `share-rpc.ts`\n  - plus S5843 / S6397 / S6594 / S7780\n- Coverage/test additions (`connector.test.ts`, `discord-sync.test.ts`,\n`connector-spawns.test.ts`, `scheduler.test.ts`, etc.), `ConsentBroker`\ndedup, warehouse-write dedup, the `build-lcov` TS port, and\n`sonar-project.properties` exclusion right-sizing — all of which also\ndid not make it into #669.\n\n## Verification\n\n- `ae48ff33` recorded share unit tests (69) + `preflight:fast` green at\ncommit time.\n- CI on this PR is the authoritative gate — Sonar should flip the 16\nshare smells to resolved once `main` is re-analyzed post-merge.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n@\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n# Release Notes\n\n* **Tests**\n* Enhanced Windows-specific test coverage for path resolution and\ncross-drive scenarios.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-17T06:28:51Z",
+          "tree_id": "d22e891adac549f7fddcae02f9d00ba9577d7c98",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/f4a9a75d6a07bb787675973c8411d9b1c0a27eef"
+        },
+        "date": 1781678942873,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 278.4447009000014,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 277.0601232000019,
             "unit": "ms"
           }
         ]
