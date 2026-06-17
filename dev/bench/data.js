@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781683077433,
+  "lastUpdate": 1781684919799,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -781,6 +781,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 290.5428350000002,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8f346bacba57e80c052cf64dabd43803372a0f5c",
+          "message": "chore(main): release 0.11.2 (#676)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n##\n[0.11.2](https://github.com/nimbus-agent/Nimbus/compare/v0.11.1...v0.11.2)\n(2026-06-17)\n\n\n### Bug Fixes\n\n* **test:** remove real-resolver connector-spawns twin that reds the\ncombined run ([#675](https://github.com/nimbus-agent/Nimbus/issues/675))\n([fde6718](https://github.com/nimbus-agent/Nimbus/commit/fde67189a6bca3e2289f522eb981d1560d5de768))\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n* Resolved an issue affecting the combined test execution that was\nimpacting test reliability.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-06-17T11:17:07+03:00",
+          "tree_id": "84bfda82b893a5f83ae36a904d981286d471f800",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/8f346bacba57e80c052cf64dabd43803372a0f5c"
+        },
+        "date": 1781684919214,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 292.6883137500019,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 291.92522464999854,
             "unit": "ms"
           }
         ]
