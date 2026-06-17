@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781702166049,
+  "lastUpdate": 1781706222220,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -883,6 +883,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 276.62135420000925,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "97573bdc2423d8687a974ccc08ad4d5f26da15df",
+          "message": "feat(share): Phase 6 Slice 8b — recipe (--as-recipe declarative DAG, V42 params) (#679)\n\n## Phase 6 Slice 8b — Recipe\n\nSecond wave of Share & Virality (after 8a foundation, PR #661). Adds\n`nimbus share <session> --as-recipe`: a **deterministic, LLM-free\ndeclarative tool-call DAG** reconstructed from a session's logged tool\ncalls, redacted + signed through the **existing I27 share-gate** — no\nnew invariant, no new emit path.\n\nSpec:\n`docs/superpowers/specs/2026-06-15-slice8-share-virality-design.md` §7\n(amended — see below). Plan:\n`docs/superpowers/plans/2026-06-17-slice8b-recipe.md`.\n\n### What's in it\n- **Migration V42** — `tool_call_log.params_json` (nullable, no\nbackfill). Tool-call input params are now durably logged,\n**secret-redacted at write** via `redactAuditPayload` (the audit_log\nprecedent), with a **valid-JSON guarantee** (a `{truncated:true}`\nsentinel on overflow — never a broken string).\n- **`share/recipe.ts`** — `buildRecipeFromSession(db, sessionId, now)`:\nordered steps (`called_at ASC`) + an **advisory `dependsOn`\nvalue-matcher** (identifier-shaped leaf values in B's params appearing\nin A's result envelope; trivial scalars create no edge). `dependsOn` is\nnever load-bearing.\n- **`share/recipe-yaml.ts`** — deterministic YAML serializer (`js-yaml`,\na declared gateway dep). `verify-share` now accepts **YAML or JSON**,\nre-canonicalizing the body so verification is format-independent (no\nbypass; the dependency-light `verifyShareBytes` primitive stays\nJSON-only).\n- **Gate** — `createShare` gains a `kind:\"recipe\"` branch: redacts the\nrecipe **at the gate**, sets `body.recipe`, omits `turns`/`toolCalls`.\n**I27 fully preserved** (same `share.publish` HITL approval + audit +\nVault-signing); `collectSession` is skipped on the recipe path.\n\n### Invariants / schema\n- **No new invariant.** I27 / static D21 unchanged — recipe is just\nanother `body.kind` through the existing chokepoint.\n`security-invariants` 83/83; structure-audit exit 0.\n- **Spec amendment:** 8b now owns **V42**; 8d's `share_inbox` shifts\n**V42 → V43** (updated across spec §9/§10/§13, CHANGELOG,\narchitecture.md).\n\n### Verification (full local CI-parity before first push)\n- tsc (all packages) · biome · structure-audit (I27/D21) ·\nsecurity-invariants 83/83 · markdownlint · js-licenses · cross-platform\n· doc-refs (603 refs) · lychee · CI duplication gate **3.15% < 5%**.\n- **Coverage-floor: ok** via Docker-Linux-authoritative lcov (pristine\n`{}` baseline; new `share/recipe*.ts` + V42 sql all clear ≥80%\nline+branch).\n- Tests: share unit + integration + **e2e recipe round-trip** (real\ngateway subprocess: create `--as-recipe` → owner HITL approve → verify),\nall green.\n- Built subagent-driven (fresh implementer + two-stage review per task)\n+ a final whole-branch review on Opus (READY TO MERGE; the one Important\nfinding — a >4KB param-truncation invalid-JSON bug — was fixed in\n`af12b915`).\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n## New Features\n* Added recipe-based sharing: `nimbus share <session> --as-recipe` now\ngenerates deterministic YAML recipe files with secret-redacted tool-call\nparameters.\n* Share payload improvements for recipe kind: recipe shares omit\ntranscript fields and persist recipe-specific content end-to-end.\n* Updated output behavior: file-based share emission supports\n`.yaml`/`.yml` for recipe shares.\n\n## Bug Fixes\n* Improved tool-call logging persistence: tool-call input params are now\nstored/restored via migration V42 with safe truncation handling.\n\n## Documentation\n* Updated schema/architecture and changelog entries for Phase 6 Slice 8b\nand migration V42.\n\n## Tests\n* Added unit and e2e coverage for recipe round-trips and YAML\nverification.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-17T14:10:14Z",
+          "tree_id": "1b35b97d4def2882c248fb24aa18b54fccce56b9",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/97573bdc2423d8687a974ccc08ad4d5f26da15df"
+        },
+        "date": 1781706221635,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 286.8438506999988,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 286.917365600005,
             "unit": "ms"
           }
         ]
