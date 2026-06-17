@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781673194527,
+  "lastUpdate": 1781673806153,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -577,6 +577,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 230.5147353999957,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "170841b3915cf4975c2017f8769a845ee2e1865b",
+          "message": "docs(roadmap): defer perf surfaces S3 + S5 to Phase 13 (#668)\n\n## Summary\n\nMoves the two stubbed perf-bench UX surfaces **S3 (dashboard first\npaint)** and **S5 (HITL popup paint)** into **Phase 13 (Desktop\nDistribution)**, as a checklist item under \"Desktop Release Vehicle.\"\n\n## Why\n\nBoth surfaces are stubbed with the same reason — `\"renderer\ninstrumentation pending (Tauri perf marks)\"`\n(`packages/gateway/src/perf/surfaces/bench-dashboard-first-paint.ts` +\n`bench-hitl-popup.ts`, both return `[]` → `samples_count=0 →\nskipped(stub)`). Faithful first-paint timing requires the **launchable\nTauri desktop UI**, which is deferred to Phase 13 — so these belong with\nthe desktop-distribution work, not the headless perf-strategy\nworkstream.\n\nFor contrast, the sibling **S4 (TUI first paint)** is *already\nimplemented* (it times the Ink terminal UI's `[tui] first-frame`\nmarker), and is unaffected.\n\nThe new item records what closing S3/S5 entails (instrument the renderer\n→ emit paint marks → implement the drivers → drop the stubs → confirm\n`gateClass`) and notes their thresholds are already pinned in\n`slo-thresholds.ts`. Closing them completes the S1–S11 surface set so\nthe reference runner can gate the full roster.\n\nDocs-only; one line added to `docs/roadmap.md`.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Documentation**\n* Updated Phase 13 desktop distribution roadmap with new performance\noptimization tracking items for desktop performance work.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-06-17T08:04:10+03:00",
+          "tree_id": "3e71ff0515b32e8b62427ce2cdd091abf30c7dac",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/170841b3915cf4975c2017f8769a845ee2e1865b"
+        },
+        "date": 1781673805304,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 269.95864529999596,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 271.02410279998946,
             "unit": "ms"
           }
         ]
