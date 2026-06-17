@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781684919799,
+  "lastUpdate": 1781700168662,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -815,6 +815,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 291.92522464999854,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "429eae5b30c1825f13a01c1138a9baa666d1102c",
+          "message": "docs(roadmap): re-sequence Phase 7+ into a three-track spine overlay (#677)\n\n## What\n\nRe-sequences everything from **Phase 7 onward** in `docs/roadmap.md` for\n**time-to-value × differentiation (moat)** — via a new **\"Phase 7+\nSequencing Spine\"** overlay, not a renumber (the doc cross-links phase\nnumbers everywhere). Also injects four new ideas.\n\nThis is a **docs-only** change. No code, schema, invariants, or\nconnectors touched.\n\n## Why\n\nRead against the time-to-value + moat lenses, the existing 27-phase list\nhad three structural problems:\n- The deepest-moat work (Verifiable Negatives / Unexfiltratable Agent /\nProvable Governance — things a cloud relay *structurally cannot* do) sat\nat Phases 22–26, behind ~14 phases of connector breadth, even though\nseveral of their primitives are cheap.\n- The biggest 2026-model lever (computer-use / code-exec / runtime\ntool-gen — Phase 14) sat mid-list.\n- One linear list conflated near-term product with a long-range research\nmanifesto.\n\n## The three tracks\n\n- **Track 1 — Near-Term Spine (S1→S5):** harvest cheap moat primitives\nearly (egress ledger + `nimbus prove` → S1), pull the 2026-model levers\nforward (→ S2), demote API-fakeable connector breadth (Phase 8/9, Phase\n7 W1–3) to S5.\n- **Track 2 — Scale & Surface:** productization/distribution;\nDesktop/Mobile flagged independent-slot.\n- **Track 3 — Research Horizon:** the M-number manifesto (21–27) stays\nin full, but its cheap primitives are harvested into the spine (egress\nledger → S1, overnight local sub-agent fleet → S2).\n\n## Four new ideas\n\negress-ledger-as-S1-primitive · overnight local sub-agent fleets\n(zero-marginal local compute) · BYO-frontier-model routing with local\nfallback · **Nimbus as a local MCP server** (the private index as an\nendpoint Claude Code / Cursor connect *to*).\n\n## Review incorporated\n\nA design review (committed alongside) was addressed in full:\n- **MCP server** defaults to **stdio** (no network port); HTTP/SSE\nvariant must honor I6 bind + I5 `LanServer` checks + I10 pairing-token\nauth + I13 write-gate.\n- **Egress-ledger attribution corrected** — it's a **Phase 8**\ndeliverable (`prove` is the P7 W6 surface), not P22; pulling them\ntogether to S1 also resolves a pre-existing P7-reads-P8 ordering oddity.\n- **Phase 7 Wave 4** (previously unplaced) split across S1/S4/S5/Track\n2.\n\n## Notes\n\n- All 96 docs files lint clean (`markdownlint-cli2`).\n- Overlay preserves every existing \"composes-with\" cross-reference\n(numbers + prose unchanged).\n- Rationale of record:\n`docs/superpowers/specs/2026-06-17-roadmap-phase7-plus-resequence-design.md`.\n- Minor unrelated tidy: a stale `_perf.yml` line citation fixed in the\nPhase-2 Bencher spec.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n* **Documentation**\n* Updated the product roadmap with a three-track Phase 7+ sequencing\nspine, preserving existing phase numbers while redefining build order.\n* Added design specifications and implementation guidance for Phase 7+\nre-sequencing, including new roadmap initiatives and clarified placement\nacross key phases.\n* Refreshed performance testbed documentation for the ingest test step\nconfiguration/line-range references.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-17T15:30:48+03:00",
+          "tree_id": "0b955d529cbe34404b8a0f71e0316f112040f311",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/429eae5b30c1825f13a01c1138a9baa666d1102c"
+        },
+        "date": 1781700168075,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 297.60171259999623,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 299.19493250001176,
             "unit": "ms"
           }
         ]
