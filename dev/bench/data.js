@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781681219831,
+  "lastUpdate": 1781683077433,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -747,6 +747,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 305.03910519999374,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fde67189a6bca3e2289f522eb981d1560d5de768",
+          "message": "fix(test): remove real-resolver connector-spawns twin that reds the combined run (#675)\n\n## Problem\n\n`main` CI (macOS **Unit + Coverage** push job, [run\n27670264249](https://github.com/nimbus-agent/Nimbus/actions/runs/27670264249/job/81832818842))\nis red on two tests:\n\n- `ensureSlackMcp > no-op when no token (resolver throws → caught)`\n- `ensureSlackMcp > no-op when slack.oauth is present but malformed\n(resolver throws → caught)`\n\nBoth assert `setClients.length === 0` but get `1` — `ensureSlackMcp`\nspawned despite an absent/malformed token.\n\n## Root cause\n\n#672 added a **src-tree**\n`packages/gateway/src/connectors/lazy-mesh/connector-spawns.test.ts`\nthat drives `ensure*Mcp` through the **real** `getValid*AccessToken`\nresolvers. But sibling unit tests — the legacy\n`test/unit/.../connector-spawns.test.ts`, `slack-sync.test.ts`, and\n`google-drive-sync.test.ts` — `mock.module` those same resolvers, and\n**`mock.module` is process-global**.\n\nIn the combined `bun test packages/gateway` push job, the leaked slack\nmock returns a token regardless of vault state, so `ensureSlackMcp`\nspawns and the \"resolver throws → caught\" assertions fail.\n(`ensureSlackMcp` is the only `ensure*` without a real-vault\n`readConnectorSecret` pre-gate, so it's the one that breaks first.)\n\nPRs stayed green because the PR gate runs `bun test\npackages/gateway/src` (src-only), which **excludes** the mocking files —\nso the real resolver actually runs there.\n\n## Fix\n\nThe conflict is irreducible: any process-global mock of a resolver\nbreaks a real-resolver twin sharing the process, and the twin can't get\nthe real resolver back. The canonical mock-based `test/unit` file\nalready covers `connector-spawns.ts` at **95.3% line / 94.8% branch**\n(>80% floor) and is combined-run-safe, so the real-resolver twin is\nredundant.\n\n- Removed\n`packages/gateway/src/connectors/lazy-mesh/connector-spawns.test.ts`.\n- Added a header comment on the canonical file documenting why no\nreal-resolver twin may be re-added.\n\n## Verification\n\n- `bun test packages/gateway/src/connectors\npackages/gateway/test/unit/connectors` → 3964 pass, 0 fail.\n- Canonical file: 99 pass; biome clean.\n- `connector-spawns.ts` coverage from the canonical file alone: 95.3%\nline / 94.8% branch (measured via the istanbul preload) — comfortably\nabove the 80% floor; no source touched, so no file can drop below floor.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-17T07:44:04Z",
+          "tree_id": "db5c65257475454c8c1449a67a158dbf8dd858eb",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/fde67189a6bca3e2289f522eb981d1560d5de768"
+        },
+        "date": 1781683076934,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 286.7576237999998,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 290.5428350000002,
             "unit": "ms"
           }
         ]
