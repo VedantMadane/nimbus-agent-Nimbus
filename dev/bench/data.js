@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781706222220,
+  "lastUpdate": 1781709489284,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -917,6 +917,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 286.917365600005,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "93270cad4eae8c14330ca67c09947d692ecc18e8",
+          "message": "fix(test): add --timeout 30000 to all coverage shards (Windows flake) (#681)\n\n## Problem\n\n`main` reddened on the push of #679 ([run\n27695190115](https://github.com/nimbus-agent/Nimbus/actions/runs/27695190115))\n— two Windows coverage shards failed:\n\n- **Coverage — Metrics (windows-2025)** — `metrics-dora-route`\n`beforeEach` timed out at 6114ms\n- **Coverage — DB layer (windows-2025)** — 5 `db/snapshot` tests timed\nout at ~5000ms\n\n## Root cause\n\nOne trap (the documented PR #541 issue): `bunfig.toml`'s `[test] timeout\n= 30000` is **not honored** when Bun runs as `bun test <explicit\npaths>`, which is how every `test:coverage:*` script runs. So all\ncoverage shards silently fall back to Bun's bare **5000ms** hook\ndefault. On a cold/slow `windows-2025` runner, heavy `beforeEach` DB\nsetup (full migration seeds) exceeds 5000ms and the hook times out.\nLocal Windows/macOS never reproduce (~400ms warm).\n\n## Fix\n\nAppend `--timeout 30000` to all 28 `bun test`-based `test:coverage:*`\nscripts in root `package.json`, restoring the intended 30s timeout at\nthe script level (skips the vitest-based\n`test:coverage:vscode-extension`). This is the durable, systematic fix —\nthe same 5000ms exposure existed for every shard, not just the two that\nflaked this run.\n\nTest-script flags only — no source, no thresholds, no test logic\ntouched.\n\n## Verification (local)\n\n- `bun run test:coverage:db` → 80 pass / 1 skip / 0 fail\n- `bun run test:coverage:metrics` → 50 pass / 0 fail\n- `package.json` validated as parseable JSON\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Chores**\n* Updated test execution timeout configuration for improved test\nstability and reliability.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-17T17:59:23+03:00",
+          "tree_id": "ea7f0500f57479b3aa9945705a07b9bd008770c2",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/93270cad4eae8c14330ca67c09947d692ecc18e8"
+        },
+        "date": 1781709487981,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 294.1720810000061,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 288.74416960000525,
             "unit": "ms"
           }
         ]
