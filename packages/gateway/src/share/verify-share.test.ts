@@ -5,7 +5,12 @@ import { join } from "node:path";
 import { encodeBase64, generateEd25519Keypair } from "@nimbus-dev/sdk";
 import { serializeShareFileToYaml } from "./recipe-yaml.ts";
 import { buildShareFile, type ShareBody } from "./share-format.ts";
-import { verifyShareFromBytes, verifyShareFromInput } from "./verify-share.ts";
+import {
+  loadShareBytes,
+  parseShareFile,
+  verifyShareFromBytes,
+  verifyShareFromInput,
+} from "./verify-share.ts";
 
 function genuineShareJson(): string {
   const kp = generateEd25519Keypair();
@@ -166,5 +171,68 @@ describe("verifyShareFromInput", () => {
     expect(requested).toBe("https://example.com/share.json");
     expect(r.ok).toBe(true);
     expect(r.origin?.label).toBe("Z");
+  });
+});
+
+describe("parseShareFile", () => {
+  test("parseShareFile parses a JSON share", () => {
+    const share = signedRecipeShare();
+    const bytes = new TextEncoder().encode(JSON.stringify(share));
+    expect(parseShareFile(bytes)?.body.sessionId).toBe(share.body.sessionId);
+  });
+
+  test("parseShareFile parses a YAML share (recipe variant)", () => {
+    const share = signedRecipeShare();
+    const bytes = new TextEncoder().encode(serializeShareFileToYaml(share));
+    expect(parseShareFile(bytes)?.body.sessionId).toBe(share.body.sessionId);
+  });
+
+  test("parseShareFile returns null for non-share input", () => {
+    expect(parseShareFile(new TextEncoder().encode("not a share"))).toBeNull();
+    expect(parseShareFile(new TextEncoder().encode(JSON.stringify({ hi: 1 })))).toBeNull();
+  });
+
+  test("parseShareFile returns null when sig is null (typeof null === 'object' trap)", () => {
+    const withNullSig = { body: { kind: "recipe", sessionId: "s" }, sig: null };
+    expect(parseShareFile(new TextEncoder().encode(JSON.stringify(withNullSig)))).toBeNull();
+  });
+
+  test("parseShareFile returns null when format or forwarding is missing", () => {
+    const withoutFormat = {
+      body: { kind: "recipe", sessionId: "s" },
+      sig: { alg: "ed25519", pubkey: "P", signature: "S" },
+      contentHash: "abc",
+      forwarding: { hops: 0, chain: [] },
+      // no format field
+    };
+    expect(parseShareFile(new TextEncoder().encode(JSON.stringify(withoutFormat)))).toBeNull();
+
+    const withoutForwarding = {
+      format: "nimbus-share/v1",
+      body: { kind: "recipe", sessionId: "s" },
+      sig: { alg: "ed25519", pubkey: "P", signature: "S" },
+      contentHash: "abc",
+      // no forwarding field
+    };
+    expect(parseShareFile(new TextEncoder().encode(JSON.stringify(withoutForwarding)))).toBeNull();
+  });
+});
+
+describe("loadShareBytes", () => {
+  const tmpDir = mkdtempSync(join(tmpdir(), "load-share-bytes-"));
+  afterAll(() => {
+    try {
+      rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+  });
+
+  test("loadShareBytes reads a local file", async () => {
+    const share = signedRecipeShare();
+    const path = join(tmpDir, `share-${share.contentHash}.json`);
+    writeFileSync(path, JSON.stringify(share));
+    const bytes = await loadShareBytes(path);
+    expect(parseShareFile(bytes)?.contentHash).toBe(share.contentHash);
   });
 });
