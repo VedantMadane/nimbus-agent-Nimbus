@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781709489284,
+  "lastUpdate": 1781719732029,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -951,6 +951,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 288.74416960000525,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e6cbfff9b4fdb173b3f650e8f1f98c494b985c43",
+          "message": "fix(sonar): clear last 2 S7735 negated-condition smells (#683)\n\n## What\n\nSonarCloud audit of `nimbus-agent_Nimbus` showed the project is in\nexcellent shape — gate green, 0 bugs / 0 vulnerabilities / 0 security\nhotspots, 93.8% coverage, 0.2% duplication, all A ratings. The **only**\nopen issues were 2 minor `typescript:S7735` (\"unexpected negated\ncondition\") code smells.\n\nThis flips both ternaries to put the positive branch first — **no\nbehavior change**:\n\n- `stripe-sync.ts` — `nextId` computation\n- `vercel-sync.ts` — `nextPageCursor` computation\n\nTakes the project to **0 open issues**.\n\n## Verification\n\n- `bunx biome check` on both files — clean\n- `bun test` stripe-sync + vercel-sync fake-server integration suites —\n15 pass / 0 fail\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n## Release Notes\n\n* **Refactor**\n* Internal optimization of pagination cursor computation in sync\nconnectors with no impact on user-facing functionality.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-17T17:53:22Z",
+          "tree_id": "22ee9e7561f68b5c5907fcfab46da7fb2c89e146",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/e6cbfff9b4fdb173b3f650e8f1f98c494b985c43"
+        },
+        "date": 1781719730773,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 305.7816108999985,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 307.98770365000235,
             "unit": "ms"
           }
         ]
