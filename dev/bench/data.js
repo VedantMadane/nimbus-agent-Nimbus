@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781773718050,
+  "lastUpdate": 1781775458142,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -1155,6 +1155,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 288.5339495999906,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3860f91eabec5a8a7804c5fc8d8b0868006b9ad4",
+          "message": "chore(main): release 0.13.0 (#689)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n##\n[0.13.0](https://github.com/nimbus-agent/Nimbus/compare/v0.12.0...v0.13.0)\n(2026-06-18)\n\n\n### Features\n\n* **share:** Phase 6 Slice 8d — sovereign-mesh referral (forwarding,\nprovenance, V43 inbox)\n([#687](https://github.com/nimbus-agent/Nimbus/issues/687))\n([18131cf](https://github.com/nimbus-agent/Nimbus/commit/18131cf9d9499614d20b10421e5c511086942618))\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n  * Added share functionality\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-06-18T12:26:21+03:00",
+          "tree_id": "931b3d3377b08ed4712f594980b29fa54346ed69",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/3860f91eabec5a8a7804c5fc8d8b0868006b9ad4"
+        },
+        "date": 1781775457627,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 288.7711030000035,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 290.498602700005,
             "unit": "ms"
           }
         ]
