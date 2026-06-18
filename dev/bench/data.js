@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781777426018,
+  "lastUpdate": 1781783385138,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -1223,6 +1223,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 301.81688375000596,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5613f7d337ca67080ec61d35400f1b4204b65bd1",
+          "message": "docs: launch & community readiness — root README, launch plan, demo spec, SECURITY policy (#690)\n\n## What & why\n\nPublic-launch readiness for Nimbus. A readiness audit found the **code\nand messaging are launch-ready; the public surfaces weren't** — chiefly\nno root README, no zero-config try-it path, and the security policy not\nsurfaced. This PR closes the documentation/surface gaps so we can launch\nwithout burning first impressions.\n\n## Changes\n\n- **`README.md` (new, root)** — the keystone repo landing page.\nCLI-first (desktop is deferred to Phase 13), with tagline, quickstart\n(signed install per OS), a fully-offline-with-Ollama path, the\nthree-pillar positioning, security/trust, community links, and AGPL/MIT\nlicensing. Install commands + tagline mirror the live docs.\n- **`.github/SECURITY.md` (new)** — short stub so GitHub actually\nsurfaces the Security policy (it credits root/`.github/`, not `docs/`).\nLinks to the full `docs/SECURITY.md` + `nimbus-security`; no internal\nlinks broken, no content duplicated.\n- **`docs/superpowers/specs/2026-06-18-launch-and-community-plan.md`** —\nthe strategy: fix-then-fire sequencing, Phases 0–3, per-audience angles,\nmetrics. Flags the docs' desktop-vs-CLI inconsistency to resolve before\nposting.\n- **`docs/superpowers/specs/2026-06-18-demo-mode-design.md`** — design\nfor a zero-config `nimbus demo` (sample-data, offline, retrieval-only\nLLM fallback) so the local-first pitch is true on first run. (Spec only;\nnot implemented.)\n- **`docs/superpowers/specs/2026-06-18-launch-posts.md`** — tailored,\nready-to-queue posts (Show HN, Product Hunt, per-sub Reddit, Lobsters,\nX/Mastodon, dev.to).\n\n## Already live (org-side, separate from this PR)\n\n- Org-wide default community-health files added to\n`nimbus-agent/.github` (SECURITY/CoC/CONTRIBUTING/PR template + issue\nconfig) — all repos now inherit them.\n- MIT licenses + discoverability topics added to `homebrew-tap` /\n`scoop-bucket` / `linux-repo`.\n\n## Notes\n\n- Docs-only; no code touched. `markdownlint-cli2` passes on all changed\nfiles.\n- Private ecosystem repos are intentionally staying private (per\ndecision), so no public surface links to them.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n* **Documentation**\n  * Added a security policy and vulnerability reporting guidelines\n* Expanded the README with product overview, install instructions,\nrelease verification guidance, and connector setup\n  * Added a “nimbus demo” zero-config try-it path design specification\n* Added launch and community plan documentation and a multi-channel\nlaunch posts playbook\n* **Chores**\n* Updated link-check exclusions to reduce intermittent timeouts for\ncertain cast page URLs\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-18T14:38:11+03:00",
+          "tree_id": "bc07b452729d3981d8b6d0318b450e33d9c009f8",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/5613f7d337ca67080ec61d35400f1b4204b65bd1"
+        },
+        "date": 1781783384340,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 276.91323760000193,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 280.145951449994,
             "unit": "ms"
           }
         ]
