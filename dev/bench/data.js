@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781762644428,
+  "lastUpdate": 1781773718050,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -1121,6 +1121,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 305.8665765500024,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "18131cf9d9499614d20b10421e5c511086942618",
+          "message": "feat(share): Phase 6 Slice 8d — sovereign-mesh referral (forwarding, provenance, V43 inbox) (#687)\n\n## Phase 6 Slice 8d — Sovereign-Mesh Referral (forwarding)\n\nCloses Slice 8 and **Phase 6 (Team)**. A paired gateway owner can\nforward a received share to their own peers over the existing\nauthenticated, peer-pubkey-pinned federation NaCl wire, with an\nimmutable, origin-verifiable provenance hop-chain, an attribution chip,\nand a deferred-reveal inbox that drains on first pair.\n\nSpec:\n`docs/superpowers/specs/2026-06-15-slice8-share-virality-design.md` §9 ·\nPlan: `docs/superpowers/plans/2026-06-17-slice8d-referral.md` (15-task\nTDD, subagent-driven; each task individually reviewed + an opus\nwhole-branch review).\n\n### Security model — reuses I27, **no new invariant**\n- **Two outbound-share chokepoints, both behind the owner's\n`share.publish` HITL** (I2 frozen set): `createShare` (origin emit) and\nthe new `forwardShare` (re-forward). A deny/timeout forwards + queues\nnothing (fail-closed).\n- **Static D21 extended** (not a new invariant): a new\n`D21-forwardshare-callsite` rule confines `forwardShare` to\n`share-forward.ts` + `ipc/federation-rpc.ts`, and `share.publish` may be\nnamed in `share-forward.ts`. Invariant range stays **I1–I27**.\n- **Immutable inner / advisory envelope:** a forwarder never mutates\n`body`/`sig` (byte-identical across hops). Each hop signs `contentHash\n++ its own label+pubkey ++ prior-chain` with the gateway's **own Ed25519\nshare key** (no new Vault key). A tampered hop fails its own sig while\ncontent verification stays valid.\n- **Inbound is inert:** `receiveForwardedShare` only sig-verifies +\nstores into `share_inbox` — no execution, no index-merge, no embedding,\nno HITL. A forged-body inbound share is rejected.\n- `federation.shareForward` is **LAN-forbidden** (local-only);\n`federation.shareReceive` is **answerable**.\n\n### What's included\n- `share/share-forwarding.ts` (hop append/verify),\n`share/share-forward.ts` (`forwardShare` + `receiveForwardedShare`),\n`share/share-inbox-store.ts`, `share/attribution.ts`\n- **V43 `share_inbox`** migration (additive; deferred-reveal queue +\ninert received inbox)\n- `federation.shareForward` / `federation.shareReceive` / `share.inbox`\nIPC; `nimbus share forward|inbox` CLI; `share.inbox` on the Tauri\nallowlist (read-only, count 94→95)\n- Drain-on-first-pair via a fully-guarded `PeerPairing.onPairComplete`\nseam (a drain failure never crashes pairing)\n- `verify-share` surfaces an advisory `forwarding` chain result without\naffecting content validity\n- Real-NaCl-wire e2e (two in-process gateways) proving forward → inert\nreceive → attribution → chain-verify, plus the pairing-driven drain seam\n\n### Verification (all green, pre-push)\ntsc (gw+cli) · biome · static invariants (D21+D12) · security-invariants\n83/83 · structure-audit · integration 354/0-fail · share e2e 9/0 ·\n**coverage-floor OK, 0 baselined (Docker-Linux authoritative — every new\nfile ≥80% line+branch)** · CI-jscpd <5% · js-licenses · cross-platform ·\nlychee · doc-refs · readme-cli · markdown · status-drift ·\naction-sha-pins.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n## Release Notes\n\n* **New Features**\n* Share forwarding over the federation wire with cryptographic hop-chain\nverification and fail-closed behavior.\n* New **Share inbox** to view inert (replayable) received forwarded\nartifacts.\n* CLI updates: added `nimbus share forward`, `nimbus share inbox`, and\nimproved share verification output.\n\n* **Documentation**\n* Updated security invariant and architecture specs for forwarding,\napproval gating, and LAN restrictions.\n  * Phase 6 (Team) marked complete; changelog/roadmap updated.\n\n* **Chores**\n* Upgraded local database to **schema v43** with `share_inbox` storage\nand migrations.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-06-18T11:51:49+03:00",
+          "tree_id": "0dead459455343ff196756c454b4a326b8edd6f6",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/18131cf9d9499614d20b10421e5c511086942618"
+        },
+        "date": 1781773717092,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 286.9105905999968,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 288.5339495999906,
             "unit": "ms"
           }
         ]
