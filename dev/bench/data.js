@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781954912804,
+  "lastUpdate": 1781963601440,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -1427,6 +1427,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 289.959925700006,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e0d3054499f1c9b5a383d50682de8401d04facf6",
+          "message": "refactor(dedup): Wave A — intra-package cleanups (gitlab/google-drive/cli-dispatcher/gcloud) (#696)\n\n## Summary\n\n**Wave A** of the dedup \"realistic floor\" program — pure intra-package\nextraction, **zero behaviour change** (every existing test passes\nUNEDITED; new helpers got co-located tests). Strict `bunx jscpd\npackages` **3.97% → 3.95%**; gate left at 4.0 (ratchet tightens at\nprogram end).\n\n## Targets shipped (4)\n\n| # | Extraction |\n|---|---|\n| **A5** | `cloud-logging` + `vertex-ai` gcloud `Bun.spawn` wrapper →\nshared `_lib/gcloud-runner.ts` `runGcloudCommand(argv, credPath)`\n(env-scoped via `extensionProcessEnv`, I1) + co-located test |\n| **A1** | `gitlab/server.ts` → file-local\n`registerGitlabTool(name,desc,schema,buildUrl,buildInit?)` for the 9\nstandard `glFetch`+`mcpJsonResultIfOk` tools\n(job_trace/job_log_tail/pipeline_retry/cancel keep custom tails) |\n| **A2** | `google-drive/server.ts` → file-local\n`registerDriveTool(name,desc,schema,handler)` via the shared\n`createZodToolRegistrar` (drops the manual `safeParse` boilerplate;\nidentical thrown error text) |\n| **A4** | `catchup` + `impact` CLI → shared\n`cli/src/lib/agent-cli-dispatcher.ts` `runAgentCli(...)` (exact stderr\ntext + `exit(1\\|2)` codes preserved) + co-located test |\n\n## Deferred (documented — program forbids forcing harmful abstractions)\n\n- **A3 http-server admin bearer gate** — the three handlers' 401 bodies\ngenuinely differ (`handleAdminStatus` returns JSON; metrics/console\nreturn `text/plain`), so collapsing them would be a behaviour change and\nthe truly-shared part is sub-threshold. Left as-is.\n- **A6 peer-fanout `fanOutGeneric`** — federation/I17-sensitive for a\n~0.02pt gain; not worth the risk this wave.\n- `auth.ts`, `google-meet ↔ google-photos`, `agents-rpc.ts` — per the\nspec, genuinely parallel-by-design / forced-abstraction; kept.\n\n## Honest note on impact\n\nThe number moved only ~0.02pt because collapsing *boilerplate* leaves\nthe per-call-site specifics (URL builders, param shapes) parallel, which\njscpd still counts. Wave A is primarily a **code-quality** improvement\n(less boilerplate, single source for the dispatcher/registration\nshapes). Meaningfully lowering the metric requires the\nconnector-template codegen (Wave C), tracked separately.\n\n## Verification\n\nPer-target tsc + tests green unedited · full all-package typecheck ·\nbiome · coverage-floor (only the documented false-locals remain;\n`agent-cli-dispatcher.ts` covered by its co-located test) ·\nmarkdownlint. Spec:\n`docs/superpowers/specs/2026-06-20-dedup-wave-a-design.md`.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n* **Refactor**\n* Consolidated the catchup and impact agent CLI flows behind a shared\ndispatcher.\n* Standardized gcloud execution for cloud logging sinks and Vertex AI\nmodel listing, with optional override support.\n* Centralized GitLab and Google Drive MCP tool registration for\nconsistent validation and response formatting.\n* **Bug Fixes**\n* Improved resilience when gcloud commands fail by returning controlled\nnon-success results without crashing.\n* **Tests**\n* Added tests for the shared agent dispatcher and gcloud command runner.\n* **Documentation**\n* Added “Wave A” design documentation for the deduplication initiative.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-20T16:41:19+03:00",
+          "tree_id": "457f575e32618bcbb1ccdeb9ca2a8d921b530807",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/e0d3054499f1c9b5a383d50682de8401d04facf6"
+        },
+        "date": 1781963600376,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 295.2505725499956,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 295.1125793499967,
             "unit": "ms"
           }
         ]
