@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781947730072,
+  "lastUpdate": 1781952119342,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -1359,6 +1359,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 295.9411497499899,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "68dc62534e8fdfb645a45e9f8821c589b6717ba0",
+          "message": "⚡ Optimize backfill embedding loop by processing batches concurrently (#691)\n\n💡 **What:** Replaced the sequential `for (const row of rows)` iteration\nover embedding chunks in the database backfill logic with\n`Promise.all(rows.map(async row => { ... }))`.\n🎯 **Why:** Previously, chunks were fetched and sent to the embedding\nprovider sequentially, resulting in linear delay. Network latency acts\nas a heavy bottleneck. Concurrent resolution handles network latency\nsimultaneously.\n📊 **Measured Improvement:** Simulated an embedding workload with 50\nitems and a synthetic 10ms per-item latency in a local benchmark script.\nThe baseline sequential execution took ~530ms per batch. The optimized\nconcurrent approach took just ~18ms per batch. Validated using the\nbuilt-in test suite that no logic regressions occurred.\n\n---\n*PR created automatically by Jules for task\n[1302549734161483821](https://jules.google.com/task/1302549734161483821)\nstarted by @asafgolombek*\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n## Release Notes\n\n* **New Features**\n* Added configurable concurrency control for embedding backfill\noperations to optimize performance and throughput.\n\n* **Tests**\n* Added test coverage for concurrency limiting and error handling in\nbackfill operations.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: google-labs-jules[bot] <161369871+google-labs-jules[bot]@users.noreply.github.com>\nCo-authored-by: asafgolombek <18427644+asafgolombek@users.noreply.github.com>\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-20T13:34:14+03:00",
+          "tree_id": "54e946aff5e602a30a315cafcf755f25a2d3ccb4",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/68dc62534e8fdfb645a45e9f8821c589b6717ba0"
+        },
+        "date": 1781952117575,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 172.3617071499979,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 171.9275028999993,
             "unit": "ms"
           }
         ]
