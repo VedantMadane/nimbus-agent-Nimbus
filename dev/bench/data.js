@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781783385138,
+  "lastUpdate": 1781945196393,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -1257,6 +1257,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 280.145951449994,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1409843faf6bdebb5b3fb3b4d90cd8b63261f20d",
+          "message": "refactor(dedup): jscpd Wave-2 — 5 clusters + ratchet 4.5%→4.0% (strict 4.38%→3.98%) (#692)\n\n## Summary\n\nWave-2 of the jscpd duplication-reduction program (follows #688). Pure\nextraction — **zero behavior change**: every existing\nconnector/guard/sync test passes **UNEDITED**; each new shared helper\ngot a co-located TDD test. No `.jscpd.json` ignore added.\n\n**Strict `bunx jscpd packages`: 4.38% → 3.98%** (−440 dup-lines). CI\nduplication ratchet lowered **4.5% → 4.0%** to lock the gain (ci.yml\nruns the same strict `bunx jscpd packages` that reads `.jscpd.json`, so\nlocal == CI).\n\n## Clusters\n\n| # | Cluster | Extraction | Δ strict |\n|---|---|---|---|\n| C1 | agent-brief guards (`cli/types/agents.ts` ↔\n`gateway/agents/_lib/findings.ts`) | `sdk` `createBriefGuard<T>(kind,\nextra, {requireQuery})` — `requireQuery` is **per-guard** so cli\nexpert/impact/catchup keep their looser check and every gateway guard +\nthe other cli guards keep the query check (exact behaviour preserved) |\n4.38→4.32 |\n| C2 | imap/protonmail `tools.ts` | `shared/imap-tool-kit.ts`\n`registerEmailConnectorTools` (4 tool blocks; descriptions passed\nverbatim per connector) | 4.32→4.26 |\n| C3 | cloudwatch/sagemaker sync | `_lib/aws-cli.ts`\n`runAwsCliPaginatedWalk<S>` + `parseJson`/`awsNextToken`/`extractArray`;\nper-connector enrichment (`peekStreams`/`describeModel`) stays as the\ndelegated `processEntry`, preserving the two-tier byte accounting + the\nsagemaker `MAX_DESCRIBE` cap + best-effort enrichment | 4.26→4.20 |\n| C4 | gmail/outlook/onedrive `server.ts` | shared\n`createZodToolRegistrar` (kills the repeated `safeParse` guard) +\n`mcpJsonResultIfOk(label, r, 200)` (byte-identical error tail). Custom\ntails (outlook mail_send/calendar_delete, onedrive\nitem_download/item_delete) kept hand-written | 4.20→4.05 |\n| C5 | imap/protonmail email-mapping + sync | generic\n`mapImapLikeMessageToItem<S>` (imap-email-mapping.ts) + generic\n`runImapLikeSync<Cfg,Msg>` & `parsePortSecret`\n(`_lib/imap-sync-core.ts`) | 4.05→3.98 |\n\n## Deferrals (recorded, verified — not force-fit)\n\n- **C2 class-body merge** (`ImapFlowClient`/`BridgeImapClient`) + the\nimapflow-typed free funcs: `imapflow` is installed **per-connector**\n(not hoisted), and the 5 email connectors\n(gmail/outlook/teams/google-meet/google-photos) typecheck all of\n`shared/` but don't depend on imapflow — a shared imapflow import breaks\ntheir `tsc`. Confirms #688's documented deferral.\n- **C3** athena (3-level nested walk) + the cloud-logging↔vertex-ai\ngcloud spawn boilerplate (different argv/region).\n- **C5** fastmail's mapper (jmapId/receivedAt/name + different metadata)\nand the imap/protonmail `loadConfig` (different vault keys) — genuinely\ndivergent.\n- The `gateway-process` ↔ `gw-state-helpers` twin (documented\nun-dedupable) is untouched.\n\n## Verification (all green before first push)\n\nAll-package `tsc` · biome (2863 files) · static invariant audit ·\n`security-invariants` (83) · gateway-connectors (4046 tests, 0 fail) ·\nsdk/mcp/cli touched suites · coverage-floor (only the documented\nfalse-local violations:\nipc-transport/ipc/server/socket-listeners/telemetry/collector + the\nmcp-connector skip — no changed file below floor) · markdownlint ·\nlychee · opus whole-branch review (no Critical/Important findings).\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n* **Refactor**\n* Centralized brief-type validation used by CLI and gateway for\nconsistent payload checks.\n* Simplified CloudWatch and SageMaker sync paging with shared AWS-CLI\npagination helpers.\n* Reworked IMAP/ProtonMail sync and email mapping via shared core\nhelpers.\n* Standardized MCP email tool registration\n(Gmail/Outlook/IMAP/ProtonMail) with consistent schema validation and\nGraph/API result handling.\n* **Tests**\n* Added/expanded unit tests for shared guard, AWS CLI pagination, IMAP\nsync core, and connector tooling.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-20T11:34:32+03:00",
+          "tree_id": "948f85637cfb650f87d72404e2015150e6b2253b",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/1409843faf6bdebb5b3fb3b4d90cd8b63261f20d"
+        },
+        "date": 1781945195257,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 287.8586981000033,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 289.32426240000166,
             "unit": "ms"
           }
         ]
