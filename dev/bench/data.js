@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781952119342,
+  "lastUpdate": 1781954912804,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -1393,6 +1393,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 171.9275028999993,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7b1bd8ff2d85bfd662ee02abf9a670b0d9f6d5fc",
+          "message": "chore(main): release 0.13.1 (#695)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n##\n[0.13.1](https://github.com/nimbus-agent/Nimbus/compare/v0.13.0...v0.13.1)\n(2026-06-20)\n\n\n### Bug Fixes\n\n* **security:** connector nextLink SSRF + email header CR/LF injection\nhardening ([#694](https://github.com/nimbus-agent/Nimbus/issues/694))\n([6257da8](https://github.com/nimbus-agent/Nimbus/commit/6257da812df50705eaf62ba78d4fb20fa4693df0))\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n  * Enhanced security hardening for connector nextLink functionality\n  * Prevented email header CR/LF injection vulnerability\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-06-20T14:16:42+03:00",
+          "tree_id": "5d6ca8b2b77e881f38a913cac4d182430e3e3574",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/7b1bd8ff2d85bfd662ee02abf9a670b0d9f6d5fc"
+        },
+        "date": 1781954912328,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 289.2347644499972,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 289.959925700006,
             "unit": "ms"
           }
         ]
