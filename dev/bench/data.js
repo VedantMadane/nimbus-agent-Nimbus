@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781963601440,
+  "lastUpdate": 1781968832607,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -1461,6 +1461,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 295.1125793499967,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4d38898ca1c3d8235371c15a6a388d45c611a6fa",
+          "message": "refactor(dedup): Wave C — shared makeRestToolRegistrar across 10 REST connectors (#697)\n\n## Summary\n\nGeneralizes Wave A's file-local REST registrars (`registerGitlabTool` /\n`registerDriveTool`, #696) into one **shared** helper,\n`makeRestToolRegistrar`\n(`packages/mcp-connectors/shared/rest-tool-kit.ts`), and applies it\nacross the **ten remaining hand-rolled REST/Graph connectors**.\n\nIt collapses the repeated standard-tool body:\n\n```ts\nreg(name, desc, schema, async (args) => {\n  const token = requireProcessEnv(<env>);\n  const res = await <fetch>(token, buildPath(args)[, buildInit(args)]);\n  return mcpJsonResultIfOk(<label>, res[, snippetMax]);\n});\n```\n\nA connector supplies its registrar, token env, service label, and\ntoken-bearing fetcher **once**; each tool then provides only its\nname/description/schema + a pure `buildPath` (and optional `buildInit`\nfor method/body). The `snippetMax` knob preserves each connector's exact\n`mcpJsonResultIfOk` body-snippet length (Graph connectors use `200`;\ndefault is `300`).\n\n**Migrated (10):** circleci, discord, github, github-actions, gmail,\ngoogle-meet, google-photos, onedrive, outlook, pagerduty.\n\nTools with a non-standard tail (custom error text, 204 tolerance,\nraw-text body, bespoke write shapes — e.g. `outlook_mail_send`,\n`github_branch_delete`, onedrive download) stay hand-written on the\nconnector's own `reg`.\n\n## Fidelity — pure dedup, zero behavior change\n\n- The fetchers are **unchanged**, so #694's `resolveUrlWithBase`\n`nextLink` SSRF origin-pinning and the `headerLine` CR/LF header-safety\nschemas are preserved byte-for-byte.\n- Every connector `*-sandbox.test.ts` / `*-search-filter.test.ts` stays\ngreen **unedited** (full connector suite 871 pass / 0 fail).\n- New co-located tests cover `makeRestToolRegistrar` (token read,\nbuildPath/buildInit forwarding, `snippetMax` on error, the `undefined →\n300` default, fail-closed on missing env).\n- A 3-angle whole-branch review (per-connector OLD-vs-NEW diff of every\nmigrated tool + the helper/tests) found **zero fidelity slips**.\n\n## Scope / invariants\n\nNo migration, **no new invariant** — the helper lives in\n`mcp-connectors/shared/` (the established connector-internal-helper\nprecedent, not the SDK; no new SDK export, no coverage-floor ratchet).\n\n## jscpd\n\nStrict `bunx jscpd packages` **3.95% → 3.93%** (CI duplication ratchet\nstays **4.0**). As the realistic-floor analysis predicted, collapsing\nthe *boilerplate* body into a factory leaves the per-tool *specifics*\n(URL builders, schemas) parallel — so jscpd barely moves; the value here\nis maintainability and headroom under the gate.\n\nDesign:\n`docs/superpowers/specs/2026-06-20-dedup-wave-c-rest-registrar-design.md`\n\n## Local gates (all green before first push)\n\nall-package tsc · biome · strict tsc on the 5 `../shared/**`-including\nemail connectors · security-invariants (83) · nimbus-invariants static\naudit · full connector suite (871/0) · markdownlint · lychee · jscpd\n3.93% (EXIT 0)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Refactor**\n* Consolidated REST tool registration patterns across multiple\nconnectors to reduce code duplication and improve maintainability.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-20T15:08:24Z",
+          "tree_id": "75f06746bf01174798d1995a420c920ce3b50e91",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/4d38898ca1c3d8235371c15a6a388d45c611a6fa"
+        },
+        "date": 1781968831360,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 300.3340959000037,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 301.3472597999949,
             "unit": "ms"
           }
         ]
