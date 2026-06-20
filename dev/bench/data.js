@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781945196393,
+  "lastUpdate": 1781946240011,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -1291,6 +1291,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 289.32426240000166,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ba1105ac4c42c3fca7bc529ad4ad9da18c13e08c",
+          "message": "ci(perf): retry the bench run once on a crashed (SIGSEGV) leg (#693)\n\n## Problem\n\n[Run 27756789856 → \"Bench\n(macos-15)\"](https://github.com/nimbus-agent/Nimbus/actions/runs/27756789856/job/82120564770)\nreddened `main` with the **Run bench** step exiting **139 (SIGSEGV)**.\n\nThe whole bench is one long-lived `bun\npackages/gateway/src/perf/bench-runner.ts` process. From the logs it\ncleared S1/S2 and the soft S4/S6 failures, then `Segmentation fault: 11`\nright after S7-b — heading into the **S8 embedding / S10\nsqlite-contention** surfaces, i.e. the `bun:sqlite` Worker /\n`dlopen(sqlite-vec.dylib)` path the workflow already documents as the\nexit-139 culprit (the macOS quarantine-strip step).\n\nThat strip step **ran and succeeded**, so this is not the deterministic\nquarantine block. It is an **intermittent macOS-arm64 / Bun 1.3.14\nruntime flake**: the *identical* SHA `5613f7d3` ran 3×, failing only\nhere and passing on both subsequent reruns (runs `27816312729`,\n`27864726314`).\n\n## Fix\n\nWrap the **Run bench** step in the repo's established **retry-once\n(exit-propagating)** shell pattern — the same shape used by\n`_test-suite.yml` and `ci.yml`'s `pr-quality-cross-platform`.\n\n- A crashed bench produces no measurement, so retrying a warm process is\nnever a perf signal on any OS.\n- Attempt 2's exit code **propagates**, so two genuine failures still\nred the leg — no silent flake-hiding.\n- No history-duplication risk: SIGSEGV is uncatchable (the\n`SIGINT`/`SIGTERM` incomplete-line handler can't fire) and the single\naggregate history line is appended only on a clean finish\n(`bench-cli.ts`). The history file is also truncated before each attempt\nas a belt-and-braces guard.\n\n## Verification\n\n- YAML parses cleanly; no actionlint/yamllint gate in the repo.\n- No test or structure-audit asserts the bench step's name/body (the\n`_perf.yml` references are `gh`-run-query filename constants only).\n- Workflow-only change; no TypeScript touched.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Chores**\n* Improved performance benchmark step reliability with automatic retry\nlogic to handle transient failures gracefully.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-20T11:52:25+03:00",
+          "tree_id": "9ab119981257a7daaa3d5877c37461e4293b1e82",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/ba1105ac4c42c3fca7bc529ad4ad9da18c13e08c"
+        },
+        "date": 1781946239320,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 287.34642079999793,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 289.0069817999982,
             "unit": "ms"
           }
         ]
