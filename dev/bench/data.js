@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781946240011,
+  "lastUpdate": 1781947730072,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -1325,6 +1325,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 289.0069817999982,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6257da812df50705eaf62ba78d4fb20fa4693df0",
+          "message": "fix(security): connector nextLink SSRF + email header CR/LF injection hardening (#694)\n\n## Summary\n\nHardens two **pre-existing** input-validation gaps at the MCP connector\nboundary, each fixed once at a shared chokepoint. These were surfaced as\nCodeRabbit findings on #692 (the jscpd Wave-2 PR) but pre-date it —\nthey're independent of the dedup work, so they ship here as a focused\nsecurity PR.\n\n## Defenses\n\n**(1) `nextLink` token-exfil / SSRF** — `resolveUrlWithBase`\n(`shared/fetch-bearer-json.ts`) now **origin-pins** absolute URLs: a\ncaller-supplied pagination link (`@odata.nextLink`, etc.) is fetched\nwith the connector's bearer token only when its origin matches the\nconfigured API base; a cross-origin or malformed absolute URL throws and\nis **never fetched**. One fix covers every consumer:\n- **Outlook** (4 paginated tools, via `makeRestFetcher`)\n- **Teams** (5 tools, via its `graphRequest` → `resolveUrlWithBase`)\n- **OneDrive** (2 tools — its custom `graphRequest` now routes through\n`resolveUrlWithBase`, also removing its duplicated inline resolver)\n- Relative-path callers (Gmail, Google Photos/Meet, Drive, GitHub) are\nunaffected.\n\n**(2) CR/LF email header injection** — new shared `headerLine()` Zod\nhelper (`shared/header-safe.ts`) rejects carriage-return/line-feed in\nuser-supplied header fields (`to`/`cc`/`bcc`/`subject` + comma-separated\nrecipient/attendee lists — **never `body`**, which legitimately wraps).\nApplied at:\n- `emailToolSchemas.sendArgs` (covers **imap / protonmail / fastmail**)\n- **Gmail** (`gmail_draft_create`, `gmail_message_send`)\n- **Outlook** (`outlook_mail_send`, `outlook_calendar_create` attendees)\n\n## Behaviour change\n\nA cross-origin `nextLink` or a CR/LF-bearing header field is now\nrejected (previously fetched/sent). The one edited test\n(`rest-tool-kit.test.ts`) had asserted the old cross-origin passthrough\n— updated to assert same-origin passthrough + cross-origin refusal.\n\n## Scope / design\n\n- No migration, no new **gateway** invariant — this is\nconnector-boundary input validation (the `Iₙ` framework is\ngateway-engine-scoped), guarded by co-located unit tests:\n`fetch-bearer-json.test.ts`, `header-safe.test.ts`, updated\n`rest-tool-kit.test.ts`.\n- Verified: strict `tsc` loop over all shared-including email connectors\n(gmail/outlook/teams/google-meet/google-photos/imap/protonmail/fastmail/onedrive)\nclean; 231 connector tests pass; biome + static invariant audit +\nall-package typecheck + markdownlint + lychee green.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n* Hardened email header validation in Gmail and Outlook to block CR/LF\nheader injection.\n* Improved URL handling for connector pagination and request building to\nreject cross-origin absolute URLs and reduce SSRF risk.\n* **Chores**\n  * Expanded automated tests for the new security validations.\n  * Updated the changelog with today’s security hardening notes.\n  * Refreshed dependency overrides related to HTTP/email tooling.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-20T09:17:03Z",
+          "tree_id": "e8fd1c6b4d2f4539f583f7ac88c2349de560542d",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/6257da812df50705eaf62ba78d4fb20fa4693df0"
+        },
+        "date": 1781947729547,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 297.79290919999585,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 295.9411497499899,
             "unit": "ms"
           }
         ]
