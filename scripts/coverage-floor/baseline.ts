@@ -33,8 +33,8 @@ export interface BaselineDiff {
   readonly missingFromActual: ReadonlyArray<string>;
 }
 
-export const FLOOR_PCT = 80; // line floor
-export const BRANCH_FLOOR_PCT = 80; // branch floor (separate constant so it can diverge)
+export const FLOOR_PCT = 85; // line floor
+export const BRANCH_FLOOR_PCT = 80; // branch floor (separate constant; line floor raised to 85 ahead of branch)
 
 function assertPct(label: string, v: unknown): number {
   if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 100) {
@@ -186,8 +186,8 @@ export function computeBaselineDiff(
     } else if (
       // Only a genuinely SUB-FLOOR stored watermark is ratchetable. A satisfied
       // axis is pinned at the floor by computeUpdatedBaseline (e.g. a 95%-line /
-      // 55%-branch file stores {line: 80, branch: 55}); its actual sits above 80
-      // by design, so it must NOT trigger must_raise — otherwise the gate could
+      // 55%-branch file stores {line: 85, branch: 55}); its actual sits above the
+      // line floor by design, so it must NOT trigger must_raise — otherwise the gate could
       // never be green right after a reseed (every mixed file would loop).
       (floor.line < FLOOR_PCT && lineActual > floor.line) ||
       (floor.branch < BRANCH_FLOOR_PCT && branchActual > floor.branch)
