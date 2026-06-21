@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782029749127,
+  "lastUpdate": 1782032109863,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -1631,6 +1631,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 300.77311249999764,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7e6436b20ff0a4d189ebfd1459bca6dda9c2d8e0",
+          "message": "Sonar cleanup (22 issues) + raise coverage line floor 80→85% (#702)\n\nTwo related quality passes on a fresh branch off `main`.\n\n## Part 1 — clear all open SonarCloud issues (fix-not-exclude)\n\nThe quality gate was already green, but **22 issues** were open (outside\nthe new-code window). All fixed in code (no rule-excludes):\n\n- **S7763 ×9** — re-export imported SDK symbols via `export…from`\n(`data-profile-mapping`, `storybook-story-mapping`, dataprofile\n`profile`); only *pure* re-exports converted, locally-used symbols kept\nimported.\n- **S7735 ×6** — flip negated `if`/ternary conditions (`egress-prune`,\n`share-forward`, `assemble`, `verify-share`).\n- **S3776 (CRITICAL)** — `runShare` cognitive complexity 17→~8 via\nper-subcommand handler extraction (flat dispatcher).\n- **S3863 ×2** (duplicate `share-format` import), **S6582** (optional\nchain), **S6571** (redundant `| null` on `Promise<unknown>`), **S7786**\n(`TypeError` for a type check), **S1874** (stop using the deprecated\n`StorybookStoryInput` alias internally).\n\n## Part 2 — raise the per-file **line** coverage floor 80 → 85%\n\n`FLOOR_PCT` → 85 in `scripts/coverage-floor/baseline.ts`. **Branch floor\nstays 80** (separate constant) — raising the branch floor (an 83-file\nprogram) will be a **follow-up PR**.\n\nAuthoritative Docker/Linux lcov confirms the gate is green at the new\nfloor with a still-empty baseline. The 14 files below 85% line were\nresolved:\n\n- **10 raised ≥85% line with focused tests**:\n`warehouse-write-transport`, `voice/service`, `share/verify-share`,\n`chatops/chatops-bot-spawn-call`, `policy/policy-trust`,\n`telemetry/collector` (new), `auth/oauth-vault-tokens`,\n`connectors/cloudwatch-log-group-mapping` (new),\n`agents/_lib/synthesize`, `updater/signature-verifier`.\n- **4 excluded as genuine no-seam shells** (with justification):\n`cli/commands/{tribal,telemetry}` (CLI IPC wrapper shells),\n`client/src/ipc-transport` + `ipc/server/server` (unix-socket\ntransport/listener shells).\n\nAlso updates the coverage-floor unit-test fixtures for the diverged\nfloors and the floor wording in `docs/testing.md` + the\n`nimbus-coverage-floor` / `nimbus-commands` /\n`nimbus-connector-authoring` skills.\n\n## Verification\n- Typecheck: all packages clean (`preflight:fast` typecheck).\n- Biome: clean (`bunx biome check packages scripts`).\n- Tests: all new/changed test files pass; no `mock.module` leak in\ncombined runs.\n- Coverage floor: **green** at ≥85% line / ≥80% branch, verified on the\nDocker/Linux-authoritative lcov.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n## Release Notes\n\n* **Bug Fixes**\n* Improved `prove --before` validation with a clearer, formatted error\nmessage.\n* Corrected share forwarding behavior so unavailable destinations are\nqueued instead of handled as immediately deliverable.\n\n* **Documentation**\n* Raised coverage gate minimums to **≥85% line** and **≥80% branch** for\nnew source files, and updated the related CI/commands/auth connector\nguidance accordingly.\n\n* **Tests**\n* Expanded test suites and fixtures across gateway, CLI, and connectors,\nincluding additional edge cases and verification paths.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-21T08:33:53Z",
+          "tree_id": "ff2f3d81103d619056f7ed6e8736525ca827aa82",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/7e6436b20ff0a4d189ebfd1459bca6dda9c2d8e0"
+        },
+        "date": 1782032109048,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 295.27814079999916,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 300.53370375000304,
             "unit": "ms"
           }
         ]
