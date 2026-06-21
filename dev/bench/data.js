@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782058640670,
+  "lastUpdate": 1782063269766,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -1801,6 +1801,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 304.8835868499911,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cac512b8f03a0b7efdac3137c158c54ee33ae245",
+          "message": "chore(main): release 0.16.0 (#710)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n##\n[0.16.0](https://github.com/nimbus-agent/Nimbus/compare/v0.15.0...v0.16.0)\n(2026-06-21)\n\n\n### Features\n\n* **slice9:** Workday connector (read-only) —\nworkers/time-off/job-postings + RaaS reports\n([#709](https://github.com/nimbus-agent/Nimbus/issues/709))\n([2646918](https://github.com/nimbus-agent/Nimbus/commit/2646918570aaa52e1477765fe169df3433bdba25))\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n* Workday connector now available with read-only access to workers,\ntime-off, job-postings, and RaaS reports.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-06-21T20:22:36+03:00",
+          "tree_id": "10252a0ab43ead16dc48c565d2f86ef4d3597d9e",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/cac512b8f03a0b7efdac3137c158c54ee33ae245"
+        },
+        "date": 1782063268534,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 297.9386302999974,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 300.0038898499985,
             "unit": "ms"
           }
         ]
