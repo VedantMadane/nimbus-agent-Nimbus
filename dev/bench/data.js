@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782046427680,
+  "lastUpdate": 1782058640670,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -1767,6 +1767,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 292.15229370000236,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2646918570aaa52e1477765fe169df3433bdba25",
+          "message": "feat(slice9): Workday connector (read-only) — workers/time-off/job-postings + RaaS reports (#709)\n\n## Phase 6 Slice 9 (sub-project B) — Workday connector (read-only)\n\nA read-only first-party MCP connector that indexes a tenant's HR data\ninto the local SQLite + embedding index: **org chart / workers,\ntime-off, job postings** (REST) plus admin-configured **RaaS reports**.\nMirrors the Mendeley OAuth lazy-mesh pattern.\n\n**No new security invariant · no schema migration · no HITL · not on the\nteam-credential rail.** Invariant count stays I1–I29.\n\n**Spec:**\n[`docs/superpowers/specs/2026-06-21-slice9-workday-connector-design.md`](docs/superpowers/specs/2026-06-21-slice9-workday-connector-design.md)\n· **Plan:**\n[`docs/superpowers/plans/2026-06-21-slice9-workday-connector.md`](docs/superpowers/plans/2026-06-21-slice9-workday-connector.md)\n\n### What it does\n- **Item types (4, all new):** `workday:worker`, `workday:time_off`,\n`workday:job_posting`, `workday:report`.\n- **Tenant-specific OAuth 2.0:** Workday's authorize/token endpoints\nembed the tenant (`/ccx/oauth2/<tenant>/token`), which the static\n`OAUTH_PROVIDERS` map can't express — handled by a\n`makeWorkdayDescriptor({tenantHost, tenant})` factory + a\n`resolveOAuthDescriptor` indirection at the registry's descriptor-build\nsites (zero behavior change for every other provider).\n- **Config:** env vars `NIMBUS_OAUTH_WORKDAY_CLIENT_ID` / `_SECRET`,\n`NIMBUS_WORKDAY_TENANT_HOST`, `NIMBUS_WORKDAY_TENANT`; only\n`workday.oauth` (token bundle) in the Vault; optional\n`[[connectors.workday.reports]]` RaaS config in `nimbus.toml`.\n- **Live MCP tools:** `workday_list` / `workday_get` / `workday_search`\n(workers); time-off / job-postings / RaaS reports are indexed by the\nGateway sync (queryable via `nimbus search`), not exposed as separate\ntools.\n\n### Security model\n- **Directory-safe PII allowlist** (`workday-field-allowlist.ts`):\nmappers emit only an explicit allowlist\n(name/title/manager/team/dept/location/work-contact/dates);\ncompensation, SSN/national-id, home address, personal contact, leave\nreasons, and the job-description body are **never indexed**. A contract\ntest fails CI if a forbidden field is ever mapped. RaaS rows get an\nexplicit per-report `fields` allowlist (admin-controlled) plus an\nalways-on PII denylist heuristic backstop.\n- **RaaS egress guard:** a configured report URL is fetched only if its\nhost equals the tenant host (`sameTenantHost`, fail-closed); off-tenant\nURLs are never fetched and report hosts are never added to the sandbox\nallowlist.\n- **Sandbox (I15):** the connector spawns via `wrapServerSpec` +\n`manifestWithExtraNetworkHosts(\"workday\", [host])` — only the tenant\nhost is added to the network allowlist.\n- **Read-only:** no write tools (`assertNoRowDataTools` + no-write\ncontract tests), no HITL action types.\n- The index-side allowlist governs the **index**; the live read tools\nreturn raw API data (envelope-wrapped, I11) bounded by the API's\nresponse — documented in the README/spec.\n\n### Verification (all green locally before push)\n- typecheck (all packages), biome (2919 files), `lint:markdown`, and all\nstatic audits: doc-refs, openapi-drift, **boundaries** (gateway does not\nimport mcp-connectors), **invariants** (incl. D11 vault-key allow-list),\n**any**, cross-platform, package-readmes, exclusion-parity, jscpd\nduplication.\n- Full test suite: **12850 pass** (986 files). Workday-specific suites\ncover mappers (PII drops), allowlist, OAuth descriptor, sync (per-domain\nisolation, cursor resume, RaaS same-host), and the spawn.\n- **Coverage-floor (Docker-Linux authoritative):** ok — 0 files\nbaselined; every new file clears ≥85% line / ≥80% branch.\n- Built via subagent-driven development with a per-task review gate + a\nfinal whole-branch review (verdict: ready to merge).\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n* **New Features**\n* Added a new first-party, read-only Workday connector that indexes\n`worker`, `time_off`, `job_posting`, and optional `report` data (via\nReporting-as-a-Service).\n* Enabled tenant-specific Workday OAuth2 authentication and added\nWorkday connector support across connector registration, OAuth handling,\nand lazy connector startup.\n* Implemented directory-safe PII allowlisting/filtering and introduced\nstructured sync cursoring for Workday data ingestion.\n* **Documentation**\n* Added Workday connector README and updated changelog/roadmap entries.\n* **Tests**\n* Added connector, sync, field-policy, and configuration parsing\ncoverage for Workday behavior.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-21T15:58:15Z",
+          "tree_id": "02ad5b32745d96493a2e19da33edf35af05d7b61",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/2646918570aaa52e1477765fe169df3433bdba25"
+        },
+        "date": 1782058639498,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 305.85383239999936,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 304.8835868499911,
             "unit": "ms"
           }
         ]
