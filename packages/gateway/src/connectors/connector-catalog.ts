@@ -92,6 +92,7 @@ export const CONNECTOR_SERVICE_IDS = [
   "powerbi",
   "montecarlo",
   "bigeye",
+  "workday",
 ] as const;
 
 export type ConnectorServiceId = (typeof CONNECTOR_SERVICE_IDS)[number];
@@ -209,6 +210,7 @@ const CONNECTOR_SYNC_INTERVAL_MS: { readonly [K in ConnectorServiceId]: number }
   powerbi: MIN10,
   montecarlo: MIN10,
   bigeye: MIN10,
+  workday: MIN10,
 };
 
 export function normalizeConnectorServiceId(raw: string): ConnectorServiceId | null {
@@ -451,6 +453,8 @@ export function oauthProfileForService(serviceId: ConnectorServiceId): Connector
         provider: "salesforce",
         defaultScopes: ["api", "refresh_token"],
       };
+    case "workday":
+      return { provider: "workday", defaultScopes: ["system"] };
     default:
       return oauthUnsupported(
         serviceId,
