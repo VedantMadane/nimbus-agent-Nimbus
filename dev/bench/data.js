@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782042873213,
+  "lastUpdate": 1782046427680,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -1733,6 +1733,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 292.7491513500128,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "242612324aaf198e83943e3ced923643c1d0a142",
+          "message": "chore(main): release 0.15.0 (#708)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n##\n[0.15.0](https://github.com/nimbus-agent/Nimbus/compare/v0.14.0...v0.15.0)\n(2026-06-21)\n\n\n### Features\n\n* **slice9-w1:** HITL-gated GitOps + ML writes (ArgoCD/Flux/MLflow),\ngeneralize I26\n([#700](https://github.com/nimbus-agent/Nimbus/issues/700))\n([bccab8b](https://github.com/nimbus-agent/Nimbus/commit/bccab8bf9e8f34fabed47afff3619bf6dc6802ff))\n\n\n### Bug Fixes\n\n* **test:** resolve LanServer gate test flake\n([#705](https://github.com/nimbus-agent/Nimbus/issues/705))\n([2e757e8](https://github.com/nimbus-agent/Nimbus/commit/2e757e8143045963ba7c78cb58bcb4806071fdd9))\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n  * Added slice9-w1 feature.\n\n* **Bug Fixes**\n  * Fixed test flake issue.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-06-21T15:41:49+03:00",
+          "tree_id": "47d8224eb728b9b5b15ce7f34f2fa181d3f6b606",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/242612324aaf198e83943e3ced923643c1d0a142"
+        },
+        "date": 1782046427062,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 291.01356785000496,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 292.15229370000236,
             "unit": "ms"
           }
         ]
