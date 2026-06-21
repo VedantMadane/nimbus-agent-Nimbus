@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781968832607,
+  "lastUpdate": 1782022893932,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -1495,6 +1495,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 301.3472597999949,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "34fb5942fd536981f58405a8e4904529addd40a3",
+          "message": "feat(egress): Egress Ledger & nimbus prove (S1 Local Brain — I29/D22/V44) (#698)\n\n## Egress Ledger & `nimbus prove` (S1 \"Local Brain\" — provable-locality\nprimitive)\n\nAn always-on, append-only, BLAKE3-chained ledger of every authorized\noutbound action, written from `ToolExecutor.gate()` **before**\n`connectors.dispatch()`. A denied gate records a\n`result_status='blocked'` row; an append failure aborts the action\n(**fail-closed, never dispatches**).\n\n### What's in it\n- **Schema V44** — `egress_ledger` table (`id`, `timestamp`,\n`source_type`, `source_id`, `destination`, `method`, `payload_summary`,\n`hitl_status`, `result_status`, `row_hash`, `prev_hash`) + 3 lookup\nindexes; the chain reuses `db/audit-chain.ts`'s genesis + BLAKE3\nprimitives. `destination` is the `serviceOf()` action-type prefix (never\na raw URL); `payload_summary` is `redactAuditPayload`-scrubbed, capped\nat 256 bytes (debugging aid, **not** the security boundary).\n- **Invariant I29 + static complement D22** — the executor chokepoint is\nmade *total*: D22 confines `connectors.dispatch` to `engine/executor.ts`\nand the ledger append to `egress/*`, so a `0`-row window is a sound\nnegative. I28 is reserved (MCP-server owner-sink on the in-flight\n`phase7-mcp-gateway-server` branch); reconcile at that merge. **Count\nmoves I1–I27 → I1–I29 (I28 reserved).**\n- **Completeness wiring** — the egress sink is injected into *every*\n`ToolExecutor` that reaches a real connector dispatch (agent action path\nvia `run-ask`, chatops-approved writes, both tribal-capture executors);\ngate-only stub executors\n(vault/teamvault/reindex/data/auto-update/connector.auth) deliberately\nget no sink (local mutations, not outbound).\n- **`nimbus prove \"<query>\"`** — snapshots the ledger head before/after\na query and prints the diff (`outbound egress events during this query:\n0 ✓` for a local-only query).\n- **`nimbus egress [verify|prune|--since|--json|--sign]`** — report /\noffline chain-verify (timing-safe via `sha256HexEqualConstantTime`, I10)\n/ HITL-gated retention. A degraded chain prints `indeterminate`, never a\nfalse `0`.\n- **IPC** — 4 read verbs (`egress.head`/`list`/`verify`/`proveWindow`)\nrenderer-exposed (I7, allowlist 95→99); **`egress.prune`** — the sole\nmutation (a continuing tombstone, not a silent gap) — is in the I2 HITL\nfrozen set, gated through the owner-consent channel, NOT\nrenderer-exposed. Receipt signing reuses the Vault-only Ed25519 share\nkeypair (no new Vault key).\n\n### Deferred\nAuditor-grade portable signed export remains deferred to Phase 12.5.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n* Introduced an egress ledger to audit and prove outbound actions with\ntamper-evident chaining.\n* Added `nimbus prove` command to verify outbound action completeness\nwith optional cryptographic signatures.\n* Added `nimbus egress` command to list, verify, and prune egress ledger\nentries.\n* Updated schema to V44 with new security invariant I29 (egress-ledger\ncompleteness).\n\n* **Documentation**\n* Updated architecture, changelog, and security-invariants docs to\nreflect V44 schema and I29 invariant.\n* Added multiple design specifications for upcoming features (mobile\ncompanion, federation relay, sky-gapped mode, etc.).\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-21T06:09:25Z",
+          "tree_id": "09b6ae0e7bd58a2ec4d4cffb2c819178bc7db941",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/34fb5942fd536981f58405a8e4904529addd40a3"
+        },
+        "date": 1782022893370,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 301.27279354999735,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 304.8986682499955,
             "unit": "ms"
           }
         ]
