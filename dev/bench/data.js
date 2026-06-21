@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782022893932,
+  "lastUpdate": 1782024892716,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -1529,6 +1529,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 304.8986682499955,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "def4c74d84a5ad4371fdbfa78eecfccbf292f990",
+          "message": "chore(main): release 0.14.0 (#699)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n##\n[0.14.0](https://github.com/nimbus-agent/Nimbus/compare/v0.13.1...v0.14.0)\n(2026-06-21)\n\n\n### Features\n\n* **egress:** Egress Ledger & nimbus prove (S1 Local Brain —\nI29/D22/V44) ([#698](https://github.com/nimbus-agent/Nimbus/issues/698))\n([34fb594](https://github.com/nimbus-agent/Nimbus/commit/34fb5942fd536981f58405a8e4904529addd40a3))\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n  * Egress Ledger & nimbus prove functionality\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-06-21T06:42:27Z",
+          "tree_id": "690913fd3232b198e2bb0f649eaa1b5acad87728",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/def4c74d84a5ad4371fdbfa78eecfccbf292f990"
+        },
+        "date": 1782024892150,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 299.6245578500002,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 299.89566504999675,
             "unit": "ms"
           }
         ]
