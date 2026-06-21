@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782032109863,
+  "lastUpdate": 1782033720357,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -1665,6 +1665,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 300.53370375000304,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2e757e8143045963ba7c78cb58bcb4806071fdd9",
+          "message": "fix(test): resolve LanServer gate test flake (#705)\n\nResolves the test flake in LanServer gate where the decrypted mock\nclient helper assumed single-chunk TCP replies.\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Tests**\n* Improved test infrastructure for gateway RPC communication to\ncorrectly handle fragmented TCP responses across multiple data\ncallbacks, ensuring robust validation of encrypted message reassembly.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-06-21T12:10:16+03:00",
+          "tree_id": "cd2f2829532719df2b666b31c9974137254dc795",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/2e757e8143045963ba7c78cb58bcb4806071fdd9"
+        },
+        "date": 1782033719930,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 298.5328516999998,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 296.59319654999126,
             "unit": "ms"
           }
         ]
