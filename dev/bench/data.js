@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782154583726,
+  "lastUpdate": 1782155654375,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -2005,6 +2005,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 304.0748515000014,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ac1dfa8288bac3593cf399da67018ee2e57ad36f",
+          "message": "docs(clips): Plan B (web-clipper extension) → its own repo nimbus-web-clipper (#720)\n\nFollow-up to #718 (merged). Records the decision to ship the web-clipper\nbrowser extension (Plan B) as a **standalone satellite repo\n`nimbus-agent/nimbus-web-clipper`** (mirroring `nimbus-vscode`),\nsuperseding the earlier `packages/browser-extension/` monorepo\nplacement. Docs-only: updates the spec's repo-home decision + the Plan-B\nreferences in the spec, plan, roadmap, and CHANGELOG. Plan A (gateway)\nis unchanged — it shipped in #718.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-22T22:02:33+03:00",
+          "tree_id": "92a53e992ae50596faf2b5e4365eb4f1ad03bd9c",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/ac1dfa8288bac3593cf399da67018ee2e57ad36f"
+        },
+        "date": 1782155653710,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 303.36779070000193,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 303.9090389500012,
             "unit": "ms"
           }
         ]
