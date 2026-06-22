@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782149126716,
+  "lastUpdate": 1782150128803,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -1937,6 +1937,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 294.27878074999535,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5abd57573a28d67ab676852eaac0ddb2d6e85541",
+          "message": "chore(main): release client 0.2.4 (#713)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n##\n[0.2.4](https://github.com/nimbus-agent/Nimbus/compare/client-v0.2.3...client-v0.2.4)\n(2026-06-22)\n\n\n### Dependencies\n\n* The following workspace dependencies were updated\n  * dependencies\n    * @nimbus-dev/sdk bumped to 1.2.0\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Chores**\n  * Updated client package to version 0.2.4\n  * Updated SDK dependency to version 1.2.0\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-06-22T20:19:49+03:00",
+          "tree_id": "83a89cd25f787b39c83b6f37a161860cd3a7e10c",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/5abd57573a28d67ab676852eaac0ddb2d6e85541"
+        },
+        "date": 1782150127999,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 300.7437449500023,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 302.2079078499919,
             "unit": "ms"
           }
         ]
