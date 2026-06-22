@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782148185677,
+  "lastUpdate": 1782149126716,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -1903,6 +1903,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 285.37828344999434,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1b228abeddefa0668b15632b0bee8abe8b9233a4",
+          "message": "chore(main): release sdk 1.2.0 (#714)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n##\n[1.2.0](https://github.com/nimbus-agent/Nimbus/compare/sdk-v1.1.2...sdk-v1.2.0)\n(2026-06-22)\n\n\n### Features\n\n* **apple:** iCloud Mail + Calendar connector (Phase 6 Slice 9-E)\n([#711](https://github.com/nimbus-agent/Nimbus/issues/711))\n([58c69e0](https://github.com/nimbus-agent/Nimbus/commit/58c69e09fba285b03b94eed60f69751103da1bf3))\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).",
+          "timestamp": "2026-06-22T20:00:11+03:00",
+          "tree_id": "1577d744fe298cd96872fcf1fdaa5c7ebbc60dfc",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/1b228abeddefa0668b15632b0bee8abe8b9233a4"
+        },
+        "date": 1782149126149,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 290.6011737499997,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 294.27878074999535,
             "unit": "ms"
           }
         ]
