@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782150128803,
+  "lastUpdate": 1782154583726,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -1971,6 +1971,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 302.2079078499919,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "17d325e7a55729772623438fa4a914c762d810ea",
+          "message": "feat(clips): web clipper gateway — POST /v1/clips, pairing auth, invariant I30 (Phase 6 Slice 9) (#718)\n\n## Web Clipper — Gateway (Plan A) · Phase 6 / Slice 9 (\"Browser &\nReading\")\n\nAdds the gateway surface that lets a browser extension push web pages\ninto the local index — the **inbound-push** analogue of the existing\nSCIM / Teams / deployment routes (no MCP connector). This is **Plan A**;\nthe Chrome + Firefox MV3 extension itself is the follow-on **Plan B**\n(`packages/browser-extension/`).\n\n### What's in this PR\n\n- **Two new I13 write routes** (`WRITE_ROUTE_ALLOWLIST` 6 → 8):\n- `POST /v1/clips` — ingests a clip as a `nimbus:web_clip` item\n(readable-article **or** text-selection body). URL canonicalized\n(tracking params stripped, root slash preserved); article re-clips\n**dedup** on the canonical URL while each selection is a distinct id.\n  - `POST /v1/clips/pair/confirm` — mints the extension's bearer token.\n- **One bearer-authed READ route** `POST /v1/clips/related` — related\nlocal items via FTS (selection-primary, own-host de-prioritized; FTS5\nsyntax neutralized via `ftsMatchQuery` escaping + bound params; **no DB\nmutation**).\n- **Pairing-handshake auth** — `nimbus clip pair [--label]` opens an\nin-memory, single-use, TTL + attempt-capped window (a singleton in\n`assemble.ts` shared by the `clip.*` IPC dispatcher and the HTTP confirm\nroute). The extension redeems the one-time code for a token in a\n**labeled Vault map** (`http_api.web_clipper_tokens`) so Chrome +\nFirefox pair concurrently. `nimbus clip status` lists label + token\n**fingerprint** (never the raw token); `nimbus clip revoke\n[<label>|--all]` is the cut-off for a lost/compromised extension.\n- **Embedding**: `nimbus:web_clip` joins `PROSE_HEAVY_TYPES`\n(OpenAI-1536, MiniLM-384 fallback).\n- **New invariant I30** — fail-closed pairing window: a token is minted\n**only** behind a live owner-opened window; no window / expired / wrong\ncode → 403, no mint (enforced in `security-invariants.test.ts` with a\n**no-mint witness**). The window is strictly in-memory (a restart drops\nit); minted tokens persist in the Vault map. Triple-rule satisfied\n(wiring + docs + test).\n\nClip ingest is **inbound** (writes the local index, no outbound egress)\n→ **not** HITL-gated, **not** egress-ledgered. **No migration**\n(`web_clip` reuses the `item` table + FTS triggers).\n\n### Verification\n\n- **281 web-clipper tests pass** (clips, http surfaces, clip-rpc,\nhttp-write-routes, http-server, security-invariants/I30, clip CLI,\nrouting). An **E2E** proves the real round-trip against a live gateway:\npair → `POST /v1/clips/pair/confirm` → `POST /v1/clips` (Bearer) →\n`nimbus search` finds the clip; plus `/v1/clips/related` 200/401/400.\n- **Preflight**: all static gates green (typecheck, biome, markdown, 13\naudits incl. `audit:invariants` + `audit:status-drift`, jscpd, build).\n- **Coverage floor** (Docker `oven/bun:latest` = CI bun 1.3.14,\nLinux-authoritative): **`coverage-floor: ok`**, baseline unchanged.\nEvery new/modified file clears line ≥85 / branch ≥80.\n\n> Note: a local `test:ci` run shows 10 failures **unrelated to this PR**\n— they are caused by this dev machine's env vars\n(`NIMBUS_DISTRIBUTION_CHANNEL=msi` → updater-dispatcher tests;\n`NIMBUS_OAUTH_GOOGLE_CLIENT_ID` set → one connector-auth test). Those\nfiles are byte-identical to `main` and pass on a clean env (proven by\nthe Docker run, which has neither var). No web-clipper test is among\nthem.\n\n### Design docs\n\n- Spec: `docs/superpowers/specs/2026-06-21-web-clipper-design.md`\n- Plan: `docs/superpowers/plans/2026-06-21-web-clipper-gateway.md`\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n* Added web clipper functionality enabling users to clip article content\nand selections into the local index via a browser extension\n* Introduced device pairing workflow with time-limited one-time codes\nfor browser authentication\n* Added CLI commands (`nimbus clip pair|status|revoke`) for managing\npaired devices and tokens\n* Implemented related-clips search sidecar for discovering similar\ncontent without leaving the browser tab\n\n* **Documentation**\n* Updated architecture, roadmap, changelog, and security documentation\nto reflect web clipper delivery\n  * Added comprehensive design specifications and implementation plans\n* Documented new security invariant I30 for fail-closed token minting\nduring active pairing windows\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-22T18:42:22Z",
+          "tree_id": "cd1f000346c45b73449b75a7d7796b67224d0253",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/17d325e7a55729772623438fa4a914c762d810ea"
+        },
+        "date": 1782154582540,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 303.01826190000463,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 304.0748515000014,
             "unit": "ms"
           }
         ]
