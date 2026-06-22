@@ -17,7 +17,7 @@ describe("embedding/routing", () => {
     expect(SUPPORTED_EMBEDDING_DIMS.has(512)).toBe(false);
   });
 
-  test("PROSE_HEAVY_TYPES exact membership (20 entries)", () => {
+  test("PROSE_HEAVY_TYPES exact membership (21 entries)", () => {
     const expected = new Set([
       "slack:message",
       "discord:message",
@@ -39,6 +39,7 @@ describe("embedding/routing", () => {
       "fastmail:email",
       "protonmail:email",
       "apple:email",
+      "nimbus:web_clip",
     ]);
     expect(PROSE_HEAVY_TYPES.size).toBe(expected.size);
     for (const key of expected) {
@@ -88,5 +89,14 @@ describe("embedding/routing", () => {
     for (const t of ["worker", "time_off", "job_posting", "report"]) {
       expect(isProseHeavy("workday", t)).toBe(false);
     }
+  });
+});
+
+describe("routing — web clip", () => {
+  test("nimbus:web_clip routes prose-heavy (OpenAI 1536)", () => {
+    expect(isProseHeavy("nimbus", "web_clip")).toBe(true);
+  });
+  test("a non-prose nimbus type is not prose-heavy", () => {
+    expect(isProseHeavy("nimbus", "other")).toBe(false);
   });
 });

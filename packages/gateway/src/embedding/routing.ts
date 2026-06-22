@@ -38,6 +38,9 @@ export const PROSE_HEAVY_TYPES: ReadonlySet<string> = new Set([
   // events (apple:event) stay on local MiniLM 384-dim — short structured
   // summary/notes, not paragraph-shaped.
   "apple:email",
+  // Web-clipper readable-article / selection bodies are prose paragraphs — same
+  // hybrid posture as gmail:email: MiniLM-384 fallback when openai.api_key is absent.
+  "nimbus:web_clip",
 ]);
 
 export function routingKey(service: string, type: string): string {
