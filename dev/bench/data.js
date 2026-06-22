@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782147299583,
+  "lastUpdate": 1782148185677,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -1869,6 +1869,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 295.0218050500022,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "86aae5cc8d4e10c064d3e35fbe54903cecaa4594",
+          "message": "docs(plan): VS Code extension repo extraction plan + review (#712)\n\n## Summary\n\nAdds the implementation plan to extract `packages/vscode-extension` into\na standalone `nimbus-agent/nimbus-vscode` repo, plus the review that\ndrove it. **Docs only** — no code or workflow changes.\n\n-\n`docs/superpowers/plans/2026-06-22-vscode-extension-repo-extraction.md`\n— step-by-step plan (Phase 0 client fix → stand up new repo → standalone\nbuild/CI → hygiene fixes → release → remove from monorepo).\n-\n`docs/superpowers/plans/2026-06-22-vscode-extension-repo-extraction-review.md`\n— the review (prior 4-point pass + an empirically-verified second pass).\n\n## Key finding (review B1 — empirically verified)\n\nThe published `@nimbus-dev/client@0.2.3` ships an unrewritten\n`\"@nimbus-dev/sdk\": \"workspace:*\"` dependency, so it is **uninstallable\noutside the monorepo**:\n\n\\`\\`\\`\n$ bun add @nimbus-dev/client@0.2.3\nerror: @nimbus-dev/sdk@workspace:* failed to resolve   (exit 1)\n\\`\\`\\`\n\n`npm publish` does not rewrite the `workspace:` protocol. The plan\ntherefore opens with a **Phase 0** that patches `publish-client.yml` to\npin internal deps to concrete semver, republishes `client@0.2.4`, and\nverifies standalone install — a hard gate before any extraction work.\n\n## Scope\n\nThis PR only lands the planning docs; executing the plan (new repo,\nMarketplace publish, monorepo removal) is separate, gated work described\nwithin.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Documentation**\n* Added comprehensive planning documentation for VS Code extension\nrepository extraction, including implementation phases, verification\ncheckpoints, and standalone release procedures.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-22T19:44:44+03:00",
+          "tree_id": "ce250a02f02ad446271474ff00b847ce18d4faee",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/86aae5cc8d4e10c064d3e35fbe54903cecaa4594"
+        },
+        "date": 1782148184548,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 289.6322915999972,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 285.37828344999434,
             "unit": "ms"
           }
         ]
