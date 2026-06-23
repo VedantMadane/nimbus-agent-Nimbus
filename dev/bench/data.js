@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782155654375,
+  "lastUpdate": 1782187592821,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -2039,6 +2039,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 303.9090389500012,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "77fd00f249bd213ef126c5e29d02a41ce8066068",
+          "message": "chore: extract VS Code extension to its own repo (#721)\n\n## Summary\n\nRemoves `packages/vscode-extension` from the monorepo. The extension now\nlives at\n**[nimbus-agent/nimbus-vscode](https://github.com/nimbus-agent/nimbus-vscode)**\n— released standalone as `v0.2.0` (live on the Marketplace + Open VSX)\nand consuming the published `@nimbus-dev/client@^0.2.4`.\n\nThis is the final step of the extraction (the plan + the client\n`workspace:*`→concrete publish fix already merged separately).\n\n## Changes\n- **Delete** `packages/vscode-extension/` (42 files) and\n`.github/workflows/publish-vscode.yml`.\n- **Workspace/scripts:** drop the workspace entry and the\n`test:coverage:vscode-extension` script.\n- **Audits/config:** remove vscode-extension from coverage-floor\nexclusions + the parity check, the package-READMEs audit, the JS-license\noverrides (`@vscode/vsce-sign*`, `ovsx`), the sonar coverage exclusions,\n`ci.yml` path filters, `.gitignore`, and the docs issue template.\n- **Kept** the `@nimbus-dev/client` prebuild CI step — **the CLI imports\nit**, so it's still needed; comments repointed from \"vscode-extension\"\nto \"cli\".\n- **Docs:** repoint CLAUDE.md / GEMINI.md / architecture / roadmap /\nfile-map / coverage; drop the extension's I7 rows from\nSECURITY-INVARIANTS; add a `docs/CHANGELOG.md` entry.\n\n## Verification (local)\ntypecheck (all packages) ✅ · `doc-refs` · `status-drift` ·\n`exclusion-parity` · `package-readmes` · `js-licenses` ·\n`release-please` · `lint:markdown` · biome · invariants — all green.\nFull test suite + coverage-floor run on CI (Linux-authoritative).\n\n## Follow-ups (not in this PR)\n- The monorepo's `Protected release tags` ruleset still lists\n`vscode-v*` — harmless (no such tags will be pushed); can be pruned\nlater.\n- The `VSCE_PAT` / `OVSX_PAT` secrets were already deleted from this\nrepo.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-23T03:54:39Z",
+          "tree_id": "cfa8fb7d9c78077062d523c7125ec863d8ee5a65",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/77fd00f249bd213ef126c5e29d02a41ce8066068"
+        },
+        "date": 1782187591798,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 295.0869363499969,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 304.02637995000407,
             "unit": "ms"
           }
         ]
