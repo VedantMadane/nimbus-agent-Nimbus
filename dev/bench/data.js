@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782223552921,
+  "lastUpdate": 1782224663326,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -2209,6 +2209,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 318.33118440000436,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4a6edd159bdb4c81a172ba97cc77ea3723567e8c",
+          "message": "chore(main): release client 0.2.5 (#735)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n##\n[0.2.5](https://github.com/nimbus-agent/Nimbus/compare/client-v0.2.4...client-v0.2.5)\n(2026-06-23)\n\n\n### Bug Fixes\n\n* **sonar:** clear the SonarCloud board — S5906 sweep + long-tail code\nsmells ([#731](https://github.com/nimbus-agent/Nimbus/issues/731))\n([3a87e54](https://github.com/nimbus-agent/Nimbus/commit/3a87e54a7335c1be87ecb582673183b242b97c88))\n\n\n### Dependencies\n\n* The following workspace dependencies were updated\n  * dependencies\n    * @nimbus-dev/sdk bumped to 1.2.1\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).",
+          "timestamp": "2026-06-23T17:12:45+03:00",
+          "tree_id": "706060c5d9ae333dcfd9789a0c26a9acd2d850aa",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/4a6edd159bdb4c81a172ba97cc77ea3723567e8c"
+        },
+        "date": 1782224662837,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 301.35451180000234,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 306.8699393000046,
             "unit": "ms"
           }
         ]
