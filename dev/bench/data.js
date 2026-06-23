@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782187592821,
+  "lastUpdate": 1782218421203,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -2073,6 +2073,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 304.02637995000407,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6921076df3fa2f35359b51562b3a290ff2f5237f",
+          "message": "chore(main): release 0.18.0 (#723)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n##\n[0.18.0](https://github.com/nimbus-agent/Nimbus/compare/v0.17.0...v0.18.0)\n(2026-06-23)\n\n\n### Features\n\n* **clips:** web clipper gateway — POST /v1/clips, pairing auth,\ninvariant I30 (Phase 6 Slice 9)\n([#718](https://github.com/nimbus-agent/Nimbus/issues/718))\n([17d325e](https://github.com/nimbus-agent/Nimbus/commit/17d325e7a55729772623438fa4a914c762d810ea))\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n* Added a clips web clipper gateway with a new POST `/v1/clips` endpoint\nfor web clipping capabilities.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-06-23T15:24:18+03:00",
+          "tree_id": "174b4af9892b3c3936cedbf92c7995bab6968647",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/6921076df3fa2f35359b51562b3a290ff2f5237f"
+        },
+        "date": 1782218420004,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 295.64957065000306,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 293.2341789500002,
             "unit": "ms"
           }
         ]
