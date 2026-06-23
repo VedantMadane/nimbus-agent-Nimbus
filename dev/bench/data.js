@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782218421203,
+  "lastUpdate": 1782221801935,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -2107,6 +2107,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 293.2341789500002,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3a87e54a7335c1be87ecb582673183b242b97c88",
+          "message": "fix(sonar): clear the SonarCloud board — S5906 sweep + long-tail code smells (#731)\n\nDrives the SonarCloud board to zero open issues.\n\n## What\n- **S5906** (most-specific assertion): finished the `.length` →\n`toHaveLength` sweep — converted the remaining ~45 equality sites (incl.\noptional-chain and regex-match forms) the earlier sweep missed.\nArithmetic length expressions (`one.length - base.length`) are correctly\nleft alone (not flaggable).\n- **S8786** (non-linear backtracking): narrowed `[^>]`→`[^<>]` in\nlink/HTML regexes; replaced unanchored trailing-trim regexes (`[...]+$`\n/ `\\n+$` / `=+$`) with linear no-regex strips — notably the\n**policy-signing canonicalizer** (exact signed bytes preserved) and the\n`data-model-key` normalizer; bounded the base64 padding strip to\n`{1,2}`; made the `kb-markdown` bullet capture deterministic (`(\\S.*)?`\nkills the `\\s+`/`.*` overlap).\n- **S3776 / S107**: extracted a `walkDomain` args object + `runDomain`\nhelper (workday-sync) and parse helpers (nimbus-toml-workday) to cut\ncognitive complexity / param count.\n- **S8782**: hooks moved above the test cases.\n- Plus the connectors/sdk/clips long-tail already on the branch.\n\n## Verification\n- `bun run typecheck` ✅ (all packages)\n- `biome check` ✅ on all changed files\n- Targeted tests for changed src + a sample of converted test files ✅\n- Behavior-preserving: signing canonicalizer and warehouse-key\nnormalizer use exact char sets (no semantic drift).\n\nCloses the open-issues backlog once merged; SonarCloud PR analysis\nconfirms.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Tests**\n* Updated test assertions to use modern matcher syntax for improved\nclarity and consistency across the test suite.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-23T13:13:01Z",
+          "tree_id": "f38e4bfdd1ceb3f0bd92405e37935b68cfbd43bc",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/3a87e54a7335c1be87ecb582673183b242b97c88"
+        },
+        "date": 1782221801267,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 292.91285145000217,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 295.3323794499909,
             "unit": "ms"
           }
         ]
