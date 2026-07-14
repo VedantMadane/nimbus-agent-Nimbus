@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782231140343,
+  "lastUpdate": 1784053820622,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -2379,6 +2379,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 295.88383919999467,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "31c05b25c17b858d14980455ad8800fbfb99e875",
+          "message": "feat(client): expose egress ledger reads on NimbusClient + MockClient (#751)\n\n## Why\n\nUnblocks the **nimbus-vscode** extension (a strict thin client — it may\nonly use `@nimbus-dev/client`, never Gateway source or raw JSON-RPC) to\nbuild an **Egress \"provable locality\"** UI surface. Today no published\nclient exposes any egress/share/workflow RPC, so the extension is\nblocked.\n\nInvestigation found all three candidate surfaces (Workflow, Share,\nEgress) already exist server-side with dispatch-wired IPC — this is a\n**client-layer exposure** task, not a server build. **Egress** was\nchosen first: its exposable set is 100% pure reads, all four methods are\nalready in the Tauri allowlist, the ledger is append-only/immutable\n(most stable contract), and it needs **zero Gateway change**.\n\n## What\n\nFour typed **read-only** methods on `NimbusClient`, wrapping the\nalready-wired `egress.*` RPCs:\n\n| Client method | RPC | Returns |\n|---|---|---|\n| `egressHead()` | `egress.head` | `EgressHead` |\n| `egressList(params?)` | `egress.list` | `EgressListResult` |\n| `egressVerify()` | `egress.verify` | `EgressVerifyResult` |\n| `egressProveWindow(params?)` | `egress.proveWindow` |\n`EgressProveWindowResult` |\n\n- Mirrored request/response types (`EgressRow`, `EgressHead`,\n`EgressListParams/Result`, `EgressVerifyResult`, `EgressCompleteness`,\n`EgressReceipt`, `EgressProveWindowParams/Result`), re-exported from\n`index.ts`.\n- `MockClient` parity stubs (optional `egressHead` / `egressRows` /\n`egressVerify` / `egressProveWindow` fixtures), signatures matching\n`NimbusClient` for true drop-in use.\n- Routing / mock / surface-parity tests. README egress snippet.\n\n`egress.prune` is **intentionally not exposed** — it is a mutation,\nowner-HITL-gated, and CLI-only (off the Tauri allowlist by design).\n\n## Versioning\n\nNo hand-edit to `version`/`CHANGELOG`: this `feat(client):` commit\ndrives release-please to bump `@nimbus-dev/client` **0.3.0 → 0.4.0** and\ncut the `client-v0.4.0` tag that fires the npm publish workflow. The\nvscode extension then depends on `@nimbus-dev/client@^0.4.0`.\n\n## Verification\n\n- `bun run typecheck` ✅ · `bun test` (112 pass) ✅ · `biome check` ✅ ·\n`bun run build` ✅\n- Coverage-floor (istanbul lcov, Linux-parity): `mock-client.ts`\n100%/100%, `nimbus-client.ts` 88% line / 100% branch — both above the 85\nline / 80 branch floors.\n- High-effort code review: one drop-in-parity finding (mock stubs\nmissing optional params) — fixed.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n- **New Features**\n- Added read-only egress ledger access, including APIs to fetch the\nledger head/count, list recent rows, verify chain integrity, and\ngenerate/return time-window proofs.\n- Exposed strongly typed egress ledger and proof/verification result\ntypes for client integrations.\n- Extended the mock client with corresponding egress methods and safe\ndefault responses.\n\n- **Documentation**\n- Added a “Egress ledger (provable locality)” quickstart section with\nexample calls for head/count, recent rows, offline verification, and\nproof generation.\n\n- **Tests**\n- Expanded test coverage to confirm typed surface exposure, correct\nrequest dispatching, parameter forwarding, and mock default/fixture\nbehavior.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-14T18:16:31Z",
+          "tree_id": "bef8b37cf72f58a67f5fa56bb229ef67c369d2f6",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/31c05b25c17b858d14980455ad8800fbfb99e875"
+        },
+        "date": 1784053819785,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 300.86539985000275,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 302.5354334000032,
             "unit": "ms"
           }
         ]
