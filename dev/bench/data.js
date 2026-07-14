@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784054768870,
+  "lastUpdate": 1784059126322,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -2447,6 +2447,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 300.36089364999896,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5eec16c118e94667ddccc0ebb0e122f0bc31f136",
+          "message": "feat(cli): add `nimbus --version` / `-v` / `version` (#753)\n\n## Why\n\nDiagnosing why `nimbus clip pair` printed the help menu on a Windows\ninstall, the root cause was a **stale binary** (pre-v0.18.0, before the\n`clip` command existed) — and the CLI had **no way to report its own\nversion**, so there was no quick way to confirm that. `nimbus --version`\ncloses that gap.\n\n## What\n\nAdds `--version`, `-v`, and bareword `version`, all printing just the\nrelease version string (e.g. `0.20.0`):\n\n- **`version.ts`** — single source of truth: imports the monorepo\n**root** `package.json` version (the one release-please bumps;\nper-package files stay at `0.1.0`). Bun inlines the JSON at `--compile`\ntime, so the shipped binary needs no runtime file access.\n- **`index.ts`** — `VERSION_ALIASES` handled in `dispatchCommand`,\nbefore the unknown-command → help fallback.\n- **`help.ts`** — documents `nimbus version`.\n- **`version.test.ts`** — asserts semver shape + exact match against\nroot `package.json`.\n\n## Verification\n\n- `bun test packages/cli/src/version.test.ts` → 2 pass\n- `biome check` on the 4 files → clean\n- `tsc --noEmit` (cli) → clean\n- Compiled a standalone binary and ran `--version` from an unrelated cwd\n→ prints the version (confirms build-time inlining, no runtime file\naccess)\n\n```\n$ nimbus --version → 0.20.0\n$ nimbus version   → 0.20.0\n$ nimbus -v        → 0.20.0\n```\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n* Added `nimbus version`, `--version`, and `-v` commands to display the\ninstalled Nimbus version.\n  * Updated CLI help text to document the new version options.\n\n* **Tests**\n* Added validation to ensure the reported version is present, correctly\nformatted, and matches the release version.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-14T22:46:21+03:00",
+          "tree_id": "7752f608419e03094d23331c8372aab83e482aab",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/5eec16c118e94667ddccc0ebb0e122f0bc31f136"
+        },
+        "date": 1784059125165,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 316.805221649996,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 322.2006229999912,
             "unit": "ms"
           }
         ]
