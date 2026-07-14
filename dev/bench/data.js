@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784053820622,
+  "lastUpdate": 1784054768870,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -2413,6 +2413,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 302.5354334000032,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ed71e3ceb680e7f7b1f3e979280a27de44a08abc",
+          "message": "chore: release main (#752)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>client: 0.4.0</summary>\n\n##\n[0.4.0](https://github.com/nimbus-agent/Nimbus/compare/client-v0.3.0...client-v0.4.0)\n(2026-07-14)\n\n\n### Features\n\n* **client:** expose egress ledger reads on NimbusClient + MockClient\n([#751](https://github.com/nimbus-agent/Nimbus/issues/751))\n([31c05b2](https://github.com/nimbus-agent/Nimbus/commit/31c05b25c17b858d14980455ad8800fbfb99e875))\n</details>\n\n<details><summary>0.20.0</summary>\n\n##\n[0.20.0](https://github.com/nimbus-agent/Nimbus/compare/v0.19.0...v0.20.0)\n(2026-07-14)\n\n\n### Features\n\n* **client:** expose egress ledger reads on NimbusClient + MockClient\n([#751](https://github.com/nimbus-agent/Nimbus/issues/751))\n([31c05b2](https://github.com/nimbus-agent/Nimbus/commit/31c05b25c17b858d14980455ad8800fbfb99e875))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n  * Added support for reading egress ledger data through the client API.\n* **Release**\n  * Released version 0.20.0, including client package version 0.4.0.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-07-14T18:34:01Z",
+          "tree_id": "1899011fa674c9bad4a2611bfc3b52bd96b75723",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/ed71e3ceb680e7f7b1f3e979280a27de44a08abc"
+        },
+        "date": 1784054768137,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 297.0409536000014,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 300.36089364999896,
             "unit": "ms"
           }
         ]
