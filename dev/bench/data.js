@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784177148550,
+  "lastUpdate": 1784201220979,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -2583,6 +2583,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 303.2251550500041,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bc53aaa79efd2c3dcd97860bab078046d4a81c13",
+          "message": "refactor: extract @nimbus-dev/client to standalone repo; consume published 0.5.0 (#758)\n\n## Summary\n\nPhase 2 (Plan B) of the poly-repo platform extraction: make the monorepo\nconsume the **published** `@nimbus-dev/client` and remove\n`packages/client` entirely. Companion to the sdk extraction (Plan A).\n\n`@nimbus-dev/client` now lives in its own repo —\n[nimbus-agent/nimbus-client](https://github.com/nimbus-agent/nimbus-client)\n— and publishes to npm on its own clock via release-please + OIDC\ntrusted-publisher (no npm token). First standalone release:\n**`@nimbus-dev/client@0.5.0`** (0.4.0 was the last version published\nfrom the monorepo).\n\n## Changes\n\n- **cli consumes the published package** — `packages/cli` dep\n`@nimbus-dev/client` `workspace:*` → `^0.5.0`; removed the dangling\n`packages/cli/tsconfig.json` paths mapping to `../client/src/index.ts`.\n`packages/cli` was the only internal consumer.\n- **Removed `packages/client`** — deleted the package tree; dropped it\nfrom root `workspaces`, the combined `test` script, and the\n`test:coverage:client` gate.\n- **Stopped publishing client from the monorepo** — removed the\n`packages/client` release-please component (config + manifest) and\n**deleted `.github/workflows/publish-client.yml`** (client\nself-publishes now).\n- **CI/coverage/tooling de-integration** — removed client build steps\nfrom `ci.yml` / `release.yml` / `_test-suite.yml` / `docs-quality.yml`;\nremoved the `client-node-compat` job from `_test-suite.yml`; removed\nclient from the coverage-floor (globs + exclusions + `build-lcov.sh` /\n`reseed-docker.sh`), `knip.json`, `ci-tests.ts`, `package-readmes`\naudit, `build-debug.ts`, `strip-comments` prefixes, and root\n`sonar-project.properties` coverage exclusions.\n- **Docs** — reframed skill docs, `architecture.md` / `README.md` trees,\n`ci-secrets.md`, security docs, the docs-site package table, the\nlabeler, and the issue template so `@nimbus-dev/client` reads as an\nexternal published package. Historical records (CHANGELOG, completed\nroadmap phases, superpowers plans) left intact.\n- **Guard** — new `scripts/structure-audit/no-workspace-client.test.ts`\nfails if any package reintroduces `@nimbus-dev/client: workspace:*`.\n\n## Verification\n\nGreen locally: full workspace `bun run typecheck`, `bunx biome check\npackages scripts`, `audit:invariants`, `audit:doc-refs` (603 refs\nresolve), `audit:status-drift`, `audit:package-readmes`,\n`audit:cross-platform`, all `scripts/structure-audit` tests, the\npreflight-gates drift test, the workspace-client guard, and cli's\nruntime import of the published `@nimbus-dev/client@0.5.0`. The external\nconsumer `nimbus-agent/nimbus-vscode` (`^0.4.0`) builds green against\n`0.5.0`. `audit:coverage-floor` runs on CI (its changes are pure\nremovals of deleted-file references — coverage-neutral for remaining\nfiles).\n\n## Notes\n\n- Depends on Plan A (sdk) being merged and `@nimbus-dev/sdk@1.3.0`\npublished — already done.\n- Pre-existing `packages/sdk` doc drift (leftover from the earlier sdk\nextraction) is **not** touched here — out of scope; worth a small\nfollow-up.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Documentation**\n* Updated project and contributor guidance to reflect the client\npackage’s standalone repository and independent publishing.\n* Revised architecture, security, licensing, CI, and release\ndocumentation.\n\n* **Chores**\n* Removed the client package from the monorepo, workspace configuration,\nrelease management, and publishing workflow.\n  * Updated CLI consumption to use the published client package.\n\n* **Tests**\n  * Removed monorepo client tests and coverage gates.\n* Added validation ensuring the client is not referenced as a workspace\ndependency.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-07-16T11:07:02Z",
+          "tree_id": "9b86f83914707a3caafe70edfa934e15839b817b",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/bc53aaa79efd2c3dcd97860bab078046d4a81c13"
+        },
+        "date": 1784201220371,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 282.43911449999797,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 289.8514635000021,
             "unit": "ms"
           }
         ]
