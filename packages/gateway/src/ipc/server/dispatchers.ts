@@ -892,6 +892,7 @@ export async function tryDispatchClipRpc(
   const out = await dispatchClipRpc(method, params, {
     pairing: ctx.options.clipPairingController,
     vault: ctx.options.vault,
+    ...(ctx.options.localIndex === undefined ? {} : { db: ctx.options.localIndex.getDatabase() }),
     ...(ctx.options.clipHttpBaseUrl === undefined
       ? {}
       : { httpBaseUrl: ctx.options.clipHttpBaseUrl }),
