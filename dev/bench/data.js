@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784201220979,
+  "lastUpdate": 1784205045606,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -2617,6 +2617,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 289.8514635000021,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "579e209ecc5e5850a74e2ad74379b30fbf65f0e4",
+          "message": "docs: clean up leftover packages/sdk references (poly-repo consistency) (#759)\n\nFollow-up to the client extraction (#758). Removes the last stale\n`packages/sdk` references left behind when the SDK was extracted, so the\nmonorepo docs/config consistently reflect that **both**\n`@nimbus-dev/sdk` and `@nimbus-dev/client` are external published\npackages.\n\n- Skill docs (`nimbus-architecture`, `nimbus-file-map`) point at the\nstandalone repos instead of deleted `packages/sdk/src` files\n- `docs/contributors/coverage.md`, `docs/sonar-local.md`, docs-site\n`getting-started.mdx` — drop `packages/sdk` from package lists\n- `README.md` — reword so sdk/client read as external npm packages\n- `knip.json` — drop the dead `packages/sdk` workspace entry\n- `.dependency-cruiser.cjs` — remove the `sdk-no-import-core` rule +\n`client` alternation (neither package is in the tree)\n\nVerified: `audit:doc-refs` (603 refs), `audit:boundaries`\n(dependency-cruiser, 0 violations), biome lint, `audit:status-drift` all\ngreen.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n- **Documentation**\n- Updated architecture and file-map guidance to point SDK users to the\nstandalone `@nimbus-dev/sdk` location.\n- Adjusted contributor/getting-started docs to remove legacy monorepo\nSDK references.\n  - Refreshed README license wording to use linked package references.\n\n- **Chores**\n  - Tightened allowed SDK import targets for MCP connectors.\n  - Updated coverage and local analysis to exclude `packages/sdk`.\n  - Removed the SDK from workspace/coverage gate configuration.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-07-16T15:20:28+03:00",
+          "tree_id": "01d6af8e9e0abb7a1a2ab0d9892f81a7009311a4",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/579e209ecc5e5850a74e2ad74379b30fbf65f0e4"
+        },
+        "date": 1784205043998,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 235.2963079500001,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 238.27779035000313,
             "unit": "ms"
           }
         ]
