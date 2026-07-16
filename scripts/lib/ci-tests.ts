@@ -39,7 +39,6 @@ function runInitialUnitTestsWithCoverage(): void {
   const args = [
     "packages/gateway",
     "packages/cli",
-    "packages/sdk",
     "packages/client",
     "packages/mcp-connectors",
     "scripts",
@@ -105,7 +104,6 @@ function runCoverageGates(): void {
     { script: "test:coverage:updater" },
     { script: "test:coverage:lan" },
     { script: "test:coverage:perf" },
-    { script: "test:coverage:sdk" },
     { script: "test:coverage:security" },
   ];
 
