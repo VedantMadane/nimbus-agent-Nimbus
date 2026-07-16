@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784225507119,
+  "lastUpdate": 1784227923168,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -2685,6 +2685,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 316.17949129999835,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "65e8857a27dff10ac85f9c3e63c2fd2a21628bb2",
+          "message": "feat(cli): nimbus clip list + clip delete (+ clip-scoped tags) (#760)\n\n## What\n\nAdds two web-clip management commands so a user can **see** and\n**remove** their clips — previously there was no way to list clips (only\n`clip status` for paired browsers) and the only delete was the\nservice-wide `data delete --service nimbus`.\n\n- **`nimbus clip list [--tag <t>] [--limit N] [--json]`** — lists\n`web_clip` items newest-first, with a clip-scoped `--tag` filter (SQL\n`json_each`, so `--limit` is honored), and `--json` (incl. `wordCount`)\nfor scripting.\n- **`nimbus clip delete <id|url>` / `--all [--yes]`** — deletes by clip\nID (`nimbus:`-prefixed) or by page URL (the article + all its\ntext-selections, sharing a canonical URL); `--all` is guarded (reports\nthe count unless `--yes`).\n\nTwo new local-index IPC methods back these: `clip.list` and\n`clip.delete`.\n\n## How\n\n- Threads the local-index DB into `ClipRpcDeps` via\n`ctx.options.localIndex.getDatabase()` (same pattern as the `agents`\ndispatcher).\n- Deletes route **only** through `deleteItemByPrimaryKey` (graph + FTS +\nembedding/vec cascade cleanup) and are strictly `type =\n'web_clip'`-scoped — a `nimbus:` id for a non-clip item is not\ndeletable.\n- The `--tag` query is guarded with `json_valid(...)` so a\nmalformed-metadata row can't abort the listing.\n- Bound-param SQL throughout (I9). **No new invariant, no migration**\n(read + local delete is not outbound egress).\n\n## Verification\n\n- 60 tests (22 gateway `clip-rpc`, 38 CLI `clip`), gateway + CLI\ntypecheck, Biome lint, static invariant audit — all green.\n- **Linux coverage-floor** (Docker) gate: `ok`.\n- Design + plan + two review passes:\n`docs/superpowers/{specs,plans}/2026-07-16-clip-list-delete*`.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-16T18:40:10Z",
+          "tree_id": "eebd9040b09fef6c652a2b5fd823b1bf076167aa",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/65e8857a27dff10ac85f9c3e63c2fd2a21628bb2"
+        },
+        "date": 1784227922074,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 296.0638243500049,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 298.8321568499923,
             "unit": "ms"
           }
         ]
