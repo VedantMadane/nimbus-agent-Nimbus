@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784059126322,
+  "lastUpdate": 1784175658704,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -2481,6 +2481,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 322.2006229999912,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0f1b94d43ea1072db7aadb16ea4df48a9e39efb2",
+          "message": "refactor: consume published @nimbus-dev/sdk@1.3.0; complete sdk extraction (Plan A Phase 2) (#756)\n\nPhase 2 of the sdk poly-repo extraction: the monorepo stops\ncarrying/publishing\n`@nimbus-dev/sdk` and consumes the published package from npm. Phase 1\n(standing up\n`nimbus-agent/nimbus-sdk` + publishing `1.3.0`) is already done.\n\n## What changed\n\n**Consume published sdk (Task 9)**\n- Flipped all **97** consumers (94 connectors + cli + gateway + client)\nfrom\n`\"@nimbus-dev/sdk\": \"workspace:*\"` → `\"^1.3.0\"`; dropped `packages/sdk`\nfrom\n  root `workspaces`. Lockfile resolves sdk from npm. Guard test added.\n\n**Remove sdk + stop publishing it (Task 10 + double-publish guard)**\n- Deleted `packages/sdk/**`; removed it from\n`.release-please-manifest.json`.\n- **Deleted `.github/workflows/publish-sdk.yml`** (the `sdk-v*` tag\npublisher) so\nthe monorepo can never double-publish — exactly one publisher for the\npackage.\n\n**Delete dead package (Task 11)**\n- Removed `packages/vscode-extension` (source lives in\n`nimbus-agent/nimbus-vscode`).\n\n**DX helper (Task 12)**\n- `bun run platform:link` bun-links a sibling `../nimbus-sdk` checkout\nwhen present.\n\n**Purge enumerations (Task 13)**\n- coverage-floor (glob/exclusions/build-lcov/ci-tests + paired\n`sonar.coverage.exclusions`),\n`audit:package-readmes` scope, strip-comments jsdoc prefixes,\n`_test-suite.yml` pkg\nlists, labeler + issue-template options, and docs (CLAUDE/GEMINI\nsubsystem list →\nstandalone-repos; license-policy + SECURITY-INVARIANTS now cite external\n`@nimbus-dev/sdk`).\n\n## Verification\n- `bun run typecheck` — clean across the whole monorepo (all connectors\nresolve sdk from npm).\n- `bunx biome check packages scripts` — clean (2879 files). *(The\n`.claude/worktrees` lint\nfalse-positive `biome check .` → \"0 files\" is the only preflight:fast\nfailure; validated\n  clean via the scoped invocation.)*\n- Audits green: doc-refs, status-drift, release-please, structure,\nexclusion-parity, package-readmes.\n- Scripts tests: 406 pass / 0 fail.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n* **Refactor**\n* Removed the SDK from the monorepo workspace and release automation;\npackages now reference the published `@nimbus-dev/sdk` version instead\nof local workspace links.\n* Updated gateway, CLI, client, and MCP connectors to use the published\nSDK.\n* **New Features**\n  * Added an optional workflow to link a nearby SDK checkout locally.\n* **Documentation**\n* Updated repo guidance, security invariants, licensing policy, and\nsubsystem lists to point to the standalone SDK source.\n* **Chores / Tests**\n* Disabled SDK-specific publishing, coverage, and tracking; adjusted\ncoverage/audit scripts and added checks to prevent workspace SDK\nreferences.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-16T04:11:44Z",
+          "tree_id": "a116b0e7800deb65f18388fb21c3f351540eae63",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/0f1b94d43ea1072db7aadb16ea4df48a9e39efb2"
+        },
+        "date": 1784175657635,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 249.90542639999984,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 247.35169765000393,
             "unit": "ms"
           }
         ]
