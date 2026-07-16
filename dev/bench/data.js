@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784176432900,
+  "lastUpdate": 1784177148550,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -2549,6 +2549,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 314.9359865000024,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7bb0ec7eea52c08bbe25d9146e6ef43ea9e17ad1",
+          "message": "chore: release main (#757)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>0.21.0</summary>\n\n##\n[0.21.0](https://github.com/nimbus-agent/Nimbus/compare/v0.20.0...v0.21.0)\n(2026-07-16)\n\n\n### Features\n\n* **cli:** add `nimbus --version` / `-v` / `version`\n([#753](https://github.com/nimbus-agent/Nimbus/issues/753))\n([5eec16c](https://github.com/nimbus-agent/Nimbus/commit/5eec16c118e94667ddccc0ebb0e122f0bc31f136))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n* Added `nimbus --version` to display the CLI version, with `-v` and\n`version` aliases.\n\n* **Documentation**\n  * Updated the changelog with release information for version 0.21.0.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-07-16T04:31:30Z",
+          "tree_id": "b869a414ea2dd6dd95dcfe39edc5d064da3c867c",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/7bb0ec7eea52c08bbe25d9146e6ef43ea9e17ad1"
+        },
+        "date": 1784177147790,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 304.481351900001,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 303.2251550500041,
             "unit": "ms"
           }
         ]
