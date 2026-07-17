@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784227923168,
+  "lastUpdate": 1784318118345,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -2719,6 +2719,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 298.8321568499923,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d337167e6e461645526525167ed6acf77396f4e2",
+          "message": "fix(gateway): report real version in `nimbus status` + stamp Windows exe metadata (#762)\n\n## Why\n\nTwo related version-reporting fixes, both surfaced from a user noticing\n`nimbus status` reported `0.1.0` while their installed release was much\nnewer, and the Windows `.exe` Details tab showing Bun's version.\n\n### 1. `nimbus status` reported a stale hardcoded version\n\n`GATEWAY_VERSION` in `packages/gateway/src/version.ts` was a\nhand-maintained constant frozen at `\"0.1.0\"` since the first GA.\n`gateway.ping` (and therefore `nimbus status` / `nimbus --version`)\nechoed it verbatim, so every release reported `0.1.0` regardless of what\nwas actually installed — it had drifted ~20 minor releases.\n\n**Fix:** wire the constant to release-please via the generic updater:\n- annotate the line with `x-release-please-version` and register\n`packages/gateway/src/version.ts` in the config's `extra-files`, so\nevery release rewrites it in lockstep with the package version;\n- set the current value to `0.21.0` to clear the existing drift now.\n\nThis is cross-platform — it fixes the reported version on\nLinux/macOS/Windows alike.\n\n### 2. Windows `.exe` Details tab showed Bun's metadata\n\nThe gateway/CLI Windows binaries are single-file `bun build --compile`\nexecutables that embed the Bun runtime, so Properties → Details showed\nBun's Product name / File version.\n\n**Fix:** pass Bun's `--windows-*` metadata flags on the Windows matrix\nlegs of `build-gateway` / `build-cli` (product name, publisher, version,\ndescription, copyright). The build step is split into a non-Windows step\n(unchanged) and a pwsh Windows step so the flags apply only where valid.\nThe version is derived from the release tag, prerelease suffix stripped\nand padded to the numeric 4-part form Windows requires (e.g.\n`0.21.1.0`). Publisher/product naming matches the existing WiX installer\n(`Nimbus Contributors`).\n\n> Linux/macOS need no equivalent: ELF and bare Mach-O have no embedded\nproduct-version resource a file manager reads. Version there comes from\nthe package metadata (`.deb`/`.rpm`/`.pkg`, already stamped from the\ntag) and from `nimbus --version`, which fix #1 corrects.\n\n## Verification\n\n- `version.ts` + config: biome clean, config is valid JSON,\n`gateway.ping`/dispatcher tests pass. No test asserted the old `\"0.1.0\"`\nvalue.\n- Windows flags: compiled a test exe locally on Windows with the exact\nflags — resulting exe reports `ProductName: Nimbus CLI`, `CompanyName:\nNimbus Contributors`, `FileVersion: 0.21.1.0`, description + copyright\ncorrect. Version-munging verified for normal and prerelease tags.\n- `release.yml` parses as valid YAML.\n\n## Publishing note\n\nThe `fix:` commit means release-please will cut a new release (→\n`0.21.1`) after this merges, which rewrites `version.ts` to match and —\nbeing a fresh tag — builds the Windows binaries with the new metadata.\nNote the repo currently has a phantom `0.21.0` (manifest/CHANGELOG\nbumped, but no `v0.21.0` git tag or published assets); the next release\nshould supersede it.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-17T19:44:44Z",
+          "tree_id": "217564cd9b991fd20086863c5d90bf054975d1fc",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/d337167e6e461645526525167ed6acf77396f4e2"
+        },
+        "date": 1784318117587,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 288.0433927499977,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 293.3572675499956,
             "unit": "ms"
           }
         ]
