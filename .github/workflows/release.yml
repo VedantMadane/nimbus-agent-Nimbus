@@ -117,10 +117,33 @@ jobs:
         with:
           verify-lock: "false"
 
-      - name: Build Gateway binary
+      - name: Build Gateway binary (non-Windows)
+        if: matrix.target.os != 'windows'
         run: |
           cd packages/gateway
           bun build src/index.ts --compile --outfile ../../dist/${{ matrix.target.artifact }}${{ matrix.target.ext }} --target bun
+
+      # Windows PE resources (Details tab: Product name / File version / Company)
+      # are stamped here so the exe reports Nimbus instead of the embedded Bun
+      # runtime's own metadata. --windows-version wants a numeric 4-part
+      # (major.minor.patch.revision); strip any prerelease suffix and pad ".0".
+      - name: Build Gateway binary (Windows — with exe metadata)
+        if: matrix.target.os == 'windows'
+        shell: pwsh
+        env:
+          # Via env (not a ${{ }} run-body expansion) so a crafted tag name can't
+          # inject into the script; then validate the derived 4-part numeric.
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          $winver = $env:REF_NAME.TrimStart("v").Split("-")[0] + ".0"
+          if ($winver -notmatch '^[0-9]+(\.[0-9]+){3}$') { throw "unexpected version from ref '$env:REF_NAME': $winver" }
+          cd packages/gateway
+          bun build src/index.ts --compile --outfile ../../dist/${{ matrix.target.artifact }}${{ matrix.target.ext }} --target bun `
+            --windows-title "Nimbus Gateway" `
+            --windows-publisher "Nimbus Contributors" `
+            --windows-version "$winver" `
+            --windows-description "Nimbus Gateway — local-first AI agent framework" `
+            --windows-copyright "Copyright (c) Nimbus Contributors — AGPL-3.0-or-later"
 
       - name: Sign binary (Linux GPG)
         if: matrix.target.os == 'linux'
@@ -203,10 +226,32 @@ jobs:
         with:
           verify-lock: "false"
 
-      - name: Build CLI binary
+      - name: Build CLI binary (non-Windows)
+        if: matrix.target.os != 'windows'
         run: |
           cd packages/cli
           bun build src/index.ts --compile --outfile ../../dist/${{ matrix.target.artifact }}${{ matrix.target.ext }} --target bun
+
+      # Stamp Windows PE resources so `nimbus.exe` reports Nimbus metadata in the
+      # Details tab rather than the embedded Bun runtime's. See the gateway build
+      # step above for the --windows-version numeric-4-part rationale.
+      - name: Build CLI binary (Windows — with exe metadata)
+        if: matrix.target.os == 'windows'
+        shell: pwsh
+        env:
+          # Via env (not a ${{ }} run-body expansion) so a crafted tag name can't
+          # inject into the script; then validate the derived 4-part numeric.
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          $winver = $env:REF_NAME.TrimStart("v").Split("-")[0] + ".0"
+          if ($winver -notmatch '^[0-9]+(\.[0-9]+){3}$') { throw "unexpected version from ref '$env:REF_NAME': $winver" }
+          cd packages/cli
+          bun build src/index.ts --compile --outfile ../../dist/${{ matrix.target.artifact }}${{ matrix.target.ext }} --target bun `
+            --windows-title "Nimbus CLI" `
+            --windows-publisher "Nimbus Contributors" `
+            --windows-version "$winver" `
+            --windows-description "Nimbus CLI — local-first AI agent framework" `
+            --windows-copyright "Copyright (c) Nimbus Contributors — AGPL-3.0-or-later"
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
