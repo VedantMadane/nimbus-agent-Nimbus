@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784346073478,
+  "lastUpdate": 1784361336447,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -2787,6 +2787,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 312.74840835,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9fe045c350bd1ec4e1e3712d2a44021aedfed1a1",
+          "message": "ci: enforce Conventional Commit PR titles (#764)\n\n## Enforce Conventional Commit PR titles\n\nThis repo squash-merges, so the **PR title becomes the commit on\n`main`** that Release Please reads to compute the version bump and\nchangelog. A non-conforming title (e.g. `update stuff`) silently\nproduces no release / miscategorized notes.\n\nAdds a lightweight `pull_request` workflow that validates the PR title\nwith\n[`amannn/action-semantic-pull-request`](https://github.com/amannn/action-semantic-pull-request)\n— matching repo conventions (harden-runner, `ubuntu-24.04`, SHA-pinned\naction). Default Conventional Commit type set; no scope required.\n\nPrompted by adding the same guard to the `nimbus-vscode` repo's new\nRelease Please setup — surfacing that Nimbus main has the same latent\ngap.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Chores**\n* Added automated validation to ensure pull request titles follow\nconsistent, standardized formatting.\n  * Improved project maintenance checks for incoming changes.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-18T07:46:45Z",
+          "tree_id": "cbe5893ff9ef4d6b1d02d5d3fcd4d6cf9911cdcb",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/9fe045c350bd1ec4e1e3712d2a44021aedfed1a1"
+        },
+        "date": 1784361335407,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 235.58106515000108,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 240.0610665000044,
             "unit": "ms"
           }
         ]
