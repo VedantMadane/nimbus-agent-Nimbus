@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784381356586,
+  "lastUpdate": 1784383583026,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -2855,6 +2855,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 233.6090350500046,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b529258f393b1eba4696439d641e4b662a295990",
+          "message": "docs: prune shipped plans/specs + refresh stale status/version surfaces (#766)\n\n## What\n\nAn audit-verified documentation & tooling staleness sweep. The automated\ndrift gates (`doc-refs`, `status-drift`, `readme-cli`) were already\ngreen, so this targets **free-text staleness** the audits don't pin plus\n**obsolete planning artifacts**.\n\n### Deletions — 21 obsolete plan/spec docs (`docs/superpowers/`)\nAll describe shipped work; `docs/CHANGELOG.md` remains the historical\nrecord. Removed: clip-list-delete, web-clipper,\nvscode-extension-extraction, slice-9 apple-mail / gitops-ml / workday\nconnectors, dedup-wave-c (each design + plan + reviews).\n\n**Kept** the still-load-bearing forward designs (would have orphaned\nlive references):\n- `phase7-plus-resequence-design` — the current sequencing anchor,\nreferenced by 5 active specs + roadmap.\n- `true-coverage-program-design` (+ review) — linked from `coverage.md`;\nsub-projects C/D unshipped.\n\n### Status/version refresh (`v0.13.1` → `v0.22.0`, the real release)\n- `CLAUDE.md` + `GEMINI.md` status lines.\n- `docs/roadmap.md` header: last-updated → 2026-07-18, added\npost-Phase-6 deliveries (web clipper/I30, sdk+client extractions, clip\nCLI).\n\n### Factual fixes\n- **`architecture.md` + `nimbus-http-write-surface` skill:**\n`WRITE_ROUTE_ALLOWLIST` **6 → 8** routes — the two web-clip routes were\nmissing (verified against `http-write-routes.ts`).\n- **`nimbus-security-invariants` skill:** I29 no longer labelled\n\"(latest)\"; added the **I30** section (current highest invariant).\n- **`nimbus-commands` skill:** removed the non-existent\n`test:coverage:sdk` gate.\n- **`nimbus-testing` skill:** `MockVault` is gateway-internal, not\n`@nimbus-dev/sdk`.\n- **`nimbus-architecture` skill:** package tree drops the extracted\n`packages/sdk`, adds `admin-console` + `github-actions`.\n- **`nimbus-tool-output-envelope` + `nimbus-file-map` skills:** `I1–I29`\n→ `I1–I30`.\n- **`nimbus-coverage-floor` + `nimbus-preflight-guard` agents:** ratchet\nglob `packages/{gateway,cli,sdk,client}` →\n`{gateway,cli,mcp-connectors}` (sdk/client extracted).\n- **`.github/workflows/ci.yml`:** dropped the dead `packages/sdk` path\nalternation in the changed-path detector + corrected a stale shared-deps\ncomment.\n\n## Not changed (verified already current)\n`README.md`, `cli-reference.md` (all recent commands present),\n`scripts/` (all `packages/sdk`/`client` refs are intentional\npost-extraction guards), and 14 skills / 2 agents that carried no stale\nclaims.\n\n## Verification\n`audit:doc-refs` (603/603 resolve) · `audit:status-drift` OK ·\n`audit:readme-cli` (31/31) · `lychee --offline` (0 errors, 528 links) ·\n`markdownlint-cli2` (0 errors, 74 files) · `ci.yml` valid YAML.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-18T16:56:22+03:00",
+          "tree_id": "6d57cc4ebe5d8ebe8f57c8736cdac1bc2e8c4243",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/b529258f393b1eba4696439d641e4b662a295990"
+        },
+        "date": 1784383581278,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 284.2824865999977,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 285.21115115000174,
             "unit": "ms"
           }
         ]
