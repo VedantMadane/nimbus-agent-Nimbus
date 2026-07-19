@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784491890416,
+  "lastUpdate": 1784492385776,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -3127,6 +3127,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 299.96221599999956,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bd44def209f209d4fb3fe1415ed89fb44ecf7280",
+          "message": "docs: add the Stage 0 implementation plan, and a third bug it fixes (#776)\n\nFollow-up to #775. Writing the Stage 0 plan surfaced a **worse symptom\nof the same root cause** than either bug already documented, plus a\ndesign correction — so the roadmap's diagnosis is updated alongside the\nnew plan.\n\n## The third bug: the gateway silently mislabels every ops item type\n\n`packages/gateway/src/index/local-index.ts:94`:\n\n```ts\nfunction itemTypeFromRowType(raw: string): NimbusItem[\"itemType\"] {\n  if (raw === \"file\" || raw === \"folder\" || raw === \"email\" ||\n      raw === \"event\" || raw === \"photo\" || raw === \"task\") return raw;\n  return \"file\";\n}\n```\n\nBecause the old SDK union listed six values, every `deployment`,\n`alert`, `incident`, `pr`, `issue`, `pipeline_run`, `dashboard`,\n`infra_resource` and `log_alarm` read through `rowToItem` comes back\n**relabelled `\"file\"`** — mislabelled, not merely untyped.\n\nThis is worse than the VS Code bug in #775: that one loses a display\nattribute in one client; this is **silent data corruption inside the\ngateway, at its own read boundary**. The function accepts two values the\ngateway never emits (`folder`, `task`) and corrupts thirteen it does.\n\n## Design correction: the enum must be open, not closed\n\n#775 said Stage 0 would \"drop `folder`/`task`, add the 19 real types\" —\ni.e. a closed union. That's wrong on three counts:\n\n1. `schema-reference.md` already calls it *\"open enum, extended per\nconnector\"*.\n2. `roadmap.md` plans a dozen more (`service`, `team`, `scorecard`,\n`dora_metric`, `security_finding`, `llm_trace`, …). Under a closed union\n**every one of those is a breaking change**.\n3. A closed union is precisely what forces the coercion being deleted —\nit leaves no way to represent an unrecognised type except to rewrite it.\n\nSo: `KnownItemType` lists the 19 for autocomplete and exhaustiveness,\nand `ItemType = KnownItemType | (string & {})` accepts anything. This\nalso keeps the SDK release a **non-breaking `1.4.0`**, which the\ngateway's existing `^1.3.0` range resolves with no manifest edit — where\na closed union would have forced a major that `^1.3.0` could not pick\nup.\n\n## The plan\n\n`docs/superpowers/plans/2026-07-19-stage-0-seal-the-narrow-waist.md` — 5\ntasks across 4 repos, 42 TDD steps, every step with exact paths, real\ncode and expected output.\n\nTwo things worth calling out:\n\n- **The release hops are sequenced explicitly.** Two npm publishes sit\non the critical path. But `nimbus-client` already has a `verify:sdk`\nscript that builds and packs the sibling `../nimbus-sdk` checkout — so\nclient work proceeds against an unpublished SDK and only the *merge*\nwaits on npm. Tasks 2 and 3–4 run in parallel.\n- **The gate is required to be observed failing.** Task 4 Step 4 renames\na fixture key and asserts the conformance test goes red before\nreverting. A gate never seen failing is not a gate — and an unverified\ngate is how the original bug survived.\n\nExit criteria include a grep proving exactly one declaration of the\nitem-type vocabulary survives across all four repos.\n\n## Notes\n\n- Docs only. No code changes.\n- `bun run lint:markdown` clean (84 files).\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-19T23:06:42+03:00",
+          "tree_id": "74753cb711e26a4ef34ab16cab419e65f0ebc045",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/bd44def209f209d4fb3fe1415ed89fb44ecf7280"
+        },
+        "date": 1784492384463,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 236.74800015000326,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 239.27153930000168,
             "unit": "ms"
           }
         ]
