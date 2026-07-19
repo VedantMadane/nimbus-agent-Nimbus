@@ -45,7 +45,43 @@ export const WRITE_ROUTE_ALLOWLIST: readonly string[] = Object.freeze([
 ]);
 
 const SCIM_ITEM_RE = /^\/scim\/v2\/Users\/([^/]+)$/;
-const MAX_BODY_BYTES = 8 * 1024;
+/**
+ * Per-route request-body cap (enforced in `parseBody`, twice: on the `content-length` header
+ * before the body is read, and again on the actual byte length).
+ *
+ * `MAX_BODY_BYTES_DEFAULT` (8 KiB) is the anti-abuse bound for the control-plane routes this
+ * dispatcher was built for — deploy annotations, SCIM user records, the admin policy TOML, Teams
+ * activities, and the clip pairing confirm (a `{code}` body of a few dozen bytes). Keep it.
+ *
+ * `MAX_BODY_BYTES_CLIP` (1 MiB) applies ONLY to `POST /v1/clips`, which carries the readable text
+ * of a whole web page — real articles routinely exceed 8 KiB, so the shared cap made the web
+ * clipper unusable (413 payload_too_large on every non-trivial page; issue #771). Do NOT unify
+ * these back into one constant: the clip route is the outlier, and widening the control-plane
+ * routes to 1 MiB would give away a cheap abuse bound for nothing.
+ */
+const MAX_BODY_BYTES_DEFAULT = 8 * 1024;
+const MAX_BODY_BYTES_CLIP = 1024 * 1024;
+
+/**
+ * Per-route request rate cap (per token fingerprint, per rate-limiter window; it may only tighten
+ * the server-configured limit, never loosen it — see `HttpWriteRateLimiter.check`).
+ *
+ * `MAX_REQUESTS_PER_WINDOW_DEFAULT` (60/min) is the shared control-plane limit.
+ *
+ * `MAX_REQUESTS_PER_WINDOW_CLIP` (20/min) is the tightening that pays for `MAX_BODY_BYTES_CLIP`:
+ * raising a body cap without tightening the matching rate limit is exactly what the write-surface
+ * playbook forbids, because the abuse bound is cap × rate. 60 × 1 MiB/min would have been a ~60
+ * MiB/min burst; 20 × 1 MiB/min holds it to ~20 MiB/min while staying generous for a human
+ * clipping pages. Keep these two constants moving together.
+ *
+ * This matters more than for the other routes: `checkAuth` returns a constant fingerprint for
+ * `clipIngest` WITHOUT verifying the token — the clip token is checked inside `runClipIngestRoute`,
+ * i.e. after `parseBody` has already buffered, UTF-8 decoded, and JSON-parsed the body. So for this
+ * route the body cap and this rate limit are the only bounds on pre-auth work. That is acceptable
+ * on a loopback-only surface at 1 MiB; it is the reason the pair is deliberately conservative.
+ */
+const MAX_REQUESTS_PER_WINDOW_DEFAULT = 60;
+const MAX_REQUESTS_PER_WINDOW_CLIP = 20;
 
 const DEPLOY_DISABLED_HINT =
   "set http_api.deployment_token via 'nimbus vault set http_api.deployment_token <value>'";
@@ -136,6 +172,13 @@ interface ResolvedRoute {
   readonly disabledHint: string;
   readonly rejectAction: string;
   readonly hasBody: boolean;
+  /** Request-body cap for THIS route (see MAX_BODY_BYTES_DEFAULT / MAX_BODY_BYTES_CLIP). */
+  readonly maxBodyBytes: number;
+  /**
+   * Requests per rate-limit window for THIS route (see MAX_REQUESTS_PER_WINDOW_DEFAULT /
+   * MAX_REQUESTS_PER_WINDOW_CLIP). Tightens the server-configured limit; never loosens it.
+   */
+  readonly maxRequestsPerWindow: number;
   readonly id?: string;
 }
 
@@ -209,6 +252,8 @@ function resolveDeploymentRoute(method: string, ctx: WriteRouteContext): Resolve
     disabledHint: DEPLOY_DISABLED_HINT,
     rejectAction: DEPLOY_REJECT_ACTION,
     hasBody: true,
+    maxBodyBytes: MAX_BODY_BYTES_DEFAULT,
+    maxRequestsPerWindow: MAX_REQUESTS_PER_WINDOW_DEFAULT,
   };
 }
 
@@ -223,6 +268,8 @@ function resolvePolicyRoute(method: string, ctx: WriteRouteContext): ResolvedRou
     disabledHint: POLICY_DISABLED_HINT,
     rejectAction: POLICY_REJECT_ACTION,
     hasBody: true,
+    maxBodyBytes: MAX_BODY_BYTES_DEFAULT,
+    maxRequestsPerWindow: MAX_REQUESTS_PER_WINDOW_DEFAULT,
   };
 }
 
@@ -237,6 +284,8 @@ function resolveScimCreateRoute(method: string, ctx: WriteRouteContext): Resolve
     disabledHint: SCIM_DISABLED_HINT,
     rejectAction: SCIM_REJECT_ACTION,
     hasBody: true,
+    maxBodyBytes: MAX_BODY_BYTES_DEFAULT,
+    maxRequestsPerWindow: MAX_REQUESTS_PER_WINDOW_DEFAULT,
   };
 }
 
@@ -252,6 +301,8 @@ function resolveTeamsEventsRoute(method: string, ctx: WriteRouteContext): Resolv
     disabledHint: TEAMS_EVENTS_DISABLED_HINT,
     rejectAction: TEAMS_EVENTS_REJECT_ACTION,
     hasBody: true,
+    maxBodyBytes: MAX_BODY_BYTES_DEFAULT,
+    maxRequestsPerWindow: MAX_REQUESTS_PER_WINDOW_DEFAULT,
   };
 }
 
@@ -270,6 +321,8 @@ function resolveScimItemRoute(
     disabledHint: SCIM_DISABLED_HINT,
     rejectAction: SCIM_REJECT_ACTION,
     hasBody: method === "PATCH",
+    maxBodyBytes: MAX_BODY_BYTES_DEFAULT,
+    maxRequestsPerWindow: MAX_REQUESTS_PER_WINDOW_DEFAULT,
     id,
   };
 }
@@ -285,6 +338,10 @@ function resolveClipIngestRoute(method: string, ctx: WriteRouteContext): Resolve
     disabledHint: CLIP_DISABLED_HINT,
     rejectAction: CLIP_REJECT_ACTION,
     hasBody: true,
+    // A clip body is a whole readable article, not a control-plane payload (#771).
+    maxBodyBytes: MAX_BODY_BYTES_CLIP,
+    // The raised cap is paid for with a tighter rate limit (see the constants above).
+    maxRequestsPerWindow: MAX_REQUESTS_PER_WINDOW_CLIP,
   };
 }
 
@@ -302,6 +359,9 @@ function resolveClipPairConfirmRoute(
     disabledHint: CLIP_DISABLED_HINT,
     rejectAction: CLIP_PAIR_REJECT_ACTION,
     hasBody: true,
+    // A pairing confirm is a tiny {code} body — it keeps the control-plane cap.
+    maxBodyBytes: MAX_BODY_BYTES_DEFAULT,
+    maxRequestsPerWindow: MAX_REQUESTS_PER_WINDOW_DEFAULT,
   };
 }
 
@@ -353,7 +413,7 @@ function checkRateLimit(
   route: ResolvedRoute,
   fingerprint: string,
 ): Response | RateLimitCheck {
-  const limit = ctx.rateLimiter.check(fingerprint);
+  const limit = ctx.rateLimiter.check(fingerprint, route.maxRequestsPerWindow);
   if (limit.allowed) {
     return limit;
   }
@@ -380,7 +440,7 @@ async function parseBody(
   const lenHeader = req.headers.get("content-length");
   if (lenHeader !== null) {
     const n = Number.parseInt(lenHeader, 10);
-    if (Number.isInteger(n) && n > MAX_BODY_BYTES) {
+    if (Number.isInteger(n) && n > route.maxBodyBytes) {
       recordRejection(ctx, {
         actionType: route.rejectAction,
         tokenFingerprint: fingerprint,
@@ -402,7 +462,7 @@ async function parseBody(
     });
     return jsonResponse({ error: "invalid_body" }, 400, rateLimitHeaders(limit));
   }
-  if (bodyBytes.byteLength > MAX_BODY_BYTES) {
+  if (bodyBytes.byteLength > route.maxBodyBytes) {
     recordRejection(ctx, {
       actionType: route.rejectAction,
       tokenFingerprint: fingerprint,
