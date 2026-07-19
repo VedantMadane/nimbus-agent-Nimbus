@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784482421016,
+  "lastUpdate": 1784491890416,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -3093,6 +3093,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 308.5137719999948,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6a7ecad8a9281751461f7d0f642d365085dc723d",
+          "message": "docs: add the ecosystem roadmap — the sdk/client/clients delivery spine (#775)\n\n`roadmap.md` is authoritative for what the gateway *does*. Nothing was\nauthoritative for how that capability *reaches a human* — and that gap\nis now the binding constraint on the whole product:\n\n> **The gateway roadmap is 27 phases deep. The client surface is 15\nmethods wide.**\n\nThis adds `docs/ecosystem-roadmap.md` to own the width, and cross-links\nboth roadmaps so they declare their scopes instead of drifting into\noverlap.\n\n## Why now — three measured facts\n\nEach verified against source, not inferred.\n\n**1. The capability is built; it is not reachable.**\nThe gateway dispatches ~212 JSON-RPC methods. `@nimbus-dev/client`\nexposes **15**. The VS Code extension consumes **13**. Entire namespaces\nare built, dispatch-wired and mostly already Tauri-allowlisted, yet\nunreachable from any npm client: `agents.*`, `workflow.*`, `watcher.*`,\n`share.*`, `federation.*`, `connector.*`, `people.*`, `metrics.dora`,\n`deploy.preflight`.\n\nThe client has shipped **5 new methods in 4 months** against ~198\nunexposed. Adding one is ~100 lines across 5–6 files and needs **zero\ngateway changes**. *This is not a hard problem; it is an unstaffed one.*\n\n**2. The narrow waist has no enforced contract — and it is broken\ntoday.**\n\n| Layer | Says |\n|---|---|\n| `index/item-list-query.ts:37` | `SELECT * FROM item` → raw\n**snake_case** |\n| `@nimbus-dev/client` | `Record<string, unknown>[]` — the only method\nwith **no validator** |\n| `@nimbus-dev/sdk` `NimbusItem` | **camelCase**, 6-value `itemType`\nincl. `folder`/`task` |\n| `docs/schema-reference.md` | **19** types incl.\n`deployment`/`alert`/`incident`; `task` explicitly *not* emitted |\n\nConsequence, shipped and live: the VS Code Index view reads\n`rec[\"itemType\"]` and gets `undefined` every time — it has **never**\ndisplayed a type or sorted by time. It looks fine only because\n`id`/`name`/`service`/`url` collide across both casings.\n\nBehind that bug: `item_type` has **no machine-readable source of truth\nanywhere** — it lives in a SQL comment, while `roadmap.md` plans to add\n`service`, `team`, `dora_metric`, `security_finding`, `llm_trace`…\n\n**3. Nobody is using it.** VS Code extension: **3 installs**. And\n`incident` / `on-call` / `deploy` / `alert` / `SRE` appear **zero**\ntimes in its `src/`, README or `package.json` — against a product whose\nREADME opens *\"Cross-service incident context in under 100 ms\"* and\nwhose `audiences.md` ranks On-call/SRE first.\n\n## The shape\n\n**Seal the waist → open the waist → surface it → tell people**, with the\noperating principle that **every stage ends in a gate a machine can\ncheck** — because delivery is largely agent-driven, and fact 2 is\nexactly what agents-against-wrong-contracts produce when nothing is\nwatching.\n\n- **Stage 0** — single-source `ItemType` in the SDK, validated\n`queryItems`, and a client↔gateway conformance test in CI. Ships the\nIndex bug fix.\n- **Stage 1** — expose namespaces in batches. `agents.*` first: 8\nread-only methods where the SDK *already publishes* both\n`brief-types.ts` and `guard-factory.ts` runtime guards, so the two\ncostliest parts of exposing a method are already done.\n- **Stage 2** — re-cut surfaces for the ICP. Headline is the `nimbus\nwhy` lens *already specified in this repo's Phase 7*; egress receipts\n(M7 / Phase 12.5 / EAF) as the moat; LM-tool registration as the\nmultiplier.\n- **Stage 3** — distribution.\n\nLicensing fixes the contract's direction: sdk/client are MIT, gateway is\nAGPL-3.0, so shared types **must** live in the SDK and be imported by\nthe gateway. That edge already exists (`gateway → @nimbus-dev/sdk\n^1.3.0`), so Stage 0 adds no new dependency.\n\n## Notes for review\n\n- **Docs only** — no code, no behaviour change.\n- `bun run lint:markdown` clean; all internal link targets verified\npresent.\n- The doc contains an **Open decisions** section rather than pretending\nconsensus: where the `item_type` enum ultimately lives, what the\nconformance test runs against, whether the editor is even the right\nfirst home for the `why` lens (during a live page engineers are in Slack\nand PagerDuty, not VS Code), and the fact that every stage is gated on\nclient throughput that has averaged ~1.25 methods/month.\n- The 212 figure carries a footnote on how it was derived and admits a\nraw grep returns 243 including notification names.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-19T22:59:07+03:00",
+          "tree_id": "e4027a875e3281e469e567f5072f2d31291eb79e",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/6a7ecad8a9281751461f7d0f642d365085dc723d"
+        },
+        "date": 1784491889630,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 300.31496275000063,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 299.96221599999956,
             "unit": "ms"
           }
         ]
