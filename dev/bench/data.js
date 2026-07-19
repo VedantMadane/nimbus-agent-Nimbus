@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784383583026,
+  "lastUpdate": 1784439368562,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -2889,6 +2889,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 285.21115115000174,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8466d68325da0cce1fe8e894ab6fd0f7db351960",
+          "message": "docs(web-clipper): add privacy policy page (#767)\n\nAdds the hosted **privacy policy** for the Nimbus web clipper browser\nextension, which the Chrome Web Store and Firefox AMO listings link to\n(store review rejects a dead privacy URL).\n\n## What\n- New page `user-guide/web-clipper-privacy.mdx` →\n**https://nimbus-agent.dev/user-guide/web-clipper-privacy/** — documents\nthe no-data-collection posture (local-first, loopback-only to\n`127.0.0.1`, no telemetry/analytics/cloud, token stored locally and\nnever transmitted elsewhere). Content mirrors `store/privacy-policy.md`\nin the\n[nimbus-web-clipper](https://github.com/nimbus-agent/nimbus-web-clipper)\nrepo.\n- Adds a short **Privacy** section on the existing web clipper page\nlinking to it.\n\n## Why now\nThe web-clipper store listings need a live privacy URL for the first\nsubmission. The homepage already exists (`/user-guide/web-clipper/`);\nthis fills the only gap.\n\nFollows the flat `user-guide/*.mdx` convention. markdownlint clean;\ninternal links use the trailing-slash convention and resolve.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-19T05:24:22Z",
+          "tree_id": "d20cb16f4eb565ed8f4cc3ed1a991c9c78daf649",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/8466d68325da0cce1fe8e894ab6fd0f7db351960"
+        },
+        "date": 1784439367326,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 315.46397294999696,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 316.12614615001075,
             "unit": "ms"
           }
         ]
