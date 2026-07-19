@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784444179300,
+  "lastUpdate": 1784449124581,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -2957,6 +2957,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 280.64730049999815,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "32e59e78255f7f20ca8c9e54fe2cc3a1b442c42d",
+          "message": "chore: release main (#769)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>0.23.0</summary>\n\n##\n[0.23.0](https://github.com/nimbus-agent/Nimbus/compare/v0.22.0...v0.23.0)\n(2026-07-19)\n\n\n### Features\n\n* **release-health:** loud release-asset gate + weekly secret-health\nmonitor ([#768](https://github.com/nimbus-agent/Nimbus/issues/768))\n([2417189](https://github.com/nimbus-agent/Nimbus/commit/241718962e707e4f236b457dc8bd2ff21a255c4c))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).",
+          "timestamp": "2026-07-19T11:06:59+03:00",
+          "tree_id": "3f879a4b4cbd541c230d9f2cb5959085b5114e28",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/32e59e78255f7f20ca8c9e54fe2cc3a1b442c42d"
+        },
+        "date": 1784449124024,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 306.64162950000065,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 302.3262443499989,
             "unit": "ms"
           }
         ]
