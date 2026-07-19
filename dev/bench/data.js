@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784474741670,
+  "lastUpdate": 1784475265917,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -3025,6 +3025,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 300.97053289999315,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "28e66a6729a5d18924717a010cb5d4df7f41622d",
+          "message": "ci: migrate release automation from PATs to org GitHub App (#772)\n\n## What\n\nMigrates the org's CI release automation off three long-lived Personal\nAccess Tokens (`RELEASE_PAT`, `RELEASE_PLEASE_PAT`,\n`PACKAGE_MANAGER_PAT`) onto a single org-owned **GitHub App** (\"Nimbus\nRelease Bot\") that mints per-job, 1-hour, least-privilege installation\ntokens via `actions/create-github-app-token` (SHA-pinned `@bcd2ba49…`\nv3.2.0).\n\n`WINGET_PAT` intentionally **stays** a classic PAT — it targets the\nexternal `microsoft/winget-pkgs` fork, which the org App cannot be\ninstalled on.\n\n## Why\n\n- No more 1-year-lived, broadly-scoped PATs sitting in org secrets (the\nroot cause of the v0.17–v0.21 phantom-release outage was an expired\n`RELEASE_PAT`).\n- Tokens are minted per job, scoped to exactly the repos + permissions\nthat job needs, and expire in an hour.\n- The secret-health monitor now probes the App's mint path directly with\na **superset** of the permissions the individual release jobs request,\nso a permission downgrade on any repo is caught before a release needs\nit.\n\n## Changes (6 tasks, subagent-driven + reviewed)\n\n| Workflow | Mint scope | Perms |\n| --- | --- | --- |\n| `release-please.yml` | `Nimbus` | contents + PRs: write |\n| `release.yml` (publish-release + update-manifest) | `Nimbus` |\ncontents: write |\n| `publish-package-managers.yml` | `homebrew-tap`, `scoop-bucket` |\ncontents: write |\n| `publish-linux-repo.yml` | `linux-repo` | contents: write |\n| `secret-health.yml` | all 4 repos | contents + PRs: write (superset\nhealth probe) |\n\n- `scripts/release/check-secret-health.ts` — retired the 3 PAT probes;\nadded a fail-closed `classifyAppMint` (`success → ok`, else `dead`) fed\nfrom `steps.app-mint.outcome`; `RELEASE_BOT_APP` health row via new\n`extraRows` param. Tests updated.\n- `docs/ci-secrets.md` — replaced the 3 PAT rows with the App entry;\nkept `WINGET_PAT` + rationale; added the setup/migration runbook\n(below).\n\n## ⚠️ DO NOT MERGE until the App exists\n\nThis is a big-bang cutover. The mint steps reference\n`secrets.RELEASE_BOT_APP_ID` / `secrets.RELEASE_BOT_PRIVATE_KEY`, which\ndo not exist yet. **Human-only setup must land first**, or the next\nrelease's mint step fails (loudly, by design — but the release won't\nship):\n\n1. Create a GitHub App **\"Nimbus Release Bot\"** under the `nimbus-agent`\norg.\n- Permissions: **Contents: Read & write**, **Pull requests: Read &\nwrite**. No Pages perm (Pages is branch-served via `git push`).\n2. Install it on: `Nimbus`, `homebrew-tap`, `scoop-bucket`,\n`linux-repo`.\n3. Generate a private key; add org (or repo) secrets\n`RELEASE_BOT_APP_ID` and `RELEASE_BOT_PRIVATE_KEY`.\n4. Org **Settings → Actions → allowed actions**: ensure\n`actions/create-github-app-token@*` is permitted (SHA-pinned here).\n5. Merge this PR.\n6. Cut one release and confirm it ships assets green (asset-verify gate\npasses).\n7. **Only then** delete `RELEASE_PAT`, `RELEASE_PLEASE_PAT`,\n`PACKAGE_MANAGER_PAT` from org secrets (staged post-first-green-release\n— **not in this PR**).\n\nFull runbook is in `docs/ci-secrets.md`.\n\n## Deferred (non-blocking, post-App-live)\n\n`release-please.yml` job-level `permissions: contents/pull-requests:\nwrite` now govern only the automatic `GITHUB_TOKEN`, which the job no\nlonger uses for writes (release-please-action uses the minted App\ntoken). These could tighten to `contents: read`. Deferred pending live\nconfirmation the action never falls back to `GITHUB_TOKEN`; the current\nsuperset is safe.\n\n## Verification\n\n`bun test scripts/release/` 89/89 · biome clean · all 5 workflows valid\nYAML · `audit:action-sha-pins` OK · `lint:markdown` 0 · `audit:doc-refs`\nOK · 0 leftover retired-PAT references across workflows.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-19T18:14:44+03:00",
+          "tree_id": "e70c7f0beecdef5c81fc888655d263107365b479",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/28e66a6729a5d18924717a010cb5d4df7f41622d"
+        },
+        "date": 1784475264142,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 242.30129989999696,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 245.28334495000598,
             "unit": "ms"
           }
         ]
