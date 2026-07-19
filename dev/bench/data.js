@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784475265917,
+  "lastUpdate": 1784482421016,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -3059,6 +3059,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 245.28334495000598,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "585d8e90b7a08839d73582552c86639c2a8e5a03",
+          "message": "docs: close out Phase 6 and make the Sequencing Spine the live build order (#774)\n\nPhase 6 (Team) completed 2026-06-18, but the docs never caught up: the\nphase still sat under `## Active`, fourteen shipped items were unticked,\nand the acceptance-criteria banner still said *\"Slices 6b/6c + 7–9\nremain planned\"*. This is a status-drift sweep across the roadmap and\nevery surface that mirrors it.\n\n## `docs/roadmap.md`\n\n- **Phase 6 moves out of `## Active` into `## Shipped`.** `## Active`\nbecomes **Spine S1 — Local Brain**: delivered = the egress ledger +\n`nimbus prove` (2026-06-20, `I29`/`D22`/V44); remaining = the\nimplicit-knowledge triad, answer-quality surfaces, the ownership graph;\nplus the S3 MCP-server branch, described as **parked** (last commit\n2026-06-18) rather than in-flight.\n- **Fourteen shipped-but-unticked boxes** now checked with delivery date\n+ slice ref: the six warehouse/BI connectors (Slice 7), cloud janitor +\nblast-radius preflight (6b), tribal-knowledge extraction (6c), and the\nfive Share & Virality primitives (8a–8d).\n- **Team-owned workflow pipelines** stays unchecked but is now\nexplicitly deferred to spine slot **S4**, so \"Phase 6 complete\" doesn't\npaper over a silent gap. SageMaker/Vertex writes and paid extensions\nkeep their existing deferral reasons.\n- Acceptance criteria → all satisfied (cross-warehouse lineage ticked);\nhistorical *\"is now active\"* notes past-tensed.\n- **Web clipper:** a real browser-extension row — `v0.1.0`, satellite\nrepo `nimbus-agent/nimbus-web-clipper`, loopback-only, offline queue +\nquick-clip entry points, **store listings pending their one-time\nbootstrap** — replacing \"ships as the follow-on Plan B\".\n\n## Mirrors\n\n`CLAUDE.md` + `GEMINI.md` status line · `docs/architecture.md` (\"has\nbegun landing\" → complete; adds Slice 9 + the egress ledger; Slice 8\ndate corrected 2026-06-16 → 2026-06-15 → 06-18) · `docs/README.md` ·\n`docs/CHANGELOG.md` entry · the Starlight web-clipper page\n(developer-preview → released, install from a release zip) · the\n`nimbus-ipc` and `nimbus-commands` skills, which had **no `clip.*` IPC\nor `nimbus clip` CLI section at all**.\n\n`docs/SECURITY-INVARIANTS.md`'s worked example no longer claims `I28` is\nthe next free number (ceiling is `I30`; `I28` is reserved) — the\nsharpest self-contradiction in the docs. The four `I28` sites now say\n**parked**, not in-flight. The superseded web-clipper design spec gets a\nSUPERSEDED banner instead of a rewrite.\n\n## One code fix rode along\n\n`packages/cli/src/commands/registry.ts` was missing eight registered\ncommands (`admin`, `chatops`, `clip`, `egress`, `mcp-server`, `policy`,\n`prove`, `security`). `COMMAND_NAMES` is consumed only by\n`audit:readme-cli` + its own test, so it drifts silently from the real\ndispatch map in `index.ts` — and reds CI the moment a doc mentions one\nof the missing commands (this PR's `nimbus prove` mention did exactly\nthat). Fixed rather than papered over by deleting the doc reference.\n\n## Verification\n\n| Gate | Result |\n|---|---|\n| `lint:markdown` | 0 errors (82 files) |\n| `audit:doc-refs` | 604 refs across 15 docs — all resolve |\n| `audit:status-drift` | OK |\n| `audit:readme-cli` | 32/32 match (was 1 unregistered) |\n| `docs:build` | 55 pages, all internal links valid |\n| `typecheck` | pass (full workspace) |\n| `bunx biome check packages scripts` | 2868 files, clean |\n| `registry.test.ts` | 5 pass |\n| `lychee` | clean (only its known root-relative-link limitation on\n`.mdx`, which the Astro build validates) |\n\nNote: `bun run lint` fails inside `.claude/worktrees/` regardless of\ncontent (biome resolves `.` to 0 files) — validated with the direct\n`bunx biome check` invocation above.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-19T17:21:31Z",
+          "tree_id": "85ccfc5cfe56e826053bf2ab07d36e043d125e9c",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/585d8e90b7a08839d73582552c86639c2a8e5a03"
+        },
+        "date": 1784482420361,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 307.9309921500004,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 308.5137719999948,
             "unit": "ms"
           }
         ]
