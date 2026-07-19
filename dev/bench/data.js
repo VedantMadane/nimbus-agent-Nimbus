@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784439368562,
+  "lastUpdate": 1784444179300,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -2923,6 +2923,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 316.12614615001075,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "241718962e707e4f236b457dc8bd2ff21a255c4c",
+          "message": "feat(release-health): loud release-asset gate + weekly secret-health monitor (#768)\n\n## What\n\nSub-project 1 of the org secrets-management program — the safety net\nthat de-risks the later GitHub-App migration. It closes the exact\nfailure class behind the phantom releases (v0.17–v0.21 shipped zero\nassets because `RELEASE_PAT` had silently expired while builds went\ngreen).\n\nThree capabilities, all logic in unit-tested Bun/TS under\n`scripts/release/` (thin YAML, no new dependency):\n\n1. **Asset-completeness gate** — a hard step at the end of\n`publish-release` diffs the release's actual assets against this run's\n`dist/stage/*` and fails if any are missing/zero-byte (catches\n`action-gh-release` soft-succeeding on a bad PAT against the\npre-existing release). Sanity-asserts `SHA256SUMS` + `.asc`.\n2. **Loud failure alerting** — a new `alert-on-failure` job (`if:\nfailure()`) files a de-duped `release-health` GitHub issue for any red\nrelease run. `publish-release` stays `contents: read`; only this job\nholds `issues: write`.\n3. **Weekly secret-health monitor** (`secret-health.yml`, cron +\ndispatch) — per-secret PAT probes (authorization, not just alive:\nrepo-write permission / classic-scope / rate-limit fallback) +\n`notAfter` decoders for the GPG subkey / Windows `.pfx` / Apple `.p12`.\nSurfaces via the same de-duped issue with a state-transition guard\n(comment only on change — no weekly spam). Explicitly documents the PAT\ndead/alive caveat.\n\nNew files:\n`scripts/release/{gh-api,verify-release-assets,open-health-issue,check-secret-health}.ts`\n(+ tests), `.github/workflows/secret-health.yml`. Wiring:\n`.github/workflows/release.yml`, `docs/ci-secrets.md`, `package.json`\naliases.\n\n## Security notes\n\n- Cert decoders **never pass secrets as argv** (password via `-passin\nenv:` / `--passphrase-fd`, key material via stdin; base64 → `0600` temp\nfile; `try/finally` cleanup of temp files + `GNUPGHOME`). The final\nreview reproduced both against real `gpg`/`openssl` to confirm.\n- Alerts are GitHub issues only (no new webhook/secret added to the\nsystem being hardened).\n\n## Verification\n\n`bun test scripts/release/` → 71 pass / 0 fail (6 skips are pre-existing\n`nimbus-verify` platform guards). biome clean. Both workflows valid\nYAML; `audit:action-sha-pins` + `audit:doc-refs` OK. Built via a 6-task\nTDD plan with per-task review + a final whole-branch review + a fix wave\n(dead const, `exactOptionalPropertyTypes`, a `thresholdDays` NaN guard\nthat would otherwise silently disable all cert warnings, p12 temp-file\nmode-at-creation, and added orchestration tests).\n\nDesign + plan (with review dispositions):\n`docs/superpowers/{specs,plans}/2026-07-18-release-health-verification*.md`.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n- **New Features**\n- Releases now verify that all expected downloads are present and\nnon-empty after publishing.\n- Failed releases automatically create or update a release-health issue.\n- Added scheduled and manually triggered checks for expiring or invalid\nrelease credentials.\n- Health issues update only when the reported status changes and close\nwhen checks recover.\n\n- **Documentation**\n- Added guidance for release-health monitoring and local verification\nchecks.\n\n- **Tests**\n- Added coverage for release asset verification, credential health\nchecks, and health issue updates.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-19T06:38:17Z",
+          "tree_id": "8e1f14b43e9d451390fa5bfd8ed0550ade5e4649",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/241718962e707e4f236b457dc8bd2ff21a255c4c"
+        },
+        "date": 1784444177998,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 275.03613804999986,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 280.64730049999815,
             "unit": "ms"
           }
         ]
