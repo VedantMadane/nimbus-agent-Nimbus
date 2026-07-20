@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import {
   classifyAppMint,
   classifyPatProbe,
+  classifyProvenanceOutcome,
+  classifySecretAbsence,
+  composeProvenanceDetail,
   evaluateCertExpiry,
+  type HealthRow,
   type PatStrategy,
   runSecretHealth,
   safeParseDate,
@@ -438,5 +442,116 @@ describe("openOrUpdateHealthIssue", () => {
     });
     expect(api.calls.updateIssue.length).toBe(1);
     expect(api.calls.commentIssue.length).toBe(0);
+  });
+});
+
+describe("classifyProvenanceOutcome", () => {
+  test("passes through the action's known statuses", () => {
+    expect(classifyProvenanceOutcome("ok")).toBe("ok");
+    expect(classifyProvenanceOutcome("missing-provenance")).toBe("missing-provenance");
+    expect(classifyProvenanceOutcome("source-mismatch")).toBe("source-mismatch");
+    expect(classifyProvenanceOutcome("indeterminate")).toBe("indeterminate");
+  });
+
+  test("fails closed: unset or unrecognised is never ok", () => {
+    // An empty string means the probe never reported (renamed step id, skipped
+    // step, or an action that exits before writing output) — never the same
+    // thing as a genuinely absent/unconfigured secret, so it must warn
+    // (`indeterminate`), not silently pass as `not-configured` (review finding #1).
+    expect(classifyProvenanceOutcome("")).toBe("indeterminate");
+    expect(classifyProvenanceOutcome("weird")).toBe("indeterminate");
+  });
+});
+
+describe("composeProvenanceDetail", () => {
+  test("both empty (skipped probe) → the original static placeholder, unchanged", () => {
+    expect(composeProvenanceDetail("", "")).toBe("latest published version");
+  });
+
+  test("version + action detail present → both are surfaced together", () => {
+    expect(
+      composeProvenanceDetail(
+        "1.3.0",
+        "repository https://github.com/attacker/x != https://github.com/nimbus-agent/nimbus-sdk",
+      ),
+    ).toBe(
+      "v1.3.0: repository https://github.com/attacker/x != https://github.com/nimbus-agent/nimbus-sdk",
+    );
+  });
+
+  test("version present, action detail empty → just the version, no dangling separator", () => {
+    expect(composeProvenanceDetail("0.5.0", "")).toBe("v0.5.0");
+  });
+
+  test("version empty, action detail present → detail alone with an explicit unknown-version marker", () => {
+    expect(composeProvenanceDetail("", "no SLSA provenance predicate — publish degraded")).toBe(
+      "unknown version: no SLSA provenance predicate — publish degraded",
+    );
+  });
+});
+
+describe("classifySecretAbsence", () => {
+  test("absent secret is ok — that is the desired state", () => {
+    expect(classifySecretAbsence(undefined)).toBe("ok");
+    expect(classifySecretAbsence("")).toBe("ok");
+  });
+
+  test("a returned secret is present, which is a failure", () => {
+    expect(classifySecretAbsence("npm_something")).toBe("present");
+  });
+});
+
+describe("summarize with the new row kinds", () => {
+  test("missing-provenance and source-mismatch are hard failures", () => {
+    for (const status of ["missing-provenance", "source-mismatch"] as const) {
+      const rows: HealthRow[] = [
+        { name: "@nimbus-dev/sdk", kind: "provenance", status, detail: "latest" },
+      ];
+      expect(summarize(rows).hasHardFailure).toBe(true);
+    }
+  });
+
+  test("a returned NPM_TOKEN is a hard failure", () => {
+    const rows: HealthRow[] = [
+      { name: "NPM_TOKEN", kind: "absence", status: "present", detail: "must not exist" },
+    ];
+    expect(summarize(rows).hasHardFailure).toBe(true);
+  });
+
+  test("provenance indeterminate warns but does not hard-fail", () => {
+    const rows: HealthRow[] = [
+      { name: "@nimbus-dev/sdk", kind: "provenance", status: "indeterminate", detail: "HTTP 503" },
+    ];
+    const s = summarize(rows);
+    expect(s.hasHardFailure).toBe(false);
+    expect(s.hasWarning).toBe(true);
+  });
+
+  test("all-clear stays clean", () => {
+    const rows: HealthRow[] = [
+      { name: "@nimbus-dev/sdk", kind: "provenance", status: "ok", detail: "latest" },
+      { name: "NPM_TOKEN", kind: "absence", status: "ok", detail: "absent" },
+    ];
+    const s = summarize(rows);
+    expect(s.hasHardFailure).toBe(false);
+    expect(s.hasWarning).toBe(false);
+  });
+
+  test("an unreported provenance probe (empty status — renamed/skipped step id, or an action that exits before writing output) warns, never closes the issue as healthy (review finding #1 regression guard)", () => {
+    const rows: HealthRow[] = [
+      {
+        name: "@nimbus-dev/sdk",
+        kind: "provenance",
+        status: classifyProvenanceOutcome(""),
+        detail: "latest published version",
+      },
+    ];
+    const s = summarize(rows);
+    // This is the exact defect the review caught: `not-configured` sits in
+    // neither `hard` nor `warn`, so a silently-unreported probe took the
+    // issue-CLOSING branch and posted "All release credentials healthy". A
+    // never-reported probe must warn — never a false ok.
+    expect(s.hasHardFailure).toBe(false);
+    expect(s.hasWarning).toBe(true);
   });
 });

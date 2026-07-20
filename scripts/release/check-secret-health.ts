@@ -55,10 +55,72 @@ export function evaluateCertExpiry(
   return "ok";
 }
 
+export type ProvenanceStatus = "ok" | "missing-provenance" | "source-mismatch" | "indeterminate";
+export type AbsenceStatus = "ok" | "present";
+
+/**
+ * The `verify-npm-provenance` composite action runs in monitor mode before this
+ * check and its `steps.<id>.outputs.status` is passed in via env — the same
+ * shape as the App-mint probe above. Fail closed: an unset value means the step
+ * never ran, and an unrecognised value is never silently "ok".
+ *
+ * An empty string is NOT the same situation as an absent PAT/cert secret
+ * (`not-configured` there is a genuine, intentional healthy state — see
+ * `classifySecretAbsence`). Here it means the probe never reported at all: a
+ * renamed step id, a skipped step, or an action that exits before writing its
+ * output all interpolate to "" with no workflow error. `not-configured` sits
+ * in neither the `hard` nor `warn` set in `summarize`, so returning it here
+ * took the issue-closing "healthy" branch for a probe that told us nothing —
+ * a false `ok` for "we have no idea". Map it to `indeterminate` instead, so
+ * it lands in the warn path (review finding #1).
+ */
+export function classifyProvenanceOutcome(status: string): ProvenanceStatus {
+  if (status === "") return "indeterminate";
+  if (
+    status === "ok" ||
+    status === "missing-provenance" ||
+    status === "source-mismatch" ||
+    status === "indeterminate"
+  ) {
+    return status;
+  }
+  return "indeterminate";
+}
+
+/**
+ * Composes a provenance row's `detail` from the resolved version and the
+ * `verify-npm-provenance` action's own `detail` output (e.g. `repository
+ * https://github.com/attacker/x != https://github.com/nimbus-agent/nimbus-sdk`
+ * or `no SLSA provenance predicate — publish degraded`). Without this, the
+ * single most alarming row this monitor can produce (`source-mismatch`) filed
+ * an issue naming neither the version that failed nor the reason — the two
+ * facts an on-call reader actually needs.
+ *
+ * When both inputs are empty (the probe never ran — the workflow's `if:`
+ * guard skips the probe step when version resolution failed) this returns the
+ * original static placeholder, so a skipped probe still classifies exactly as
+ * it did before this composition existed.
+ */
+export function composeProvenanceDetail(version: string, actionDetail: string): string {
+  if (version === "" && actionDetail === "") return "latest published version";
+  const versionPart = version === "" ? "unknown version" : `v${version}`;
+  return actionDetail === "" ? versionPart : `${versionPart}: ${actionDetail}`;
+}
+
+/**
+ * Regression guard for a secret that must NOT exist. `NPM_TOKEN` was revoked and
+ * deleted 2026-07-19; publishing is OIDC-only. An absent secret interpolates to
+ * the empty string, so emptiness is the healthy state. Tests emptiness only —
+ * the value is never logged or passed on.
+ */
+export function classifySecretAbsence(value: string | undefined): AbsenceStatus {
+  return value === undefined || value.length === 0 ? "ok" : "present";
+}
+
 export interface HealthRow {
   readonly name: string;
-  readonly kind: "pat" | "cert";
-  readonly status: PatStatus | CertStatus;
+  readonly kind: "pat" | "cert" | "provenance" | "absence";
+  readonly status: PatStatus | CertStatus | ProvenanceStatus | AbsenceStatus;
   readonly detail: string;
 }
 
@@ -68,7 +130,14 @@ export function summarize(rows: readonly HealthRow[]): {
   table: string;
   state: string;
 } {
-  const hard = new Set<string>(["dead", "insufficient", "expired"]);
+  const hard = new Set<string>([
+    "dead",
+    "insufficient",
+    "expired",
+    "missing-provenance",
+    "source-mismatch",
+    "present",
+  ]);
   const warn = new Set<string>(["expiring", "indeterminate"]);
   const hasHardFailure = rows.some((r) => hard.has(r.status));
   const hasWarning = rows.some((r) => warn.has(r.status));
@@ -365,13 +434,50 @@ if (import.meta.main) {
     status: classifyAppMint(process.env["APP_MINT_STATUS"] ?? ""),
     detail: "scoped mint: Nimbus+homebrew-tap+scoop-bucket+linux-repo",
   };
+  const provenanceRows: HealthRow[] = [
+    {
+      name: "@nimbus-dev/sdk",
+      kind: "provenance",
+      status: classifyProvenanceOutcome(process.env["SDK_PROVENANCE_STATUS"] ?? ""),
+      detail: composeProvenanceDetail(
+        process.env["SDK_VERSION"] ?? "",
+        process.env["SDK_PROVENANCE_DETAIL"] ?? "",
+      ),
+    },
+    {
+      name: "@nimbus-dev/client",
+      kind: "provenance",
+      status: classifyProvenanceOutcome(process.env["CLIENT_PROVENANCE_STATUS"] ?? ""),
+      detail: composeProvenanceDetail(
+        process.env["CLIENT_VERSION"] ?? "",
+        process.env["CLIENT_PROVENANCE_DETAIL"] ?? "",
+      ),
+    },
+  ];
+  const npmTokenRow: HealthRow = {
+    name: "NPM_TOKEN",
+    kind: "absence",
+    status: classifySecretAbsence(process.env["NPM_TOKEN"]),
+    // This probe can only observe a secret bound into THIS repo's env — it is
+    // not a global assurance about npm/org-wide token existence, even though
+    // that absence was separately verified by hand (org scope, Nimbus repo
+    // scope, the Nimbus `release` environment, and both satellite repos).
+    detail:
+      "absent from this repo's env (the only scope this check observes); revoked 2026-07-19, publishing is OIDC-only",
+  };
   const { hardFailure } = await runSecretHealth({
     api: createGitHubApi({ token, repo }),
     now: new Date(),
     thresholdDays,
     pats,
     certs,
-    extraRows: [appMintRow],
+    extraRows: [appMintRow, ...provenanceRows, npmTokenRow],
   });
-  process.exit(hardFailure ? 1 : 0);
+  // process.exit() after awaited I/O can truncate buffered stdout before it
+  // flushes — a recurring defect class in this project (it previously caused
+  // exit 127 on SUCCESS in a sibling task) — and the `console.log(s.table)`
+  // inside runSecretHealth just above is exactly that exposure, made larger by
+  // this branch's extra provenance/absence rows. process.exitCode lets the
+  // event loop drain naturally instead.
+  process.exitCode = hardFailure ? 1 : 0;
 }
