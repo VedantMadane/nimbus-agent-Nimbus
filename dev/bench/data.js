@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784660507628,
+  "lastUpdate": 1784664736604,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -3501,6 +3501,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 309.58618909999205,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "40007ebbfc5aa5abd06e3b3345782c72f85b18fd",
+          "message": "fix(deps): clear two high advisories blocking every PR (#793)\n\nTwo high advisories published **after** today's last green Security run,\nso `bun audit --audit-level high` now fails on every open PR — spotted\non #792's Dependency audit job.\n\n| Package | Have | Advisory | Fix |\n|---|---|---|---|\n| `fast-uri` | 3.1.2 | `>=3.0.0 <3.1.3` — host confusion via failed IDN\ncanonicalization\n([GHSA-4c8g-83qw-93j6](https://github.com/advisories/GHSA-4c8g-83qw-93j6))\n| **3.1.4** |\n| `linkify-it` | 5.0.1 | `<=5.0.1` — quadratic DoS in the `mailto:`\nvalidator scan loop\n([GHSA-v245-v573-v5vm](https://github.com/advisories/GHSA-v245-v573-v5vm))\n| **5.0.2** |\n\nBoth are patch bumps inside the same major, so there is no\nbreaking-change surface. `npm view` shows 4.x and 6.x exist, but neither\nis needed to clear the advisories and both would be gratuitous risk\nhere.\n\n## Why overrides rather than a dependency bump\n\nNeither is a direct dependency:\n\n- `fast-uri` arrives through `@mastra/core`,\n`@modelcontextprotocol/sdk`, `ajv`, and `@astrojs/check`. **The root\n`overrides` block already pinned it — at `3.1.2`, which is itself inside\nthe vulnerable range.** So this is a bump of an existing pin, not a new\none.\n- `linkify-it` arrives through `markdownlint-cli2 › markdown-it`.\nNothing declares it, so it needs a new override entry.\n\nThis is the same shape as #781, and the same reason Dependabot can't fix\nit on its own: it doesn't bump root overrides.\n\n## Verification\n\n`bun audit --audit-level high` → **exit 0**, no vulnerabilities reported\n(CI's exact command).\n\nRegression checks, chosen for what these packages actually feed:\n`lint:markdown` passes (it consumes `linkify-it` via `markdown-it`),\nplus `typecheck`, `biome`, `audit:doc-refs`, `audit:invariants`,\n`audit:action-sha-pins`, and the `scripts/` (516 pass) and\n`packages/gateway/src/db/` (260 pass) suites.\n\nMerging this unblocks #792 and any other open PR.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+          "timestamp": "2026-07-21T23:02:08+03:00",
+          "tree_id": "040f5f1ea90377a09ad132aad3bfd2fff56591c4",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/40007ebbfc5aa5abd06e3b3345782c72f85b18fd"
+        },
+        "date": 1784664735472,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 286.19629744999986,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 286.07737224999875,
             "unit": "ms"
           }
         ]
