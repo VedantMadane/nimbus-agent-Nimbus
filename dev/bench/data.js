@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784658892230,
+  "lastUpdate": 1784659786555,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -3433,6 +3433,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 297.42509854999736,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c24364eeef534ef5037c6651af1f7b3e8bfc6697",
+          "message": "Retire CODECOV_TOKEN — it never reached Codecov (#790)\n\nRefs #782. Secret already deleted; this lands the wiring and the\nmanifest.\n\n## Don't rotate it — it does nothing\n\nThe weekly monitor flagged `CODECOV_TOKEN` as stale (95d against a 90d\npolicy). The obvious response was to rotate it. That would have\nrestarted a 90-day clock on a credential with no effect.\n\n`_test-suite.yml` is a **reusable workflow**, and GitHub passes only the\nsecrets named in its `secrets:` contract:\n\n```yaml\nsecrets:\n  SONAR_TOKEN:      # ← the only one declared\n```\n\n`ci.yml` matches that — it passes `SONAR_TOKEN` and does not use\n`secrets: inherit`. So the `CODECOV_TOKEN` reference inside the reusable\nworkflow resolved to an **empty string** and never reached the action.\n\nThe run log settles it rather than leaving it as inference:\n\n```\nINPUT_TOKEN:            (empty)\nINPUT_CODECOV_TOKEN:    (empty)\nINPUT_USE_OIDC: true\nCC_FORK: false\n```\n\nagainst the action's own selection logic:\n\n```bash\nif [ \"$INPUT_USE_OIDC\" == 'true' ] && [ \"$CC_FORK\" != 'true' ]; then\n  echo \"CC_TOKEN=$CC_OIDC_TOKEN\"     # ← the branch taken\n```\n\nfollowed by `Your upload is now queued for processing`. Uploads\nauthenticate via **OIDC**, which is deliberate: `ci.yml` grants\n`id-token: write` with the comment *\"Required by `_test-suite.yml`\n(Codecov `use_oidc: true` on coverage-gates)\"*.\n\n## What changed\n\n- Both inert `token:` inputs removed from `_test-suite.yml`.\n- Manifest entry → `forbidden`, so the secret **reappearing** is a hard\nfailure rather than a shrug. Same treatment `NPM_TOKEN` got after the\nnpm OIDC migration.\n- `docs/ci-secrets.md` row and narrative updated to say retired, and\nwhy, so nobody helpfully re-adds it.\n\nOrdering was deliberate: the secret was deleted **before** this merges.\n`forbidden` + still-present is a HARD monitor failure, so flipping the\nstate first would have turned the monitor red in the gap.\nDeleted-then-merged means `optional`+absent (`\"optional, unset\"`)\nbefore, `forbidden`+absent (`\"correctly absent\"`) after — green either\nside.\n\nFork PRs are unaffected: they take Codecov's tokenless path, and the\ntoken was empty for them regardless.\n\n## One wrinkle worth flagging\n\n`audit:consumed-by` finds consumers by regexing `secrets\\.([A-Z0-9_]+)`\nover workflow text — **including comments**. My explanatory comment\noriginally wrote the `secrets.` form, which would have made the audit\nread a comment explaining that nothing uses the secret as evidence that\nsomething does. The comment now avoids the literal form and says why.\n\n## Verification\n\n`audit:{consumed-by,doc-refs,status-drift,action-sha-pins,invariants}` +\n`lint:markdown` pass. `bun test scripts/release/` → 143 pass / 6 skip /\n0 fail. Biome clean. `_test-suite.yml` re-parsed with `js-yaml`. Zero\n`secrets.CODECOV_TOKEN` references remain.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-21T21:33:33+03:00",
+          "tree_id": "866bf7a6ea2009a471efff98a4acddef07dc302f",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/c24364eeef534ef5037c6651af1f7b3e8bfc6697"
+        },
+        "date": 1784659785440,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 318.0334547999995,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 324.5958049000001,
             "unit": "ms"
           }
         ]
