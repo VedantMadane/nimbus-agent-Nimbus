@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784656638894,
+  "lastUpdate": 1784657462625,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -3365,6 +3365,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 300.5509613499977,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a10de0b01ca1b2e295121301b085c88a68525efd",
+          "message": "ci: one static required gate, so docs-only PRs stop needing an admin bypass (#788)\n\nEvery docs-only PR in this repo is permanently `BLOCKED` and can only be\nmerged with the OrganizationAdmin ruleset bypass. #776 and #785 both\nwent that way.\n\n## The bug\n\nBranch-protection rulesets match check names **literally**, and a job\nskipped by its own `if:` **never expands `${{ }}` in its `name:`** — it\nreports the raw template string.\n\n`_test-suite.yml` gates its six jobs with `if: inputs.run-tests` while\ninterpolating `${{ inputs.runner }}` into each name. So on a docs-only\nPR they post:\n\n```text\nPR quality — TS/Bun (ubuntu-24.04) / Static — ${{ inputs.runner }}      (skipped)\n```\n\nwhile the ruleset waits on:\n\n```text\nPR quality — TS/Bun (ubuntu-24.04) / Static — ubuntu-24.04\n```\n\nwhich is never created. Six required contexts sit on *\"Expected —\nWaiting for status to be reported\"* forever. `mergeable` reads\n`MERGEABLE`, `mergeStateStatus` reads `BLOCKED`, and nothing you do to\nthe PR can ever satisfy it.\n\nNote the redundancy the bug exposes: the runner is named twice, because\nthe caller's job name already carries it.\n\n## Why the previous fix wasn't enough\n\n`ci.yml:126` already carries a comment describing this exact failure and\na fix: always run the caller, pass `run-tests=false`, so the children\n\"always REPORT\". That was necessary but **not sufficient** — the\nchildren are still skipped *at job level*, so their names still never\nexpand. Verified on #785, which failed exactly this way with that fix in\nplace.\n\n## The fix\n\nAdds `pr-quality-required` — always runs, **static name, no\ninterpolation** — which fails if any PR gate did not succeed:\n\n```yaml\npr-quality-required:\n  name: PR quality — required gates\n  if: always() && github.event_name == 'pull_request'\n  needs: [filter, pr-quality-ts, pr-quality-rust,\n          pr-quality-cross-platform, pr-quality-duplication, pr-quality-structure]\n```\n\nOnce it is the *only* required `pr-quality-*` context, this entire class\nof bug is gone: adding, renaming, or matrix-ing a gate no longer\nrequires a ruleset edit.\n\n`skipped` counts as a pass — that is `filter` legitimately deciding a\ngate does not apply (no Rust change, docs-only diff). A gate that ran\nand failed reports `failure` and is caught.\n\n### Fail-closed, deliberately\n\nThe result list is asserted to be **exactly 6 entries** before it is\ninspected. Without that guard, a renamed job or an edited `needs:` would\nyield an empty list, `for r in $RESULTS` would not execute, and the one\njob whose entire purpose is catching failures would report green. That\nis a fail-open in the worst possible place. It now fails closed with a\nmessage naming the drift.\n\n## This PR is inert on its own\n\nThe ruleset still requires the 12 old contexts. This PR touches\n`.github/`, so `code-changed=true`, so all 12 run and report normally —\nit satisfies the *current* ruleset with no bypass. **The ruleset swap\n(12 fragile contexts → this 1) is a deliberate follow-up, applied after\nmerge**, so the repo is never left in a state where nothing can merge.\n\n## Verification\n\n| Check | Result |\n| --- | --- |\n| YAML parses; every `needs:` entry resolves to a real job | ✅ 6/6 |\n| `audit:action-sha-pins` | ✅ OK |\n| `audit:status-drift` | ✅ OK |\n| preflight-gates drift tests | ✅ 8/8 pass |\n| `typecheck` | ✅ clean |\n| `biome check packages scripts` | ✅ clean, 2876 files |\n\nThe gate script was exercised against every result shape — passing\nexactly the three that should pass:\n\n| Results | Expected | Got |\n| --- | --- | --- |\n| all `success` | pass | ✅ PASS |\n| mixed `success`/`skipped` | pass | ✅ PASS |\n| all `skipped` (docs-only PR) | pass | ✅ PASS |\n| one `failure` | fail | ✅ GATE-FAIL |\n| one `cancelled` | fail | ✅ GATE-FAIL |\n| empty list | fail | ✅ DRIFT-FAIL |\n| 3 entries | fail | ✅ DRIFT-FAIL |\n| 7 entries | fail | ✅ DRIFT-FAIL |\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-21T21:00:07+03:00",
+          "tree_id": "a0738d4cb11f8fc1bf63fa93bce65576501a532e",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/a10de0b01ca1b2e295121301b085c88a68525efd"
+        },
+        "date": 1784657460650,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 238.5023886000021,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 242.32056864999905,
             "unit": "ms"
           }
         ]
