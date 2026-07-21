@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784653532048,
+  "lastUpdate": 1784654475194,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -3229,6 +3229,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 296.94293054999144,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "008615da3ba74fec7aabf935abc57b7eabda90bb",
+          "message": "fix: stop relabelling 55% of indexed items, and return NimbusItem from index.queryItems (#780)\n\nStage 0 of the ecosystem roadmap, gateway half. Fixes a data-fidelity\nbug and an IPC contract leak that share one root cause: the gateway's\nitem-type vocabulary disagreed with itself.\n\n## The bug, measured\n\n`itemTypeFromRowType()` accepted only the six values in the pre-1.4.0\nSDK union and returned `\"file\"` for everything else. Against a live\n546-row index that is **300 rows — 55% — mislabelled**:\n\n| type | rows | before |\n| --- | --- | --- |\n| `email` | 228 | preserved |\n| `ci_run` | 214 | → `\"file\"` |\n| `pr` | 79 | → `\"file\"` |\n| `file` | 13 | preserved |\n| `folder` | 5 | preserved |\n| `issue` | 5 | → `\"file\"` |\n| `web_clip` | 2 | → `\"file\"` |\n\nThis is corruption, not missing typing — the true value was discarded.\n`@nimbus-dev/sdk@1.4.0` makes `ItemType` an open enum (`KnownItemType |\n(string & {})`), so the raw column value now passes through unchanged.\nOne deletion fixes `search`, `searchRanked` and `queryItems` at once,\nsince all three map rows through `rowToItem`.\n\n## The contract leak\n\n`index.queryItems` returned raw `SELECT * FROM item` rows, leaking\nunified-V3 column names (`type`, `title`, `external_id`) over IPC —\nwhile every other read path already mapped through `rowToItem`.\nDownstream clients had to guess the wire shape, and nimbus-vscode\nguessed wrong (it reads camelCase and silently got `undefined` on every\nrow).\n\nAdds `LocalIndex.listItems()`, which owns the list SQL and the mapping\ntogether, returning:\n\n```ts\ntype IndexedItem = NimbusItem & { indexPrimaryKey: string };\n```\n\n`indexPrimaryKey` carries the `service:external_id` composite key.\n`NimbusItem.id` is the bare `external_id`, which is **not unique across\nservices**, so list consumers need it for stable identity — mirroring\nthe existing `RankedSearchItem` pattern. `rowToItem` and `ItemRow` stay\nmodule-private; `listItems` is the seam.\n\n## Breaking change\n\nThe `index.queryItems` wire shape changes from raw snake_case rows to\ncamelCase `IndexedItem`. Known consumers:\n\n- `nimbus query` — updated here.\n- **nimbus-vscode** — broken today regardless; fixed by a follow-up once\n`@nimbus-dev/client@0.6.0` ships.\n\nTwo things reviewers should know:\n\n- `GET /v1/items` still returns raw snake_case rows with all columns, so\nit and `index.queryItems` now differ in both shape and data, despite the\ndocs describing shared filter semantics. Deliberate for this stage,\nflagged for follow-up.\n- `index.queryItems` is LAN-callable by a paired peer, so a\nmixed-version pair sees the shape flip. Acceptable pre-1.0.\n\nThe narrowing is intentional: `body_preview`, `author_id`,\n`canonical_url`, `synced_at` and `pinned` are storage/provenance\nconcerns, not item identity. `index.querySql` remains for raw column\naccess and is untouched.\n\n## Regression caught in review\n\nThe whole-branch review found a user-visible regression that per-commit\nreview missed: `isItemLikeRow` gated `nimbus query`'s card rendering on\n`row[\"title\"]`, which the new payload lacks — so TTY output silently\ndegraded from numbered cards to `── #1 ──` key/value blocks with\nunformatted epoch timestamps. Fixed to accept **both** shapes (`--sql`\nlegitimately still returns raw rows). ~15 stale test fixtures that hid\nit were migrated, and the new regression test was verified to fail when\nthe fix is reverted.\n\n## Dependency change and its real blast radius\n\n`packages/gateway` moves to `^1.4.0`. The lockfile refresh also adds\nnested `@nimbus-dev/sdk@1.4.0` entries for **94 `nimbus-mcp-*`\npackages** that had none, so the connector fleet resolves 1.4.0 rather\nthan the hoisted 1.3.0. Safe — 1.4.0 only *widens* the union, so a\nconnector emitting `ci_run` gains valid typings rather than losing any —\nand it cannot be split from this PR, since `itemType: string` does not\ntypecheck against 1.3.0.\n\n## Verification\n\n| Gate | Result |\n| --- | --- |\n| `typecheck` (96 packages) | ✅ |\n| Targeted tests | ✅ 229 pass / 0 fail |\n| `packages/gateway/src/index/` | ✅ 348 pass / 0 fail |\n| `biome` (1613 files) | ✅ |\n| `lint:markdown` | ✅ |\n| All 10 `audit:*` gates | ✅ incl. `invariants`, `openapi-drift`,\n`boundaries` |\n\nCoverage of every changed file is well above the 85%/80% floor:\n`local-index.ts` 96.9%/89.9%, `diagnostics-rpc.ts` 99.0%/92.4%,\n`query.ts` 98.0%/92.5%.\n\nTwo known-red items are **pre-existing and unrelated**, both confirmed\nidentical at the branch base: 8 TTY-stdin failures in\n`cli/src/commands/update.test.ts`, and 4 `coverage-floor` violations in\nfiles this branch never touches (`update.ts`, `socket-listeners.ts`,\n`lever/search-filter.ts`).\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n* **Breaking Changes**\n* `index.queryItems` now returns camelCase `NimbusItem`-style rows with\n`indexPrimaryKey`.\n* Some previously surfaced database-specific fields are intentionally\nomitted from the narrowed wire shape.\n* SQL-style queries (`querySql` / `--sql`) continue to return raw\ndatabase-shaped results.\n* **Improvements**\n* CLI “item cards” now render correctly for both supported item row\nformats (including TTY scenarios) and improved timestamp handling.\n  * Item type values are preserved end-to-end.\n* **Documentation / Tests**\n* Updated roadmap/changelog notes and added regression coverage to\nprevent snake_case top-level fields in responses.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-21T17:12:10Z",
+          "tree_id": "68666d74821329b4315ff30c5ffb328fdaf46acb",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/008615da3ba74fec7aabf935abc57b7eabda90bb"
+        },
+        "date": 1784654473673,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 243.97526955000066,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 237.03852389998937,
             "unit": "ms"
           }
         ]
