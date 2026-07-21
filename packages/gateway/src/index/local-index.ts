@@ -35,6 +35,7 @@ import {
   upsertSchedulerRegistration,
 } from "../sync/scheduler-store.ts";
 import type { SyncStatus } from "../sync/types.ts";
+import { buildItemListSql, type ItemListQueryParams } from "./item-list-query.ts";
 import {
   deleteAllItemsForService,
   deleteItemByPrimaryKey,
@@ -53,6 +54,15 @@ import { ensureSqliteVecForConnection } from "./sqlite-vec-load.ts";
 export type { TraverseGraphOptions, TraverseGraphResult } from "../graph/relationship-graph.ts";
 export { RAW_META_MAX_BYTES } from "./constants.ts";
 export type { RankedIndexItem } from "./ranked-item.ts";
+
+/**
+ * A `NimbusItem` plus the index primary key (`service:external_id`).
+ *
+ * `rowToItem` sets `id` to the bare `external_id`, which is NOT unique across
+ * services, so list consumers need the composite key for stable identity.
+ * Mirrors how `RankedIndexItem` exposes `indexPrimaryKey`.
+ */
+export type IndexedItem = NimbusItem & { indexPrimaryKey: string };
 
 export type SearchRankOptions = {
   nowMs?: number;
@@ -90,20 +100,6 @@ type ItemRow = {
   synced_at: number;
   pinned: number;
 };
-
-function itemTypeFromRowType(raw: string): NimbusItem["itemType"] {
-  if (
-    raw === "file" ||
-    raw === "folder" ||
-    raw === "email" ||
-    raw === "event" ||
-    raw === "photo" ||
-    raw === "task"
-  ) {
-    return raw;
-  }
-  return "file";
-}
 
 function ftsTitleMatchQuery(name: string): string {
   const tokens = name
@@ -162,7 +158,7 @@ function rowToItem(row: ItemRow): NimbusItem {
   const item: NimbusItem = {
     id: String(row.external_id),
     service: String(row.service),
-    itemType: itemTypeFromRowType(String(row.type)),
+    itemType: String(row.type),
     name: String(row.title),
   };
   item.modifiedAt = Number(row.modified_at);
@@ -711,6 +707,18 @@ export class LocalIndex {
   search(query: IndexSearchQuery): NimbusItem[] {
     const ranked = this.searchRanked(query, {});
     return ranked.map(stripRankedToNimbus);
+  }
+
+  /**
+   * List indexed items for `index.queryItems`.
+   *
+   * Owns the SQL and the row mapping together so no caller ever sees a raw V3
+   * row: the snake_case column names must not cross the IPC boundary.
+   */
+  listItems(params: ItemListQueryParams): IndexedItem[] {
+    const { sql, vals } = buildItemListSql(params);
+    const rows = this.db.query(sql).all(...vals) as ItemRow[];
+    return rows.map((row) => ({ ...rowToItem(row), indexPrimaryKey: String(row.id) }));
   }
 
   recordSync(connectorId: string, token: string): void {

@@ -117,6 +117,33 @@ describe("LocalIndex upsert + delete", () => {
     expect(hits[0]?.itemType).toBe("event");
   });
 
+  test("upsert round-trips every ops item type instead of coercing to file", () => {
+    const idx = makeIndex();
+    const opsTypes = ["ci_run", "pr", "issue", "deployment", "incident", "web_clip"];
+    for (const t of opsTypes) {
+      idx.upsert(makeItem({ id: `ops-${t}`, itemType: t, name: `ops item ${t}` }));
+    }
+    for (const t of opsTypes) {
+      const hits = idx.search({ name: `ops item ${t}` });
+      expect(hits.find((h) => h.id === `ops-${t}`)?.itemType).toBe(t);
+    }
+  });
+
+  test("upsert round-trips an item type this gateway build does not know", () => {
+    const idx = makeIndex();
+    idx.upsert(makeItem({ id: "future-1", itemType: "dora_metric", name: "future typed item" }));
+    const hits = idx.search({ name: "future typed item" });
+    expect(hits.find((h) => h.id === "future-1")?.itemType).toBe("dora_metric");
+  });
+
+  test("upsert preserves 'folder', which the gateway really does emit", () => {
+    // google-drive-sync.ts:173 emits `type: isFolder ? "folder" : "file"`.
+    const idx = makeIndex();
+    idx.upsert(makeItem({ id: "fold-1", itemType: "folder", name: "a real folder" }));
+    const hits = idx.search({ name: "a real folder" });
+    expect(hits.find((h) => h.id === "fold-1")?.itemType).toBe("folder");
+  });
+
   test("upsert with itemType 'email' round-trips as email", () => {
     const idx = makeIndex();
     idx.upsert(makeItem({ id: "em1", itemType: "email", name: "Weekly digest" }));
@@ -145,7 +172,7 @@ describe("LocalIndex upsert + delete", () => {
     expect(hits[0]?.itemType).toBe("photo");
   });
 
-  test("upsert with unknown itemType falls back to 'file'", () => {
+  test("upsert with unknown itemType round-trips as-is, no fallback to 'file'", () => {
     const idx = makeIndex();
     // Use the db directly to insert a row with an unknown type
     const db = idx.getDatabase();
@@ -159,7 +186,7 @@ describe("LocalIndex upsert + delete", () => {
       syncedAt: now,
     });
     const hits = idx.search({ name: "Widget item" });
-    expect(hits[0]?.itemType).toBe("file"); // fallback
+    expect(hits[0]?.itemType).toBe("widget");
   });
 
   test("delete by external_id removes the item", () => {
@@ -1497,6 +1524,30 @@ describe("LocalIndex.listItemsForAuthor", () => {
     // limit=0 → Math.max(1, 0)=1 → returns 1 result
     const results = idx.listItemsForAuthor("person-zero", 0);
     expect(results).toHaveLength(1);
+  });
+});
+
+describe("LocalIndex.listItems", () => {
+  test("maps rows to IndexedItem and honours service/type/limit filters", () => {
+    const idx = makeIndex();
+    idx.upsert(makeItem({ id: "run-1", service: "github", itemType: "ci_run", name: "nightly" }));
+    idx.upsert(makeItem({ id: "m-1", service: "slack", itemType: "message", name: "hello" }));
+
+    const all = idx.listItems({ services: [], types: [], limit: 50 });
+    expect(all).toHaveLength(2);
+    // Mapped, not raw: camelCase fields and the composite key.
+    const run = all.find((i) => i.id === "run-1");
+    expect(run?.itemType).toBe("ci_run");
+    expect(run?.name).toBe("nightly");
+    expect(run?.indexPrimaryKey).toBe("github:run-1");
+
+    const onlyGithub = idx.listItems({ services: ["github"], types: [], limit: 50 });
+    expect(onlyGithub.map((i) => i.id)).toEqual(["run-1"]);
+
+    const onlyMessages = idx.listItems({ services: [], types: ["message"], limit: 50 });
+    expect(onlyMessages.map((i) => i.id)).toEqual(["m-1"]);
+
+    expect(idx.listItems({ services: [], types: [], limit: 1 })).toHaveLength(1);
   });
 });
 

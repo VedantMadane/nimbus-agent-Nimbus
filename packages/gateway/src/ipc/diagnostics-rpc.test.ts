@@ -685,6 +685,77 @@ describe("index.queryItems", () => {
       rmTmp(dir);
     }
   });
+
+  test("returns camelCase NimbusItem rows with indexPrimaryKey, never raw columns", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-qi3-"));
+    try {
+      const { ctx, db } = makeCtxWithIndex(dir);
+      try {
+        db.run(
+          `INSERT INTO item (id, service, type, external_id, title, modified_at, synced_at, metadata)
+           VALUES ('github:run-1', 'github', 'ci_run', 'run-1', 'nightly build', 5000, 5000,
+                   '{"mime_type":"application/json","size_bytes":42,"created_at":4000}')`,
+        );
+        const r = await dispatchDiagnosticsRpc("index.queryItems", {}, ctx);
+        expect(r.kind).toBe("hit");
+        const v = (r as { value: { items: Record<string, unknown>[] } }).value;
+        const row = v.items[0];
+        expect(row).toBeDefined();
+
+        // The type survives — not coerced to "file".
+        expect(row?.["itemType"]).toBe("ci_run");
+        // Wire is camelCase NimbusItem, not the V3 column names.
+        expect(row?.["name"]).toBe("nightly build");
+        expect(row?.["id"]).toBe("run-1");
+        expect(row?.["indexPrimaryKey"]).toBe("github:run-1");
+        expect(row?.["modifiedAt"]).toBe(5000);
+        // metadata JSON is unpacked by rowToItem.
+        expect(row?.["mimeType"]).toBe("application/json");
+        expect(row?.["sizeBytes"]).toBe(42);
+        expect(row?.["createdAt"]).toBe(4000);
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmTmp(dir);
+    }
+  });
+
+  test("no response key is snake_case", async () => {
+    // The structural gate. If queryItems ever regresses to returning raw
+    // SELECT * rows, this fails regardless of how the regression is written.
+    // Checked across ALL returned items (not just the first) — a single-row
+    // fixture can't catch a regression scoped to a later row.
+    // Scope: TOP-LEVEL item keys only. We deliberately do not descend into
+    // `rawMeta` — it legitimately holds arbitrary connector-supplied keys
+    // (e.g. raw API field names) which may contain underscores.
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-qi4-"));
+    try {
+      const { ctx, db } = makeCtxWithIndex(dir);
+      try {
+        db.run(
+          `INSERT INTO item (id, service, type, external_id, title, modified_at, synced_at)
+           VALUES ('slack:m-1', 'slack', 'message', 'm-1', 'hello', 1000, 1000)`,
+        );
+        db.run(
+          `INSERT INTO item (id, service, type, external_id, title, modified_at, synced_at)
+           VALUES ('github:run-2', 'github', 'ci_run', 'run-2', 'nightly build', 2000, 2000)`,
+        );
+        const r = await dispatchDiagnosticsRpc("index.queryItems", {}, ctx);
+        const v = (r as { value: { items: Record<string, unknown>[] } }).value;
+        expect(v.items.length).toBeGreaterThan(1);
+        for (const item of v.items) {
+          const keys = Object.keys(item);
+          expect(keys.length).toBeGreaterThan(0);
+          expect(keys.filter((k) => k.includes("_"))).toEqual([]);
+        }
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmTmp(dir);
+    }
+  });
 });
 
 describe("diag.slowQueries", () => {
