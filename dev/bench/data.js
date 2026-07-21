@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784657462625,
+  "lastUpdate": 1784658892230,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -3399,6 +3399,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 242.32056864999905,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9237c91063d45f5e81e9112d78988e80e0210569",
+          "message": "Enable WAL on the production SQLite write handles (#789)\n\nCloses #426 (roadmap **B5**, high-priority).\n\n## Confirmed before changing anything\n\nThe issue explicitly asks for this, and it was worth doing — the finding\nwas a static code-read, so it could have been wrong. On the live 21 MB\ngateway DB:\n\n```\njournal_mode = delete\n```\n\nNot `wal`. Confirmed.\n\nThat means every handle was on SQLite's rollback journal, where readers\nand the writer block each other, the shutdown `wal_checkpoint(TRUNCATE)`\nwas a silent no-op, and `busy_timeout = 8000` was the *only* thing\nstanding between contention and an error — concurrent delta sync, query,\nand the I13 write path could stall up to 8 s before they could even\nfail.\n\n## The change\n\n`applyWritablePragmas()` in the new `db/writable-pragmas.ts` centralises\n`journal_mode = WAL` + `busy_timeout`, applied at all three production\n**writable** open sites:\n\n| Site | Handle |\n|---|---|\n| `platform/assemble.ts` | main writer |\n| `embedding/embedding-worker.ts` | embedding worker |\n| `ipc/http-server.ts` | I13 HTTP write handle |\n\nRead-only handles are deliberately untouched: `journal_mode` is a\nproperty of the database **file**, not the connection, so they cannot\nset it and do not need to — they inherit WAL once any writer has\nconverted the file. There is a test for exactly that, because it is the\nkind of thing a future reader will otherwise \"fix\" by adding a pragma to\nthe read path.\n\nIn `assemble.ts` the call is placed **before** `ensureSchema`, since\nmigrations write and this is the handle that converts the file.\n\n## It reports what SQLite adopted, not what we asked for\n\n`PRAGMA journal_mode = WAL` can be *declined* rather than raise — WAL\nneeds shared memory, so `:memory:` reports `memory`, and it is\nunavailable on some network filesystems. The helper returns the adopted\nmode so this is observable, and production deliberately does **not**\nhard-fail on it: degrading to the old blocking behaviour is worse than\nWAL but still correct, whereas refusing to start the gateway over a\nfilesystem quirk would be a worse trade. The tests assert `wal` on a\nreal file-backed handle, which is where a decline would be a genuine\nregression.\n\n## Backups: checked, not assumed\n\nWAL keeps committed data in `-wal` until checkpoint, so a **file-copy**\nbackup taken under WAL can silently lose recent commits. The issue\ndoesn't raise this, so I checked: both backup paths\n(`migrations/runner.ts` pre-migration backup and `db/snapshot.ts`) go\nthrough `vacuumAndGzip` → `VACUUM INTO`, which reads through the\nconnection and emits a self-contained file. WAL-safe. There are no raw\ncopies of `nimbus.db` anywhere in the gateway.\n\n## Regression guard — including one that didn't work\n\nA unit test of the helper proves the helper works, not that anything\ncalls it, so there is also a per-site assertion that each production\nopen site still calls it.\n\n**The first version of that guard was broken.** It asserted\n`src.toContain(\"applyWritablePragmas\")`, which is satisfied by the\nleftover `import { applyWritablePragmas }` line — so deleting the actual\ncall still passed. Caught by running the red proof rather than assuming\nit. Tightened to match the call, then re-proven:\n\n```\n(fail) production writable handles wire the pragmas > embedding/embedding-worker.ts calls applyWritablePragmas\n 7 pass, 1 fail\n```\n\nRestored: 9 pass / 0 fail.\n\n## Verification\n\n`bun test packages/gateway/src/{db,embedding,platform}/` → 572 pass / 3\nskip / 0 fail. `typecheck` clean, Biome clean,\n`audit:{invariants,boundaries,cross-platform,doc-refs,status-drift}` +\n`lint:markdown` all pass.\n\n`packages/gateway/src/ipc/` shows **1 pre-existing failure** —\n`handleConnectorAuth … google_drive` times out at 5 s under parallel\nload, passes in 238 ms alone. I verified it fails identically on\nunmodified gateway code, so it is not from this change.\n\nDocs updated to match: `architecture.md`'s honest \"not currently set\"\nstatus note is replaced, and roadmap **B5** is closed out.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-21T18:22:01Z",
+          "tree_id": "e44b7bfd7ceb5549b875e817862355b0bc60ad0d",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/9237c91063d45f5e81e9112d78988e80e0210569"
+        },
+        "date": 1784658890955,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 294.39047039999565,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 297.42509854999736,
             "unit": "ms"
           }
         ]
