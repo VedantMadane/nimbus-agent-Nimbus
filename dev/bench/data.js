@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784659786555,
+  "lastUpdate": 1784660507628,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -3467,6 +3467,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 324.5958049000001,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6a209f210e654477494b0b6d9e19ac45edb6a45b",
+          "message": "docs: correct the schema reference to the unified V3 `item` table (#791)\n\n`schema-reference.md` documents a table that does not exist — and that\nfiction has already cost real work.\n\n## The problem\n\nThe doc describes a table named `indexed_items` with columns\n`item_type`, `name`, `mime_type`, `size_bytes`, `created_at`,\n`parent_id`.\n\n```bash\n$ grep -rn \"indexed_items\" packages/gateway/src --include=*.ts | grep -v test\n# (no output)\n```\n\nThe real table is the unified V3 `item`\n(`index/unified-item-v3-sql.ts`):\n\n```text\nid, service, type, external_id, title, body_preview, url,\ncanonical_url, modified_at, author_id, metadata, synced_at, pinned\n```\n\nThe doc was wrong about the *legacy* shape too: the pre-V3 table was\n`items`, not `indexed_items` — see\n`UNIFIED_ITEM_V3_MIGRATE_FROM_LEGACY_SQL`, which selects from `items.`.\n\n## Why this is worth fixing now\n\nThis is not cosmetic staleness. Stage 0's original implementation plan\nwas written **from this document**, mapped `item_type` and `name`, and\nproduced a validator that **rejected all 546 rows** of a real index — a\nhard failure replacing a silent one. It was caught before merge and\ndiscarded, but only after the work was done. #785 landed the corrected\nplan and recorded the diagnosis; this PR fixes the source that caused\nit.\n\n## Changes\n\n- Replaces the `indexed_items` block with the real `item` table, its\nthree indexes, and `item_fts` (noting the triggers that maintain it).\n- Replaces the hand-maintained `item_type` comment list with a pointer\nto `@nimbus-dev/sdk` `KnownItemType`, and states plainly that the column\nis an **open enum** (`KnownItemType | (string & {})`) stored verbatim.\nThat list was a fourth copy of the very vocabulary Stage 0 exists to\nconsolidate — left in place it would simply have drifted again.\n- Records why coercion is forbidden, citing the 55%-relabelling bug #780\nfixed.\n- Fixes the matching stale table names in `architecture.md`.\n\nDeliberately **not** in scope: auditing the remaining ~40 table\ndefinitions in this file. This corrects the one that has demonstrably\ncaused damage; a full audit is a separate pass.\n\n## Verification\n\n| Gate | Result |\n| --- | --- |\n| `lint:markdown` | ✅ 0 errors, 96 files |\n| `audit:doc-refs` | ✅ 605 refs across 15 docs, all resolve |\n| `lychee` at CI scope (`--config lychee.toml 'docs/**/*.md' '*.md'`) |\n✅ 797 total, 0 errors |\n| `audit:status-drift` | ✅ OK |\n\n## Secondary purpose\n\nThis is a docs-only PR, so it is also the live proof for #788. Before\n#788, six required contexts would sit on *\"Expected — Waiting for status\nto be reported\"* forever and this PR could only merge via an\nOrganizationAdmin bypass. Expected now: `PR quality — required gates`\nreports and passes.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-21T21:33:46+03:00",
+          "tree_id": "a75577c586395df4acadd0842bb1fd93a5121f70",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/6a209f210e654477494b0b6d9e19ac45edb6a45b"
+        },
+        "date": 1784660506398,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 317.51399165000146,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 309.58618909999205,
             "unit": "ms"
           }
         ]
