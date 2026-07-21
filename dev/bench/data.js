@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784655883686,
+  "lastUpdate": 1784656638894,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -3331,6 +3331,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 303.4729196000044,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "689f1299c4b9292b9fc647b4465fc312eb0cddaf",
+          "message": "test:ci crashed on a deleted package, and silently skipped a coverage gate (#786)\n\nCloses #778.\n\n## The reported bug\n\n`runCiTestSuite()` opened with a build of `packages/client`, which no\nlonger exists — it was extracted to `@nimbus-dev/client` in #758.\nBecause the missing thing was the **working directory** rather than the\nexecutable, Windows reports:\n\n```\nENOENT: no such file or directory, uv_spawn 'bun'\n```\n\nwhich reads as \"bun is not on PATH\". It is; `bun --version` succeeds in\nthe same shell. The error points at the wrong problem, which is what\nmade this expensive to diagnose rather than merely broken.\n\n## The bug the report didn't mention\n\nFixing the crash alone would have left something worse in place. The\ncoverage-gate list in `ci-tests.ts` had drifted from `package.json` **in\nboth directions**:\n\n| | |\n|---|---|\n| `test:coverage:client` | wired in, script deleted with the package |\n| `test:coverage:sandbox` | declared in `package.json`, never wired in |\n\nSo beyond crashing, `test:ci` had **silently stopped running the sandbox\ncoverage gate**. That asymmetry is the point: a dead gate fails loudly\nthe moment you reach it, but a missing gate produces a clean green run\nthat simply checks less than you think. Removing `client` and adding\n`sandbox` makes the two lists agree exactly — 25 gates either way.\n\n## Why a test and not just a fix\n\nNothing forced the gate list and `package.json` to agree, which is how\nthey drifted apart in the first place. `COVERAGE_GATES` is now exported\nand `ci-tests.test.ts` asserts both directions, following the existing\n`preflight-gates.test.ts` pattern.\n\nRed/green proof — restoring the original drift (`sandbox` → `client`)\nfails both assertions, each naming the exact culprit:\n\n```\nevery test:coverage:* script in package.json is wired into test:ci\n  + [ \"test:coverage:sandbox\" ]\nevery wired gate resolves to a real package.json script\n  + [ \"test:coverage:client\" ]\n```\n\nRestored: 4 pass / 0 fail.\n\n## Verification\n\n`bun test scripts/` → 516 pass / 20 skip / 0 fail. Standalone `tsc\n--strict` over both files exits 0 (the workspace `typecheck` is filtered\nand does not cover `scripts/`). Biome clean.\n`audit:{doc-refs,consumed-by,status-drift,invariants,cross-platform}` +\n`lint:markdown` all pass. `bun run test:ci` now runs past the old crash\npoint into `typecheck` with no `ENOENT`.\n\nNote this was never a CI outage — no workflow calls `test:ci`; CI drives\n`_test-suite.yml` directly. It broke the local script contributors reach\nfor, and `preflight`'s full tier.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-21T20:42:27+03:00",
+          "tree_id": "f281ce5b60798fe10a4c1695c3aff1c990d146c5",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/689f1299c4b9292b9fc647b4465fc312eb0cddaf"
+        },
+        "date": 1784656637725,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 295.9829926999977,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 300.5509613499977,
             "unit": "ms"
           }
         ]
