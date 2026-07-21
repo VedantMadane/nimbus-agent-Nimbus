@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784664736604,
+  "lastUpdate": 1784666211042,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -3535,6 +3535,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 286.07737224999875,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c6feb351d6e904a2a03a272e97e265e0b3d05d51",
+          "message": "ci: make the PR-title gate actually run (#792)\n\n## The gate has never run\n\nEvery invocation since #764 added it is `startup_failure`:\n\n```\nThe action amannn/action-semantic-pull-request@0723387… is not allowed in\nnimbus-agent/Nimbus because all actions must be from a repository owned by\nnimbus-agent, created by GitHub, verified in the GitHub Marketplace, or match\none of the patterns…\n```\n\nThis repo sets `allowed_actions: selected` with a 13-pattern allow-list\nthat doesn't include `amannn/*`. The **org** is `all` — but a repo's\nnarrower setting wins, which is why this looked fine when the App\nmigration audited org-level policy and concluded no allow-list change\nwas needed.\n\nAnd `startup_failure` is **not a required context**, so a workflow that\nnever ran was indistinguishable from one that passed.\n\n## What it cost\n\nThree unparseable PR titles reached `main` through the hole — #787,\n#789, #790. The repo squash-merges, so those became the commit subjects\nRelease Please reads. It found no user-facing commits and cut no\nrelease:\n\n```\n✔ No user facing commits found since 6514f82c - skipping\n```\n\nSo **the WAL fix in #789 has no changelog entry and is in no release**.\nThe gate's own header comment predicted this exactly: *\"a malformed one\ncan't silently break a release.\"*\n\n## The fix\n\nInline the check rather than widen the allow-list. Validating a title\nagainst a regex needs no third-party action and no checkout, so this is\nboth the smaller change and the smaller attack surface — and it leaves\nthe deliberately tight allow-list alone.\n\nTwo safety details kept from the original: `pull_request_target` so fork\nPRs are validated too, and the title passed via `env:` rather than\ninterpolated into the `run:` body, since a PR title is\nattacker-controlled text and `${{ }}` in a script body is an injection\nsink.\n\n## Verified against the real corpus\n\n| Input | Result |\n|---|---|\n| `Retire CODECOV_TOKEN — it never reached Codecov` | ❌ fail |\n| `Move App token minting off the deprecated app-id input` | ❌ fail |\n| `Enable WAL on the production SQLite write handles` | ❌ fail |\n| `fix(db): enable WAL on the production SQLite write handles` | ✅ pass\n|\n| `chore(deps)!: drop Node 20` | ✅ pass |\n| `refactor(index/migrations): split runner` | ✅ pass |\n| `feat:no space after colon` | ❌ fail |\n| `nope(scope): unknown type` | ❌ fail |\n\nThe allowed type list is derived from `git log` on `main`, not invented:\nfeat, fix, chore, docs, ci, build, test, refactor, perf, style, revert.\n\n`audit:action-sha-pins` passes; YAML re-parsed with `js-yaml`.\n\n## This PR cannot self-test — correcting an earlier claim\n\nI first wrote that this PR's own title would be the first passing run of\nthe gate. **That is wrong.** `pull_request_target` always executes the\nworkflow file from the **base** branch, so this PR is still validated by\n`main`'s broken copy — and its run is, correctly, another\n`startup_failure`.\n\nThe gate only starts working **after this merges**. The regex evidence\nabove is local (`bash` against the real title corpus); the first genuine\nend-to-end proof will be the next PR opened after merge, which should\nshow a `Validate PR title` check for the first time in this repo's\nhistory. Worth confirming on that PR rather than assuming.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+          "timestamp": "2026-07-21T20:27:54Z",
+          "tree_id": "9e6d2063175b6d16c729ba1a128c3bc26521bddb",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/c6feb351d6e904a2a03a272e97e265e0b3d05d51"
+        },
+        "date": 1784666209479,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 257.9305223499956,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 265.1625038500035,
             "unit": "ms"
           }
         ]
