@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784561634760,
+  "lastUpdate": 1784653532048,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -3195,6 +3195,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 317.88858729998975,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4d723b80bad63d96016f5aeb379b465844f82f5e",
+          "message": "fix(deps): clear the critical + high advisories blocking every PR (#781)\n\n`bun audit --audit-level high` began failing on **main and every open\nPR** after a batch of advisories published 2026-07-20/21. This clears\nthem.\n\nNot branch-specific: I triggered the Security workflow on `main`\ndirectly ([run\n29800230805](https://github.com/nimbus-agent/Nimbus/actions/runs/29800230805))\nand it failed on the same two jobs — `Dependency audit` and `Trivy` —\nwith the same advisory IDs. Main's last green Security run was\n2026-07-20 05:39, before these landed.\n\n## Cleared: 1 critical + 7 high\n\n| Package | Severity | Advisory |\n| --- | --- | --- |\n| `tar` | **critical** |\n[GHSA-23hp-3jrh-7fpw](https://github.com/advisories/GHSA-23hp-3jrh-7fpw)\n— decompression/parse DoS |\n| `tar` | high |\n[GHSA-8x88-c5mf-7j5w](https://github.com/advisories/GHSA-8x88-c5mf-7j5w)\n— infinite loop on negative entry size |\n| `astro` | high |\n[GHSA-vj59-8hwv-xxmv](https://github.com/advisories/GHSA-vj59-8hwv-xxmv)\n— authorization bypass |\n| `js-yaml` ×2 | high |\n[GHSA-52cp-r559-cp3m](https://github.com/advisories/GHSA-52cp-r559-cp3m)\n— quadratic merge-key CPU |\n| `shell-quote` | high |\n[GHSA-395f-4hp3-45gv](https://github.com/advisories/GHSA-395f-4hp3-45gv)\n— quadratic `parse()` DoS |\n| `brace-expansion` ×2 | high |\n[GHSA-3jxr-9vmj-r5cp](https://github.com/advisories/GHSA-3jxr-9vmj-r5cp)\n— exponential expansion DoS |\n\n## How each was fixed\n\n- **astro** — cleared by an in-range `bun update` (6.4.7 → 6.4.8). No\nmanifest change needed.\n- **tar**, **js-yaml** — direct `@nimbus/gateway` dependencies, ranges\nmoved to the fixed versions (`^7.5.20`, `^4.3.0`).\n- **shell-quote**, **brace-expansion**, and the transitive copies of\ntar/js-yaml — reachable only through other packages' trees, so they use\nthe repo's existing root-`overrides` mechanism.\n\nTwo choices worth scrutiny:\n\n**`brace-expansion` is pinned to 5.0.7, not 2.1.2.** GHSA-3jxr-9vmj-r5cp\ncovers *two* disjoint ranges — `>=2.0.0 <2.1.2` **and** `>=3.0.0\n<5.0.7`. The intuitive bump to 2.1.2 leaves the tree's other copy dirty,\nand 5.0.6 (then-current) is itself in the second range. I hit exactly\nthat: an override of `>=2.1.2` resolved to 5.0.6 and still audited\ndirty.\n\n**`js-yaml` is pinned top-level to 4.3.0**, which also lifts the\n`3.14.2` copies used by `gray-matter` and `@istanbuljs/load-nyc-config`.\nThis was the risky part — js-yaml 4 dropped `safeLoad`, so a 3.x\nconsumer calling it would break at runtime. Bun ignored nested/scoped\noverride syntax (`{\"parent\": {\"js-yaml\": \"...\"}}` produced no change),\nso a top-level pin was the available mechanism. **Verified empirically\nrather than assumed** — see below.\n\n## Verification\n\n| Check | Result |\n| --- | --- |\n| `bun audit --audit-level high` | ✅ clean (was 1 critical + 7 high) |\n| `typecheck` (96 packages) | ✅ |\n| `biome check packages scripts` | ✅ |\n| **`docs:build`** (astro + starlight + gray-matter) | ✅ 55 pages, all\ninternal links valid |\n| **`lint:markdown`** (markdownlint-cli2 → js-yaml) | ✅ 88 files, 0\nerrors |\n| `gateway/src/updater` + `extensions` (tar) | ✅ 460 pass |\n| `gateway/src/db` (`tar-bundle.ts`) | ✅ 251 pass |\n| `packages/cli/src` (shell-quote via react-devtools-core) | ✅ 1761 pass\n|\n\nThe docs build and markdownlint runs are the ones that matter — they\nexercise the `js-yaml` consumers I was worried about, and both pass.\n\n`packages/cli/src` also reports 8 failures in `runUpdate dispatcher`.\nThose are **pre-existing TTY-stdin mocking failures**, identical on an\nunmodified base checkout, unrelated to dependencies.\n\n## Scope\n\nOnly `--audit-level high` findings are addressed, matching what CI gates\non. Remaining moderate/low advisories (`qs`, `body-parser`,\n`markdown-it`, `protobufjs`, `yaml`, `@ai-sdk/provider-utils`, and the\nastro XSS trio) are untouched and non-blocking — worth a separate sweep.\n\nUnblocks #780 and any other open PR.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n* Updated dependency versions and security overrides to improve\nreliability and address package maintenance needs.\n* Improved test resilience when expected response data or request\nparameters are missing.\n* Preserved validation of command-line workflows, gateway operations,\nfederation requests, and connector data handling.\n\n* **Tests**\n* Hardened automated checks for optional responses, attachment metadata,\nerror messages, and IPC payloads.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-21T16:54:37Z",
+          "tree_id": "928738a887a25fba9c20a5b01366197bf44275e7",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/4d723b80bad63d96016f5aeb379b465844f82f5e"
+        },
+        "date": 1784653530753,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 296.05306430000417,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 296.94293054999144,
             "unit": "ms"
           }
         ]
