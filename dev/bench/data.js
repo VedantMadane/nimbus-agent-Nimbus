@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784735210568,
+  "lastUpdate": 1784736344109,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -3773,6 +3773,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 198.0245463999974,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f310d2a679ca7edc1f73c6abde808acd0c851931",
+          "message": "feat(gateway): research briefs — staged HTTP reasoning surface with citation-validated reports (#799)\n\n## What this is\n\nThe gateway side of **Nimbus research briefs**. The `nimbus-web-clipper`\nextension lets a user write a question (\"compare MV3 service worker\nlifecycles across Chrome and Firefox\"), select some open tabs, and ship\nthe extracted text here. The gateway reasons across those pages — plus\nthe user's already-indexed clips — and returns a citation-validated\nreport of **findings, conflicts, and gaps**. All judgment lives in the\ngateway; the extension extracts, feeds, polls, and renders.\n\nSpec: `docs/superpowers/specs/2026-07-21-research-briefs-design.md` ·\nPlan: `docs/superpowers/plans/2026-07-21-research-briefs-gateway.md`\n\n## Surface\n\nFour bearer-authed loopback write routes on the I13 surface\n(`WRITE_ROUTE_ALLOWLIST` **8 → 12**) plus one bearer-gated read route:\n\n```\nPOST /v1/briefs                 → { id, status:\"collecting\", expected }\nPOST /v1/briefs/{id}/sources    → { accepted, received, expected }   (idempotent per canonical URL)\nPOST /v1/briefs/{id}/run        → { status:\"running\" }               (idempotent, fire-and-forget synthesis)\nPOST /v1/briefs/{id}/save       → { itemId }                         (nimbus:research_brief item)\nGET  /v1/briefs/{id}            → { status, report?, failureReason? }\n```\n\nStaged collection, because eleven articles is ~500 KB and an MV3 worker\nwon't survive one long request through synthesis.\n\n## Design decisions worth a reviewer's eye\n\n- **The model judges; the server verifies.** Unlike the built-in agents\n(which build a deterministic brief and let the LLM only re-render it),\nbriefs let the model reason — then constrain it structurally. Citations\nare opaque server-issued tokens (`S1`, `C2`); an unknown ref is dropped,\na zero-ref finding is dropped, a conflict needs ≥2 distinct refs, and a\nquote must be a verbatim (normalized) substring of the cited body or\nit's stripped. Source bodies enter the prompt through `wrapToolOutput`\n(**I11**) — the first load-bearing use of the envelope outside\n`agents/`.\n- **Run state is in-memory only.** Source bodies never touch disk; a\nrestart drops everything. That makes \"a brief is a question, not a save\"\nstructural, not a promise — the same argument I30 makes for the pairing\nwindow. Lazy expiry, 30-min TTL, hard caps (3 concurrent runs / 20\nsources / 256 KB per source / 4 MB per run, all counting body **+ title\n+ url**).\n- **Concurrency cap is `503 briefs_busy` with no `Retry-After`**,\ndeliberately not a 429 — a concurrency delta from run expiry is up to\n1800 s, which the client clamps to 120 s and retries into a wall.\n- **`[briefs].prefer_local` is honored independently of `[llm]`.**\nSource-text egress is the most privacy-sensitive thing here, so briefs\nprefer a local model even when the general ask-routing prefers remote,\nfalling back only when no local provider exists. When synthesis does run\nremote, a mandatory, unsuppressable disclosure gap says so.\n- **Default-off.** `[briefs].enabled` defaults false; the seam is absent\nand every route 404s (`briefs_disabled` + hint). `nimbus clip status`\nreports the enable-state.\n\n## Invariants & safety\n\nNo new invariant, no schema migration. Reuses **I6** (loopback), **I10**\n(constant-time token compare), **I11** (tool-output envelope), **I13**\n(allowlist + audit-on-rejection — every 4xx incl. 404/410/409 audits),\n**I14** (bound-param SQL). **I30** (clipper token minting) is untouched\n— briefs consume the token, never mint. A whole-branch review traced the\ntrust boundary end-to-end and confirmed no model- or source-controlled\ninput reaches the report unvalidated or escapes the I11 envelope. E2E\nleak test proves the bearer token, source body, and source URL appear in\nno response and no `audit_log` row.\n\n## Testing\n\nTDD throughout. New `packages/gateway/src/briefs/` subsystem (~11\nmodules) each unit-tested; a 10-case E2E drives the real HTTP server +\nreal SQLite + a stub LLM through the full staged round trip, caps, auth,\nand the leak proof. 717 tests pass across all touched suites; gateway +\ncli `tsc` clean; biome, `audit:doc-refs`, `audit:readme-cli` green.\n\n> ⚠️ **One gate unverified locally:** `audit:coverage-floor`\n(Linux-authoritative, istanbul shards) could not run in the dev\nenvironment (Docker daemon down). Every new file was coverage-reviewed\nindividually and `brief-test-server.ts` is coverage-excluded, but **CI\nmust confirm the floor is green** before merge. `origin/main` also\nadvanced during the build, so this relies on CI's post-push run against\ncurrent main.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n* Added opt-in research briefs for creating runs, submitting captured\nsources, generating citation-validated reports, checking status, and\nsaving completed reports.\n* Added support for local or remote synthesis, with disclosures when\nsource content leaves the device.\n* Added run limits, expiration handling, duplicate-source protection,\nand clear errors for unavailable or oversized requests.\n* Added `nimbus clip status` visibility for whether research briefs are\nenabled.\n\n* **Documentation**\n* Documented the research briefs workflow, configuration, status\nbehavior, and release details.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-22T18:53:56+03:00",
+          "tree_id": "fef3d881e8daebb0f721fc9354970df8a61038f3",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/f310d2a679ca7edc1f73c6abde808acd0c851931"
+        },
+        "date": 1784736343087,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 312.7436258999969,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 316.83922359999667,
             "unit": "ms"
           }
         ]
