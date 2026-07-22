@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784693253982,
+  "lastUpdate": 1784694448832,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -3637,6 +3637,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 304.4422231000055,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "88db17f708798a03a704ac37c410bb3105409364",
+          "message": "fix(db): enable WAL on production SQLite handles (changelog backfill for #789) (#795)\n\nEmpty commit. #789 enabled WAL on the three production writable SQLite\nhandles, but its squash-merge subject was not a Conventional Commit, so\nRelease Please read it as non-user-facing and cut no changelog entry.\n\nThe WAL code is on main and ships in the next release's binaries\nregardless — this only gives the fix the CHANGELOG line it should have\nhad. The lint gate that would have caught the malformed title never ran\nuntil #792 fixed it.\n\nNo code change. Verify with `git show` — the diff is empty.",
+          "timestamp": "2026-07-22T04:18:29Z",
+          "tree_id": "5a28218d445afd058fe0796e12fa688c12668303",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/88db17f708798a03a704ac37c410bb3105409364"
+        },
+        "date": 1784694446949,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 235.69023029999408,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 237.52863095000285,
             "unit": "ms"
           }
         ]
