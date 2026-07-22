@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784746936835,
+  "lastUpdate": 1784748144606,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -3875,6 +3875,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 301.2331752999991,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bdb79f858de97f7e68d519de62c2c32d496866ff",
+          "message": "fix(secrets): VSCE_PAT deadline is its expiry (2026-09-20), not the decommission (#803)\n\nResolves the open question in\n[nimbus-vscode#34](https://github.com/nimbus-agent/nimbus-vscode/issues/34)\n— and fixes a monitoring gap it exposed.\n\n## The finding\nChecked the token in the Azure DevOps portal (2026-07-22): it is\n**org-scoped to `asafgolombek`**, not global.\n\nSo the 2026-12-01 *global*-PAT decommission **does not apply to us at\nall.** The entire escalation path in #34 — Azure subscription, Entra\nuser-assigned managed identity, federated credential, `vsce publish\n--azure-credential` — is unnecessary. (Consistent with the secret having\nbeen set 2026-06-22, three months after global PAT creation was blocked\non 2026-03-15.)\n\n## The real deadline, and why the monitor was silent about it\nWhat actually bites is the token'\\''s **own expiry: 2026-09-20** —\npublishing breaks then unless it is regenerated. That is routine here\n*because* it is org-scoped.\n\nThe registry recorded only the decommission date, and with\n`HARD_DEADLINE_LEAD_DAYS = 90` that date was still 132 days out — so the\nweekly health monitor reported this credential as plain `ok`, and would\nhave gone on doing so until the token died mid-release.\n\nVerified both ways against the **real** registry entry at today'\\''s\ndate:\n\n| `hardDeadline` | monitor row |\n| --- | --- |\n| **2026-09-20** (this PR) | `deadline` — \"hard deadline 2026-09-20 **in\n60d**\" |\n| 2026-12-01 (before) | `ok` — \"secret last set 29d ago\" |\n\nSo this flips the row from silent to warning, with 60 days of lead. No\nnew mechanism was needed — `hardDeadline` already drives exactly this;\nit was simply pointed at a date that was not the binding one.\n\n## Changes\n- `credential-registry.ts` — `hardDeadline` → `2026-09-20`; note records\nthe confirmed scope, why the decommission is not applicable, and why the\nexpiry is the binding date.\n- `credential-registry.test.ts` — test renamed and pinned to the expiry,\nplus an explicit assertion that it is **not** `2026-12-01`, so the real\ndeadline cannot silently regress back to the later one.\n- `docs/ci-secrets.md` — the ⚠️ row said global PATs \"cannot be\nregenerated since 2026-03-15\", which read as applying to us. Corrected.\n\n## Verification\n81 credential tests green · biome clean · `lint:markdown` 0 errors ·\n`audit:doc-refs` 606 refs resolve.\n\n(The 4 `ps1:` failures in `bun test scripts/release/` are pre-existing\nand environmental — a missing `gen-test-key.sh` fixture; `origin/main`\nfails them identically here.)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-22T19:12:08Z",
+          "tree_id": "22902eb319dc1737667a10d2fbe0501e1693e8d4",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/bdb79f858de97f7e68d519de62c2c32d496866ff"
+        },
+        "date": 1784748140462,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 281.2453165000006,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 278.8543202999921,
             "unit": "ms"
           }
         ]
