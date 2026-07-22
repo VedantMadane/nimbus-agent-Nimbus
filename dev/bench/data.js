@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784736344109,
+  "lastUpdate": 1784745809689,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -3807,6 +3807,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 316.83922359999667,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "825df03e6157ebfa2299984115aa68be24539fe1",
+          "message": "fix: clear the SonarCloud board (15), the 6 astro XSS advisories, and the stale release line (#801)\n\nThree separable commits: Sonar board → 0, the open Dependabot\nadvisories, and a doc refresh.\n\n## 1. SonarCloud: 15 → 0\nMost landed with the research-briefs surface (#799), which merged after\nthe last cleanup pass.\n\n- **S3735 ×2** drop the `void` operator in the in-memory test vault\n(block bodies)\n- **S3776** `dispatchWriteRoute`'\\''s `route.kind` if-chain → `switch`\n(17 → under 15; a switch costs +1 total rather than +1 per branch)\n- **S6353 ×2** `[A-Za-z0-9_]` → `\\w` in the two brief-id route regexes\n- **S7781** `replaceAll`; **S4624** hoisted nested template literal;\n**S7755** `gaps.at(-1)`; **S5906 ×7** `not.toContain` / `toHaveLength`\n\nNo behavior change.\n\n## 2. Dependabot: the 6 astro XSS advisories\nGHSA-f48w-9m4c-m7f5, GHSA-7pw4-f3q4-r2p2, GHSA-4g3v-8h47-v7g6 (×2\nmanifests each). The highest patched requirement is **astro 7.1.0**, so\nthis is a coordinated major bump:\n\n- `astro` ^6.4.8 → ^7.1.3 (root + `packages/docs`)\n- `@astrojs/starlight` ^0.39.3 → ^0.41.4 (its peer is astro ^7.0.2)\n- `starlight-links-validator` 0.24.0 → 0.25.2\n- **drop the root `vite` override.** astro 7 needs vite ^8; the pin\nforced 7.3.5 into it and broke the build outright. `packages/ui` keeps\nits own `^7.3.5`, and both now resolve side by side (7.3.5 + 8.1.5) with\nno vulnerable version present.\n\nVerified with a real `docs:build`: **55 pages, all internal links\nvalid**, and `packages/ui` still typechecks on vite 7.\n\n> Note: this had to be built outside the repo tree. In a nested\n`.claude/worktrees/` checkout the SSR bundle resolves `neotraverse` up\ninto the parent repo'\\''s astro-6 `node_modules` and dies with `Export\nnamed '\\''forEach'\\'' not found`. That is a worktree-nesting artifact,\nnot an astro 7 problem — a clean checkout builds green.\n\n**Not fixed — the 7th alert (glib, RUSTSEC-2024-0429).** It is\nunreachable: `gtk 0.18.2` requires `glib ^0.18` and is pinned by tauri,\nso `cargo update -p glib --precise 0.20.0` fails outright. This is\nalready a documented, deliberately-accepted ignore in\n`src-tauri/deny.toml` (\"revisit when Tauri bumps gtk-rs to 0.20+\"); I\nre-verified that rationale rather than taking it on faith.\n\n## 3. Docs\n`CLAUDE.md`/`GEMINI.md` still claimed `v0.22.0` — four releases stale.\n`audit:status-drift` does not cover that line, so it drifted silently.\n\n## Verification\n`preflight:fast` **PASSED** (all 19 gates). Full `preflight` reports 15\ntest failures — **`origin/main` reports exactly the same `14381 pass /\n131 skip / 15 fail` in the same environment**, so this branch adds none.\nThey are Windows/clean-room artifacts (missing `gen-test-key.sh`\nfixture, a WSL config error, and the documented `mock.module`\ncontamination in the combined CLI run). Gateway `tsc` clean; briefs 157,\nhttp 136, security-invariants 92 green.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-22T18:30:27Z",
+          "tree_id": "70527aa16f56e44ee51c0df00937a5486525fdae",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/825df03e6157ebfa2299984115aa68be24539fe1"
+        },
+        "date": 1784745808417,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 303.684352800003,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 304.9779607999968,
             "unit": "ms"
           }
         ]
