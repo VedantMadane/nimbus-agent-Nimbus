@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784733819744,
+  "lastUpdate": 1784735210568,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -3739,6 +3739,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 282.4519546500054,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c1a2077d073a89dad9792667700bf5bdffa6ad72",
+          "message": "chore(secrets): retire RELEASE_PLEASE_PAT — the last release PAT is gone (#800)\n\nDeleted org-wide 2026-07-22. **The last long-lived credential on the\nrelease path.**\n\n## All four consumers now mint from the App\n\n| Repo | Migrated | Proven |\n|---|---|---|\n| Nimbus | #787 | ✅ |\n| nimbus-client | #8 | ✅ |\n| nimbus-sdk | #16 | ✅ live mint |\n| nimbus-vscode | #42 | ✅ live mint on main |\n\nEach shows `Mint release-bot token: success`. Zero live\n`secrets.RELEASE_PLEASE_PAT` references remain across all four repos.\n\n## The manifest earned its keep\n\nI nearly deleted this token after proving nimbus-sdk. The manifest's\n`consumedBy` listed **nimbus-vscode** as a fourth consumer — a check\nconfirmed it still used the PAT, and deleting then would have broken its\nreleases. That's the credential registry (#783) doing exactly what it's\nfor.\n\nFlipped `required → forbidden` (deletion first, so `forbidden` + absent\nreads \"correctly absent\" rather than the hard failure `forbidden` +\npresent would give).\n\n## The release credential surface is now fully App-based\n\n`RELEASE_PAT`, `PACKAGE_MANAGER_PAT`, `RELEASE_BOT_APP_ID`, and\n`RELEASE_PLEASE_PAT` are all **deleted and forbidden**. The App\ncredentials live as **org secrets** (client-id all, private-key scoped\nto the 4 release repos). Only `WINGET_PAT` remains — it forks\n`microsoft/winget-pkgs`, which the App cannot reach.\n\n## Verification\n\n`bun test scripts/release/` 11/11 registry + suite green;\n`audit:consumed-by` OK; standalone `tsc --strict` exit 0.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+          "timestamp": "2026-07-22T18:36:31+03:00",
+          "tree_id": "c6fdd0cd8b039d4a94cbf646d891970b6501840c",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/c1a2077d073a89dad9792667700bf5bdffa6ad72"
+        },
+        "date": 1784735209356,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 196.47722350000004,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 198.0245463999974,
             "unit": "ms"
           }
         ]
