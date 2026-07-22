@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784687579319,
+  "lastUpdate": 1784693253982,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -3603,6 +3603,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 305.2437471500081,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "864bb8e0eb626725ee0c917acd7b49026f12336a",
+          "message": "fix(deps): clear two high advisories blocking every PR (sharp, svgo) (#796)\n\nTwo high advisories published **after** #793's last green Security run,\nso `bun audit --audit-level high` fails on every open PR again —\nincluding #795, #792's successor work, and this. Spotted on #795's\nDependency audit + Trivy jobs.\n\n| Package | Have | Advisory | Fix |\n|---|---|---|---|\n| `sharp` | 0.34.5 | `<0.35.0` — inherited libvips CVEs\n(33327/33328/35590/35591,\n[GHSA-f88m-g3jw-g9cj](https://github.com/advisories/GHSA-f88m-g3jw-g9cj))\n| **0.35.3** |\n| `svgo` | 4.0.x | `>=4.0.0 <4.0.2` — removeScripts leaves some\nexecutable scripts intact\n([GHSA-2p49-hgcm-8545](https://github.com/advisories/GHSA-2p49-hgcm-8545))\n| **4.0.2** |\n\nBoth within the same major — no breaking surface.\n\n## Why overrides\n\n- `sharp` — the root `overrides` block already pinned it, at `0.34.5`,\nwhich is inside the vulnerable range. Bump the pin.\n- `svgo` — transitive, nothing declares it, so a new override entry.\n\nSame shape as #793 / #781, and the same reason Dependabot can't do it:\nit doesn't bump root overrides.\n\n## Verification\n\n`bun audit --audit-level high` → **exit 0**. `typecheck` clean, `biome`\nclean, `audit:js-licenses` passes (both packages affect the license set\n— 1166 packages, all allow-listed). `sharp` is transitive with no direct\nimport in source, so no code path changes.\n\nMerging unblocks #795 and every other open PR.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+          "timestamp": "2026-07-22T06:55:24+03:00",
+          "tree_id": "5a28218d445afd058fe0796e12fa688c12668303",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/864bb8e0eb626725ee0c917acd7b49026f12336a"
+        },
+        "date": 1784693253274,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 305.63841655000107,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 304.4422231000055,
             "unit": "ms"
           }
         ]
