@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784694448832,
+  "lastUpdate": 1784732614097,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -3671,6 +3671,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 237.52863095000285,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f2110a96a586d465f611553fb23577334503a16b",
+          "message": "chore(secrets): org-scope the App secrets + retire RELEASE_PAT/PACKAGE_MANAGER_PAT (#797)\n\nFollows a live consolidation of the App credentials from per-repo\nsecrets into **org secrets**, so the private key rotates in one place\ninstead of three.\n\n## What changed live (already done)\n\n| Secret | Before | After |\n|---|---|---|\n| `RELEASE_BOT_CLIENT_ID` | repo secret on Nimbus + nimbus-client |\n**org secret, visibility all** — it's public (`GET /apps/{slug}`), so\nall-repo exposure costs nothing |\n| `RELEASE_BOT_PRIVATE_KEY` | repo secret on Nimbus + nimbus-client |\n**org secret, visibility SELECTED** → Nimbus + nimbus-client +\nnimbus-sdk |\n\nThe private key is deliberately **not** `visibility: all`: with it you\ncan mint `contents`/`PRs`/`issues:write` tokens for any repo the App is\ninstalled on, so the blast radius is kept to the three repos that\nactually mint tokens. As a bonus, nimbus-sdk (in the scope) no longer\nneeds its own secret set — only the App install.\n\nRepo-level copies deleted; org secrets take over (repo secrets override\norg, so there was no breakage window).\n\n## Why this PR exists\n\nChanging the secret topology made the weekly monitor go red **within one\ndispatch** — `RELEASE_BOT_{CLIENT_ID,PRIVATE_KEY}` showed `missing` at\nrepo scope and `undocumented` at org scope. That's the credential\nmanifest (#783) doing exactly its job. This PR updates the registry to\nmatch reality: both entries move to `scope: \"org\"` with the correct\n`expectedVisibility`, and the location counts shift **ORG 2→4 / Nimbus\n25→23**.\n\n## Verified\n\n- `secret-health`'s **\"Mint release-bot token\" step succeeds** reading\nthe org secret — proven live, so all three repos resolve it.\n- `bun test scripts/release/` 143 pass / 6 skip / 0 fail;\n`audit:consumed-by` OK; standalone `tsc --strict` exit 0; biome clean.\n\nAfter this merges, the next monitor run should show both entries `ok`\nagain and clear the four red rows.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+          "timestamp": "2026-07-22T17:50:46+03:00",
+          "tree_id": "b98559713748c3ad4fb3e14152254b7c07f22e60",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/f2110a96a586d465f611553fb23577334503a16b"
+        },
+        "date": 1784732613048,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 297.6576737999949,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 299.38418309999327,
             "unit": "ms"
           }
         ]
