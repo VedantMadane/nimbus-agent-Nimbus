@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { join, resolve } from "node:path";
+import type { BriefRunController } from "../briefs/brief-run-store.ts";
 import { ingestClip, validateClipInput } from "../clips/clip-ingest.ts";
 import { type RelatedHit, type RelatedInput, runClipRelated } from "../clips/clip-related.ts";
 import { addClipToken, generateClipToken, verifyClipToken } from "../clips/clip-token-store.ts";
@@ -17,7 +18,7 @@ import { formatPrometheus } from "../status/prometheus-format.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import { contentTypeFor, resolveConsoleDist, safeAssetPath } from "./admin-console-assets.ts";
 import { buildStatus, type StatusReaders } from "./admin-status-rpc.ts";
-import { requireBearer } from "./http-auth.ts";
+import { bearerToken, requireBearer } from "./http-auth.ts";
 import { HttpWriteRateLimiter } from "./http-rate-limit.ts";
 import {
   dispatchWriteRoute,
@@ -57,6 +58,12 @@ export type ReadOnlyHttpServerOptions = {
   readonly pairingController?: PairingWindowController;
   // When present, called after each successful clip ingest to schedule embedding generation.
   readonly scheduleEmbedding?: (id: string) => void;
+  // Research briefs (Task 12). Absent => every /v1/briefs route 404s. Reuses clipsVault for
+  // bearer auth (same labeled clipper token map) — briefRuns alone is not enough to mount the
+  // surface.
+  readonly briefRuns?: BriefRunController;
+  readonly briefStartRun?: (runId: string) => void;
+  readonly briefSave?: (runId: string) => { itemId: string };
 };
 
 export type ReadOnlyHttpServerHandle = {
@@ -471,8 +478,7 @@ async function handleClipRelated(
   if (clipsVault === undefined) {
     return new Response("Not Found", { status: 404 });
   }
-  const raw = req.headers.get("authorization");
-  const presented = raw?.startsWith("Bearer ") === true ? raw.slice(7) : undefined;
+  const presented = bearerToken(req);
   if (presented === undefined || (await verifyClipToken(clipsVault, presented)) === null) {
     return json({ error: "unauthorized" }, 401);
   }
@@ -522,6 +528,47 @@ async function handleClipRelated(
   return json(out);
 }
 
+// GET /v1/briefs/{id} — bearer-authed read of an in-memory run. Mounted in the fetch handler,
+// NOT in dispatchReadOnlyDataGet: that table is documented "no bearer gate", so routing briefs
+// through it would expose a user's research report to any local process on the machine.
+const BRIEF_GET_RE = /^\/v1\/briefs\/([A-Za-z0-9_]{1,64})$/;
+
+/** Kept identical to http-write-routes.ts BRIEF_DISABLED_HINT — one string, two surfaces. */
+const BRIEFS_DISABLED_HINT = "research briefs disabled — enable [briefs] in nimbus.toml";
+
+async function handleBriefGet(
+  req: Request,
+  id: string,
+  opts: ReadOnlyHttpServerOptions,
+): Promise<Response> {
+  const clipsVault = opts.clipsVault;
+  const runs = opts.briefRuns;
+  if (clipsVault === undefined || runs === undefined) {
+    // Same body as the POST routes' 404 so the client renders one string, not two.
+    return json({ error: "briefs_disabled", hint: BRIEFS_DISABLED_HINT }, 404);
+  }
+  // Shared parser from http-auth.ts (Task 1) — same header handling as the write dispatcher.
+  const presented = bearerToken(req);
+  if (presented === undefined || (await verifyClipToken(clipsVault, presented)) === null) {
+    return json({ error: "unauthorized" }, 401);
+  }
+  const run = runs.get(id);
+  if (run === null) {
+    return runs.wasKnown(id) ? json({ error: "expired" }, 410) : json({ error: "not_found" }, 404);
+  }
+  // `failureReason`, NOT `error`: on every other route here `error` means an HTTP-level
+  // failure, so reusing it for a legitimately-failed run would make `if (body.error)` —
+  // the obvious client check — misread a normal outcome as a transport error.
+  return json(
+    {
+      status: run.status,
+      ...(run.report === null ? {} : { report: run.report }),
+      ...(run.error === null ? {} : { failureReason: run.error }),
+    },
+    200,
+  );
+}
+
 // Web-clipper write seam — present only when BOTH clipsVault AND pairingController are wired.
 // pairingController is a singleton from assemble.ts (Task 7); http-server never constructs one.
 // Capture into locals so TS narrows them inside the closures (avoids non-null assertions).
@@ -539,6 +586,30 @@ function buildClipsSeam(writeDb: Database, opts: ReadOnlyHttpServerOptions) {
       return token;
     },
     ingest: (input: unknown) => ingestClip(writeDb, validateClipInput(input), scheduleEmbedding),
+  };
+}
+
+// Research-briefs write seam — present only when clipsVault, briefRuns, briefStartRun, AND
+// briefSave are ALL wired. verifyToken reuses the same labeled clipper token map as the web
+// clipper (clipIngest precedent) — briefs never mint or hold their own token.
+function buildBriefsSeam(opts: ReadOnlyHttpServerOptions) {
+  const clipsVault = opts.clipsVault;
+  const controller = opts.briefRuns;
+  const startRun = opts.briefStartRun;
+  const save = opts.briefSave;
+  if (
+    clipsVault === undefined ||
+    controller === undefined ||
+    startRun === undefined ||
+    save === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    controller,
+    verifyToken: (t: string) => verifyClipToken(clipsVault, t),
+    startRun,
+    save,
   };
 }
 
@@ -573,6 +644,7 @@ async function resolveWriteRouteDeps(
   const policy = await resolvePolicyWriteDeps(opts);
   const messaging = await resolveMessagingSurface(opts);
   const clips = buildClipsSeam(writeDb, opts);
+  const briefs = buildBriefsSeam(opts);
   return {
     writeDb,
     expectedToken: await resolveExpectedToken(opts),
@@ -583,6 +655,7 @@ async function resolveWriteRouteDeps(
     ...(policy === undefined ? {} : { policy }),
     ...(messaging === undefined ? {} : { messaging }),
     ...(clips === undefined ? {} : { clips }),
+    ...(briefs === undefined ? {} : { briefs }),
   };
 }
 
@@ -654,6 +727,7 @@ export function startReadOnlyHttpServer(
     opts.resolveScimToken === undefined &&
     opts.resolveTeamsEventsSurface === undefined &&
     opts.clipsVault === undefined &&
+    opts.briefRuns === undefined &&
     (opts.authorPolicy === undefined || opts.resolveAdminToken === undefined)
       ? null
       : openI13WriteHandle(dbPath);
@@ -678,6 +752,11 @@ export function startReadOnlyHttpServer(
       // I13 write dispatcher so it never appears on the write surface allowlist.
       if (req.method === "POST" && url.pathname === "/v1/clips/related") {
         return handleClipRelated(req, db, opts);
+      }
+      // GET /v1/briefs/{id} — bearer-authed read; intercept before the unauthenticated GET table.
+      if (req.method === "GET") {
+        const briefGet = BRIEF_GET_RE.exec(url.pathname);
+        if (briefGet !== null) return await handleBriefGet(req, briefGet[1] as string, opts);
       }
       // All writes (deployment POST + SCIM POST/PATCH/DELETE + policy PUT) → the single I13 dispatcher.
       if (
