@@ -93,7 +93,7 @@ export const CREDENTIAL_REGISTRY: readonly CredentialEntry[] = [
   // --- Nimbus: release bot + auditor ---
   {
     name: "RELEASE_BOT_APP_ID",
-    state: "optional",
+    state: "forbidden",
     location: { scope: "repo", repo: "Nimbus" },
     product: "actions",
     type: "app-key",
@@ -101,12 +101,12 @@ export const CREDENTIAL_REGISTRY: readonly CredentialEntry[] = [
     consumedBy: [],
     maxAgeDays: null,
     hardDeadline: null,
-    note: "Superseded by RELEASE_BOT_CLIENT_ID (Nimbus#779); no workflow reads it any more, so it is safe to delete. Held at `optional` rather than `forbidden` deliberately: the secret still exists, and `forbidden` + present is a HARD failure that would red the monitor for a credential that is merely obsolete. Flip to `forbidden` once it is actually deleted.",
+    note: "Deleted 2026-07-22. Superseded by RELEASE_BOT_CLIENT_ID when the App-mint steps moved off the deprecated `app-id` input (Nimbus#779). No workflow reads it. If it reappears, someone has reintroduced the deprecated input.",
   },
   {
     name: "RELEASE_BOT_CLIENT_ID",
     state: "required",
-    location: { scope: "repo", repo: "Nimbus" },
+    location: { scope: "org" },
     product: "actions",
     type: "app-key",
     owner: OWNER,
@@ -116,22 +116,31 @@ export const CREDENTIAL_REGISTRY: readonly CredentialEntry[] = [
       ".github/workflows/publish-package-managers.yml",
       ".github/workflows/publish-linux-repo.yml",
       ".github/workflows/secret-health.yml",
+      "nimbus-client/.github/workflows/release.yml",
+      "nimbus-sdk/.github/workflows/release.yml",
     ],
     maxAgeDays: null,
     hardDeadline: null,
-    note: "Client ID is stable across key rotations, and is public (readable from GET /apps/{slug}) — stored as a secret for symmetry with SECRET_AUDITOR_CLIENT_ID and to keep it out of workflow diffs, not because it is sensitive. Replaced the deprecated `app-id` input at all 6 call sites.",
+    expectedVisibility: "all",
+    note: "Org secret (2026-07-22), visibility all — the client ID is public (readable from GET /apps/{slug}), so all-repo exposure costs nothing and it need never be touched again. Consolidated from per-repo copies on Nimbus + nimbus-client. Consumed by all three repos that mint Release Bot tokens.",
   },
   {
     name: "RELEASE_BOT_PRIVATE_KEY",
     state: "required",
-    location: { scope: "repo", repo: "Nimbus" },
+    location: { scope: "org" },
     product: "actions",
     type: "app-key",
     owner: OWNER,
-    consumedBy: [".github/workflows/release.yml", ".github/workflows/release-please.yml"],
+    consumedBy: [
+      ".github/workflows/release.yml",
+      ".github/workflows/release-please.yml",
+      "nimbus-client/.github/workflows/release.yml",
+      "nimbus-sdk/.github/workflows/release.yml",
+    ],
     maxAgeDays: 365,
     hardDeadline: null,
-    note: "Mints 1-hour installation tokens; no schedule expiry, rotate on suspicion.",
+    expectedVisibility: "selected",
+    note: "Org secret (2026-07-22) SCOPED to Nimbus + nimbus-client + nimbus-sdk — the three repos that mint tokens. Deliberately NOT visibility:all: the key can mint contents/PRs/issues:write tokens for any installed repo, so the blast radius is kept to the repos that need it. Mints 1-hour installation tokens; no schedule expiry, rotate on suspicion (now one place, not three).",
   },
   {
     name: "SECRET_AUDITOR_CLIENT_ID",
@@ -158,34 +167,30 @@ export const CREDENTIAL_REGISTRY: readonly CredentialEntry[] = [
     note: "This system's own credential. Tracked here like any other.",
   },
 
-  // --- Nimbus: release-path PATs (gap 4, pending deletion) ---
+  // --- Nimbus: release-path PATs (retired 2026-07-22) ---
   {
     name: "RELEASE_PAT",
-    state: "required",
+    state: "forbidden",
     location: { scope: "repo", repo: "Nimbus" },
     product: "actions",
     type: "pat",
     owner: OWNER,
-    // Deliberately empty and VERIFIED empty: the App migration (#772) removed
-    // every reference. The note below names the workflows that must go green
-    // under the App before deletion — those are the GATE, not consumers.
     consumedBy: [],
-    maxAgeDays: 90,
+    maxAgeDays: null,
     hardDeadline: null,
-    note: "Superseded by the Release Bot App (#772). Flips to `forbidden` and is deleted once release.yml, publish-package-managers.yml and publish-linux-repo.yml have gone green under the App on a real tag.",
+    note: "Deleted 2026-07-22. Superseded by the Release Bot App (#772); the gate was met when v0.23.1 published under the App with publish-package-managers.yml + publish-linux-repo.yml both green. If this reappears, someone has reintroduced a PAT where the App now works.",
   },
   {
     name: "PACKAGE_MANAGER_PAT",
-    state: "required",
+    state: "forbidden",
     location: { scope: "repo", repo: "Nimbus" },
     product: "actions",
     type: "pat",
     owner: OWNER,
-    // Deliberately empty and VERIFIED empty — see RELEASE_PAT above.
     consumedBy: [],
-    maxAgeDays: 90,
+    maxAgeDays: null,
     hardDeadline: null,
-    note: "Superseded by the Release Bot App (#772). Same gate as RELEASE_PAT before deletion.",
+    note: "Deleted 2026-07-22. Same App gate as RELEASE_PAT (WINGET_PAT stays — it forks an external repo the App cannot reach). If this reappears, someone has reintroduced a PAT the App migration retired.",
   },
   {
     name: "WINGET_PAT",
