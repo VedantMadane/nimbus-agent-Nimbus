@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784813895318,
+  "lastUpdate": 1784818011913,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -4113,6 +4113,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 308.90081495000595,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c67a5ff4d064d5e0beeedbf416a2be81fd94d114",
+          "message": "docs: Stage 2 re-cut design + PR 1 consumption plan (#814)\n\nDocs-only. Adds the approved Stage 2 design spec\n(`docs/superpowers/specs/2026-07-23-stage-2-recut-design.md`) and the\nimplementation plan for its first deliverable\n(`docs/superpowers/plans/2026-07-23-stage-2-pr1-consumption.md`),\nfollowing the Stage 0/Stage 1 convention of keeping ecosystem\nspecs/plans in this repo.\n\nScope decided 2026-07-23: mandatory client-consumption PR, then 2e-core,\n2d, 2b, 2c in full, plus a build/don't-build data-quality spike for 2a.\nPR 1 itself is already open as nimbus-vscode#45.\n\nLocal verification: lychee (4/4 links OK) + markdownlint (0 errors) on\nboth files.\n\nNote: this is a docs-only PR — the first since #788's\n`pr-quality-required` fix; it should be mergeable without bypass, which\nconfirms that fix end-to-end.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Documentation**\n* Added a detailed implementation plan for integrating the Stage 1\nclient surface into the VS Code extension.\n* Added a design specification outlining the Stage 2 roadmap,\ndeliverables, sequencing, risks, and decisions.\n* Documented planned improvements for session listing, connector health\nreporting, troubleshooting diagnostics, and restricted-mode behavior.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-23T14:34:28Z",
+          "tree_id": "033f3def335ddb48c2a289d6f6aa03710730f3e8",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/c67a5ff4d064d5e0beeedbf416a2be81fd94d114"
+        },
+        "date": 1784818010852,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 319.43109809999515,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 319.6501751000025,
             "unit": "ms"
           }
         ]
