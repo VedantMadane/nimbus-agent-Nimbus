@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784748144606,
+  "lastUpdate": 1784787234235,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -3909,6 +3909,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 278.8543202999921,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "91b4f581d13f795210952a663f83a9bf70cd6dae",
+          "message": "refactor(agents): consume the SDK's brief types; add the fixture generator (#804)\n\nStage 1 Wave 1a, PR 3 of 3 — the piece that actually deletes the\nduplication.\nRequires `@nimbus-dev/sdk@1.5.0` (nimbus-sdk#20 + #21), **published**,\nso the lockfile resolves.\n\n## Why\n\nThe eight composed agent-brief types and their eight runtime guards were\nwritten **twice** in this\nrepo — `gateway/src/agents/_lib/findings.ts` and\n`cli/src/types/agents.ts` — and exported by neither\nthe SDK nor anything else. `@nimbus-dev/client` needed them to expose\nthe `agents.*` namespace, so\nwithout this they would have become a third hand-maintained copy.\n\n1.5.0 promoted them. This consumes them and deletes both local copies.\n\n## What changes\n\n- **`gateway/src/agents/_lib/findings.ts`** — re-exports from the SDK.\nIts public surface is\npreserved exactly: all 26 previously-importable symbols still import,\nplus `ExpertiseRank` (which\n  the file used internally but never exported).\n- **`gateway/src/federation/types.ts`** — `ExpertiseRank`'s canonical\nhome is now the SDK, because\n`GhostBrief` depends on it and it lived in this gateway-internal module.\nNote it needs an\n`import type` **plus** a local re-export, not a bare `export … from`:\nthis module *uses* the name,\nand a bare re-export doesn't bind it locally. Only `tsc` catches that —\n`bun test` passes either\n  way.\n- **`cli/src/types/agents.ts`** — same treatment. `GhostContextItem` and\n`ConflictCollision` are kept\nas aliases of the SDK's `FederatedItemLite` / `ConflictFinding`\n(identical shapes) so existing CLI\n  imports keep resolving.\n- **`scripts/gen-agent-brief-fixtures.ts`** — new. Drives the real\n`dispatchAgentsRpc` →\n`emitBriefWithSynthesis` path against an in-memory index and dumps the\neight `briefReady` payloads.\nIts output is the client's conformance fixture, so that gate is\ngenerated from gateway code rather\n  than hand-written.\n\n## Behaviour-preserving\n\nThe gateway's agent suite is **169/169, identical to the pre-change\nbaseline** captured before any\nsource was touched. CLI: 1766 pass / 8 pre-existing failures in\n`update.test.ts` (`mock.module`\ncontamination), the same 8 before and after, verified by re-running both\nrevisions.\n\nOne real behaviour change, deliberate: the CLI's `isExpertBrief` /\n`isImpactBrief` /\n`isCatchupBrief` were built **without** `requireQuery`, while all eight\ngateway guards use it. The\nCLI now consumes the strict SDK guards. No CLI test exercises a\nquery-less brief, so the green suite\nisn't evidence on its own — the safety argument is that `expert.ts`,\n`impact.ts` and `catchup.ts`\neach have exactly one brief-construction site and all unconditionally\nset `query`. Residual exposure\nis version skew, whose failure mode is an explicit \"Malformed payload\"\nerror, not silent corruption.\n\n## Verification\n\n`typecheck` clean across the workspace · gateway agents 169/169 · CLI\nagent types 14/14 ·\n`biome check packages scripts` 2905 files clean · `lint:markdown` 0\nerrors across 102 files.\n\nTwo notes on running gates locally in a worktree under `.claude/`:\n\n- `bun run lint` passes `.`, which `biome.json` ignores via\n`!**/.claude`, so it exits 1 with \"paths\nprovided but ignored\". Use explicit paths — `biome check packages\nscripts`.\n- `bun test packages/gateway/src/federation/` hangs on Windows on `main`\nand this branch alike\n(isolated to `consent-broker.test.ts` / `preflight-runner.test.ts`;\nneither imports\n`federation/types.ts`, so this change carries no risk there). Verified\nper-file instead; CI/Linux\n  is authoritative.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-23T09:00:35+03:00",
+          "tree_id": "981807636837e3dc40275cdf0d69b8e04f118b52",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/91b4f581d13f795210952a663f83a9bf70cd6dae"
+        },
+        "date": 1784787233476,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 339.393312850003,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 341.5814185000112,
             "unit": "ms"
           }
         ]
