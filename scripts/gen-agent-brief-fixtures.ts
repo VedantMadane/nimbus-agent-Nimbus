@@ -21,32 +21,52 @@ const PARAMS: Record<string, Record<string, unknown>> = {
   preflight: { ref: "HEAD", namespace: "payments" },
 };
 
-const out: Record<string, unknown> = {};
+/**
+ * Drive every agent through the real dispatch path and collect its `briefReady`
+ * payload. Exported so the shape-snapshot test can call this directly rather than
+ * shelling out and parsing stdout.
+ */
+export async function generateAgentBriefFixtures(): Promise<Record<string, unknown>> {
+  const out: Record<string, unknown> = {};
 
-for (const [agent, params] of Object.entries(PARAMS)) {
-  // Same schema bootstrap the agents-rpc tests use (`freshDb()` in agents-rpc.test.ts).
-  const db = new Database(":memory:");
-  LocalIndex.ensureSchema(db);
+  for (const [agent, params] of Object.entries(PARAMS)) {
+    // Same schema bootstrap the agents-rpc tests use (`freshDb()` in agents-rpc.test.ts).
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
 
-  const payload = await new Promise<unknown>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${agent} never emitted`)), 20_000);
-    void dispatchAgentsRpc(`agents.${agent}`, params, {
-      db,
-      notify: (method: string, p: unknown) => {
-        if (method === `${agent}.briefReady`) {
+    try {
+      out[agent] = await new Promise<unknown>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`${agent} never emitted`)), 20_000);
+        const settle = (fn: () => void): void => {
           clearTimeout(timer);
-          resolve(p);
-        }
-        if (method === `${agent}.briefError`) {
-          clearTimeout(timer);
-          reject(new Error(`${agent} errored: ${JSON.stringify(p)}`));
-        }
-      },
-    });
-  });
+          fn();
+        };
+        // The dispatch promise must be caught, not discarded: a synchronous
+        // validation failure (a bad PARAMS entry) rejects here without ever
+        // calling notify, and a discarded rejection would stall for the full
+        // 20s timeout and then report the misleading "never emitted".
+        dispatchAgentsRpc(`agents.${agent}`, params, {
+          db,
+          notify: (method: string, p: unknown) => {
+            if (method === `${agent}.briefReady`) settle(() => resolve(p));
+            if (method === `${agent}.briefError`) {
+              settle(() => reject(new Error(`${agent} errored: ${JSON.stringify(p)}`)));
+            }
+          },
+        }).catch((err: unknown) => {
+          settle(() => reject(err instanceof Error ? err : new Error(String(err))));
+        });
+      });
+    } finally {
+      // finally, so a rejection above cannot leak this agent's database handle.
+      db.close();
+    }
+  }
 
-  out[agent] = payload;
-  db.close();
+  return out;
 }
 
-process.stdout.write(`${JSON.stringify(out, null, 2)}\n`);
+// CLI entry: bun run scripts/gen-agent-brief-fixtures.ts > agent-briefs.json
+if (import.meta.main) {
+  process.stdout.write(`${JSON.stringify(await generateAgentBriefFixtures(), null, 2)}\n`);
+}
