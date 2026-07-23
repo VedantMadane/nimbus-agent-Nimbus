@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784808669095,
+  "lastUpdate": 1784810205531,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -4045,6 +4045,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 322.0625382999911,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cc2b07fb65e49bacc8cc208d8b84986527d2ae65",
+          "message": "fix(ipc): the connector HITL prompts named params no caller sends (#811)\n\nCloses #808.\n\nBoth HITL-gated `connector.*` methods built their consent payload from\nparameter keys that no caller sends, so every field was `undefined`:\n\n| Method | Gate read | Handler actually reads |\n| --- | --- | --- |\n| `connector.addMcp` | `command`, `args` | `serviceId`, `commandLine`\n(derives command/args itself via `parseUserMcpCommandLine`) |\n| `connector.remove` | `service` | `serviceId` (via\n`requireRegisteredSchedulerServiceId`) |\n\n## Why this is more than a blank prompt\n\n`JSON.stringify` drops `undefined`, so `\"payload\":{}` reached all three\nsinks `executor.gate()` feeds:\n\n- the owner's consent prompt\n- the audit row (`auditPayload` → `redactAuditPayload({ action })`)\n- the BLAKE3-chained I29 egress-ledger row (`buildEgressEntry({ action,\n... })`)\n\nFor the one action class that causes the gateway to **spawn an arbitrary\nlocal process**, the prompt showed nothing about which binary was being\nauthorized — and `nimbus prove` over a window containing an `addMcp`\ncould attest that *an* addMcp was approved but not *which command*,\nwhich is most of what the proof is for.\n\n**I2/I3 were never violated.** The gate fires, on `action.type`, for\nboth methods; the frozen-set membership check is correct. What failed is\nthe *informed* half of human-in-the-loop. A gate the owner cannot read\nis a gate the owner learns to click through.\n\n## The fix\n\nEach payload now names the keys its handler consumes. `addMcp` shows the\nraw `commandLine` rather than a re-derived `command` + `args` — it is\nwhat the caller asked for, so the prompt cannot disagree with what the\nhandler goes on to parse.\n\n## Why it survived until now\n\nThe test stub recorded only `{ type }` from the gate call and threw the\npayload away, so every existing assertion looked past the one field that\nwas empty. It now records the full action.\n\nBoth new guards assert through a **JSON round-trip**, because that is\nthe transform the audit and egress sinks apply: a payload of\nall-`undefined` fields passes a naive `toEqual({})` and is precisely the\nbug.\n\n**Red-proven** — against the unfixed source, 3 failures (the two new\nguards plus the strengthened existing assertion), each reporting a\nreceived payload of `{}`.\n\n## Verification\n\n- `bun test packages/gateway/src/ipc/connector-rpc-routing.test.ts` — 15\npass\n- `bun test packages/gateway/src/engine/ packages/gateway/src/egress/\npackages/gateway/src/security-invariants.test.ts` — 501 pass, 0 fail\n(the gate's three consumers)\n- `bun run typecheck` — clean; `bunx biome check packages scripts` —\n2909 files, clean\n- `scripts/structure-audit/check-nimbus-invariants.ts` — exit 0\n\n**Unrelated pre-existing failure, not introduced here:**\n`handleConnectorAuth > google_drive reaches its provider arm...` times\nout in the combined `bun test packages/gateway/src/ipc/` run but passes\nin isolation. Confirmed identical on unmodified `main`. Filing\nseparately rather than folding a flake fix into a security change.\n\nFound while exposing `connector.*` in `@nimbus-dev/client` (Stage 1 wave\n1g).\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-23T15:25:16+03:00",
+          "tree_id": "f822a10aa892a9edc8a81c7eee1ea9c248b8c91c",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/cc2b07fb65e49bacc8cc208d8b84986527d2ae65"
+        },
+        "date": 1784810204874,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 296.64958349999944,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 303.5437580999991,
             "unit": "ms"
           }
         ]
