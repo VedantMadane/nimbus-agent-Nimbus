@@ -1,7 +1,9 @@
 import type { Database } from "bun:sqlite";
 
 import { dbRun } from "../db/write.ts";
+import { itemPrimaryKey } from "../index/item-key.ts";
 import { readIndexedUserVersion } from "../index/migrations/runner.ts";
+import { extractCommitShas, extractIssueRefs, type IssueRefs } from "./graph-refs.ts";
 import {
   ensureGraphEntity,
   isItemLinkedGraphType,
@@ -14,9 +16,40 @@ export type IndexedItemGraphInput = {
   service: string;
   type: string;
   title: string;
+  bodyPreview: string | null;
   authorId: string | null;
   metadata: Record<string, unknown>;
 };
+
+/**
+ * F1: structurally mirrors `metrics/service-identity.ts`'s
+ * `ServiceIdentityResolution` — declared independently here (not imported)
+ * for the same reason `ResolveServiceId` below is structural rather than an
+ * import: `graph/` must stay free of a `metrics/` import (`audit:boundaries`
+ * depends on this). `bound`/`excluded`/`unknown` are distinguished on
+ * purpose: `excluded` (a `ServiceConfig` claimed the item but I-1/F2's
+ * deploy-environment gate rejected it) must bind nothing, while `unknown`
+ * (nothing in the config map claims the item at all) is the only case where
+ * `syncTimelineEventGraph` may still fall back to `metadata.service`. A bare
+ * `undefined` could not tell these apart, which is exactly what let a
+ * gate-excluded preview deployment get silently re-bound via the
+ * `metadata.service` fallback.
+ */
+export type ResolveServiceIdResult =
+  | { readonly kind: "bound"; readonly serviceId: string }
+  | { readonly kind: "excluded" }
+  | { readonly kind: "unknown" };
+
+/**
+ * Matches `SyncContext["resolveServiceId"]` (`sync/types.ts`). Threaded down
+ * to `syncTimelineEventGraph` only — every other populator branch keys off
+ * `metadata.repo`/`metadata.channel`/etc, not a service-identity binding.
+ */
+export type ResolveServiceId = (item: {
+  readonly service: string;
+  readonly type: string;
+  readonly metadata: Record<string, unknown>;
+}) => ResolveServiceIdResult;
 
 function stringField(meta: Record<string, unknown>, key: string): string | undefined {
   const v = meta[key];
@@ -34,8 +67,156 @@ function repoPathFromMetadata(meta: Record<string, unknown>): string | undefined
   return stringField(meta, "repo") ?? stringField(meta, "project");
 }
 
+/**
+ * Relation types whose two endpoints come from *different* items' syncs.
+ * The blanket clear below must not touch them: the entity being cleared is
+ * only one endpoint, and the other side is authoritative for the edge.
+ * Each emitting sync function clears its own outgoing edges of these types
+ * via `clearOutgoingRelationsOfType` immediately before re-emitting them.
+ */
+const CROSS_ITEM_RELATION_TYPES: readonly string[] = Object.freeze([
+  "resolves",
+  "mentions",
+  "correlates_with",
+]);
+
 function clearRelationsTouchingEntity(db: Database, entityId: string): void {
-  dbRun(db, "DELETE FROM graph_relation WHERE from_id = ? OR to_id = ?", [entityId, entityId]);
+  const placeholders = CROSS_ITEM_RELATION_TYPES.map(() => "?").join(", ");
+  dbRun(
+    db,
+    `DELETE FROM graph_relation
+      WHERE (from_id = ? OR to_id = ?)
+        AND type NOT IN (${placeholders})`,
+    [entityId, entityId, ...CROSS_ITEM_RELATION_TYPES],
+  );
+}
+
+/**
+ * Clear one entity's outgoing edges of a single cross-item relation type.
+ * Call this from the *emitting* side before re-emitting, so a reference
+ * removed from a PR body or message body disappears from the graph.
+ * `clearRelationsTouchingEntity` deliberately skips these types (Task 1),
+ * so this is the only thing that retires them.
+ */
+function clearOutgoingRelationsOfType(db: Database, fromId: string, relationType: string): void {
+  dbRun(db, "DELETE FROM graph_relation WHERE from_id = ? AND type = ?", [fromId, relationType]);
+}
+
+/**
+ * The mirror of `clearOutgoingRelationsOfType`, for a cross-item edge whose
+ * *target* decides whether the edge still belongs: an incident that moves in
+ * time or changes service must drop the correlations pointing at it, and only
+ * the incident's own sync knows that.
+ */
+function clearIncomingRelationsOfType(db: Database, toId: string, relationType: string): void {
+  dbRun(db, "DELETE FROM graph_relation WHERE to_id = ? AND type = ?", [toId, relationType]);
+}
+
+/**
+ * I-3 fast path: try the two REAL, indexed `external_id` shapes a numeric
+ * ref can resolve to before falling back to a metadata scan. Both are exact
+ * primary-key lookups (`graph_entity` is unique-indexed on `external_id`),
+ * so this is O(log n) regardless of how many issues are indexed:
+ *   - `${repo}#issue-${n}` — GitHub issues (`connectors/github-sync.ts`
+ *     `upsertFromIssue`; GitHub's PRs and issues share one number space, so
+ *     issues are namespaced under `#issue-<n>` to avoid colliding with a PR
+ *     indexed as plain `${repo}#${n}`).
+ *   - `${repo}#${n}` — GitLab issues (`connectors/_lib/gitlab/events.ts`).
+ * Returns `undefined` when neither shape matches, so the caller falls
+ * through to the metadata scan (still required for correctness — a repo
+ * that indexes issues under neither shape, or where the ref's number
+ * doesn't line up 1:1 with either flat key, only resolves that way).
+ */
+function findIssueByIndexedExternalId(
+  db: Database,
+  service: string,
+  repoFull: string,
+  n: number,
+): string | undefined {
+  const githubExt = itemPrimaryKey(service, `${repoFull}#issue-${n}`);
+  const githubRow = db
+    .query("SELECT id FROM graph_entity WHERE type = 'issue' AND external_id = ? LIMIT 1")
+    .get(githubExt) as { id?: string } | null;
+  if (githubRow?.id !== undefined) return githubRow.id;
+
+  const gitlabExt = itemPrimaryKey(service, `${repoFull}#${n}`);
+  const gitlabRow = db
+    .query("SELECT id FROM graph_entity WHERE type = 'issue' AND external_id = ? LIMIT 1")
+    .get(gitlabExt) as { id?: string } | null;
+  return gitlabRow?.id;
+}
+
+/**
+ * Resolve a PR/message reference to an existing `issue` graph entity.
+ * Numeric refs are scoped to the referring item's own repo and service —
+ * `#4` means a different issue in a different repo. Ticket keys are
+ * service-agnostic, since the tracker is usually not the forge.
+ *
+ * Numeric refs try the indexed `external_id` shapes first
+ * (`findIssueByIndexedExternalId`) — an exact-match lookup against
+ * `graph_entity`'s unique index, ~3000x cheaper than the fallback below at
+ * realistic issue counts (measured 0.002ms vs 5.8ms/ref). Only when NEITHER
+ * indexed shape matches does this fall back to matching against the
+ * referenced item's own `metadata.number` + `metadata.repo` (a sub-select/join
+ * against `item`, since `graph_entity` itself carries no item metadata) —
+ * this scan is what originally replaced a forge-agnostic `<repo>#<n>` guess,
+ * which collides with GitHub's shared PR/issue number space; it stays as the
+ * correctness fallback for any repo/ref combination the two indexed shapes
+ * don't cover.
+ */
+function findIssueEntityIds(
+  db: Database,
+  service: string,
+  repoFull: string | undefined,
+  refs: IssueRefs,
+): string[] {
+  const ids: string[] = [];
+
+  if (repoFull !== undefined) {
+    for (const n of refs.numeric) {
+      const indexedId = findIssueByIndexedExternalId(db, service, repoFull, n);
+      if (indexedId !== undefined) {
+        ids.push(indexedId);
+        continue;
+      }
+
+      const metaRow = db
+        .query(
+          `SELECT e.id AS id
+             FROM graph_entity e
+             JOIN item i ON i.id = e.external_id
+            WHERE e.type = 'issue'
+              AND e.service = ?
+              AND json_extract(i.metadata, '$.number') = ?
+              AND json_extract(i.metadata, '$.repo') = ?
+            LIMIT 1`,
+        )
+        .get(service, n, repoFull) as { id?: string } | null;
+      if (metaRow?.id !== undefined) ids.push(metaRow.id);
+    }
+  }
+
+  for (const key of refs.ticketKeys) {
+    // If two different trackers both use the ticket key (e.g. two services
+    // each with a "NIM-88"), `id` is a SHA-256 hash, so `ORDER BY id ASC`
+    // picks a winner arbitrarily rather than by any meaningful precedence.
+    //
+    // The `LIKE '%:' || ?` pattern is injection-safe only because
+    // `TICKET_KEY_RE` (graph-refs.ts) cannot emit `%` or `_` — its charset
+    // is `[A-Z][A-Z0-9]{1,9}-\d+`. If that regex is ever loosened to allow
+    // those characters, this LIKE clause would silently start producing
+    // false matches.
+    const row = db
+      .query(
+        `SELECT id FROM graph_entity
+          WHERE type = 'issue' AND (external_id = ? OR external_id LIKE '%:' || ?)
+          ORDER BY id ASC LIMIT 1`,
+      )
+      .get(key, key) as { id?: string } | null;
+    if (row?.id !== undefined) ids.push(row.id);
+  }
+
+  return Array.from(new Set(ids));
 }
 
 function personDisplayName(db: Database, personId: string): string | null {
@@ -92,6 +273,12 @@ function syncPrGraph(db: Database, row: IndexedItemGraphInput, now: number): voi
       metadata: { sha: mergeSha },
     });
     upsertGraphRelation(db, prEntityId, commitEntityId, "merged_as", now);
+  }
+
+  clearOutgoingRelationsOfType(db, prEntityId, "resolves");
+  const refs = extractIssueRefs(`${row.title}\n${row.bodyPreview ?? ""}`);
+  for (const issueId of findIssueEntityIds(db, row.service, repoFull, refs)) {
+    upsertGraphRelation(db, prEntityId, issueId, "resolves", now);
   }
 }
 
@@ -267,6 +454,35 @@ function syncCodeSymbolGraph(db: Database, row: IndexedItemGraphInput, now: numb
   }
 }
 
+/**
+ * Resolve commit SHAs to `commit` entities by their `<service>:<sha>` external id.
+ *
+ * The extracted string is treated as a PREFIX of the stored SHA, anchored to the
+ * start of the SHA portion. This is load-bearing: commits are indexed with full
+ * 40-character SHAs, but people cite them in chat as 7-character short SHAs — the
+ * exact case `COMMIT_SHA_RE`'s `{7,40}` bound exists to catch. An exact-suffix
+ * match (`LIKE '%:' || ?`) matches only full-length SHAs and silently emits
+ * nothing for every realistic short-SHA mention.
+ *
+ * When a short prefix is ambiguous across services the tie-break is arbitrary,
+ * the same limitation `findIssueEntityIds` carries for duplicate ticket keys.
+ */
+function findCommitEntityIds(db: Database, shas: readonly string[]): string[] {
+  const ids: string[] = [];
+  for (const sha of shas) {
+    const row = db
+      .query(
+        `SELECT id FROM graph_entity
+          WHERE type = 'commit'
+            AND substr(external_id, instr(external_id, ':') + 1) LIKE ? || '%'
+          ORDER BY id ASC LIMIT 1`,
+      )
+      .get(sha) as { id?: string } | null;
+    if (row?.id !== undefined) ids.push(row.id);
+  }
+  return ids;
+}
+
 function syncMessageGraph(db: Database, row: IndexedItemGraphInput, now: number): void {
   const msgEntityId = upsertGraphEntity(db, {
     type: "message",
@@ -299,6 +515,16 @@ function syncMessageGraph(db: Database, row: IndexedItemGraphInput, now: number)
       service: row.service,
     });
     upsertGraphRelation(db, msgEntityId, chId, "belongs_to", now);
+  }
+
+  clearOutgoingRelationsOfType(db, msgEntityId, "mentions");
+  const text = `${row.title}\n${row.bodyPreview ?? ""}`;
+  const mentioned = new Set<string>([
+    ...findIssueEntityIds(db, row.service, undefined, extractIssueRefs(text)),
+    ...findCommitEntityIds(db, extractCommitShas(text)),
+  ]);
+  for (const targetId of mentioned) {
+    upsertGraphRelation(db, msgEntityId, targetId, "mentions", now);
   }
 }
 
@@ -368,7 +594,180 @@ function syncDataQualityTestGraph(db: Database, row: IndexedItemGraphInput, now:
   }
 }
 
-export function syncGraphFromIndexedItem(db: Database, row: IndexedItemGraphInput): void {
+/** An incident this long after a deploy of the same service is treated as related. */
+const CORRELATION_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+type TimelineRow = { id: string; occurred_at: number };
+
+/**
+ * Every counterpart within the window — unbounded. The 2-hour same-service
+ * window (`CORRELATION_WINDOW_MS`) is itself the only cap: it already bounds
+ * the result to genuine activity, so a row cap on top of it is not a safety
+ * net. Both call sites clear their entire owned direction before re-emitting
+ * (see `syncTimelineEventGraph`'s clear/emit pair), so this query's result
+ * MUST be the complete in-window set — a truncated re-emit after a full clear
+ * silently destroys edges the other side legitimately created. If a service
+ * genuinely produces 200 incidents within two hours of a deploy, 200 edges is
+ * the correct answer; ranking or truncating for display belongs to a reader
+ * (e.g. the `why` agent), where it is visible rather than destructive.
+ *
+ * Results are still ordered NEAREST-FIRST, purely for determinism now that
+ * there is no cap for the ordering to protect. The direction of "nearest"
+ * differs per side, which is why it is a parameter rather than a constant. A
+ * deployment looks FORWARD (`[D, D+W]`), so nearest is the earliest incident
+ * — `ASC`. An incident looks BACKWARD (`[I-W, I]`), so nearest is the latest
+ * deployment — `DESC`.
+ *
+ * The `id` tie-break makes the ordering deterministic when two entities share
+ * a timestamp; SQLite is stable in practice but does not guarantee it.
+ */
+function timelineCounterparts(
+  db: Database,
+  counterpartType: "incident" | "deployment",
+  affectedService: string,
+  windowFrom: number,
+  windowTo: number,
+  nearestFirst: "ASC" | "DESC",
+): TimelineRow[] {
+  const order = nearestFirst === "ASC" ? "ASC" : "DESC";
+  return db
+    .query(
+      `SELECT id,
+              CAST(json_extract(metadata, '$.occurredAt') AS INTEGER) AS occurred_at
+         FROM graph_entity
+        WHERE type = ?
+          AND json_extract(metadata, '$.affectedService') = ?
+          AND CAST(json_extract(metadata, '$.occurredAt') AS INTEGER) BETWEEN ? AND ?
+        ORDER BY occurred_at ${order}, id ASC`,
+    )
+    .all(counterpartType, affectedService, windowFrom, windowTo) as TimelineRow[];
+}
+
+/**
+ * F1: `resolveServiceId` returning `excluded` means a `ServiceConfig`
+ * claimed this item but I-1/F2's deploy-environment gate rejected it — the
+ * caller MUST bind nothing, so this must NOT fall back to
+ * `metadata.service`. Only `unknown` (nothing in the config map claims the
+ * item at all) or no resolver being wired at all falls back, exactly as
+ * before this fix. Falling back on `excluded` is precisely the bug F1 fixed:
+ * a gate-excluded preview deployment carrying `metadata.service` (e.g. from
+ * a future or third-party deploy connector) would otherwise silently
+ * re-bind and produce the false causal edge the gate exists to prevent.
+ */
+function resolveAffectedService(
+  row: IndexedItemGraphInput,
+  resolveServiceId: ResolveServiceId | undefined,
+): string | undefined {
+  const resolution = resolveServiceId?.(row);
+  if (resolution === undefined || resolution.kind === "unknown") {
+    return stringField(row.metadata, "service");
+  }
+  return resolution.kind === "bound" ? resolution.serviceId : undefined;
+}
+
+/**
+ * Incidents and deployments are timeline anchors: the graph needs them as
+ * entities so a change can be correlated with what it responded to or
+ * caused. `occurredAt` is the item's `modified_at`, which every connector
+ * sets to the event time.
+ */
+function syncTimelineEventGraph(
+  db: Database,
+  row: IndexedItemGraphInput,
+  entityType: "incident" | "deployment",
+  occurredAt: number,
+  now: number,
+  resolveServiceId: ResolveServiceId | undefined,
+): void {
+  const affectedService = resolveAffectedService(row, resolveServiceId);
+  const entityId = upsertGraphEntity(db, {
+    type: entityType,
+    externalId: row.id,
+    label: row.title,
+    service: row.service,
+    metadata: { occurredAt, affectedService: affectedService ?? null },
+  });
+  clearRelationsTouchingEntity(db, entityId);
+
+  // Retire first, unconditionally. These clears MUST precede the
+  // `affectedService === undefined` bail-out: an entity that previously had a
+  // service (and so emitted edges) and is re-synced without one would otherwise
+  // return before retiring them, leaving the graph asserting "this deploy caused
+  // that incident" while the deploy itself no longer claims any service.
+  //
+  // The pair is load-bearing because `clearRelationsTouchingEntity` skips
+  // `correlates_with` entirely. Each side owns one direction: a deployment owns
+  // its outgoing edges, an incident its incoming ones, and only that entity's
+  // own sync knows its current window and service.
+  if (entityType === "deployment") {
+    clearOutgoingRelationsOfType(db, entityId, "correlates_with");
+  } else {
+    clearIncomingRelationsOfType(db, entityId, "correlates_with");
+  }
+
+  // A null service correlates with nothing. Bail out only AFTER the clears.
+  if (affectedService === undefined) return;
+
+  if (entityType === "deployment") {
+    for (const inc of timelineCounterparts(
+      db,
+      "incident",
+      affectedService,
+      occurredAt,
+      occurredAt + CORRELATION_WINDOW_MS,
+      "ASC", // forward window: nearest incident is the earliest after the deploy
+    )) {
+      upsertGraphRelation(db, entityId, inc.id, "correlates_with", now);
+    }
+    return;
+  }
+
+  // An incident syncing after its deploy must still create the edge, and the
+  // edge is always directed deployment -> incident.
+  for (const dep of timelineCounterparts(
+    db,
+    "deployment",
+    affectedService,
+    occurredAt - CORRELATION_WINDOW_MS,
+    occurredAt,
+    "DESC", // backward window: nearest deploy is the latest before the incident
+  )) {
+    upsertGraphRelation(db, dep.id, entityId, "correlates_with", now);
+  }
+}
+
+/**
+ * Read the item's event time back from the row written immediately before this
+ * populator call. `upsertIndexedItem` inserts and then calls the populator
+ * synchronously on the same handle, so the row is always present on the
+ * production path.
+ *
+ * A missing row therefore means the caller reached the populator without
+ * writing the item — a programming error, and the only way to get here is a
+ * direct `syncGraphFromIndexedItem` call that skipped the insert (an idiom six
+ * sibling test files already use for other item types). Throw rather than
+ * default: the correlation task correlates deployments to incidents on this
+ * timestamp, so a fabricated `Date.now()` would yield a confidently WRONG
+ * correlation instead of an obvious failure.
+ */
+function occurredAtForItem(db: Database, itemId: string): number {
+  const row = db.query("SELECT modified_at FROM item WHERE id = ?").get(itemId) as {
+    modified_at: number;
+  } | null;
+  if (row === null) {
+    throw new Error(
+      `occurredAtForItem: no item row for "${itemId}" — the populator was called without ` +
+        "writing the item first; the timeline entity would carry a fabricated timestamp.",
+    );
+  }
+  return row.modified_at;
+}
+
+export function syncGraphFromIndexedItem(
+  db: Database,
+  row: IndexedItemGraphInput,
+  resolveServiceId?: ResolveServiceId,
+): void {
   if (readIndexedUserVersion(db) < 7) {
     return;
   }
@@ -420,5 +819,27 @@ export function syncGraphFromIndexedItem(db: Database, row: IndexedItemGraphInpu
   }
   if (row.type === "data_quality_test") {
     syncDataQualityTestGraph(db, row, now);
+    return;
+  }
+  if (row.type === "incident") {
+    syncTimelineEventGraph(
+      db,
+      row,
+      "incident",
+      occurredAtForItem(db, row.id),
+      now,
+      resolveServiceId,
+    );
+    return;
+  }
+  if (row.type === "deployment") {
+    syncTimelineEventGraph(
+      db,
+      row,
+      "deployment",
+      occurredAtForItem(db, row.id),
+      now,
+      resolveServiceId,
+    );
   }
 }

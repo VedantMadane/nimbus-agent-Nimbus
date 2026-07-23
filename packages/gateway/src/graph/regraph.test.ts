@@ -1,0 +1,634 @@
+import { Database } from "bun:sqlite";
+import { expect, test } from "bun:test";
+
+import { upsertIndexedItem } from "../index/item-store.ts";
+import { LocalIndex } from "../index/local-index.ts";
+import type { ServiceConfig } from "../metrics/dora-config.ts";
+import { buildServiceIdentityResolver } from "../metrics/service-identity.ts";
+import { syncGraphFromIndexedItem } from "./graph-populator.ts";
+import { type RegraphResult, regraphAllItems } from "./regraph.ts";
+import { deterministicGraphEntityId } from "./relationship-graph.ts";
+
+/** Every `graph_relation` row touching one entity, ignoring weight/created_at. */
+function relationsTouching(
+  db: Database,
+  entityId: string,
+): Array<{ type: string; from_id: string; to_id: string }> {
+  return db
+    .query(
+      `SELECT type, from_id, to_id FROM graph_relation
+        WHERE from_id = ? OR to_id = ?
+        ORDER BY type, from_id, to_id`,
+    )
+    .all(entityId, entityId) as Array<{ type: string; from_id: string; to_id: string }>;
+}
+
+function freshDb(): Database {
+  const db = new Database(":memory:");
+  LocalIndex.ensureSchema(db);
+  return db;
+}
+
+/** Insert an item directly, bypassing the populator, to simulate pre-existing data. */
+function insertRawItem(
+  db: Database,
+  o: { service: string; type: string; externalId: string; title: string; body: string; at: number },
+): void {
+  db.run(
+    `INSERT INTO item (id, service, type, external_id, title, body_preview, modified_at, synced_at, metadata, pinned)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    [
+      `${o.service}:${o.externalId}`,
+      o.service,
+      o.type,
+      o.externalId,
+      o.title,
+      o.body,
+      o.at,
+      o.at,
+      JSON.stringify({ repo: "acme/app" }),
+    ],
+  );
+}
+
+test("backfill graphs items that were indexed before the populator knew how", () => {
+  const db = freshDb();
+  const now = Date.now();
+  insertRawItem(db, {
+    service: "github",
+    type: "issue",
+    externalId: "acme/app#4",
+    title: "Login broken",
+    body: "",
+    at: now,
+  });
+  insertRawItem(db, {
+    service: "github",
+    type: "pr",
+    externalId: "acme/app#1",
+    title: "Fix login",
+    body: "closes #4",
+    at: now,
+  });
+
+  expect((db.query("SELECT COUNT(*) AS n FROM graph_relation").get() as { n: number }).n).toBe(0);
+
+  const result = regraphAllItems(db);
+
+  expect(result.scanned).toBe(2);
+  expect(result.graphed).toBe(2);
+  expect(
+    (
+      db.query("SELECT COUNT(*) AS n FROM graph_relation WHERE type = 'resolves'").get() as {
+        n: number;
+      }
+    ).n,
+  ).toBe(1);
+});
+
+test("backfill skips item types the graph does not participate in", () => {
+  const db = freshDb();
+  const now = Date.now();
+  insertRawItem(db, {
+    service: "gdrive",
+    type: "file",
+    externalId: "f1",
+    title: "Notes",
+    body: "",
+    at: now,
+  });
+
+  const result = regraphAllItems(db);
+  expect(result.scanned).toBe(1);
+  expect(result.graphed).toBe(0);
+});
+
+test("backfill is idempotent", () => {
+  const db = freshDb();
+  const now = Date.now();
+  insertRawItem(db, {
+    service: "github",
+    type: "issue",
+    externalId: "acme/app#4",
+    title: "Login broken",
+    body: "",
+    at: now,
+  });
+  insertRawItem(db, {
+    service: "github",
+    type: "pr",
+    externalId: "acme/app#1",
+    title: "Fix login",
+    body: "closes #4",
+    at: now,
+  });
+
+  regraphAllItems(db);
+  regraphAllItems(db);
+
+  expect(
+    (
+      db.query("SELECT COUNT(*) AS n FROM graph_relation WHERE type = 'resolves'").get() as {
+        n: number;
+      }
+    ).n,
+  ).toBe(1);
+});
+
+test("one pass settles a forward reference that sorts the wrong way by id", () => {
+  const db = freshDb();
+  const now = Date.now();
+
+  // `github:acme/app#1` (the PR) sorts BEFORE `github:acme/app#4` (the issue),
+  // so an id-ordered backfill processes the PR while the issue entity does not
+  // yet exist and emits nothing. Type ordering is what makes one pass enough.
+  insertRawItem(db, {
+    service: "github",
+    type: "pr",
+    externalId: "acme/app#1",
+    title: "Fix login",
+    body: "closes #4",
+    at: now,
+  });
+  insertRawItem(db, {
+    service: "github",
+    type: "issue",
+    externalId: "acme/app#4",
+    title: "Login broken",
+    body: "",
+    at: now,
+  });
+
+  regraphAllItems(db);
+
+  expect(
+    (
+      db.query("SELECT COUNT(*) AS n FROM graph_relation WHERE type = 'resolves'").get() as {
+        n: number;
+      }
+    ).n,
+  ).toBe(1);
+});
+
+/**
+ * 5 issues + 5 PRs, each PR resolving the issue with the matching number.
+ * Both groups land in their own `REGRAPH_TYPE_ORDER` slice (issue, then pr),
+ * and each slice has >= 5 rows so a `batchSize: 1` run pages 5 times per
+ * slice instead of settling in one page.
+ */
+function insertIssuePrFixture(db: Database, now: number): void {
+  for (let n = 1; n <= 5; n++) {
+    insertRawItem(db, {
+      service: "github",
+      type: "issue",
+      externalId: `acme/app#${n}`,
+      title: `Issue ${n}`,
+      body: "",
+      at: now,
+    });
+  }
+  for (let n = 1; n <= 5; n++) {
+    insertRawItem(db, {
+      service: "github",
+      type: "pr",
+      externalId: `acme/app#${100 + n}`,
+      title: `Fix ${n}`,
+      body: `closes #${n}`,
+      at: now,
+    });
+  }
+}
+
+test("keyset pagination scans and graphs every row exactly once across multiple pages", () => {
+  const db = freshDb();
+  const now = Date.now();
+  insertIssuePrFixture(db, now);
+
+  const paged = regraphAllItems(db, { batchSize: 1 });
+
+  // 5 issues + 5 PRs. A skipped row would undercount; a repeated row (e.g. a
+  // cursor using `id >= lastId` re-fetching the same row) would overcount.
+  expect(paged.scanned).toBe(10);
+  expect(paged.graphed).toBe(10);
+
+  const pagedResolves = (
+    db.query("SELECT COUNT(*) AS n FROM graph_relation WHERE type = 'resolves'").get() as {
+      n: number;
+    }
+  ).n;
+  // Real resolves edges, not just row counts: each of the 5 PRs resolves its
+  // matching issue, and a skipped issue row would leave its PR's edge unresolved.
+  expect(pagedResolves).toBe(5);
+
+  // The same fixture run single-page (default batchSize, well above 10 rows)
+  // in a fresh DB must produce an identical graph — pagination must not
+  // change the outcome, only how many round trips it takes to get there.
+  const singlePageDb = freshDb();
+  insertIssuePrFixture(singlePageDb, now);
+  const singlePage = regraphAllItems(singlePageDb);
+
+  expect(singlePage.scanned).toBe(paged.scanned);
+  expect(singlePage.graphed).toBe(paged.graphed);
+  expect(
+    (
+      singlePageDb
+        .query("SELECT COUNT(*) AS n FROM graph_relation WHERE type = 'resolves'")
+        .get() as {
+        n: number;
+      }
+    ).n,
+  ).toBe(pagedResolves);
+});
+
+test("a corrupt metadata JSON row degrades to {} instead of aborting the backfill", () => {
+  const db = freshDb();
+  const now = Date.now();
+
+  // Malformed metadata, inserted directly with db.run: insertRawItem always
+  // JSON.stringifies, so it can never produce invalid JSON.
+  db.run(
+    `INSERT INTO item (id, service, type, external_id, title, body_preview, modified_at, synced_at, metadata, pinned)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    [
+      "github:acme/app#corrupt",
+      "github",
+      "issue",
+      "acme/app#corrupt",
+      "Corrupt metadata issue",
+      "",
+      now,
+      now,
+      "{not json",
+    ],
+  );
+
+  // NULL metadata: same fallback path (`parseMetadata`'s early return), no
+  // JSON.parse attempted at all.
+  db.run(
+    `INSERT INTO item (id, service, type, external_id, title, body_preview, modified_at, synced_at, metadata, pinned)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    [
+      "github:acme/app#nullmeta",
+      "github",
+      "issue",
+      "acme/app#nullmeta",
+      "Null metadata issue",
+      "",
+      now,
+      now,
+      null,
+    ],
+  );
+
+  // Empty-string metadata: the other explicit early-return branch.
+  db.run(
+    `INSERT INTO item (id, service, type, external_id, title, body_preview, modified_at, synced_at, metadata, pinned)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    [
+      "github:acme/app#emptymeta",
+      "github",
+      "issue",
+      "acme/app#emptymeta",
+      "Empty metadata issue",
+      "",
+      now,
+      now,
+      "",
+    ],
+  );
+
+  insertRawItem(db, {
+    service: "github",
+    type: "issue",
+    externalId: "acme/app#4",
+    title: "Login broken",
+    body: "",
+    at: now,
+  });
+
+  let result: RegraphResult | undefined;
+  expect(() => {
+    result = regraphAllItems(db);
+  }).not.toThrow();
+
+  expect(result?.scanned).toBe(4);
+  // All four rows are the graph-participating `issue` type: the metadata
+  // fallback only affects what fields the sync reads, never whether the row
+  // is graphed at all.
+  expect(result?.graphed).toBe(4);
+
+  // The valid item — indexed alongside three corrupt/null/empty metadata
+  // siblings — still got graphed; the corrupt rows did not abort the pass.
+  const validItemGraphed = (
+    db
+      .query("SELECT COUNT(*) AS n FROM graph_entity WHERE type = 'issue' AND external_id = ?")
+      .get("github:acme/app#4") as { n: number }
+  ).n;
+  expect(validItemGraphed).toBe(1);
+});
+
+test("D1: a throw partway through a batch rolls back only that item — no item half-cleared", () => {
+  const db = freshDb();
+  const now = Date.now();
+  insertRawItem(db, {
+    service: "github",
+    type: "issue",
+    externalId: "acme/app#1",
+    title: "Issue 1",
+    body: "",
+    at: now,
+  });
+  insertRawItem(db, {
+    service: "github",
+    type: "issue",
+    externalId: "acme/app#2",
+    title: "Issue 2",
+    body: "",
+    at: now,
+  });
+  insertRawItem(db, {
+    service: "github",
+    type: "issue",
+    externalId: "acme/app#3",
+    title: "Issue 3",
+    body: "",
+    at: now,
+  });
+  insertRawItem(db, {
+    service: "github",
+    type: "pr",
+    externalId: "acme/app#101",
+    title: "Fix 2",
+    body: "closes #2",
+    at: now,
+  });
+
+  // First pass: give issue #2 real edges (a `resolves` edge from the PR) so
+  // there is something for a half-clear to destroy.
+  regraphAllItems(db);
+
+  const poisonItemId = "github:acme/app#2";
+  const poisonEntityId = deterministicGraphEntityId("issue", poisonItemId);
+  const beforeRelations = relationsTouching(db, poisonEntityId);
+  expect(beforeRelations.length).toBeGreaterThan(0);
+
+  // Second pass with batchSize 3: issues #1, #2, #3 land in ONE batch
+  // (transaction). Issue #2's sync does the real clear+rebuild work and then
+  // fails — whether the throw lands before or after the rebuild finishes,
+  // the whole attempt must roll back atomically via the per-item savepoint,
+  // leaving issue #2 exactly as it was before this pass, never half-cleared.
+  const flaky: typeof syncGraphFromIndexedItem = (flakyDb, row, resolveServiceId) => {
+    if (row.id === poisonItemId) {
+      syncGraphFromIndexedItem(flakyDb, row, resolveServiceId);
+      throw new Error("simulated failure after partial work");
+    }
+    syncGraphFromIndexedItem(flakyDb, row, resolveServiceId);
+  };
+
+  const result = regraphAllItems(db, { batchSize: 3, _syncItem: flaky });
+
+  expect(result.scanned).toBe(4);
+  expect(result.skipped).toBe(1);
+  // Issue #1, #3 (siblings in the same batch) and the PR (separate batch,
+  // different slice) all still landed.
+  expect(result.graphed).toBe(3);
+
+  // Issue #2 is left exactly as it was before the failed attempt — not
+  // cleared-and-not-rebuilt.
+  expect(relationsTouching(db, poisonEntityId)).toEqual(beforeRelations);
+});
+
+test("D2: a throwing row is skipped, not fatal — the rest of the backfill still completes", () => {
+  const db = freshDb();
+  const now = Date.now();
+  insertRawItem(db, {
+    service: "github",
+    type: "issue",
+    externalId: "acme/app#1",
+    title: "Issue 1",
+    body: "",
+    at: now,
+  });
+  insertRawItem(db, {
+    service: "github",
+    type: "issue",
+    externalId: "acme/app#2",
+    title: "Issue 2",
+    body: "",
+    at: now,
+  });
+  insertRawItem(db, {
+    service: "github",
+    type: "issue",
+    externalId: "acme/app#3",
+    title: "Issue 3",
+    body: "",
+    at: now,
+  });
+
+  const poisonItemId = "github:acme/app#2";
+  const throwing: typeof syncGraphFromIndexedItem = (throwingDb, row, resolveServiceId) => {
+    if (row.id === poisonItemId) {
+      throw new Error("simulated sync failure");
+    }
+    syncGraphFromIndexedItem(throwingDb, row, resolveServiceId);
+  };
+
+  const result = regraphAllItems(db, { _syncItem: throwing });
+
+  // On unfixed code this throws out of regraphAllItems entirely (no catch),
+  // so scanned/graphed/skipped never get returned.
+  expect(result.scanned).toBe(3);
+  expect(result.graphed).toBe(2);
+  expect(result.skipped).toBe(1);
+
+  const graphedIssues = (
+    db.query("SELECT COUNT(*) AS n FROM graph_entity WHERE type = 'issue'").get() as {
+      n: number;
+    }
+  ).n;
+  expect(graphedIssues).toBe(2);
+});
+
+test("D3: graphed does not count item types with no populator dispatch branch (ci_run, alert)", () => {
+  const db = freshDb();
+  const now = Date.now();
+  insertRawItem(db, {
+    service: "circleci",
+    type: "ci_run",
+    externalId: "build-1",
+    title: "Build #1",
+    body: "",
+    at: now,
+  });
+  insertRawItem(db, {
+    service: "pagerduty",
+    type: "alert",
+    externalId: "alert-1",
+    title: "High CPU",
+    body: "",
+    at: now,
+  });
+  insertRawItem(db, {
+    service: "github",
+    type: "issue",
+    externalId: "acme/app#9",
+    title: "Issue 9",
+    body: "",
+    at: now,
+  });
+
+  const result = regraphAllItems(db);
+
+  expect(result.scanned).toBe(3);
+  // ci_run and alert both satisfy `isItemLinkedGraphType`, but
+  // `syncGraphFromIndexedItem` has no dispatch branch for either — no graph
+  // work happens, so they must not be counted as graphed.
+  expect(result.graphed).toBe(1);
+
+  const relatedGraphEntities = (
+    db.query("SELECT COUNT(*) AS n FROM graph_entity WHERE type IN ('ci_run', 'alert')").get() as {
+      n: number;
+    }
+  ).n;
+  expect(relatedGraphEntities).toBe(0);
+});
+
+// ---------------------------------------------------------------------------
+// C-1: without threading `resolveServiceId` through, the backfill destroys
+// every `correlates_with` edge bound via `[metrics.dora.<id>]`/
+// `[ci.service.<id>]` service identity (the class of edge neither side's
+// `metadata.service` covers — PagerDuty's `pagerduty_service_id`, a repo URN).
+// ---------------------------------------------------------------------------
+
+const CHECKOUT_SERVICE_CONFIG: ServiceConfig = {
+  serviceId: "checkout",
+  repos: [{ provider: "github", providerId: "acme/checkout" }],
+  pagerdutyServices: ["PSVC1"],
+  deployWorkflowPattern: /^Deploy/,
+  incidentWindowMinutes: 60,
+  excludePrLabels: [],
+  deployEnvironments: ["prod"],
+  severityP1Aliases: ["P1"],
+};
+
+function correlationEdgeCount(db: Database): number {
+  return (
+    db.query("SELECT COUNT(*) AS n FROM graph_relation WHERE type = 'correlates_with'").get() as {
+      n: number;
+    }
+  ).n;
+}
+
+/** Seed a PagerDuty incident + a deployment whose only shared service identity
+ * is the `resolveServiceId` binding — neither carries a plain `metadata.service`. */
+function seedResolverBoundIncidentAndDeploy(
+  db: Database,
+  now: number,
+  resolveServiceId: ReturnType<typeof buildServiceIdentityResolver>,
+): void {
+  upsertIndexedItem(
+    db,
+    {
+      service: "pagerduty",
+      type: "incident",
+      externalId: "PD-1",
+      title: "Checkout 500s",
+      bodyPreview: "",
+      modifiedAt: now + 60 * 60 * 1000,
+      syncedAt: now + 60 * 60 * 1000,
+      metadata: { pagerduty_service_id: "PSVC1" },
+    },
+    resolveServiceId,
+  );
+  upsertIndexedItem(
+    db,
+    {
+      service: "github",
+      type: "deployment",
+      externalId: "deploy-9",
+      title: "Deploy checkout v2",
+      bodyPreview: "",
+      modifiedAt: now,
+      syncedAt: now,
+      metadata: { repo: "acme/checkout", target: "production" },
+    },
+    resolveServiceId,
+  );
+}
+
+test("C-1: regraphAllItems with resolveServiceId threaded through preserves an existing correlates_with edge and its affectedService binding", () => {
+  const db = freshDb();
+  const now = Date.now();
+  const resolveServiceId = buildServiceIdentityResolver(
+    new Map([["checkout", CHECKOUT_SERVICE_CONFIG]]),
+  );
+  seedResolverBoundIncidentAndDeploy(db, now, resolveServiceId);
+
+  expect(correlationEdgeCount(db)).toBe(1);
+
+  const result = regraphAllItems(db, { resolveServiceId });
+
+  expect(result.scanned).toBe(2);
+  expect(correlationEdgeCount(db)).toBe(1);
+
+  const entity = db
+    .query("SELECT metadata FROM graph_entity WHERE type = 'deployment' AND external_id = ?")
+    .get("github:deploy-9") as { metadata: string };
+  const parsed = JSON.parse(entity.metadata) as { affectedService: unknown };
+  expect(parsed.affectedService).toBe("checkout");
+});
+
+test("C-1 regression: regraphAllItems called without resolveServiceId destroys the correlates_with edge (reproduces the pre-fix bug)", () => {
+  const db = freshDb();
+  const now = Date.now();
+  const resolveServiceId = buildServiceIdentityResolver(
+    new Map([["checkout", CHECKOUT_SERVICE_CONFIG]]),
+  );
+  seedResolverBoundIncidentAndDeploy(db, now, resolveServiceId);
+
+  expect(correlationEdgeCount(db)).toBe(1);
+
+  // The no-resolver call: mirrors every pre-fix production call site, and
+  // still the correct call shape when the caller genuinely has no resolver.
+  regraphAllItems(db);
+
+  expect(correlationEdgeCount(db)).toBe(0);
+  const entity = db
+    .query("SELECT metadata FROM graph_entity WHERE type = 'deployment' AND external_id = ?")
+    .get("github:deploy-9") as { metadata: string };
+  const parsed = JSON.parse(entity.metadata) as { affectedService: unknown };
+  expect(parsed.affectedService).toBeNull();
+});
+
+test("C-1: the no-resolver case behaves exactly as it did before — plain metadata.service correlation is unaffected", () => {
+  const db = freshDb();
+  const now = Date.now();
+  upsertIndexedItem(db, {
+    service: "pagerduty",
+    type: "incident",
+    externalId: "PD-1",
+    title: "Checkout 500s",
+    bodyPreview: "",
+    modifiedAt: now + 60 * 60 * 1000,
+    syncedAt: now + 60 * 60 * 1000,
+    metadata: { service: "checkout" },
+  });
+  upsertIndexedItem(db, {
+    service: "github",
+    type: "deployment",
+    externalId: "deploy-9",
+    title: "Deploy checkout v2",
+    bodyPreview: "",
+    modifiedAt: now,
+    syncedAt: now,
+    metadata: { service: "checkout" },
+  });
+
+  expect(correlationEdgeCount(db)).toBe(1);
+
+  const result = regraphAllItems(db);
+
+  expect(result.scanned).toBe(2);
+  expect(correlationEdgeCount(db)).toBe(1);
+});
