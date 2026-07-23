@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784787950470,
+  "lastUpdate": 1784803784474,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -3977,6 +3977,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 319.12570119999657,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a3b190a321f1f19c1a9603239d6e7043fbfc7854",
+          "message": "build(scripts): typecheck scripts/ + fail on agents.* brief-shape drift (#806)\n\n## The gap\n\n`typecheck` is `bun run --filter '*' --sequential typecheck` — it runs\nper **workspace package**.\n`scripts/` is not one, so its **151 TypeScript files have never been\ntypechecked by any gate**.\n\nThat is not a hypothetical exposure. Several are load-bearing:\n\n- `scripts/structure-audit/*` — the checks that gate CI, including the\nsecurity-invariant static\n  complement.\n- `scripts/gen-agent-brief-fixtures.ts` — generates the conformance\nfixture `@nimbus-dev/client`\n  validates its `agents.*` wire contract against.\n\nSame class as the two `tsconfig` fixes just landed in `nimbus-sdk` and\n`nimbus-client`: a gate that\nlooks green because it isn't looking.\n\n## What it found\n\nTurning it on surfaced **42 pre-existing errors across 17 files** — all\nreal strictness violations,\nnone suppressed:\n\n| | |\n| --- | --- |\n| 12 | `TS18048` possibly `undefined` |\n| 9 | `TS4111` index-signature access (`process.env.FOO` → `[\"FOO\"]`) |\n| 6 | `TS2532` object possibly `undefined` |\n| 5 + 4 + 3 | `TS2345` / `TS2379` / `TS2322` assignability, incl.\n`exactOptionalPropertyTypes` |\n| 2 | `TS1375` top-level `await` in a non-module |\n| 1 | `TS2769` no matching overload |\n\nFixed with **no `any`, no `!` assertions, and no suppression comments**\n— `noNonNullAssertion` is an\nerror in this repo, so each possibly-undefined case is narrowed properly\nrather than asserted away.\n\n`gen-agent-brief-fixtures.ts` was already clean, which is reassuring\ngiven what depends on it.\n\n## One deliberate behaviour change\n\n`scripts/release/credential-audit.test.ts` — the `live()` helper\nunconditionally set\n`repo: \"Nimbus\"`, and the org-scope tests overrode it with `repo:\nundefined`, which\n`exactOptionalPropertyTypes` rejects.\n\nNaively dropping the override would have left org-scoped secrets\ncarrying a stale `repo`, silently\nbreaking the entry/live match those two tests exist to assert. So the\ndefault is now conditional on\nscope: org-scoped secrets never carry a `repo`, which is the point of\nthe field being optional.\n\nThat is the only control-flow change in the diff; everything else is\ntype-level.\n\n## Wired into the gate\n\n`scripts/tsconfig.json` extends `tsconfig.base.json` and is added to the\nroot `typecheck`, so this\ncannot silently regress. It deliberately does **not** inherit the base\n`**/*.test.ts` exclude — that\nwould leave the audit tests both untypechecked and orphaned in editors,\nwhich is the exact defect\nbeing fixed.\n\n## Verification\n\n`bunx tsc -p scripts/tsconfig.json` → **0 errors** · `bun run typecheck`\n(whole monorepo) → exit 0 ·\n`bunx biome check scripts packages` → clean, 2906 files · `bun test\nscripts` → **536 pass / 0 fail**.\n\nAnd because type-fixing CI gate scripts risks breaking them at runtime,\nthe audits were spot-run\ndirectly rather than assumed: `audit:doc-refs`, `audit:status-drift`,\n`audit:invariants`,\n`audit:openapi-drift`, `audit:action-sha-pins`, `audit:js-licenses` —\nall exit 0.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n- **Bug Fixes**\n- Improved robustness across comment/source cleanup and structure/audit\nchecks by safely handling missing or malformed values.\n- Enhanced Windows environment and process termination/path handling for\nmore consistent tooling behavior.\n\n- **Tests**\n- Added snapshot-based drift protection for the agent brief “wire\ncontract,” strengthening validation of the brief payload shape.\n- Strengthened release, API, and OpenAPI/structure assertions to fail\nfast when expected issues are missing.\n\n- **Chores**\n- Expanded TypeScript typechecking to also validate the script tooling,\nnot just the main packages.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-23T10:41:54Z",
+          "tree_id": "8f3088da3ff057efc870a51b732213d860b72738",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/a3b190a321f1f19c1a9603239d6e7043fbfc7854"
+        },
+        "date": 1784803782112,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 180.67509349999926,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 182.03194339999936,
             "unit": "ms"
           }
         ]
