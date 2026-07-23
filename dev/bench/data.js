@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784832137198,
+  "lastUpdate": 1784832867504,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -4181,6 +4181,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 301.57516455000075,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a67dbf4f1d6d01cb9ff3ac26668258072ef1ac70",
+          "message": "docs(ecosystem-roadmap): record Stage 2 delivery (#816)\n\nDocs-only. Updates the ecosystem roadmap per its own update rules now\nthat Stage 2 is fully merged:\n\n- **Stage 2 section**: status banner (VS Code slice complete\n2026-07-23), a shipped table mapping each item to its PR and the\nextension release that carries it (0.7.0: consumption #45 + 2e-core #46;\n0.8.0: 2d #47 + 2b #49; 0.9.0: 2c #50), the diagnosis kept as written.\n- **2a recorded as spiked-not-built** with a pointer to the merged\nfindings (#815), the prerequisites, and the reproducible re-run bar.\n- **Left-open list**: the deferred 2e tail, the untouched cross-client\nitems (statuspage/raycast), and the two gateway-side follow-ups the\nspike surfaced (empty `git_blame_line` pipeline, id-only PR titles).\n- **The headline**: dated status note — the moat and multiplier shipped,\nthe banner didn't; Stage 3's story leads with what exists.\n- **Open decision 3**: sharpened (not closed) by the spike.\n\nVerification: markdownlint 0 errors; lychee 37/37 links OK.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-23T21:36:43+03:00",
+          "tree_id": "1e5ff1cd01020e1605c9b7b8e21994f26840e9d0",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/a67dbf4f1d6d01cb9ff3ac26668258072ef1ac70"
+        },
+        "date": 1784832866561,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 323.08504090000025,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 315.9056830499918,
             "unit": "ms"
           }
         ]
