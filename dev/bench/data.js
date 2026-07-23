@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784787234235,
+  "lastUpdate": 1784787950470,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -3943,6 +3943,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 341.5814185000112,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1b002b516180b8ba039a5279d8db50d03e7e9227",
+          "message": "fix(agents): report why a janitor resourceRef was rejected (#805)\n\n## The bug\n\n`isValidResourceRef` enforces **two** independent rules — a minimum\nlength and an allowed character\nset — but the janitor gap only ever mentioned the length:\n\n```text\nresourceRef too short or malformed (min 4 chars)\n```\n\nSo `repo:acme/payments#branch/wip` — **29 characters**, rejected because\n`#` is not in\n`/^[A-Za-z0-9_:.\\-/]+$/` — was reported as too short. Anyone debugging\nthat goes looking for a length\nproblem that doesn't exist, on a ref that is plainly long enough.\n\nFound while generating agent-brief fixtures from real gateway output:\nthe janitor brief came back\nwith that gap for a ref that was obviously not short.\n\n## The fix\n\n`describeInvalidResourceRef(ref)` returns the specific reason or `null`,\nand the janitor surfaces it:\n\n- too short → `resourceRef must be at least 4 characters (got 2)`\n- bad character → `resourceRef may contain only letters, digits, and _ :\n. - /`\n\nValidation behaviour is unchanged — exactly the same refs are accepted\nand rejected.\n`isValidResourceRef` is untouched for its other callers, and a test\nasserts the two functions always\nagree.\n\n## Tests\n\nBoth rejection paths, in both the probe and the agent:\n\n- the length case asserts the message names the **actual** length (`got\n2`);\n- the long-ref/bad-character case asserts the message says character set\n**and explicitly does not\nmention length** — the assertion that would have caught the original\nbug.\n\nGateway agents: 170/170. `biome check packages scripts` clean.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-23T09:01:39+03:00",
+          "tree_id": "9863a7450ee46b9c29d02a571dfa720e44ebe0ca",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/1b002b516180b8ba039a5279d8db50d03e7e9227"
+        },
+        "date": 1784787949379,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 317.29723124999543,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 319.12570119999657,
             "unit": "ms"
           }
         ]
