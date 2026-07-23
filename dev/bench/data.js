@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784810205531,
+  "lastUpdate": 1784813895318,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -4079,6 +4079,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 303.5437580999991,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "44e1c384243354593ecbcea32df5b4af6a843b0c",
+          "message": "feat(graph): make resolves, mentions and correlates_with real (why-lens step 1a) (#813)\n\n## What this does\n\nThree graph relation types — `resolves`, `mentions`, `correlates_with` —\nwere declared in the SQLite schema but written by **no populator**. Any\nquery traversing them returned zero rows on every index, forever. This\nmakes them real, so the upcoming `nimbus why <file>:<line>` agent (step\n1b) can answer \"who wrote this, why, what drove it, what depends on it\"\nfrom the local index.\n\n| Edge | Traversal |\n| --- | --- |\n| `resolves` | PR title+body → issue (numeric refs and ticket keys, both\nforges) |\n| `mentions` | chat message → issue / commit |\n| `correlates_with` | deployment → incident, 2h same-service window |\n\nAlso lands: `incident` and `deployment` graph entities (which had\n**never** existed, despite both being indexed as items and listed in\n`ITEM_LINKED_ENTITY_TYPES`), a service-identity binding so\ncross-provider identifiers resolve to one nimbus service, and a\ntransactional backfill so the new edges reach already-indexed history\nrather than only newly-synced data.\n\nSpec: `docs/superpowers/specs/2026-07-23-nimbus-why-lens-design.md`\nPlan: `docs/superpowers/plans/2026-07-23-why-lens-1a-populator-edges.md`\n\n## Scope\n\nNo new migration, no new table, no new invariant, no new HITL action\ntype, no CLI/IPC surface. Every relation type and table already existed\n— this is populator work.\n\n## The reason this is larger than \"emit three edges\"\n\nEvery per-task suite passed against **fixtures that no connector\nemits**. Whole-branch review caught that two of the three edge types\nwere correct in code and unreachable against real connector data:\n\n- `correlates_with` keyed on `metadata.service`, which **no connector\nwrites** — PagerDuty writes `pagerduty_service_id`, Vercel writes\n`name`, the CI path writes `nimbus_service_id` and bypassed the\npopulator entirely.\n- The `resolves` numeric path built `${repo}#${n}` (the **PR**\nexternalId shape) while GitHub indexes issues as `${repo}#issue-${n}`.\n\nBoth are fixed and verified end-to-end against metadata copied verbatim\nfrom connector source. A standing rule is now recorded in the plan:\n**regression tests are seeded from the connector's own\n`externalId`/metadata builders, never hand-written shapes.**\n\nThree further defects were each correct in isolation and defeated by\nanother part of this same branch — the backfill deleted the edges the\nresolver created; the `expert.ts` gap-note probe was satisfied by this\nbranch's own `resolves` edges; the environment gate was undone by a `??\nmetadata.service` fallback. All three passed their own tests.\n\n## Correctness choices worth review\n\n- **`occurredAtForItem` throws** rather than defaulting to `Date.now()`.\nA fabricated timestamp would feed the correlation window and produce a\n*confidently wrong* causal claim; an exception is loud and local.\nUnreachable on the production path (`upsertIndexedItem` writes the row\nfirst, synchronously, on the same handle).\n- **The deployment environment gate fails closed.** A deployment with no\nderivable environment does not correlate. The alternative rested on\n\"Vercel always writes `target`\", which this repo's own connector\ndescription contradicts (`target (production/staging)`). Fail-closed\ncosts nothing real — the CI path *requires* `environment`, and Prefect\ncan't bind on any key anyway — and removes a dependency on an unverified\nAPI vocabulary.\n- **No `LIMIT` on counterpart lookup.** Each side clears its whole\ndirection before re-emitting, so a cap made `clear` and `emit`\nasymmetric and silently destroyed edges the other side created\n(reproduced: 30 → 20 after a re-sync). The 2h same-service window\nalready bounds the result.\n- **`${order}` interpolation** in `timelineCounterparts` is the sole\nexception to the bound-parameter rule — SQL keywords cannot be bound,\nand it is re-derived through a ternary from an `\"ASC\" | \"DESC\"` union,\nso it holds even if the parameter type widens.\n- **`SyncContext.resolveServiceId` is optional.** ~80 connectors\nconstruct `SyncContext`; absence preserves prior behaviour exactly.\n\n## Verification\n\n`tsc --noEmit` clean · **762 tests, 0 fail** · `biome` clean over 2920\nfiles · `audit:boundaries`, `audit:invariants`, `audit:any`,\n`audit:cross-platform`, `audit:doc-refs`, `audit:status-drift`,\n`audit:readme-cli`, `lint:markdown` all pass.\n\nEvery retirement guard was mutation-tested: reverting it fails exactly\nits own test and no other.\n\nRebased onto `main` with zero conflicts; the code diff is byte-identical\npre- and post-rebase.\n\n## Known-deferred (recorded for step 1b)\n\n- `annotateDeployment`'s DORA eligibility uses a raw `includes()` with\nno `production → prod` alias, so it now disagrees with correlation about\n\"production\".\n- `subIncidentResolved` still has no query of its own; it goes silent\nthe day something emits `resolves → incident`. Pre-existing structure,\nunchanged here.\n- Ticket-key extraction matches prose (`UTF-8`, `RFC-2119`, `SHA-256`) —\na precision issue, each costing one unindexed scan.\n- `REGRAPH_TYPE_ORDER` omits `obsidian_note` (near-zero risk: ordering\nonly matters when the target entity does not yet exist).\n- `regraphAllItems` has no CLI surface yet — `nimbus index regraph` is\nstep 1b.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n- **New Features**\n- Graph relationships now capture issue resolutions, message mentions,\nand incident–deployment correlations.\n- Added configurable service identity matching for more accurate\ndeployment and incident associations.\n  - Added graph backfill support for existing indexed data.\n  - Vercel deployment records now include repository information.\n\n- **Bug Fixes**\n  - Resynchronizing items no longer removes unrelated relationships.\n  - Malformed metrics configuration no longer prevents gateway startup.\n\n- **Documentation**\n- Added design and implementation plans for the Why Lens and `nimbus\nwhy` experience.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-23T13:25:54Z",
+          "tree_id": "7c1d19307234f8610eb65cd6e70234a44e26377f",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/44e1c384243354593ecbcea32df5b4af6a843b0c"
+        },
+        "date": 1784813894036,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 308.9695420499982,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 308.90081495000595,
             "unit": "ms"
           }
         ]
