@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784818011913,
+  "lastUpdate": 1784832137198,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -4147,6 +4147,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 319.6501751000025,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f65e2fcde3b1f1b9d0fb0ff2075e9f0612558a2b",
+          "message": "docs: Stage 2a spike findings — don't build the why lens yet (#815)\n\nDocs-only: the read-only data-quality spike the approved Stage 2 design\ncalled for (spec merged in #814), run against the live local index\n(nimbus.db, schema V44).\n\n**Recommendation: don't build the hover `why` lens yet.** Measured on a\nreal, actively-used machine:\n\n- `git_blame_line` (V32): **0 rows** — the lens's first hop has no data\nat all.\n- 546 items across only 5 services; PR→issue graph joins exist for 5\nissues; **1** person entity.\n- PR titles are literally `\"PR #220\"` — nothing human-readable to hover.\n- No Slack/PagerDuty/Jira lane has any data.\n\nThe report records the prerequisites (blame pipeline populated +\ninvestigated, PR title enrichment, at least one conversation/incident\nlane live) and a re-run bar (≥60% blame→PR resolution on a\nrecently-active repo) before the lens is worth building. Feeds roadmap\nOpen Decision #3.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n* **Documentation**\n* Added a new Stage 2a data-quality findings page based on read-only\nchecks against the live local index.\n* Documented current coverage across graph entities/relations, including\nlane-by-lane impact and why the hover “why” lens can’t be reliably built\nyet.\n* Listed the prerequisites and coverage thresholds required to revisit\nthe investigation, including fixes needed for missing blame and\nconversation/incident context.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-23T21:29:33+03:00",
+          "tree_id": "5bf8733ea33598933a79b651d171578b93e974dd",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/f65e2fcde3b1f1b9d0fb0ff2075e9f0612558a2b"
+        },
+        "date": 1784832136524,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 299.60910229999934,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 301.57516455000075,
             "unit": "ms"
           }
         ]
