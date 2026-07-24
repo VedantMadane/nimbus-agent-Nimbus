@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784832867504,
+  "lastUpdate": 1784856893639,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -4215,6 +4215,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 315.9056830499918,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "465bee092dcc732d72b52fd9b93adeb758edceba",
+          "message": "feat(github): enrich fallback 'PR #N' titles via pull-detail fetch (#817)\n\n## Stage 2a un-park — PR A of 3 (PR-title enrichment)\n\n**Root cause.** Indexed GitHub PRs showed id-only titles like `PR #220`\nbecause the GitHub **events feed** (`PullRequestEvent` →\n`payload.pull_request`) genuinely delivers no `title`, and the only\nindexed-`pr` writer falls back to `` `PR #${num}` ``. The rows are not\nstale-from-old-code — the source data lacked the field. (Root-caused\nagainst the live dev-machine index + config + source; see the Stage 2a\nun-park design/plan on `dev/asafgolombek/stage2a-gateway-unpark`.)\n\n**Fix.** A best-effort, post-sync enrichment pass in the GitHub\nconnector. Each sync tick, up to **10** `pr` rows whose stored title is\nstill the exact `` `PR #${num}` `` fallback (newest-first) are\nre-fetched via `GET /repos/{owner}/{repo}/pulls/{number}` and\nre-upserted with their real title. One code path covers both the\nexisting 79 fallback rows and any freshly-ingested title-less event (≤1\nsync-tick latency). Source-independent — no new cloud dependency beyond\nthe user's existing PAT.\n\n### Behavior / safety\n- **Exact-match only.** `title LIKE 'PR #%'` pre-filter, then a JS\n`title === \\`PR #${num}\\`` check — a real title like `\"PR #1 revert\"` is\nnever clobbered (test included).\n- **Best-effort.** Non-OK / 404 / malformed-JSON / non-object-JSON\nresponses skip that row and leave the fallback intact. A\n`RateLimitError` propagates (honors backoff); any other error is logged\nnon-fatal and the sync tick still succeeds.\n- **Bounded.** ≤10 fetches/tick, sequential through the shared rate\nlimiter — no request storm.\n- On a `304 Not Modified` events response the tick returns early and\nenrichment resumes next non-304 tick (backfill is not time-critical).\n\n### Tests\n9 unit tests (injected `fetch`): enrich-only-fallback newest-first,\ncap-at-10 ordering, failed-fetch untouched, no-fallback no-op, `PR #1\nrevert` not clobbered, 401 → `UnauthenticatedError`, 403/rate-limit\npropagation, malformed-JSON skip, non-object-JSON skip.\n\n### Verification (local, pre-push)\n- `github-sync.ts` coverage: **97.6% line / 90.1% branch / 100% fn**\n(well above the 85%/80% floor).\n- typecheck ✓, biome ✓ (2921 files), static invariant audit ✓,\ncross-platform audit ✓, lychee ✓ (CHANGELOG links).\n- No migration; no IPC/CLI surface change; gateway-only.\n\nPart of the Stage 2a `why`-lens substrate work (PR B = whole-file blame\nindexer, PR C = root registration follow). Do not merge without the\nusual CI pass.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n- **New Features**\n- GitHub pull requests now receive accurate titles when event data only\nincludes an ID-based placeholder.\n- Recent placeholder-titled pull requests are automatically enriched\nwith details from GitHub.\n\n- **Bug Fixes**\n  - Prevents valid pull request titles from being overwritten.\n- Handles unavailable, malformed, unauthorized, and rate-limited\nresponses safely.\n\n- **Documentation**\n  - Added a changelog entry describing the GitHub connector enhancement.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-24T01:21:08Z",
+          "tree_id": "0fc001ed68ee55ee9bed7020646d6be25bb99d5e",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/465bee092dcc732d72b52fd9b93adeb758edceba"
+        },
+        "date": 1784856892614,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 316.09650654999496,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 319.1348873499992,
             "unit": "ms"
           }
         ]
