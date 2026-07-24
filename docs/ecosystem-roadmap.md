@@ -306,7 +306,23 @@ Extension version is the release that carries the item.
 | 2b | `/incident` → `agents.catchup`, `/deploys` → `metrics.dora`, `/owns` → `agents.expert`, `/blast` → `agents.impact` — structured brief calls, not prompt rewrites, degrading honestly (empty briefs surface the gateway's own gap notes). The Copilot three live on as quick-ask presets; infra-file presets for `*.tf` / k8s-helm YAML / `Dockerfile` / workflow YAML | `0.8.0` | [#49](https://github.com/nimbus-agent/nimbus-vscode/pull/49) |
 | 2c | Per-answer egress delta footer (zero renders as *"nothing left this machine"*); Prove-Window as a self-contained HTML proof artifact (embedded byte-equivalent JSON; the CLI is the verifier); opt-in signed `Nimbus-Egress-Proof` commit trailer; ⛔ proof-of-denial rows in the Egress view | `0.9.0` | [#50](https://github.com/nimbus-agent/nimbus-vscode/pull/50) |
 
-### 2a — the `why` lens: spiked, not built
+### 2a — the `why` lens: spiked, then built (2026-07-24)
+
+> **Update, 2026-07-24 — the lens is built; step 2 wires it to the client.**
+> The prerequisites the spike named have landed: PR-title enrichment
+> ([#817](https://github.com/nimbus-agent/Nimbus/pull/817)) and the on-demand
+> blame indexer ([#819](https://github.com/nimbus-agent/Nimbus/pull/819)) are
+> merged, with root registration in review
+> ([#822](https://github.com/nimbus-agent/Nimbus/pull/822)). On that basis the
+> lens itself shipped on the gateway + CLI — the `why` agent, `whyPeek`, and
+> `nimbus why` ([#820](https://github.com/nimbus-agent/Nimbus/pull/820)) — and
+> **step 2** routes it through the narrow waist: `agents.why` / `agents.whyPeek`
+> flow through `@nimbus-dev/sdk` 1.6.0 (published) → `@nimbus-dev/client` 0.12.0
+> (in review), after which the VS Code hover UI can consume it. What remains is
+> the editor UI itself (a `nimbus-vscode` slice) and the demo, not the
+> capability. The correlation-quality
+> caveat still holds — it is a data-density question the roadmap tracks, not a
+> reason the lens is unreachable. The spike record below is kept as written.
 
 The hover lens (author, PR, ticket, thread, incident, dependents per line) was
 the stage's headline, but its quality is data-dependent, so a read-only spike
@@ -330,9 +346,15 @@ the spike feeds [Open decision 3](#open-decisions) rather than closing it.
 - **Cross-client:** `metrics.dora` and `deploy.preflight` in
   `nimbus-statuspage`; `agents.*` in `nimbus-raycast`. Neither repo was touched
   in the VS Code slice.
-- **Gateway-side follow-ups surfaced by the spike:** why `git_blame_line` never
-  populates on a machine with active repos, and id-only PR titles from the
-  GitHub connector.
+- **Gateway-side follow-ups surfaced by the spike:** id-only PR titles are
+  enriched ([#817](https://github.com/nimbus-agent/Nimbus/pull/817), merged) and
+  the blame lane populates on demand ([#819](https://github.com/nimbus-agent/Nimbus/pull/819),
+  merged); root registration is in review ([#822](https://github.com/nimbus-agent/Nimbus/pull/822)).
+- **`why` lens reachability:** the lens ships on gateway + CLI
+  ([#820](https://github.com/nimbus-agent/Nimbus/pull/820), merged); step 2
+  promotes its types to `@nimbus-dev/sdk` 1.6.0 (published) and exposes it
+  through `@nimbus-dev/client` 0.12.0 (in review). Remaining after that: the
+  `nimbus-vscode` hover UI.
 
 ---
 
@@ -371,6 +393,14 @@ lands — but organise the story around the lens.
 > fired. Stage 3's story therefore leads with what exists — receipts, LM
 > tools, and the ops vocabulary — with the lens as the roadmap tease, not the
 > claim.
+>
+> **Update 2026-07-24:** the banner now exists as a capability. The spike's
+> prerequisites landed (#817/#819 merged, #822 in review), the `why` lens shipped
+> on gateway + CLI (#820), and step 2 routes it through the waist —
+> `@nimbus-dev/sdk` 1.6.0 (published) → `@nimbus-dev/client` 0.12.0 (in review). The
+> "Buildable → After Stage 1" cell is now *built*; what's left for the banner is
+> the `nimbus-vscode` hover UI and one demo GIF (Stage 3), not the capability.
+> The data-density caveat stays a live quality question, not a reachability one.
 
 **Why the lens and not the moat.** Verifiable egress is the stronger asset: a
 survey of nine major competitors plus the AI-DLP category found **none** offering
