@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784869788013,
+  "lastUpdate": 1784874565278,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -4487,6 +4487,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 239.83199744999874,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f6d516a57a75b95c33924e6222e9a369c5c37315",
+          "message": "refactor(agents): consume promoted why types from sdk 1.6.0 + roadmap (why-lens step 2) (#825)\n\n## Why-lens step 2 — gateway half\n\nThe `why` lens shipped on the gateway + CLI in #820; **step 2** promotes\nits types into `@nimbus-dev/sdk` (single source of truth) and exposes it\nthrough `@nimbus-dev/client`. This is the gateway slice of that hop.\n\n### What this PR does\n- **Consume the promoted types** — bumps `@nimbus-dev/sdk` to `^1.6.0`\n(published) and re-exports `WhyBrief` / `WhyFinding` / `WhyLane` /\n`WhySubject` / `WhyPeek` + `isWhyBrief` from `agents/_lib/findings.ts`.\n`agents/_lib/why-types.ts` drops its local duplicate definitions and\nre-exports the five from `findings.ts`, keeping only `WhyInput` (the\nclient-local request shape). Pure type-move — no behavior change\n(`why.ts`/`why-peek.ts`/`agents-rpc.ts` untouched; `tsc` is the proof\nthe shapes still line up).\n- **9th agent in the fixture generator** — adds `why` to\n`scripts/gen-agent-brief-fixtures.ts` PARAMS and regenerates\n`agent-brief-shape.snapshot.json` (why-only addition), so the\ngateway-generated golden fixture that `@nimbus-dev/client`'s conformance\ngate consumes carries the `why` brief.\n- **Roadmap truth-pass** — records the lens as built + client-reachable\nin `docs/ecosystem-roadmap.md`, retiring the stale \"spiked, not built\"\nframing for the reachability claim.\n- Carries the step-2 design spec, implementation plan, and the\ndesign/plan review notes.\n\n### Verification\n- Baseline 228 gateway-agent tests → 228 after the swap (exact match);\nfull why suite (agents + `agents-rpc.why` + `why.e2e`) **232 pass / 0\nfail**.\n- `tsc -p packages/gateway/tsconfig.json` clean; `audit:structure`\ndependency-cruiser OK (no import cycle from the re-export);\n`agent-brief-shape.test.ts` 10/10.\n- biome clean; `lint:markdown` 0 errors; doc-refs + readme-cli green.\n\n### Companion PRs (the rest of step 2)\n- `@nimbus-dev/sdk` **1.6.0** — promoted types (merged + published).\n- `@nimbus-dev/client` **0.12.0** — `agentsWhy` + `agentsWhyPeek`\n(nimbus-client#31).\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n* **New Features**\n* Shipped client-accessible “why” lens support, including brief and peek\nviews, routed through the gateway for the step 2 SDK→client path.\n* Extended the “why” result typing surface to align responses across\ngateway and supporting tooling.\n* Expanded “why” brief schema coverage and added new fixture parameters\nfor better response coverage.\n* **Documentation**\n* Updated the ecosystem roadmap with Stage 2a delivery status and\nclarified remaining banner/hover work.\n* Added/updated implementation plans and design reviews for the\nSDK→client integration and verification gates.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-24T09:17:20+03:00",
+          "tree_id": "a59ca14dcb9dbf97391dbce3aaf7a829eaa90008",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/f6d516a57a75b95c33924e6222e9a369c5c37315"
+        },
+        "date": 1784874564357,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 316.95318305,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 314.69893029999366,
             "unit": "ms"
           }
         ]
