@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784867557925,
+  "lastUpdate": 1784869788013,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -4453,6 +4453,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 296.36859405000143,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "afb5a6da4624ce12b8b362f12a494900819f4005",
+          "message": "ci(release): auto-recover phantom releases (create missing tag + relabel) (#824)\n\n## Problem — the chronic phantom release\n\nrelease-please intermittently **merges the `chore: release main` PR**\n(bumping `.release-please-manifest.json` + CHANGELOG) **but never\ncreates the `vX.Y.Z` tag / GitHub Release**. Root cause, from the run\nlogs: an internal parse error during the run —\n\n```\n❯ error message: Error: unexpected token ' ' at 1:7, valid tokens [(, !, :]\n```\n\n— breaks its release-creation phase. After that, every subsequent run\naborts with:\n\n```\n⚠ There are untagged, merged release PRs outstanding - aborting\n```\n\nso nothing new can release either. The tell-tale state is a **merged\nrelease PR still labelled `autorelease: pending` with no matching tag**.\nThis has forced a manual recovery on ~5 consecutive releases (v0.23.1,\nv0.23.2, v0.24.0, v0.25.0, v0.26.0): `git tag vX.Y.Z <release-commit> &&\ngit push` + relabel the PR `pending → tagged`.\n\nConfirmed this session that the tag alone does **not** clear it —\nrelease-please keys the \"outstanding\" check off the **label**, so the\nrelabel is mandatory.\n\n## Fix — automate the recovery\n\nAfter the release-please step, a **reconcile step** runs the standing\nmanual playbook automatically:\n\n1. Find any merged release PR still labelled `autorelease: pending` (the\nphantom signature). If none → no-op.\n2. Read the version from `.release-please-manifest.json` at that PR's\nmerge commit.\n3. If `vX.Y.Z` doesn't exist, create it **via the App token** — which,\nunlike `GITHUB_TOKEN`, **does trigger** the tag-driven `release.yml`\nbuild.\n4. Flip the label `autorelease: pending → tagged` so release-please\nstops aborting on the next run.\n\nIdempotent — on a healthy run (nothing pending) it exits immediately.\nRobust to *whatever* breaks release-please's native step, rather than\nchasing the internal parser bug (which has recurred across releases with\ndifferent commit content → config/label-shaped, not content-shaped).\n\nAlso adds `permission-issues: write` to the minted App token: PR label\nedits are an issues-API scope for GitHub Apps (this also answers a\nlong-standing open question — the label-flip needs `issues: write`).\n\n## Notes / validation\n- Workflow-only change; takes effect once on `main` and is **fully\nexercised on the next release**. YAML validated; `audit:action-sha-pins`\ngreen; no new `uses:` actions.\n- **Dependency:** the `nimbus-release-bot` App must have **Issues:\nwrite** granted at install for the relabel (and `permission-issues:\nwrite` mint) to work. If it lacks it, the tag still gets created\n(release ships); only the auto-relabel would 403 — grant Issues:write to\nmake it fully hands-free.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n* Improved release handling by automatically reconciling merged releases\nthat are missing their expected version tags.\n* Updated release status labels after successful tag creation, reducing\nstale pending release entries.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-24T05:00:37Z",
+          "tree_id": "4a05d4e4c884ed61b7511e89bc152878feb1170c",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/afb5a6da4624ce12b8b362f12a494900819f4005"
+        },
+        "date": 1784869786402,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 240.54170279999963,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 239.83199744999874,
             "unit": "ms"
           }
         ]
