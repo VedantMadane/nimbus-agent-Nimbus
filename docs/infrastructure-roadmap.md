@@ -130,6 +130,24 @@ moves to P6).
   (the CI App token cannot read `bypass_actors`; a future owner-`gh`-run check,
   no PAT). Private-repo ruleset protection stays **blocked-on-Team** (Free plan).
 
+### CLA progress log
+
+- **Delivered (config + gate):** broad-relicensable ICLA + CCLA drafted
+  (`docs/cla/`, pending ratification), the reusable `cla.yml` template, the
+  `cla-coverage` drift gate (all 6 public repos have `cla.yml` at one version),
+  and `CONTRIBUTING.md` terms.
+- **Pending apply (org-owner):** ratify the CLA wording; create the dedicated CLA
+  App + `SELECTED` private-key secret; create the `.github` `cla-signatures`
+  branch + deploy `CLA/ICLA.md`/`CLA/CCLA.md`; deploy `cla.yml` to all 6 repos;
+  make the `CLA Assistant` check required in each ruleset; **red-prove** with a
+  test PR; confirm `cla-coverage` green.
+- **Deferred:** CCLA employee-roster automation; private repos; retroactive
+  signatures. See `docs/superpowers/specs/2026-07-24-cla-design.md`. Robustness
+  follow-up: `check-cla-coverage` treats any per-repo `gh` failure as "cla.yml
+  absent" (a public-repo 404 is genuine, but a transient 5xx/rate-limit would
+  false-red until the next run) — surface the `gh` exit code in `_gh-audit.ts`
+  and treat a non-404 failure as indeterminate, like `team-reachability`.
+
 ---
 
 ## How to update this document
