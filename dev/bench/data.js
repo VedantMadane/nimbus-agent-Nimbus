@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784858371149,
+  "lastUpdate": 1784859376342,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -4283,6 +4283,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 312.73664794999206,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4bcc0767d5e1bb452789baff27f6aee98c517a91",
+          "message": "feat(blame): whole-file 90-day blame indexer (Stage 2a un-park PR B) (#819)\n\n## Stage 2a un-park — PR B of 3 (whole-file blame indexer)\n\n**Root cause.** `git_blame_line` was populated only as a sparse\nbyproduct of the security symbol-scan: ~16-line excerpt ranges around\n*exported symbols*, JS/TS only, gated behind `code_index` (default off).\nIt can't back a line-level `why` lens (\"who last touched this line\").\n(Root-caused against the live index; see the Stage 2a un-park\ndesign/plan.)\n\n**Fix.** A new `blame` **Syncable** decoupled from the symbol path. Per\nconfigured `[[filesystem.roots]]` git repo, it blames every git-tracked\nfile with a commit in the last **90 days**, **whole-file, all\nlanguages**, writing one `git_blame_line` row per line.\n\n### Design\n- **Incremental** via a per-repo last-blamed HEAD cursor\n(`nimbus-blame1:` JSON cursor). Each tick diffs `git diff --name-status\n-M <lastHead> HEAD`: modified/added files are re-blamed whole, deleted\nfiles pruned, renames expand to prune-old + blame-new.\n- **Full re-blame fallback** when the recorded head is no longer an\nancestor of HEAD (`git merge-base --is-ancestor` fails → history was\nrewritten).\n- **Bounded & sequential**: one `git blame` subprocess at a time, capped\nat **400 files/tick** (remainder picked up on later ticks; the drop is\nlogged, never silent). No FD/CPU storm on a large repo.\n- **Degrades safely**: git-missing / timeout / non-zero exit → zero\nblame for that file, no crash (30s per-subprocess timeout,\n`AbortSignal.timeout`). I1 env scoping (`extensionProcessEnv`) on every\nspawn, mirroring the existing `gitLogRecords`/`gitBlameLinePorcelain`\nhelpers.\n- **No migration** — reuses the V32 `git_blame_line` table. Registers a\nlocal-only `blame` provider in the rate limiter.\n\n### Files\n- `connectors/blame-index-sync.ts` — the Syncable + exported pure git\nhelpers (`gitHeadSha`, `isAncestor`, `gitBlameWindowFiles`,\n`gitChangedSince`, `gitBlameWholeFile`), all with injectable `spawn`.\n- `security/blame-store.ts` — `pruneBlameForFile(db, repoRoot,\nfilePath)` (idempotent re-blame + delete cleanup).\n- `platform/assemble.ts` — registers the syncable behind the existing\nempty-roots guard.\n- `sync/rate-limiter.ts` — `blame` provider.\n\n### Tests\n- `blame-store.test.ts`: prune scoping (per-file, per-repo).\n- `blame-index-sync.test.ts`: 12 helper unit tests (injected spawn: exit\ncodes, dedup, rename expansion, spawn-throws→empty) + 8\nreal-temp-git-repo integration tests (full path, incremental\nmodify/delete/add, history-rewrite fallback, non-git root skip, non-dir\nroot skip, empty-file no-op, malformed-cursor fallback).\n\n### Verification (local, pre-push, CI-Linux-authoritative floor)\n- `blame-index-sync.ts` **98.8% line / 86.1% branch**; `blame-store.ts`\n**100% / 88.5%** — both well above the 85/80 floor.\n- typecheck ✓, biome ✓ (2923 files), static invariant audit ✓,\ncross-platform ✓, lychee ✓.\n- Full suite: the only failures are pre-existing environment-specific\nupdater/OAuth cases in files this PR does not touch (the updater factory\ndetects a package-manager install on this dev box and returns undefined;\ngreen on CI Ubuntu).\n\n**Requires a configured `[[filesystem.roots]]` git repo to produce data\n— PR C (`nimbus index add` / `filesystem.ensureRoot`) makes that\nergonomic.** Do not merge without the usual CI pass.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-24T05:04:32+03:00",
+          "tree_id": "e669434982b240542692a34d6ca11972da5a31a0",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/4bcc0767d5e1bb452789baff27f6aee98c517a91"
+        },
+        "date": 1784859375445,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 295.928685550001,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 295.88755024999483,
             "unit": "ms"
           }
         ]
