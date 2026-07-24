@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784874565278,
+  "lastUpdate": 1784875268646,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -4521,6 +4521,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 314.69893029999366,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "52afca34746045f202545d0bf0d55d70483d4afa",
+          "message": "feat(infra): P6a access model — team-reachability + org-settings drift gates (#826)\n\n## P6a — Access & Contribution Model (core)\n\nSecond sub-program of the [infrastructure\nroadmap](../blob/dev/asafgolombek/p6a-access-contribution-model/docs/infrastructure-roadmap.md)\n(P1 → **P6** → …). P1 built the org-wide drift sweep; P6a uses it to\nmake the org's *access model* a checked-in, drift-gated property. Design\n+ plan under `docs/superpowers/`.\n\n### What's in this PR\n\n| Piece | Change |\n| --- | --- |\n| Shared plumbing | `scripts/structure-audit/_gh-audit.ts` (`runGh`,\n`isStrict`, `strictSkip` — one definition of *loud-in-CI, soft\nlocally*); `ruleset-drift` migrated onto it + gains `--strict` |\n| **Org-settings gate** | `.github/org-access.json` (desired settings) +\n`check-org-settings-drift.ts` — diffs `members_can_create_repositories`\n/ `default_repository_permission` vs live |\n| **Team-reachability gate** | `check-team-reachability.ts` — asserts\nevery org repo is reachable through a team (paginated,\narchived-excluded, exemptions in `org-access.json`) |\n| Contributor-two switches | `$contributor_two` advisory block in\n`general-branch.json` — records the four solo→team switches (one\nreviewed diff to onboard maintainer #2) |\n| Sweep wiring | two new jobs in `org-drift-sweep.yml`, all three gate\njobs run `--strict`, App tokens scoped least-privilege\n(org-administration / members read) |\n\n### Applied + proven green\n\nThe org apply landed (org-owner): six teamless repos (`.github`,\n`linux-repo`, the four npm narrow-waist repos) granted to `maintainers`;\n`members_can_create_repositories` → false;\n`default_repository_permission` → none; App granted `members: read`.\n\n**Live proof — `org-drift-sweep` run `30071156534` is green across all\n11 jobs** (`sha-pins` ×8, `ruleset-drift`, `org-settings-drift`,\n`team-reachability`). Both new gates were **red before** the apply (they\ndetect the un-applied state) and **green after** — the gate goes red on\nregression, which is the roadmap's definition of *done*.\n\n### Deferred (documented)\n\n- The **CLA** (own spec, next).\n- A higher-privilege **bypass-actor audit** (CI App token can't read\n`bypass_actors`; a future owner-`gh`-run check, no PAT).\n- Private-repo ruleset protection — **blocked-on-Team** (Free plan).\n\n### Verification\n\n580 tests / 0 fail · tsc + biome clean · `audit:action-sha-pins` OK ·\n`audit:ruleset-drift` OK · `lint:markdown` 0 · doc-refs resolve ·\nwhole-branch lychee 0 errors. Built via subagent-driven development:\nper-task review + an opus whole-branch review (merge-with-fixes → fixes\napplied: token scoping, `isRecord` dedup, roadmap accuracy, `softFail:\nnever`).\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-24T09:23:23+03:00",
+          "tree_id": "f0da15a7a752c3fed2fee1824e617254eb5463ce",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/52afca34746045f202545d0bf0d55d70483d4afa"
+        },
+        "date": 1784875267372,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 305.2559968999972,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 307.3981404000086,
             "unit": "ms"
           }
         ]
