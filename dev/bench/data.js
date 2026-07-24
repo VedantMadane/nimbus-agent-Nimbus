@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784878801036,
+  "lastUpdate": 1784880303489,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -4623,6 +4623,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 296.9728493500028,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e5eddb97b2ad7205199b2e28e99b2336908dc055",
+          "message": "refactor(gateway): clear 10 SonarCloud smells in why/blame/assemble (#829)\n\nFix-not-exclude cleanup of all open SonarCloud code smells on the\n`nimbus-agent_Nimbus` project (10, all CODE_SMELL — no\nbugs/vulns/hotspots).\n\n## Fixes\n- **why-peek.ts / why.ts** (S6582): collapse `x === null || x.y ===\nnull` guards to `x?.y == null` optional chains.\n- **_lib/render.ts** (S3358, S4624): extract `renderWhySubjectLine`,\nremoving a nested ternary and a nested template literal.\n- **blame-index-sync.ts**: single multi-arg `changes.push()` for the\nrename D+A pair (S7778); extract `statusFromCode` (S3358); split the\n`sync` root loop into\n`blameOneRoot`/`blameRootFull`/`blameRootIncremental`, dropping\ncognitive complexity 27 → well under 15 (S3776).\n- **assemble.ts** (S3776): extract `loadServiceConfigsOrDegrade`,\ndropping `assemblePlatformServices` cognitive complexity 16 → 15.\n- **why.test.ts** (S8782): move the `afterEach` hook to the top of the\n`describe` scope.\n- **agents-rpc.why.test.ts** (S5906): `toHaveLength(0)` over a generic\n`.length` assertion.\n\n## Coverage\nAdded a git-status `A` (added-file) case plus an unknown-code (`T` →\n`M`) case to the `gitChangedSince` parse test, covering all three\n`statusFromCode` branches.\n\nAll changes behavior-preserving.\n\n## Verification\n- Gateway `tsc --noEmit` ✅\n- `biome check --error-on-warnings packages scripts` (2953 files) ✅\n- Invariants static audit (`check-nimbus-invariants.ts`) ✅\n- Full gateway suite: 8814 pass (1 unrelated 5s-timeout flake in\n`connector-rpc-handlers/auth.test.ts`, passes isolated in 204ms)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n* Improved blame index updates for added, deleted, renamed, and modified\nfiles.\n* Unknown file-change statuses are now handled consistently as\nmodifications.\n* Invalid service configuration no longer prevents platform startup;\naffected service bindings are skipped with a warning.\n* Preserved clear handling for unresolved code subjects and missing line\ninformation.\n\n* **Refactor**\n* Simplified internal processing of repository synchronization and\nsubject rendering without changing expected results.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-24T10:55:14+03:00",
+          "tree_id": "821a5a90ae0aa563ebe3fdcb64d5fc48ae079045",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/e5eddb97b2ad7205199b2e28e99b2336908dc055"
+        },
+        "date": 1784880302254,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 282.8524585000021,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 283.51304285000333,
             "unit": "ms"
           }
         ]
