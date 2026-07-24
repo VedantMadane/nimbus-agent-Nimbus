@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784856893639,
+  "lastUpdate": 1784858371149,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -4249,6 +4249,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 319.1348873499992,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "06c6a14476285acc8797df3a074d260fdf778fbe",
+          "message": "ci(infra): P1 org CI foundation — cross-repo drift sweep + declarative rulesets (#818)\n\n## P1 — Org CI Foundation\n\nFirst sub-program of the [infrastructure\nroadmap](../blob/dev/asafgolombek/org-infrastructure-program/docs/infrastructure-roadmap.md):\nbuild the mechanism that carries a control **past the repo it was\nwritten in**, and land the immediate carve-outs. Design of record and\nplan live in `docs/superpowers/`.\n\nOperating principle: *a sub-program is done when its gate is green in CI\nand would go red if the property regressed — not when its code merges.*\n\n### What's in this PR (P1 Tasks 1–6)\n\n| Task | Change | Gate |\n| --- | --- | --- |\n| 1 (P4a) | `ci.yml` concurrency: `cancel-in-progress` only on\n`pull_request`, so consecutive `main` merges no longer cancel each\nother's validation | Every `main` commit gets a completed run |\n| 3 | New `docs/infrastructure-roadmap.md` — the third roadmap (how it\ngets built/reviewed/shipped), registered in `check-doc-references.ts`\n(15 → 16 docs) | `audit:doc-refs` |\n| 4 | `check-action-sha-pins.ts` gains `--root <path>` so the tested\naudit can be aimed at a checkout of any repo | unit-tested |\n| 5 | `.github/workflows/org-drift-sweep.yml` — scheduled matrix checks\nout every org repo and runs the same `--root` audit against it | `Org\ndrift sweep / sha-pins (<repo>)` |\n| 6 | Rulesets checked into `.github/rulesets/general-branch.json`; new\n`audit:ruleset-drift` diffs declared vs live for the 5 active code repos\n(pure diff, unit-tested; fail-soft when unauthenticated) | `Org drift\nsweep / ruleset-drift` |\n\nPlus Task 2 (already applied, remote): `nimbus-client` got the `General`\nbranch ruleset it was missing.\n\n**Task 7 (DCO) is SUPERSEDED** — the contribution-licensing decision\nresolved to a **CLA** (preserves relicensing optionality for the\nAGPL-3.0 core). The CLA is its own sub-effort under P6; it is not in\nthis PR. See the roadmap's P1 progress log.\n\n### Making the ruleset-drift gate real (org config)\n\nThe `ruleset-drift` job mints a token from the **`nimbus-release-bot`**\nApp with `permission-administration: read` (needed by `GET\n/repos/{owner}/{repo}/rulesets`).\n\n- ✅ **Done (2026-07-24):** the App was granted repository\n`Administration: read` — verified `\"administration\":\"read\"` on the org\ninstallation.\n- ⏳ **Confirm before the first post-merge run:** the App is\n`selected`-scoped and the token requests all 5 repos, so it must be\n*installed on* all of them — `Nimbus`, `nimbus-client`, `nimbus-sdk`,\n`nimbus-vscode`, `nimbus-web-clipper`. web-clipper is the one to check\n(the `RELEASE_BOT_PRIVATE_KEY` secret is shared with only the other\nfour). If it isn't in the App's Repository access, the token-mint fails\nred on that repo.\n\nThe `sha-pins` matrix half needs no token (public repos clone\nanonymously) and runs on the first post-merge schedule.\n\n### Verification (local, worktree)\n\n- `typecheck` 0 errors · `biome check scripts` clean · `lint:markdown` 0\nerrors\n- `audit:doc-refs` — 610 refs across **16 docs**, all resolve\n- `lychee` (CI scope `docs/**/*.md *.md`) — **0 errors**\n- `audit:action-sha-pins: OK` · `audit:ruleset-drift: OK (5 repos)` (run\nwith an admin token)\n- structure-audit + preflight-manifest tests — 27 pass\n- No `packages/` source touched → `coverage-floor` N/A\n\nThe `Org drift sweep` itself is dispatch/schedule-only and net-new, so\nit cannot fire from this feature branch — its first real run is\npost-merge.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-24T01:46:51Z",
+          "tree_id": "94fef082903b3cffbc7d07ec7a55b018cf769998",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/06c6a14476285acc8797df3a074d260fdf778fbe"
+        },
+        "date": 1784858370279,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 314.7439731999992,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 312.73664794999206,
             "unit": "ms"
           }
         ]
