@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784864668895,
+  "lastUpdate": 1784865906928,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -4385,6 +4385,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 323.25755139999967,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "67a9f75cd2765c3f3f751b9db90f04f718fa265a",
+          "message": "feat: nimbus index add + filesystem.ensureRoot — register blame roots (Stage 2a PR C) (#822)\n\n## Stage 2a un-park — PR C of 3 (editor/CLI root registration)\n\n**Problem.** The blame indexer (PR B, #819) and git-commit/symbol\nsyncables only run on paths in `[[filesystem.roots]]`. On the live\nmachine that array is empty, so nothing gets blamed — and the only way\nto add a root was to hand-edit `nimbus.toml`. This PR makes registering\na repo a one-liner.\n\n**What it adds.**\n- **`nimbus index add <path>`** — resolves the path and calls the new\n`filesystem.ensureRoot` IPC method (generic `IPCClient.call`, no\n`@nimbus-dev/client` change). Reports `Registered blame root: <path>` or\n`Already registered: <path>`.\n- **`filesystem.ensureRoot` IPC** — narrows `{ path }`, canonicalizes\n(real-path + strips the Windows `\\?\\` long-path prefix so `repo_root`\nmatches `git -C`), requires an existing directory with a `.git` entry\n(structurally rejecting `C:\\` / `/`), and persists to\n`registered-roots.json`. Fail-closed on missing `configDir`.\n- **`registered-roots-store`** — persist/load + `mergeRoots(toml,\nregistered)`: dedupe by canonical path (case-folded on win32), **TOML\nwins** on collision, skip any root whose folder is gone (stderr\nwarning). Registered roots are blame-oriented (git-aware, no code-index,\nno dependency graph).\n- **Assembly wiring** — the `fsV2Roots` load site now merges TOML +\nregistered roots, so a registered repo feeds the existing\nfilesystem/git-commit/blame syncables on the next Gateway start (TOML\nwins).\n\n### Security\n- `filesystem.*` added to `FORBIDDEN_OVER_LAN` (invariant I5) — a remote\npeer can never register an indexing root on your machine. Enforcement\ntest added to `security-invariants.test.ts`; static invariant audit\ngreen.\n- Not exposed to the Tauri renderer (CLI-only), consistent with\n`index.reembed`.\n\n### Tests\n- `registered-roots-store.test.ts` (10): idempotent add, round-trip,\n`mergeRoots` (TOML-wins / missing-skip), `canonicalizeRootPath`,\nmalformed-JSON / non-array / non-string-element handling.\n- `filesystem-rpc.test.ts` (7): miss, bad params, non-resolving path,\nnon-git dir, file-not-dir, idempotent register.\n- `dispatchers.test.ts`: `filesystem.ensureRoot` reached via the Phase-4\nchain + the `configDir`-missing error bubbles.\n- `index-cmd.test.ts` (+6): usage errors, gateway-down, resolved-path\ncall, `Already registered`.\n\n### Verification (local, pre-push, CI-Linux-authoritative floor)\n- New files above floor: `registered-roots-store.ts` 100% line / 83.3%\nbranch (remaining 2 branches are win32-only), `filesystem-rpc.ts`\n100/100, `index-cmd.ts` 100 line / 94.1% branch.\n- typecheck ✓ (gateway + cli), biome ✓ (2947 files), invariant audit ✓,\n`audit:readme-cli` ✓, `audit:doc-refs` ✓ (610 refs), lychee ✓.\n- Rebased cleanly onto current `main` (resolved with #819 blame indexer\n+ #820 why-lens/index-regraph — both `tryDispatchIndexRegraphRpc` and\n`tryDispatchFilesystemRpc`, and both `index add` / `index regraph` CLI\nsubcommands, coexist).\n- The only floor/test failures in the full local run are pre-existing\nenvironment cases in files this PR does not touch (updater factory\ndetects a package-manager install on this dev box; OAuth-arm timeout) —\ngreen on CI Ubuntu.\n\nCompletes the Stage 2a un-park trio (A #817 titles, B #819 blame\nindexer, C root registration). Do not merge without the usual CI pass.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n- **New Features**\n- Added `nimbus index add <path>` to register an existing local Git repo\nas a blame/index root.\n- Registered roots persist to be applied on the next Gateway start,\nmerging with `nimbus.toml` (with `nimbus.toml` taking precedence).\n- Command output is idempotent, indicating newly added vs already\nregistered roots.\n- **Bug Fixes**\n- Validates inputs, requires an existing directory containing `.git`,\nand blocks the action over LAN.\n- **Documentation**\n  - Updated CLI reference plus IPC/architecture notes and the changelog.\n- **Tests**\n- Added end-to-end coverage for the command and IPC dispatch, plus\nregistered-roots load/merge/canonicalization cases.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-24T03:53:25Z",
+          "tree_id": "62e49737d9057d2461a20405d5d64444184bcaab",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/67a9f75cd2765c3f3f751b9db90f04f718fa265a"
+        },
+        "date": 1784865905603,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 310.19247414999626,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 308.8217696499992,
             "unit": "ms"
           }
         ]
