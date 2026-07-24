@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784896614183,
+  "lastUpdate": 1784897450834,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -4725,6 +4725,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 188.0152399499995,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "7176dd498255a9175037303efbf677684c8482e5",
+          "message": "ci(cla): fix allowlist casing + claude, client-id",
+          "timestamp": "2026-07-24T15:39:12+03:00",
+          "tree_id": "c8c8ab348d44661aa753434f4f433b54e9ff5ed5",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/7176dd498255a9175037303efbf677684c8482e5"
+        },
+        "date": 1784897449927,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 301.32821305000505,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 301.80192215000096,
             "unit": "ms"
           }
         ]
