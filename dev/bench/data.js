@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784859376342,
+  "lastUpdate": 1784860086278,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -4317,6 +4317,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 295.88755024999483,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "940cb2e01c5c8ecb853c2d359c203022457a7efd",
+          "message": "feat(agents): the why lens — why agent, whyPeek, on-demand blame + index regraph (step 1b) (#820)\n\n## Why lens — step 1b\n\nFollows the merged **1a** (#813), which made `resolves` / `mentions` /\n`correlates_with` real graph edges. This slice adds the agent that reads\nthem.\n\n### What ships\n- **`why` built-in agent** — six parallel lanes over the 1a graph edges\n(pull-request · ticket · discussion · driver · downstream · blame),\nmirroring `impact.ts`'s parallel sub-agent skeleton. Read-only,\nHITL-free, honest degradation with gap notes.\n- **`agents.whyPeek`** — sub-300ms line-anchored peek.\n- **On-demand single-line `git blame`** — root-fenced (spawns only\ninside `[[filesystem.roots]]`), cached, one bounded 20 s subprocess per\ncold line.\n- **Subject resolution** — `parseRef` / `matchConfiguredRoot` /\n`resolveWhySubject` (path or symbol → blame subject), with a red-proven\npath-escape fence on both the caller-path and symbol branches.\n- **`index.regraph` IPC + `nimbus index regraph` CLI** —\nresolver-threaded graph backfill (threads `configDir` through so\n`correlates_with` and friends survive).\n- **`nimbus why <path[:line] | symbol> [--line N] [--peek] [--json]`\nCLI.**\n- **IPC + Tauri allowlist** — `agents.why` / `agents.whyPeek` (allowlist\n99 → 101, TS mirror updated).\n- **1a-backlog fixes** — ticket-key prose stoplist (SHA-256 etc. no\nlonger extracted as ticket keys) + `obsidian_note` in the regraph type\norder.\n- Reuses the shared reverse-`depends_on` traversal, refactored out of\n`impact.ts` in the same PR (impact's suite passes unchanged).\n\n### Verification\n- **Whole-branch fresh-context review: no blockers.** All six cross-task\nchecks passed against re-derived populator source (lane SQL shapes,\n`resolves` both-endpoint scoping, the spawn fence, connector-verbatim\nfixtures, cross-surface drift, the `configDir` resolver wiring). Two\nreview nits fixed: the symbol-branch `file` containment fence\n(red-proven) and a whyPeek fixture `state` value corrected to the\nconnector-verbatim `\"closed\"`.\n- Gates green: tsc (gateway+cli), biome, `audit:structure` (invariants),\ncross-platform, doc-refs, readme-cli, lychee; gateway 730 / cli 34 /\nwhy.e2e 4 tests pass.\n- **Coverage floor: ok (0 violations)** — reproduced CI-faithfully via\nthe tar-into-container method (a mounted-volume Docker run under-reports\nand is unreliable).\n\n### Known-inert by design\nThe `downstream` lane ships structurally empty: the populator emits\n`depends_on` only at workspace→package granularity, never symbol→symbol,\nso `reverseDependsOn(symbolId)` returns nothing today. The lane degrades\nwith an honest gap note (remediation: symbol-level `depends_on` is a\npopulator follow-up) — this is loud-failure-over-plausible-wrong-answer,\nnot a dead lane.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-24T05:07:17+03:00",
+          "tree_id": "09e168d8bcf006b91f90852173b5852ad2345909",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/940cb2e01c5c8ecb853c2d359c203022457a7efd"
+        },
+        "date": 1784860085783,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 303.42266929999823,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 304.4242296000022,
             "unit": "ms"
           }
         ]
