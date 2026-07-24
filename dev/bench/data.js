@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784897450834,
+  "lastUpdate": 1784907418905,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -4759,6 +4759,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 301.80192215000096,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d9f0a1df655b185ed8d56b925e1aa39160532678",
+          "message": "docs(cla): CLA program Phase 1 — ICLA/CCLA drafts + cla-coverage drift gate (#832)\n\n## CLA Program — Phase 1 (docs + coverage gate)\n\nDelivers the source-of-truth CLA artifacts and the org-wide drift gate.\nThe live `.github/workflows/cla.yml` + CLA text on\n`nimbus-agent/.github` were already deployed to all 6 gated repos in\nPhase 2; this PR lands the in-repo templates, the design/plan/review\ndocs, and the enforcement gate.\n\n### What's in it\n- **`docs/cla/ICLA.md` + `CCLA.md`** — Individual + Corporate CLA, broad\nrelicensable grant (dual-license optionality for the AGPL-3.0 core).\nGemini legal review applied (grant to Us only; §203 termination waiver;\nmoral-rights waiver; ESIGN/UETA assent; CCLA cross-ref + version pin;\nSchedule A). Governing law: **State of Israel / Tel Aviv-Jaffa**.\n- **`docs/cla/cla.yml`** — reusable workflow template\n(contributor-assistant@v2.6.1, App-token mint via `client-id`, allowlist\n`bot*,asafgolombek,claude`).\n- **`docs/cla/README.md`** — sign-flow + version-bump SOP.\n- **`docs/CONTRIBUTING.md`** — CLA section + MIT→AGPL one-way rule.\n- **`scripts/structure-audit/check-cla-coverage.ts` (+ test)** — drift\ngate: every gated repo (6 public) must carry `cla.yml` at one pinned\nsignature version; reachability-probe based (public repos → 404 =\nabsent). Registered in `package.json` +\n`scripts/lib/preflight-gates.ts`.\n- **`.github/workflows/org-drift-sweep.yml`** — `cla-coverage` job\n(RELEASE_BOT token, `--strict`).\n- Design/plan/review docs under `docs/superpowers/`.\n\n### Verification\n- `check-cla-coverage` test: 4/4 ✅\n- preflight-gates drift test: 5/5 ✅\n- biome clean; gate typechecks clean\n- `cla-coverage` sweep proven green against all 6 repos\n\nRebased onto current `main` (the two live-deploy CLA commits + #830/#831\necosystem docs are already there).\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-24T18:27:25+03:00",
+          "tree_id": "1d0d716d968f39721c1a418102906dc44afe6b4a",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/d9f0a1df655b185ed8d56b925e1aa39160532678"
+        },
+        "date": 1784907414604,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 207.21126539999605,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 209.76808799999634,
             "unit": "ms"
           }
         ]
