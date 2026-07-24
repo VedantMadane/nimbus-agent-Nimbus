@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784875951351,
+  "lastUpdate": 1784878801036,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -4589,6 +4589,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 301.201220149998,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "98cc6e4f335273de5838fdd7947bfe72ff9bdaed",
+          "message": "docs: ecosystem Stage 3 — distribution (launch messaging + roadmap status) (#830)\n\nStage 3 (Distribution) copy that lives in this repo, plus the\nspec/plan/reviews.\n\n- **`docs/launch-messaging.md`** — reusable messaging sheet (three\npillars: banner=`why` lens, moat=egress receipts, multiplier=LM tools)\nwith load-bearing **honesty guardrails** (the egress ledger records the\nagent's *dispatched actions* at the I29 chokepoint — never \"everything\nthat left your machine\").\n- **Stage 3 roadmap status** — marketplace re-cut ✅, cross-link ROADMAPs\n✅, launch trust-story ✅; **demo GIF ⏳ deferred** (gated on the Stage 4\nhover UI).\n\nCopy/metadata only — nothing published or posted. **Companion PRs:**\nnimbus-vscode (marketplace re-cut) + nimbus-client/-sdk/-web-clipper\n(ROADMAP cross-links).\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-24T07:27:58Z",
+          "tree_id": "a7f19c20990b2f87cba3d02c447e8df9dcf42133",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/98cc6e4f335273de5838fdd7947bfe72ff9bdaed"
+        },
+        "date": 1784878800435,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 296.5569919000012,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 296.9728493500028,
             "unit": "ms"
           }
         ]
