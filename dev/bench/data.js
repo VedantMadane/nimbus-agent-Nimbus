@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784882639387,
+  "lastUpdate": 1784896614183,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -4691,6 +4691,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 242.48982294999513,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "distinct": true,
+          "id": "a91d73ec67e9ccf839761ce4447890d3bc7492a0",
+          "message": "ci(cla): add CLA Assistant workflow",
+          "timestamp": "2026-07-24T15:28:21+03:00",
+          "tree_id": "0c97e912e7fa20fb4e06072897e1cb9c583909ae",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/a91d73ec67e9ccf839761ce4447890d3bc7492a0"
+        },
+        "date": 1784896607270,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 200.06206120000314,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 188.0152399499995,
             "unit": "ms"
           }
         ]
