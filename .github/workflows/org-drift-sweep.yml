@@ -75,6 +75,12 @@ jobs:
           private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
           owner: nimbus-agent
           repositories: Nimbus,nimbus-client,nimbus-sdk,nimbus-vscode,nimbus-web-clipper
+          # Administration:read is what `GET /repos/{o}/{r}/rulesets` needs. Note it
+          # is NOT sufficient to read `bypass_actors` for org-level actors
+          # (OrganizationAdmin comes back empty) — proven live that even adding
+          # organization-administration:read does not restore it — so the drift
+          # audit deliberately does not diff bypass actors. See the P1 progress
+          # log in docs/infrastructure-roadmap.md.
           permission-administration: read
       - name: Audit ruleset drift across active repos
         env:
