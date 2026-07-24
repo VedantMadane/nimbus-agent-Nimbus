@@ -51,7 +51,7 @@ Design of record:
 | P4a | Main-CI concurrency | ✅ shipped | Every commit on `main` has a completed CI run |
 | P4b | Latency | ⬜ not started | Per-job wall-clock tracked; regressions visible |
 | P5 | Org Legibility | ⬜ not started | `audit:secret-inventory` fails on any workflow secret missing from `ci-secrets.md` |
-| P6 | Access & Contribution Model | ⬜ not started | Every repo reachable through a team; contributor-two switches live in checked-in config |
+| P6 | Access & Contribution Model | 🔨 P6a done | Every repo reachable through a team + org settings gated (both in the sweep); contributor-two switches recorded in checked-in config. Remaining: CLA, bypass-actor audit |
 
 **Sequence:** P1 → P6 → P2 → P5 → P3 → P4b. Three items ignore the sequence and
 land immediately: P4a, `nimbus-client` rulesets, and the contribution-licensing
@@ -106,6 +106,29 @@ moves to P6).
   is correctly SHA-pinned, just to older SHAs. The SHA-pin gate is green and
   structurally cannot detect staleness; a freshness check is a **Plan B**
   follow-up.
+
+### P6a progress log
+
+- **Delivered (2026-07-24) — checked-in config + gates:** `.github/org-access.json`
+  (desired org settings + team-reachability exemptions); the two gates
+  `audit:org-settings-drift` + `audit:team-reachability` wired into
+  `org-drift-sweep` (fail-soft locally, `--strict` in CI); and the four
+  contributor-two switches recorded in the `$contributor_two` block of
+  `.github/rulesets/general-branch.json`.
+- **Applied (2026-07-24, org-owner):** the six teamless repos (`.github`,
+  `linux-repo`, the four npm narrow-waist repos) are granted to `maintainers`;
+  `members_can_create_repositories` → false and `default_repository_permission`
+  → none; the `nimbus-release-bot` App granted `members: read`.
+- **Proven green end-to-end (run 30071156534):** a dispatched `org-drift-sweep`
+  is green across all 11 jobs — `sha-pins` (8), `ruleset-drift`,
+  `org-settings-drift`, and `team-reachability` — with the two new gates
+  authenticating via their scoped App tokens (org-administration read /
+  members read). Both were **red** before the apply (they detect the un-applied
+  state) and green after: the gate would go red on regression, which is this
+  file's definition of *done*.
+- **Deferred:** the CLA (own spec) and a higher-privilege **bypass-actor audit**
+  (the CI App token cannot read `bypass_actors`; a future owner-`gh`-run check,
+  no PAT). Private-repo ruleset protection stays **blocked-on-Team** (Free plan).
 
 ---
 
