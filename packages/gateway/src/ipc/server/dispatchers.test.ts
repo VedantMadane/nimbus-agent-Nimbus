@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -48,6 +48,7 @@ import {
   tryDispatchFederationRpc,
   tryDispatchHitlRpc,
   tryDispatchIndexReembedRpc,
+  tryDispatchIndexRegraphRpc,
   tryDispatchLanRpc,
   tryDispatchLlmRpc,
   tryDispatchMetricsRpc,
@@ -396,6 +397,43 @@ describe("tryDispatchIndexReembedRpc", () => {
       // typed error from dispatcher is acceptable; we only want the
       // delegation code path covered.
     }
+  });
+});
+
+describe("tryDispatchIndexRegraphRpc", () => {
+  test("skips other methods", async () => {
+    const { ctx } = makeCtx();
+    expect(await tryDispatchIndexRegraphRpc(ctx, "engine.ask", {})).toBe(phase4RpcSkipped);
+  });
+  test("throws when localIndex missing", async () => {
+    const { ctx } = makeCtx();
+    await expect(tryDispatchIndexRegraphRpc(ctx, "index.regraph", {})).rejects.toThrow(
+      /requires LocalIndex/,
+    );
+  });
+  test("delegates index.regraph with valid wiring", async () => {
+    const db = trackedDb();
+    const localIndex = new LocalIndex(db);
+    const { ctx } = makeCtx({ localIndex });
+    const out = await tryDispatchIndexRegraphRpc(ctx, "index.regraph", {});
+    expect(out).toMatchObject({ scanned: 0, graphed: 0, skipped: 0 });
+  });
+  test("delegates index.regraph with configDir present (the resolver-threading spread branch)", async () => {
+    const db = trackedDb();
+    const localIndex = new LocalIndex(db);
+    const configDir = mkdtempSync(join(tmpdir(), "nimbus-dispatchers-regraph-"));
+    // TOML literal reused verbatim from index-regraph-rpc.test.ts case 2.
+    writeFileSync(
+      join(configDir, "nimbus.toml"),
+      `[ci.service.checkout]
+repos = ["github:acme/checkout"]
+pagerduty_services = ["PSVC1"]
+`,
+      "utf8",
+    );
+    const { ctx } = makeCtx({ localIndex, configDir });
+    const out = await tryDispatchIndexRegraphRpc(ctx, "index.regraph", {});
+    expect(out).toMatchObject({ scanned: 0, graphed: 0, skipped: 0 });
   });
 });
 
