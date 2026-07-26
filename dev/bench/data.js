@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785078797309,
+  "lastUpdate": 1785079662080,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -4963,6 +4963,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 327.8437593999955,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f2728ca868759cb19aeeed3bdb182e2f3ad4cd7",
+          "message": "chore: release main (#839)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>1.0.0</summary>\n\n##\n[1.0.0](https://github.com/nimbus-agent/Nimbus/compare/v0.27.0...v1.0.0)\n(2026-07-26)\n\n\n### ⚠ BREAKING CHANGES\n\n* **security:** clear all high advisories (react-router v8, postcss,\nbrace-expansion) + scope cla.yml permissions\n([#835](https://github.com/nimbus-agent/Nimbus/issues/835))\n\n### Features\n\n* **infra:** P2 Release Train Phase 1 — release-staleness gate\n([#836](https://github.com/nimbus-agent/Nimbus/issues/836))\n([98b0327](https://github.com/nimbus-agent/Nimbus/commit/98b03278380e946c36c4ae2c0038321969d2ff83))\n\n\n### Bug Fixes\n\n* **release:** reconcile step never detected a missing tag (gh writes\n422 to stdout)\n([#834](https://github.com/nimbus-agent/Nimbus/issues/834))\n([ffcec8e](https://github.com/nimbus-agent/Nimbus/commit/ffcec8eab8370ab6b8f908e0646a0f3975bd2194))\n* **release:** request workflows:write so the App can create the release\ntag ([#837](https://github.com/nimbus-agent/Nimbus/issues/837))\n([2be97d7](https://github.com/nimbus-agent/Nimbus/commit/2be97d743861edb2764d707f349522161f9cf077))\n* **security:** clear all high advisories (react-router v8, postcss,\nbrace-expansion) + scope cla.yml permissions\n([#835](https://github.com/nimbus-agent/Nimbus/issues/835))\n([7d2129e](https://github.com/nimbus-agent/Nimbus/commit/7d2129e62387e4de74159befbc6db1f85440d9fa))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-07-26T15:16:06Z",
+          "tree_id": "e6c32dbaf866c76644e6bf62071695de6bfdc5da",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/4f2728ca868759cb19aeeed3bdb182e2f3ad4cd7"
+        },
+        "date": 1785079661464,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 305.522008749998,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 307.84873534999895,
             "unit": "ms"
           }
         ]
