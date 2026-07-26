@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785074889859,
+  "lastUpdate": 1785078047254,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -4895,6 +4895,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 256.31118184999906,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2be97d743861edb2764d707f349522161f9cf077",
+          "message": "fix(release): request workflows:write so the App can create the release tag (#837)\n\n## ⚠️ Merge order matters — grant the App permission FIRST\n\n`actions/create-github-app-token` **fails outright** if it requests a\npermission the App does not hold. Merging this before the grant breaks\n`release-please.yml` entirely.\n\n**App to change:** `nimbus-release-bot` — app_id **4339400**,\ninstallation **147619203** (org-owned, `repository_selection:\nselected`).\nGrant **Repository permissions → Workflows: write**, then approve the\nupdated permissions on the installation.\n\nCurrent grants (no `workflows` at all):\n`administration:read · contents:write · issues:write · members:read ·\nmetadata:read · organization_administration:read · pull_requests:write`\n\n## Root cause\n\nThis is the 403 that has blocked every hands-free release. GitHub\nrefuses to let a GitHub App create a ref pointing at a commit whose\n`.github/workflows/**` differs from the default branch unless the App\nholds `workflows: write` — it counts as the App \"creating or updating a\nworkflow\".\n\nA release tag **always** points at the release PR's merge commit, which\nfalls behind `main` the moment any later PR touches a workflow file. So\nthis fires on exactly the releases we care about — it is structural, not\nintermittent.\n\nFor v0.27.0 the target `1e0b98df` differs from `main` in **3** workflow\nfiles (`cla.yml`, `org-drift-sweep.yml`, `release-please.yml`), all\nchanged by #832/#834/#836 after that commit.\n\n## Evidence\n\nREST surfaces this only as an opaque `403 Resource not accessible by\nintegration` on `POST /git/refs`. The response header names the\nrequirement:\n\n```\nX-Accepted-Github-Permissions: contents=write; contents=write,workflows=write\n```\n\nTwo accepted sets — `contents=write` **or**\n`contents=write,workflows=write`. The App satisfied the first but never\nthe second.\n\nConfirmed by in-CI probe with the minted token (run `30205855632`):\n\n| probe | result |\n| --- | --- |\n| `POST refs/heads/<probe>` @ null sha | **422** `Object does not exist`\n— authorized, bad sha only |\n| same ref shape @ `main` head | **201** created |\n| same ref shape @ #827's merge commit | **403** |\n\nThe git transport spells out what REST hides: *\"refusing to allow a\nGitHub App to create or update workflow ... without `workflows`\npermission\"*.\n\n## Previously ruled out — do not re-investigate\n\n- The **\"Protected release tags\" ruleset** (15436427) is not involved:\nrules are `deletion`/`non_fast_forward`/`update` with **no `creation`\nrule**, and `rule-suites?ref=refs/tags/v0.27.0` returns `[]`, i.e. it\nwas never evaluated.\n- The mint step already requested `contents: write`, and the App already\nheld it.\n- The same token's reads in the same step always succeeded.\n\n## Likely wider impact\n\n`release-please` authenticates with this same App token. Its own\ntag-creation almost certainly hits this identical gate, which would\nexplain why it \"cannot create releases in this repo\" and has aborted on\nevery version since ~#757. If so, this grant fixes the disease at the\nsource and the reconcile step (#834) becomes a safety net rather than\nthe primary path. The `unexpected token ' '` parse error in its logs may\nbe a red herring.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n* Improved automated release handling by granting the permissions\nrequired for release tagging.\n* Added safeguards and guidance to help prevent merged releases from\nremaining untagged or pending.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-26T17:48:43+03:00",
+          "tree_id": "3f753af6b87ab3f553615c1b8d6e15ca7fc09e86",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/2be97d743861edb2764d707f349522161f9cf077"
+        },
+        "date": 1785078046282,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 308.5718990000023,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 316.6898606499999,
             "unit": "ms"
           }
         ]
