@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784907418905,
+  "lastUpdate": 1785073076681,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -4793,6 +4793,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 209.76808799999634,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7d2129e62387e4de74159befbc6db1f85440d9fa",
+          "message": "fix(security)!: clear all high advisories (react-router v8, postcss, brace-expansion) + scope cla.yml permissions (#835)\n\nTakes the repo from **4 high advisories to 0**. `bun audit --audit-level\nhigh` and `Trivy vulnerability scan` are both **required checks** and\nwere already failing on `main`, so this also unblocks #834 and #836.\n\n## Advisories cleared\n\n| Advisory | Package | Fix |\n| --- | --- | --- |\n| GHSA-r28c-9q8g-f849 | postcss 8.5.15 | pinned **8.5.23** via\n`overrides` (transitive: astro/vite) |\n| GHSA-chx6-hx7r-mcp5 — DoS, inefficient route matching | react-router\n7.17.0 | **7.18.1** |\n| GHSA-mh99-v99m-4gvg | brace-expansion | override was pinned to exactly\n**5.0.7**, but the advisory range is `<=5.0.7` — the pin *was* the\nvulnerable version. Now **5.0.8** |\n| GHSA-qwww-vcr4-c8h2 — RSC CSRF | react-router | **v8.3.0 migration**,\nsee below |\n\nNote that `bun audit` surfaced more than GitHub's code-scanning alerts\ndid — the brace-expansion and route-matching-DoS advisories were not in\nthe Code Scanning list.\n\n## The react-router v8 migration\n\nGHSA-qwww-vcr4-c8h2's only fix is 8.3.0, and **there is no\n`react-router-dom` 8.x** — v8 discontinued the separate DOM package and\nfolded it into `react-router`. So this swaps the dependency and rewrites\nthe module specifier across **35 files** (15 `src` + 20 `test`).\n\n**No API changes were required.** Every symbol in use exists in v8 under\nthe same name: `createBrowserRouter`, `createRoutesFromElements`,\n`RouterProvider`, `Route`, `Navigate`, `Outlet`, `Link`, `NavLink`,\n`MemoryRouter`, `Routes`, `useNavigate`, `useLocation`,\n`useSearchParams`, and the `NavigateFunction` type.\n\nMarked `!` because the UI's routing dependency crosses a major version.\nNo public API is affected, and the Tauri desktop app is\nPhase-13-deferred.\n\n## Scorecard `TokenPermissions` — `cla.yml` (#151, #152)\n\n`actions` / `pull-requests` / `statuses: write` were declared at **top\nlevel**, so every job inherited them. They now sit on the single `cla`\njob; the workflow default drops to `contents: read`. Capabilities are\nunchanged, so the live required `cla` gate keeps working.\n\nThe other 9 `TokenPermissions` alerts are job-level writes that are\nstructurally required (`contents: write` for release-please, `checks:\nwrite` for test-report publishing). Scorecard scores *any* write as 0,\nso they can't be satisfied without breaking those jobs — left for a\ndismiss-with-justification decision.\n\n## Verification\n\n- **`bun audit --audit-level high`: clean, exit 0** (was 4 high)\n- `packages/ui` vitest: **506 tests across 74 files, all pass**\n- `packages/ui` `tsc --noEmit` clean; **full monorepo typecheck exit 0**\n- `vite build` succeeds (183 modules transformed)\n- `biome check` clean on 2957 files; lockfile passes `--frozen-lockfile`\n\n## Rider worth calling out\n\n`bun install` deduped `@nimbus-dev/sdk` to a single hoisted **1.6.0**,\ncollapsing ~100 per-connector 1.4.0/1.5.0 entries (hence the large\n`bun.lock` delta). All 94 connectors declare `^1.3.0` and the gateway\n`^1.6.0`, so this is semver-legal and unavoidable through bun's\nresolver.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-26T13:25:41Z",
+          "tree_id": "c0ab691a2e1d7a3f74fcc77bc8068ad48d15f2c3",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/7d2129e62387e4de74159befbc6db1f85440d9fa"
+        },
+        "date": 1785073076084,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 304.1363660999985,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 307.1924319500089,
             "unit": "ms"
           }
         ]
