@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785073076681,
+  "lastUpdate": 1785074342361,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -4827,6 +4827,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 307.1924319500089,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "98b03278380e946c36c4ae2c0038321969d2ff83",
+          "message": "feat(infra): P2 Release Train Phase 1 — release-staleness gate (#836)\n\nShips Phase 1 of the **P2 Release Train** sub-program: an independent,\nscheduled gate that goes red when a built release has not reached a\ndistribution channel, or when a release *phantoms*. Spec + plan (design\n→ review → plan → review) are the first four commits.\n\n## What it does\n\nA declarative `.github/release-train.json` lists every propagation edge.\n`audit:release-staleness` reads three version heads and emits a per-edge\nverdict:\n\n| Head | Source |\n| --- | --- |\n| **intended** | `.release-please-manifest.json` on `main`, plus its\nbump-commit age |\n| **published** | latest stable `vX.Y.Z` Release that actually carries\nits `SHA256SUMS` asset |\n| **distributed** | each channel's live file (brew / scoop / linux apt)\nor winget dir-or-open-PR |\n\nA new `release-staleness` job runs it `--strict` on the existing weekly\n`org-drift-sweep` cron. **No App token is minted** — every read is\npublic, so `github.token` suffices.\n\n## Design decisions that matter\n\n- The **phantom edge gates on the bump commit's age**, not the\nrelease's, so a normal build window is never red.\n- **winget counts as caught-up on a merged dir OR an open PR** — the\ngate never waits on Microsoft's merge.\n- Every unreadable or unparseable input degrades to `indeterminate`,\n**never `stale`**. `Bun.semver.order` throws on non-semver, so it is\nwrapped.\n- Under `--strict`, a run that evaluated *nothing* is **red** —\n\"indeterminate\" must not read as \"all clear\" (the team-reachability\nrule).\n\n## Live proof: RED on a genuine phantom\n\n```\n::error::nimbus-gateway:phantom: manifest 0.27.0 has no built Release with assets\n(latest published: 0.26.0); bump is 54h old (> 6h grace)\n```\n\nVerified real, not a gate bug: **no `v0.27.0` tag exists**, and PR #827\n(merged 2026-07-24T06:37Z) still carries `autorelease: pending`. All\nfour channel edges evaluated `ok`. Exit 1 in both default and `--strict`\nmode.\n\nChasing that surfaced a second, worse problem — **#824's auto-reconcile\nhas been a silent no-op since it shipped**, fixed in #834. The gate did\nits job on run 1.\n\n## Also closes the CLA-coverage follow-up\n\n`_gh-audit.ts` now surfaces the `gh` HTTP status; `check-cla-coverage`\ntreats a non-404 read as *indeterminate* rather than \"cla.yml absent\",\nso a transient 5xx/rate-limit can no longer fake a \"repo lost its CLA\ngate\" red. That was an open robustness item on the infrastructure\nroadmap.\n\n## Verification\n\n- 39 unit tests for the new gate; **610 scripts tests pass**, 0 fail\n- `typecheck` clean; `biome check` clean on 2960 files\n- `audit:doc-refs` 616/616 resolve; `audit:readme-cli` clean; lychee 0\nerrors\n- Manifest key, all three channel paths and the `nimbus-headless` Debian\nformat verified against the **live** repos, not assumed from the plan\n- Red-prove: the `stale` (5) and `phantom` (4) cases assert the red\nverdicts\n\n## Remaining\n\nPhase 2 (dependency-DAG edges: sdk/client → consumers). Per the\nprogram's definition of done, P2 is only *done* once `release-staleness`\nhas run green in a scheduled sweep on `main` — a net-new job's first\nreal run is post-merge, so dispatch `org-drift-sweep.yml` after this\nlands and record the run number in the roadmap.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-26T13:47:02Z",
+          "tree_id": "d95a50ba70748179237c9d0c914512e095955e9f",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/98b03278380e946c36c4ae2c0038321969d2ff83"
+        },
+        "date": 1785074341684,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 306.8971365499965,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 305.85458919999803,
             "unit": "ms"
           }
         ]
