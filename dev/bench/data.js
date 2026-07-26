@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785084143771,
+  "lastUpdate": 1785084870807,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -5031,6 +5031,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 308.5732611999985,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7ce8815952858b16f367b98941539375e0af105e",
+          "message": "fix(ci): stop pending-run eviction silently cancelling main's validation (#840)\n\n## What this fixes\n\nStarted from \"3 open HIGH Code Scanning alerts\". Those turned out to be\n**stale, not live** — pinned to `d9f0a1df` (07-25), before #835 upgraded\nthe packages. `bun.lock` already had react-router 8.3.0 / postcss 8.5.23\n/ brace-expansion 5.0.8 and `bun audit --audit-level high` was clean.\nRe-scanning `main` closed all three as `state=fixed`.\n\nBut *why* a merged fix left alerts open for a day turned out to be three\nreal gaps.\n\n### 1. Pushes to `main` lost their CI run entirely — 33 of 60 (55%)\n\n`ci.yml` set `cancel-in-progress: false` for pushes, intending \"never\ncancel a merge\". That flag only protects the **in-progress** run. GitHub\npermits one *pending* run per concurrency group and cancels \"any\npreviously pending workflow in the group\" when a newer one arrives — so\nconsecutive merges evicted each other **while queued**.\n\nThe tell: the cancelled runs have **zero jobs**.\n\n```\n$ gh api repos/nimbus-agent/Nimbus/actions/runs/30207835838/jobs --jq .total_count\n0\n```\n\nAll six merges on 07-26 were cancelled this way, so the commits that\nactually shipped — **v1.0.0 among them** — were never validated\npost-merge.\n\nThe existing comment in `ci.yml` had already diagnosed the symptom\n(\"Measured at 22 cancelled / 40 runs\") and tuned `cancel-in-progress`\naccordingly. But that flag was never the mechanism, so the bug outlived\nthe fix written for it.\n\n**Fix:** pushes get a per-SHA group and never share one; PRs keep the\nper-ref group so superseded runs still cancel.\n\n```yaml\ngroup: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'pr' || github.sha }}\ncancel-in-progress: ${{ github.event_name == 'pull_request' }}\n```\n\n### 2. `codeql.yml` had the same bug — with a security consequence\n\nAn evicted push run never re-uploads main's SARIF, so CodeQL alerts\nsilently go stale against a commit that no longer exists (5 of 40 push\nruns). Same per-SHA fix. The PR-ref cancel-on-supersede behaviour and\nits \"1 configuration not found\" race rationale are preserved\ndeliberately.\n\n### 3. `security.yml` never ran on push at all\n\nTrivy uploads SARIF **per ref**, so main's alerts only refreshed on the\nnightly cron. That is the direct cause of the stale alerts above — and\nit cuts both ways: a vulnerability *reaching* main would have been\nequally invisible for up to 24h. Now scans on merge too, with the same\nper-SHA concurrency.\n\n### 4. `main` was failing its own preflight (pre-existing)\n\n#835 added `CLA_BOT_CLIENT_ID` / `CLA_BOT_PRIVATE_KEY` to `cla.yml`\nwithout manifest entries, so `audit:consumed-by` had been red on `main`,\nblocking `preflight` for everyone. Confirmed pre-existing by stashing.\nBoth registered as org-scoped `visibility: selected`, verified against\nthe live org rather than assumed; pinned test counts updated (36→38\nentries, ORG 4→6).\n\n## Docs\n\n- `CLAUDE.md` + `GEMINI.md` — said `Latest release v0.26.0`; actual is\n**v1.0.0**. Updated both (CLAUDE.md requires the mirror), noting the\nmajor bump came from the react-router v8 advisory sweep, not a product\nbreak.\n- `README.md` — **no change needed**; it carries no version references\nand `audit:readme-cli` / `audit:doc-refs` pass.\n\n## Verification\n\n- `bun run preflight` (full CI parity) — all 19 static/audit gates\ngreen; the `build` gate fails **locally on Windows only** (see below)\n- lychee, exactly as `docs-quality` invokes it: **1049 links, 0 errors**\n- `bun test scripts/release/credential-*.test.ts` — 39 pass\n- Code Scanning + Dependabot: **0 open alerts**\n- Coverage-floor not run: it scans\n`packages/{gateway,cli,mcp-connectors}` only; this diff touches\n`.github/`, `scripts/release/`, and root `*.md`\n\n## Honest limits\n\n**The concurrency fix is verified by inspection, not live.** The YAML\nparses and the expressions resolve to the intended per-event groups, but\nper-SHA push behaviour cannot be proven until this merges and a real\npush event fires. The first merge after this lands is the actual test.\n\n**Pre-existing Windows-only build break, not actioned here.** `bun run\nbuild` fails locally on Windows in the docs package:\n\n```\n@nimbus/docs build: Export named 'forEach' not found in module 'node_modules\\neotraverse\\dist\\index.js'\n```\n\nConfirmed **not** caused by this branch — reproduces identically on a\nclean detached `origin/main`, and survives a fresh `bun install`. CI is\nunaffected: `Build all packages` passes on `ubuntu-24.04` in the\n`Static` job (verified on run `30207946388`). Worth a separate look\ngiven the platform-equality non-negotiable, but it is out of scope for\nthis PR.\n\n**Unrelated finding, not actioned:** `CLA_BOT_APP_ID` exists as an org\nsecret but no workflow reads it — a leftover from the deprecated\n`app-id` input, same story as the already-deleted `RELEASE_BOT_APP_ID`.\nDeleting it is an org mutation, so I left it alone. If you want it gone,\ndeleting it and marking the entry `forbidden` would match the existing\npattern.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n* Security scans now run automatically for direct updates to the main\ndevelopment branches.\n* Security workflow runs are better coordinated, reducing stale or\nconflicting results.\n\n* **Documentation**\n* Updated project documentation to reflect the v1.0.0 release dated July\n26, 2026.\n\n* **Chores**\n* Expanded credential coverage for release automation and updated\nvalidation checks accordingly.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-26T19:33:56+03:00",
+          "tree_id": "a7c2dd8bbb2ef66c2571f006a55880867f9a61f2",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/7ce8815952858b16f367b98941539375e0af105e"
+        },
+        "date": 1785084869849,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 318.3474624000006,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 319.417680700004,
             "unit": "ms"
           }
         ]
