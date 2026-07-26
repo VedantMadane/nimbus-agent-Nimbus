@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785079662080,
+  "lastUpdate": 1785084143771,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -4997,6 +4997,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 307.84873534999895,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f7f4fdc01184151b99945e84c0915f56ee14a243",
+          "message": "docs(infra): close P2 Phase 1 (sweep run 30210246814) + correct the VSCE_PAT date (#841)\n\nTwo things, both from the sweep dispatched at 16:21Z.\n\n## P2 Phase 1 is done — green in CI\n\nRun\n[`30210246814`](https://github.com/nimbus-agent/Nimbus/actions/runs/30210246814):\nthe `release-staleness` job ran on `main` and **passed**. That completes\nthe bar this file sets — red-proved on a real phantom, green after it\nwas fixed, then green in the scheduled harness. Not \"the code merged\".\n\nP2 row flips to `✅ Phase 1 done (run 30210246814)`; Phase 2\n(dependency-DAG edges) is specced, reviewed, planned and plan-reviewed\non `dev/asafgolombek/p2-phase2-dep-dag` but not implemented.\n\n## The same run surfaced a different defect — recorded, not fixed here\n\n`cla-coverage` **failed at the App-token mint**, so its audit step was\nskipped and never ran at all:\n\n```\nFailed to create token for \"...,nimbus-agent/awesome-nimbus\": There is at least\none repository that does not exist or is not accessible to the parent installation.\n```\n\nConfirmed by elimination — `ruleset-drift` requests the same five repos\n**minus** `awesome-nimbus` and minted fine. The CLA program grew its\ngated list to six; the `nimbus-release-bot` installation stayed at five.\n\nNote *when* this appeared: P6a's green sweep was 11 jobs, and\n`cla-coverage` + `release-staleness` are the 12th and 13th — so this was\n**`cla-coverage`'s first-ever real execution**. That is the fifth\ninstance of the pattern at the top of this file, and the second today.\n\n**Fix is org-owner, not code:** add `awesome-nimbus` to the\n`nimbus-release-bot` App's repository access.\n\n## VSCE_PAT date correction\n\n`2026-09-20`, not `2026-12-01` — roughly eight weeks out rather than\nfour months.\n\nThe SSoT is `scripts/release/credential-registry.ts`, whose note is\nexplicit: the December date is the Azure DevOps **global-PAT\ndecommission**, which does not apply because the token was confirmed\n**org-scoped** in the ADO portal (2026-07-22, nimbus-vscode#34). The\nbinding date is the token's own expiry.\n\nI introduced the wrong date in #838. The registry note warns against\nexactly that substitution — at 90-day lead it would have stayed silent\npast the expiry that actually bites.\n\n## Verification\n\n`lint:markdown` 0 errors · `audit:doc-refs` 617/617 resolve · lychee\nclean including `--include-fragments`.\n\nDocs-only.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-26T16:30:36Z",
+          "tree_id": "001797af06e5c57906f5bdd17c02015f4b4ae53e",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/f7f4fdc01184151b99945e84c0915f56ee14a243"
+        },
+        "date": 1785084141918,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 308.4715909000024,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 308.5732611999985,
             "unit": "ms"
           }
         ]
