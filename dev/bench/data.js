@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785090209013,
+  "lastUpdate": 1785091100034,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -5167,6 +5167,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 322.02784270000774,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "80277e5de59edc05505f4ace92f63efab8bc0faa",
+          "message": "chore(deps): @nimbus-dev/client 0.5.0 → 0.12.1 in packages/cli (#848)\n\n## Summary\n\nClears the **last red edge** from the P2 Release Train Phase 2 gate\n(#843), which found the CLI resolving `@nimbus-dev/client` **0.5.0**\nagainst a published **0.12.1** — seven minors of drift accumulated\nacross the narrow-waist work, which nothing detected until the gate\nexisted. Owner-confirmed as drift, not a deliberate pin.\n\n**This needed a manifest edit, not a lockfile refresh.** A caret on a\n`0.x` version pins the **minor**, so `^0.5.0` could never resolve past\n`0.5.x` — the range was itself the blocker. That asymmetry is precisely\nwhy the Phase 2 gate reads the **lockfile** rather than the declared\nrange: a range misleads in both directions (`^1.2.0` permits a newer\n`1.3.0`; `^0.5.0` forbids `0.12.1`).\n\nContrast the sdk bumps in #843 / nimbus-client#38 / nimbus-vscode#58,\nwhich were caret-on-`1.x` and needed only `bun install`.\n\n## Why it turned out small\n\nSeven minors on a `0.x` is nominally high-risk, which is why I checked\ncall sites before assuming. The CLI's surface use is narrow —\n`IPCClient`, `MockClient`, `NimbusClient` — and `IPCClient` grew method\n**count** (15 → 32 across those releases) rather than changing shape.\nNothing needed adapting, including\n`packages/cli/src/tui/test-helpers/stub-client.ts`, which *implements*\nthe interface and was the most likely breakage.\n\n## Testing\n\n- **Full monorepo typecheck** — exit 0 (all packages)\n- **biome** — clean\n- `bun test packages/cli/src` — **1792 pass / 8 fail before AND after\nthe bump**, a zero delta\n\n### About those 8 failures\n\nThey are **pre-existing and Windows-local**, not caused by this change.\nI verified rather than assumed: stashed the bump, re-ran on clean\n`main`, and got the identical 14 pass / 8 fail in the same file.\n\nThey are all in `runUpdate dispatcher`\n(`packages/cli/src/commands/update.test.ts`), and they fail in isolation\ntoo — so this is *not* the known `mock.module` cross-file contamination.\nThe mock records **zero** IPC calls, meaning `withGatewayIpc` bails\nbefore dispatch, consistent with the named-pipe socket path on Windows.\nThere is no platform guard on the file and it is not excluded from CI,\nso Ubuntu CI should show them green.\n\nUnrelated to a dependency bump, so out of scope here — but worth its own\nlook, since a Windows-only failure in a TTY/socket path is exactly the\nclass the cross-platform non-negotiable exists to catch.\n\n## Type of Change\n\n- [x] Bug fix (non-breaking change that fixes an issue) — dependency\ndrift\n- [x] CI / tooling\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` — exit 0 across the monorepo\n- [x] `bun run lint` (Biome) — clean\n- [x] All existing tests pass — zero delta vs `main` (see above)\n- [x] New behaviour is covered by tests — n/a, dependency bump with no\nsource change\n- [x] No `any` introduced — no source change\n- [x] No credentials in logs/IPC/config\n- [x] Platform-specific code behind `PlatformServices` — n/a\n- [x] HITL gate untouched\n\n## Notes for Reviewers\n\nAfter this and the three sdk bumps land, **every P2 Phase 2 edge should\nbe green**, which unblocks the sweep proof that Phase 2's definition of\n*done* requires (`org-drift-sweep.yml`, then record the run number in\nthe P2 progress log).\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+          "timestamp": "2026-07-26T21:15:36+03:00",
+          "tree_id": "52a4e70b497a613c20987e4185b6c52b8e8dc5dd",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/80277e5de59edc05505f4ace92f63efab8bc0faa"
+        },
+        "date": 1785091098843,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 262.3882018999986,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 257.78689399999166,
             "unit": "ms"
           }
         ]
