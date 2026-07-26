@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785091100034,
+  "lastUpdate": 1785092995788,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -5201,6 +5201,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 257.78689399999166,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a4316ae7b65f7b16ebdad05accace9bc33099aeb",
+          "message": "feat(audit): P5 gates — secret inventory + Actions allowlist (#845)\n\n## Summary\n\nTwo gates from **P5 Org Legibility**, plus the combined design spec for\nthe four-effort batch (the other three land as their own PRs).\n\n### `audit:secret-inventory` — local, runs on every PR\n\nAsserts every secret this repo's workflows consume appears in **both**\ninventories, and says **which** is missing:\n\n- `scripts/release/credential-registry.ts` — authoritative: owner, type,\nrotation policy, the `secret-health` watch-list.\n- `docs/ci-secrets.md` — the narrative consulted during an incident,\nwhich opens \"the canonical inventory of every GitHub Actions secret the\nNimbus workflows consume\".\n\nThe two failures need different repairs — \"add a row to a table\" vs\n\"this credential is unmanaged\" — so collapsing them into one message\nwould let the serious case hide behind the cosmetic one.\n\n**This axis was genuinely uncovered.** `credential-audit` compares *live\norg secrets* → registry. A secret referenced by a workflow but never\nrecorded is nobody's finding today.\n\n**One-directional on purpose.** `ci-secrets.md` is an *org-wide*\ninventory documenting `VSCE_PAT`/`OVSX_PAT`/`NPM_TOKEN`, consumed by\nother repos' workflows. Gating that direction would red on correct\nentries, and the only way to satisfy it would be deleting true\ninformation from the inventory.\n\n**Red-before → green-after inside this PR.** Five secrets were missing\nfrom the prose doc and are now documented:\n\n| Secret | Introduced by |\n| --- | --- |\n| `SECRET_AUDITOR_CLIENT_ID` / `_PRIVATE_KEY` | the secret-health probe\n**itself** |\n| `CLA_BOT_CLIENT_ID` / `_PRIVATE_KEY` | the CLA program |\n| `BENCHER_API_KEY` | the benchmark workflow |\n\nA correction worth flagging: I first wrote this up as row 3 of the\nroadmap's opening table (\"`ci-secrets.md` never grew to cover\n`secret-health.yml`'s own credentials\") still being unfixed. **Reading\nthe code disproved that** — all five were already in the registry, so\nthis was *narrative* drift, not unmanaged credentials. The spec records\nthe correction.\n\nUnlike the sweep gates, this one is local and deterministic (no token,\nno network), so it joins the preflight `fast` tier — and therefore had\nto be **green at merge**, since a red local gate breaks every subsequent\nPR.\n\n### `audit:actions-allowlist` — network, scheduled sweep\n\nThe gate for the two-day CLA outage:\n`contributor-assistant/github-action` was absent from the Actions\nallowlist, so GitHub rejected `cla.yml` **before any job ran** — 23\nconsecutive `startup_failure`s, a required check that never reported,\nevery PR silently unmergeable. `cla-coverage` was green throughout,\nbecause it verifies a control's *presence*, not its ability to\n*execute*.\n\n**Two halves, and running it live changed the design.**\n\nThe *pattern* half compares each `uses:` against `patterns_allowed` /\n`github_owned_allowed` / same-org. Live, `verified_allowed` is on and\nfive refs (`dessant/lock-threads`, `oven-sh/setup-bun`,\n`googleapis/release-please-action`, `bencherdev/bencher`) are covered\n**only** by it — and no API exposes verified-creator status. My first\nimplementation called that `indeterminate`, which under the program's\nown strict rule is red, making the gate **permanently red for a reason\nnobody can fix**. A gate that is always red is one everybody learns to\nignore, which is exactly the failure this sub-program exists to prevent.\nSo there is now a distinct `unverifiable` verdict that warns but never\nfails; `indeterminate` (a *transient* read failure, which can resolve\nnext run) stays strict-red.\n\nThe *direct* half is the one that actually closes the hole: **any\nworkflow whose most recent run ended in `startup_failure` is a hard\nfinding.** That requires no knowledge of verified status — GitHub\nrejecting the workflow *is* the observable symptom — and it catches\ncauses the pattern half cannot see at all, such as invalid workflow\nYAML. Scoped to each workflow's latest run, so a since-fixed historical\nfailure doesn't red the sweep forever.\n\nBoth are red-proved by **unit test** (including a fixture reproducing\nthe exact CLA case, where adding the pattern flips `not-permitted` →\n`ok`), because the allowlist has since been repaired and cannot\nred-prove against production. Live run is the green-after half:\n\n```\n::warning::audit:actions-allowlist: 5 action ref(s) covered only by verified_allowed (...) — no API exposes verified-creator status\naudit:actions-allowlist: OK — nimbus-agent/Nimbus: ...; no workflow is failing at startup\n```\n\n## Type of Change\n\n- [x] New feature (non-breaking change that adds functionality)\n- [x] CI / tooling\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` — `bunx tsc -p scripts/tsconfig.json --noEmit`\nexit 0\n- [x] `bun run lint` (Biome) — clean via `bunx biome check\n--error-on-warnings scripts .github docs`; the packaged script reports\n\"Checked 0 files\" inside a `.claude/worktrees/` checkout, a known\nlocal-only false-fail\n- [x] All existing tests pass — **678 pass / 0 fail** across `scripts/`\n- [x] New behaviour is covered by tests — 16 (secret-inventory) + 32\n(actions-allowlist)\n- [x] No `any` — external JSON narrowed with `isRecord`\n- [x] No credentials in logs/IPC/config — the gates read secret\n**names**, never values\n- [x] Platform-specific code behind `PlatformServices` — n/a\n- [x] HITL gate untouched — n/a\n\n## Testing\n\n- `bun test scripts/` — 678 pass, 20 skip, 0 fail\n- `bunx tsc -p scripts/tsconfig.json --noEmit` — exit 0\n- `bun run lint:markdown` — 0 errors; `bun run audit:doc-refs` — 617\nrefs resolve\n- Live runs of both gates, plus the no-`gh` degradation path\n(`::warning::` + exit 0 locally)\n\n## Notes for Reviewers\n\nOne deliberate suppression: `biome-ignore-all\nlint/suspicious/noTemplateCurlyInString` in the secret-inventory tests.\nThe fixtures contain `${{ secrets.X }}` — GitHub Actions expressions,\nnot JS template literals — and writing them any other way would stop\ntesting the matcher against the exact syntax it must parse.\n\nThe spec\n(`docs/superpowers/specs/2026-07-26-p5-p3-infra-batch-design.md`) also\nrecords that **P3's stated gate is already met**: `_structure.yml` runs\n`audit:invariants` and all 17 static checks execute in CI; the one\nbranch `--binary-only` excludes is `db-run`, a census that always exits\n0. P3's real content is the monorepo's missing `.coderabbit.yaml`, which\nlands as its own PR.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n* Added automated audits for workflow secret inventory and Actions\nallowlist compliance.\n* Added checks for workflows that fail to start and for secrets missing\nfrom documentation or registration.\n  * Added commands and CI gates for running these audits.\n\n* **Documentation**\n  * Expanded the CI/CD secrets reference.\n  * Added an infrastructure batch design specification.\n\n* **Tests**\n* Added comprehensive coverage for secret inventory and Actions\nallowlist auditing.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-07-26T21:39:26+03:00",
+          "tree_id": "fe1188b86b43b5412a4f5f57ea81e71e2aa5f619",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/a4316ae7b65f7b16ebdad05accace9bc33099aeb"
+        },
+        "date": 1785092995061,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 307.59834039999913,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 308.3867277999987,
             "unit": "ms"
           }
         ]
