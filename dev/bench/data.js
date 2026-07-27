@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785171252201,
+  "lastUpdate": 1785177254648,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -5405,6 +5405,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 317.09793944999257,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "62a8d339fc535a20e9a2fd3270958725f8e6b604",
+          "message": "chore(deps): consolidate 20 dependabot PRs and stop the weekly fan-out (#878)\n\nReplaces #857, #858, #859, #860, #861, #862, #863, #864, #865, #866,\n#867, #868, #869, #870, #871, #872, #873, #874, #875, #876.\n\nEvery one of those was `BLOCKED` with `CANCELLED` checks. Twenty PRs\nopened at once, each triggering the full `pr-quality` matrix, all\nsharing a concurrency group — they cancelled each other and **none of\nthem could ever go green**. Batching is the fix; the config change stops\nit happening again.\n\n## Dependencies\n\n**GitHub Actions** — `actions/checkout` v7.0.0→v7.0.1 ·\n`actions/setup-node` v6.4.0→v7.0.0 · `softprops/action-gh-release`\nv3.0.1→v3.0.2 · `github/codeql-action` v4 SHA refresh ·\n`bencherdev/bencher` v0.6.8→v0.6.11\n\n**Cargo** — `tokio` 1.52.3→1.53.1 · `serde_json` 1.0.150→1.0.151 ·\n`thiserror` 2.0.18→2.0.19 · `tauri-plugin-log` 2.8.0→2.9.0 ·\n`tauri-plugin-dialog` 2.7.1→2.7.2\n\n**Bun** — `jsdom` ^29→^30 · `@testing-library/jest-dom` ^6→^7 · `vitest`\n+ `@vitest/coverage-v8` ^4.1.10 · `@radix-ui/react-dialog` ^1.1.23 ·\n`react-window` ^2.3.0 · `@tauri-apps/{api,cli}` · `msw` ^2.15.0 ·\n`@clack/prompts` ^1.7.0 · `markdownlint-cli2` ^0.23.2 · `@astrojs/check`\n^0.9.10 · `@biomejs/biome` ^2.5.5\n\nAlso bumps `github/codeql-action/autobuild`, which had no Dependabot PR\nof its own. `init`/`autobuild`/`analyze` must share a version, so moving\ntwo of three would have been the broken state, not the safe one.\n\n## Two things the batch caught that the individual PRs hid\n\n**#867 would have broken `main`.** `react-dom` was bumped to 19.2.8 with\nno matching `react` bump. React refuses to boot on a version mismatch —\n*\"the react and react-dom packages must have the exact same version\"* —\nand that PR **alone fails 47 of 74 UI test files**. `react` is bumped to\nmatch here, and `react`/`react-dom`/`@types/react*` are now a coupled\ngroup so a future major can't split them again.\n\n**TypeScript ^6.0.3 → ^7.0.2 is held back** (half of #861), verified\nrather than assumed. Under 7.0.2, `bun run typecheck` crashes\n`@astrojs/language-server`:\n\n```\nundefined is not an object (evaluating 'this.ts.sys.fileExists')\n  at getTsconfig (@astrojs/language-server/dist/check.js:162:69)\n```\n\nTS 7 drops the `ts.sys` surface it reaches into, and `@astrojs/check`\nstill declares `typescript: ^5.0.0 || ^6.0.0` — upstream's stated range,\nnot a local quirk. Added to `ignore` with that reasoning recorded. The\n`@biomejs/biome` half of #861 **is** included. Revisit when\n`@astrojs/check` ships TS 7 support; `CLAUDE.md` and `GEMINI.md` both\npin \"TypeScript 6.x strict\" and must move with it.\n\n## Why twenty PRs happened\n\nThree independent gaps in `dependabot.yml`, all closed:\n\n1. **`cargo` had no groups at all** — one PR per crate (5 of the 20).\n2. **The `actions` group listed `github/codeql-action`**, which does\n*not* match the `github/codeql-action/init` form the workflows actually\nuse. It also never listed `bencherdev/*`, `step-security/*`,\n`EmbarkStudios/*`. Everything unlisted got its own PR. Replaced with `*`\n— a hand-maintained roster of action names is exactly the list that\nsilently stops matching.\n3. **`bun` grouped only five families**, so every other package was its\nown PR.\n\nEach ecosystem now leads with a catch-all **minor+patch** group, listed\nfirst because Dependabot assigns a dependency to the first group it\nmatches. Majors are deliberately excluded from it: a major needs to be\nread, and burying one in a 30-package PR is how a breaking change lands\nunnoticed. The major-only groups that follow cover sets that break when\nsplit (react, ui-testing, tooling, playwright, tauri-js, types).\n\nExpected steady state: **~1–3 PRs/week instead of ~20.**\n\n## Verification\n\n| Gate | Result |\n|---|---|\n| `typecheck` | clean |\n| `biome check` (2.5.5) | clean |\n| `lint:markdown` (0.41.1) | 0 issues, 72 files |\n| UI tests | **74/74 files, 506/506 tests** — jsdom 30 + jest-dom 7 +\nradix + matched React |\n| gateway + CLI | **10633 pass / 0 fail**, 770 files |\n| `cargo check --all-targets` | clean |\n| `cargo clippy -D warnings` | clean |\n| `cargo fmt --check` | clean |\n| audits | `action-sha-pins`, `actions-allowlist`, `pin-freshness`,\n`js-licenses`, `structure`, `invariants` all OK |\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Chores**\n* Updated development, documentation, UI, testing, and build tooling\ndependencies.\n* Refreshed automated security, documentation, performance, release, and\ntesting workflows with newer action versions.\n* Improved automated dependency update grouping to reduce unnecessary\nupdate notifications and keep related packages aligned.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-27T18:19:10Z",
+          "tree_id": "a0d5f978751bfae346cf50fa6f999a04349a34bb",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/62a8d339fc535a20e9a2fd3270958725f8e6b604"
+        },
+        "date": 1785177253707,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 315.6548265999998,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 312.34363644999974,
             "unit": "ms"
           }
         ]
