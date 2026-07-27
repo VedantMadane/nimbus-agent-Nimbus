@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785119829195,
+  "lastUpdate": 1785120559190,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -5337,6 +5337,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 307.3333941500059,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f9f3451f41d6cf73fd57ad2a3d6b85d9c87f7db0",
+          "message": "docs(infra): close P2 Phase 2, P5, and the P1 Plan-B follow-up (sweep 30231918767) (#853)\n\n## Summary\n\nA dispatched `org-drift-sweep` on `main` came back **15/15 green** — the\n**first fully green sweep this program has had**. That closes three open\nitems by this file's own bar: *a gate is done when it is green in CI and\nwould go red on regression, not when its code merges.*\n\n[Run\n30231918767](https://github.com/nimbus-agent/Nimbus/actions/runs/30231918767):\n\n```\nOVERALL: success\nsuccess  release-staleness      success  pin-freshness        success  actions-allowlist\nsuccess  cla-coverage           success  ruleset-drift        success  org-settings-drift\nsuccess  team-reachability      success  sha-pins (×8)\n```\n\n## What this closes\n\n**P2 Phase 2 — done.** `release-staleness` reports **`OK (12 edges\ncurrent)`**: Phase 1's five channel edges plus Phase 2's seven\ndependency edges. Red-before / green-after on real drift, then green in\nthe scheduled harness.\n\nWhat made it green was **remediation at the source, not a gate change**\n— and the two halves needed opposite fixes, which is precisely the\nasymmetry that justifies reading the lockfile rather than the declared\nrange:\n\n| Consumer | Fix | Why |\n| --- | --- | --- |\n| `client:Nimbus`, `client:nimbus-vscode` | **manifest** edit | a caret\non a `0.x` pins the *minor*, so `^0.5.0` could never reach 0.12.1 |\n| the sdk edges | lockfile refresh | `^1.3.0` already permitted 1.7.0 |\n\n**P5 — both gates delivered and green.** `audit:actions-allowlist` found\na *second* live instance of the CLA failure mode on its first correct\nrun: `Lock Threads` had been rejected at startup **every night since at\nleast 2026-07-24** because `dessant/lock-threads` was absent from the\nActions allowlist. Fixed, and proved by dispatch — the workflow now\ncompletes `success`.\n\nAlso records a correction: the five \"missing\" secrets were **narrative\ndrift, not unmanaged credentials** — all five were already in\n`credential-registry.ts`. I had first written this up as row 3 of the\nopening table still being unfixed; reading the code disproved it.\n\n**P1 — Plan B closed.** The freshness follow-up deferred from the very\nfirst sweep now exists, shipped red on three genuinely stale pins, and\nis green at 30/30.\n\n**P3 — corrected, not ticked.** Its stated gate (*\"an invariant\nviolation is caught in CI\"*) was **already met**: `_structure.yml` runs\n`audit:invariants` and all 17 static checks execute there; the one\nbranch `--binary-only` excludes is a *census* that always exits 0. The\nreal gap was the monorepo's missing `.coderabbit.yaml`, which #846\nclosed.\n\n## One rule promoted out of code comments\n\nThe batch hit the same design error **four times across three gates**,\nso it now sits in the operating principles rather than three scattered\ncomments:\n\n> **A gate must never report a permanent mismatch as a fixable\nfailure.** Distinguish a **transient** unknown (a read failed, may\nsucceed next run) from a **permanent** one (no API can answer, or the\nquestion doesn't apply). Only the transient kind may be strict-red.\n\nThe four instances: `verified_allowed` being unknowable; a repo that\npublishes no releases; a pin tracking `stable` whose newest *release* is\n12 commits behind it; and a failed date read manufacturing a `stale`.\n\nThe third is the sharpest — the gate's only route to green was **moving\na pin backwards in code age**. A gate that is always red is one\neverybody learns to ignore, which is indistinguishable from having no\ngate at all: the exact failure this document exists to prevent.\n\nInstance 4 was caught by CodeRabbit citing `_Source: Path instructions_`\n— the `.coderabbit.yaml` rule shipped in #846 one PR earlier. **The\nreview layer caught a violation of a rule the review layer had just been\ntaught**, which is the first hard evidence P3 does real work.\n\n## Testing\n\n- `bun run lint:markdown` — 0 errors\n- `bun run audit:doc-refs` — 622 refs across 16 docs, all resolve\n- `lychee --config lychee.toml 'docs/**/*.md' '*.md'` — 1066 links, **0\nerrors**\n\nDocs-only; no code changed.\n\n## Type of Change\n\n- [x] Documentation only\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` — n/a, no code changed\n- [x] `bun run lint` — n/a; markdown lint clean\n- [x] All existing tests pass — n/a, docs-only\n- [x] No credentials in logs/IPC/config — secret **names** only, as\nalready documented\n\n## Notes for Reviewers\n\nRemaining after this: the P5 legibility dashboard, P4b (latency), the P6\nbypass-actor audit, and P3's open question of whether a Claude-based\nreview action is still wanted now that the config exists — which the\ndesign deliberately left to be answered by evidence.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+          "timestamp": "2026-07-27T05:33:32+03:00",
+          "tree_id": "f4b868297cce1134b3b7f7ef5e4b621e901c053f",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/f9f3451f41d6cf73fd57ad2a3d6b85d9c87f7db0"
+        },
+        "date": 1785120558541,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 334.4445933999967,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 329.6601608000063,
             "unit": "ms"
           }
         ]
