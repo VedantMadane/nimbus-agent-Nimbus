@@ -114,7 +114,7 @@ Design of record:
 | P2 | Release Train | ✅ done — both phases (run 30231918767) | `audit:release-staleness` goes red when a channel (brew/scoop/linux/winget) lags the published Release past the grace window, when a release phantoms, when an npm package is tagged but unpublished, or when a consumer's **lockfile-resolved** dependency lags npm `@latest`. Red-proved on a real phantom and on three real dependency edges; green after both, `OK (12 edges current)`. |
 | P3 | Review Layer | 🔨 first step done (#846) | The monorepo now carries a tuned `.coderabbit.yaml` whose `path_instructions` encode I1–I30, the triple rule and the PAL ban — closing the satellites→monorepo direction of the pattern above. **Note:** the previously-stated gate ("an invariant violation is caught in CI") was already met — `_structure.yml` runs `audit:invariants` and all 17 static checks execute there; the one branch `--binary-only` excludes is a census that always exits 0. |
 | P4a | Main-CI concurrency | ✅ shipped | Every commit on `main` has a completed CI run |
-| P4b | Latency | ⬜ not started | Per-job wall-clock tracked; regressions visible |
+| P4b | Latency | 🔨 measurement shipped | `audit:ci-latency` tracks per-job execution, runner queue and DAG wait across the 9 org repos and fails when a job's execution regresses beyond its own measured noise band. Tuning is deliberately NOT in this slice — the first measurement showed execution is not the binding constraint. |
 | P5 | Org Legibility | ✅ both gates green (run 30231918767) | `audit:secret-inventory` fails on any workflow secret missing from the credential registry **or** `ci-secrets.md`; `audit:actions-allowlist` fails on an unpermitted action **or** any workflow whose latest run ended in `startup_failure`. The second found a live nightly outage on its first correct run. Remaining: the legibility dashboard. |
 | P6 | Access & Contribution Model | 🔨 P6a + CLA done | Every repo reachable through a team + org settings gated (both in the sweep); contributor-two switches recorded in checked-in config; CLA live and **actually executing** on all 6 repos. Remaining: bypass-actor audit |
 
@@ -354,6 +354,49 @@ moves to P6).
   `cla-coverage`, which had failed at the App-token mint on every previous run
   (the installation did not cover `awesome-nimbus`). It also carried the first
   scheduled runs of the two P5 gates and of `pin-freshness`.
+
+### P4b progress log
+
+- **Delivered (measurement, 2026-07-27):** `audit:ci-latency` collects per-job
+  timings from the Actions API across all 9 org repos and gates execution
+  against a committed baseline (`docs/structure-audit/ci-latency-baseline.json`),
+  mirroring `audit:coverage-floor`.
+- **The first measurement contradicted the design of record's hunch.** That
+  document proposed cache tuning, matrix sharding and finer path filters. On the
+  slowest sampled run (73.8min) the longest single job *executed* for 12.3min,
+  while the longest DAG wait was 33.9min and the longest runner queue 31.6min —
+  so execution is not the binding constraint, and sharding would worsen it by
+  adding jobs to the same contended pool. Principle #3 ("only against
+  measurement, never against a hunch") earned its keep on first use.
+- **An earlier revision of the design claimed "~80% of wall-clock is queueing".
+  That was wrong** and the design review caught it: it measured
+  `started_at − run_started_at`, which charges a job for its *dependencies'*
+  execution. A job's `created_at` tracks eligibility, so `started_at − created_at`
+  is DAG-free contention and the DAG cost is recorded separately. Contention is
+  real but concentrated almost entirely on **macOS** runners.
+- **Tolerance is a per-key noise band, not a constant.** Measured spreads
+  (`p90 − median`) in the committed baseline: `Static — ubuntu` 0.15, `Unit +
+  Coverage — ubuntu` 0.22, `Unit + Coverage — windows` **10.48**. No global
+  constant fits both, so the baseline stores each job's own spread and the gate
+  allows `max(1min, spread)`. A job whose spread exceeds half its median is
+  reported `unstable` — observed, never failed, since flakiness is not caused
+  by the contributor's change.
+- **Baseline coverage:** the generated baseline contains **197 keys from 1778
+  observations across 6 repos**. Three of the nine audited repos (`linux-repo`,
+  `homebrew-tap`, `scoop-bucket`) contribute nothing because they have zero
+  successful `push`-event runs — their automation is dispatch-triggered. This is
+  expected, not a gap. An earlier collection paged only the first 100 jobs of
+  each run, which silently dropped every job past that cutoff — including all
+  three `E2E Desktop` legs, exactly the deepest-DAG, longest-tail jobs the gate
+  exists to watch. The collector now pages through `total_count`, capped at
+  `MAX_JOB_PAGES` (5) per run, and `Nimbus :: CI :: E2E Desktop — {ubuntu,macos,
+  windows}` now appear in the baseline.
+- **The gate ships green by construction:** the baseline is generated from the
+  same window the check reads, so nothing can exceed it on the first run. The
+  red-proof is the unit test in `scripts/ci-latency/evaluate.test.ts`, not the
+  live run.
+- **Remaining:** the tuning slice itself, which must be justified against this
+  data. The clearest lead is macOS runner contention.
 
 ### P5 progress log
 
