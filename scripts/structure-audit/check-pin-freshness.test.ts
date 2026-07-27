@@ -10,6 +10,7 @@ import {
   parseTagObjectType,
   parseTagSha,
   summarize,
+  TRACKED_REF_OVERRIDES,
 } from "./check-pin-freshness.ts";
 
 const pin = (over: Partial<PinnedAction> = {}): PinnedAction => ({
@@ -114,6 +115,17 @@ describe("evaluatePin", () => {
     expect(r.verdict).toBe("stale");
   });
 
+  test("an EMPTY publishedAt yields stale — which is why a caller must never fabricate one", () => {
+    // `daysSince("")` fails closed to +Infinity, so handing evaluatePin a
+    // dated result built from a FAILED read would manufacture a `stale` finding
+    // out of a transient error. The tracked-ref branch therefore builds
+    // `latest` only once both the ref read and the commit-date read succeed,
+    // and otherwise passes null so this path reports indeterminate instead.
+    const r = evaluatePin(pin({ sha }), { tag: "stable", publishedAt: "" }, "b".repeat(40), 30);
+    expect(r.verdict).toBe("stale");
+    expect(evaluatePin(pin({ sha }), null, "b".repeat(40), 30).verdict).toBe("indeterminate");
+  });
+
   test("a timestamp with no timezone also fails closed", () => {
     const r = evaluatePin(
       pin({ sha }),
@@ -172,6 +184,26 @@ describe("parseLatestRelease / parseTagSha", () => {
   test("reads an annotated tag's object type so it can be dereferenced", () => {
     expect(parseTagObjectType(`{"object":{"sha":"x","type":"tag"}}`)).toBe("tag");
     expect(parseTagObjectType(`{"object":{"sha":"x","type":"commit"}}`)).toBe("commit");
+  });
+});
+
+describe("TRACKED_REF_OVERRIDES", () => {
+  test("every override names a git ref namespace, not a bare branch name", () => {
+    // The value is spliced into `git/ref/<value>`, so `stable` alone would 404
+    // and silently degrade the pin to indeterminate rather than checking it.
+    for (const ref of Object.values(TRACKED_REF_OVERRIDES)) {
+      expect(ref).toMatch(/^(heads|tags)\//);
+    }
+  });
+
+  test("the map stays small — an entry is a claim about intent, not a mute button", () => {
+    expect(Object.keys(TRACKED_REF_OVERRIDES).length).toBeLessThanOrEqual(3);
+  });
+
+  test("rust-toolchain is tracked against stable, the ref its pin comment names", () => {
+    // Its newest release `v1` sits behind the `stable` branch, so comparing
+    // against the release would demand moving the pin BACKWARDS to go green.
+    expect(TRACKED_REF_OVERRIDES["dtolnay/rust-toolchain"]).toBe("heads/stable");
   });
 });
 
