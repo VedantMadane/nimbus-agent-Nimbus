@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785177254648,
+  "lastUpdate": 1785179498360,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -5439,6 +5439,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 312.34363644999974,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6ffe23f3f0f9d94601ff4b9a23a48b3d3fc3f2a7",
+          "message": "feat(audit): P4b — measure CI latency before tuning anything (#877)\n\n## Summary\n\n**P4b Latency**, the last un-started sub-program. This slice ships the\n*measurement layer and the regression gate* — and deliberately **no\ntuning**, because the first real measurement showed the\ndesign-of-record's proposed levers would have missed.\n\n`audit:ci-latency` samples per-job timings from the Actions API across\nthe 9 org repos, summarises them per `(repo, workflow, job)`, and fails\nwhen a job's execution median regresses beyond **its own measured noise\nband**. Committed baseline: **197 keys from 1778 observations**.\n\n## The measurement reframed the sub-program\n\nPrinciple #3 of the program is *\"reduce latency — but only against\nmeasurement, never against a hunch.\"* The design of record then offered\na hunch: cache tuning, matrix sharding, finer path filters. Breaking\ndown the slowest run (73.8 min):\n\n| | |\n| --- | --- |\n| Longest single job **execution** | **12.3 min** |\n| Longest **DAG wait** (blocked by `needs`) | **33.9 min** |\n| Longest **runner queue** (true contention) | **31.6 min** |\n\nExecution is not the binding constraint, so cache tuning and path\nfilters address the wrong thing — and **sharding would make it worse**,\nadding jobs to an already-contended pool. Contention concentrates almost\nentirely on **macOS**, which is the actionable lead for the eventual\ntuning slice.\n\n## Three design decisions worth your eye\n\n**1. Three metrics, kept separate — and `queue` is not what it looks\nlike.**\n\n```\nexec    = completed_at − started_at\nqueue   = started_at   − created_at      ← DAG-free contention\ndagWait = created_at   − run_started_at\n```\n\nA job's `created_at` marks **eligibility**, not run creation: verified\nlive, 203 of 301 sampled jobs show a shifted `created_at`, and every\nshifted one declares `needs:`. The obvious `started_at − run_started_at`\nwould bill every downstream job for its dependencies' execution — that\nerror produced an earlier \"80% of wall-clock is queueing\" claim in the\nspec, which the design review caught and this PR's docs correct.\n\n**2. Only `exec` is gated. `queue`, `dagWait` and job instability are\nobserved.** None is caused by the change under test — queue wait moves\nwith how many PRs are open. Gating them would report conditions a\ncontributor cannot fix, which is the operating rule the roadmap gained\nafter hitting it four times last batch.\n\n**3. The tolerance is a per-key noise band, not a constant.** From the\ncommitted baseline:\n\n| job | median | spread (`p90 − median`) |\n| --- | --- | --- |\n| `Static — ubuntu-24.04` | 4.57 | **0.15** |\n| `Unit + Coverage — windows-2025` | 13.2 | **10.48** |\n\nA ~70× gap between two jobs in the same workflow. No global constant\nserves both: a 3-minute cap would make the Windows job fire constantly\non its honest spread; a flat 50% would let a 6-minute Ubuntu regression\nthrough.\n\n## ⚠️ Green here is not evidence the gate works\n\nThe baseline is generated from the same window the check reads, so\n**nothing can exceed it on the first run**. The red-proof is\n`evaluate.test.ts`, which drives a real median past a real stored band\nand asserts the finding — with three complements (within-band,\nwide-band, absolute floor) that each fail if the comparison is inverted\nor the band globalised.\n\n## What review caught\n\nSix fix rounds across seven tasks, every one a real defect — and the two\nmost serious originated in the plan, not the implementation:\n\n- **Job pages truncated at 100.** Run `30232465196` reports\n`total_count: 105`. The five dropped were the `E2E Desktop` legs —\nabsent from the baseline entirely. One is a **13-minute job**, exactly\nthe long-tail work a latency gate exists to watch. Now paged, bounded by\n`MAX_JOB_PAGES`.\n- **`--update-baseline` deleted sparse keys**, conflating \"gone\" with\n\"observed but rare\". The 42 `Release ::` keys were the live case:\nregenerate in a quiet fortnight and they vanish, returning as ungated\n`new-key`. Coverage would erode into a silent false green.\n- **p90 formula.** The plan's test and implementation contradicted each\nother; the first fix changed the code to match the test, which made `p90\n≡ max` and widened the noisiest job's band ~6×. The test was the bug.\n\n## Testing\n\n- `bun test scripts/` — **817 pass / 0 fail**\n- `tsc --noEmit` exit 0 · biome clean · `audit:action-sha-pins` OK ·\n`audit:secret-inventory` OK\n- `lint:markdown` 0 errors · `audit:doc-refs` 624 refs resolve · lychee\n1071 links, **0 errors**\n- Live run exit 0; degradation paths verified (no auth → warn + exit 0;\n`--strict` → error + exit 1)\n\n## Type of Change\n\n- [x] New feature (non-breaking change that adds functionality)\n- [x] CI / tooling\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` — exit 0\n- [x] `bun run lint` (Biome) — clean via `bunx biome check\n--error-on-warnings scripts .github docs` (the packaged script\nfalse-fails inside `.claude/worktrees/`)\n- [x] All existing tests pass — 817\n- [x] New behaviour is covered by tests — 56 in `scripts/ci-latency/`\n- [x] No `any` — external JSON narrowed with `isRecord`\n- [x] No credentials in logs/IPC/config — all reads public, `actions:\nread` only\n- [x] Platform-specific code behind `PlatformServices` — n/a\n- [x] HITL gate untouched — n/a\n\n## Notes for Reviewers\n\n**One residual is parked, not fixed:** `evaluate.test.ts:44` cites a\nstale spread of `14.5` where the real value is `10.48`. It's a comment —\nno assertion depends on it — but it is the third instance of this\nstale-figure class in this branch, so it deserves a one-line follow-up.\n\nThe `ci-latency` sweep job has never executed (branch-new,\ndispatch-scheduled), so its first real run is post-merge — same as every\nprior gate in this program.\n\nRemaining for P4b: the tuning slice itself, which must be justified\nagainst this data. macOS runner contention is the first lead.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n* **New Features**\n* Added a CI latency audit gate across audited repositories and\nworkflows.\n* Detects execution-time regressions using a persisted baseline, with\nsafeguards for insufficient/unreliable measurements.\n* Reports runner queue and dependency-wait metrics as informational\nwarnings (not gate failures).\n* Added commands to run the audit and update the baseline, plus a CI job\nto run the latency check.\n* **Documentation**\n* Added/expanded design, verification, and baseline/progress\ndocumentation for CI latency monitoring.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-27T21:29:23+03:00",
+          "tree_id": "a077947bab8ee8cdc8b3e3dbdbaa284d0bfb451b",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/6ffe23f3f0f9d94601ff4b9a23a48b3d3fc3f2a7"
+        },
+        "date": 1785179497093,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 317.75158809999704,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 319.7415669999915,
             "unit": "ms"
           }
         ]
