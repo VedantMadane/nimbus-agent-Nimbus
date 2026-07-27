@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785094037485,
+  "lastUpdate": 1785119131141,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -5269,6 +5269,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 325.8291645500005,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d32a5c03706646799bc5ef03e20f996354c90343",
+          "message": "chore(ci): refresh three stale action pins + fix a pin-freshness blind spot (#851)\n\n## Summary\n\nClears the three findings `audit:pin-freshness` shipped red on in #847 —\nand one of them turned out to be a flaw in **my gate**, not a stale pin.\n\n| Action | Change | Risk |\n| --- | --- | --- |\n| `actions/cache` | v5.0.5 → **v6.1.0** (6 call sites) | Major — see\nbelow |\n| `actions/attest-build-provenance` | v4.1.0 → **v4.1.1** (2 sites) |\nPatch, none |\n| `dtolnay/rust-toolchain` | → current `stable` head (3 sites) | See\nbelow |\n\nGate after: **`audit:pin-freshness: OK (30/30 pins current)`**.\n\n## The `actions/cache` major bump deserves a sentence\n\nv6.0.0 is *\"Update packages, migrate to ESM\"* — a packaging/runtime\nchange, not caching semantics. That matters here because\n`.github/actions/setup-nimbus-ci/action.yml` carries an explicit note\nabout `actions/cache@v5`'s tar pack/restore not preserving **Windows NT\njunctions**. Upstream doesn't list that behaviour as changed, so I\nbumped rather than pinned back — but CI is the proof, and the Windows\ncache steps on this PR are the thing to watch.\n\n## `dtolnay/rust-toolchain` — the gate was wrong, not the pin\n\nThe pin is commented `# stable` and deliberately tracks that **branch**.\nMy gate measured it against the newest **release**, `v1` — and `v1`\ncurrently sits **12 commits behind `stable`**:\n\n```\ncompare(stable...v1) → { ahead: 0, behind: 12 }\n```\n\nSo taking the gate at its word would have moved the pin **backwards in\ncode age** purely to turn a check green. That's the failure mode this\nwhole batch has been avoiding: a gate that can only be satisfied by\nmaking the repo worse is a broken gate.\n\nFix: actions that deliberately track a named ref are compared against\n**that ref**, via a deliberately tiny `TRACKED_REF_OVERRIDES` map. Three\ntests keep it honest:\n\n- every value must be a real ref namespace (`heads/…`/`tags/…`) — a bare\n`stable` would 404 and silently degrade the pin to `indeterminate`, i.e.\na mute button dressed as a check;\n- the map is **size-capped**, so it cannot quietly grow into a general\nsuppression list;\n- the rust-toolchain entry asserts it matches the ref its own pin\ncomment names.\n\nThis is the third instance in this batch of the same underlying lesson —\n*don't let a gate report a permanent mismatch as a fixable failure* (cf.\n`unverifiable` in #845 and the no-releases skip in #847).\n\n## Testing\n\n- `bun test scripts/` — **753 pass, 20 skip, 0 fail** (3 new)\n- `bunx tsc -p scripts/tsconfig.json --noEmit` — exit 0\n- biome — clean\n- `audit:action-sha-pins` — OK (every bumped ref is still a full 40-hex\nSHA with a version comment)\n- `audit:secret-inventory` — OK\n- Live `audit:pin-freshness` — 30/30 current\n\n## Type of Change\n\n- [x] CI / tooling\n- [x] Bug fix (the gate blind spot)\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` — exit 0\n- [x] `bun run lint` (Biome) — clean\n- [x] All existing tests pass — 753\n- [x] New behaviour is covered by tests — 3\n- [x] No `any` introduced\n- [x] No credentials in logs/IPC/config\n- [x] Platform-specific code behind `PlatformServices` — n/a\n- [x] HITL gate untouched — n/a\n\n## Notes for Reviewers\n\nThis unblocks the **P2 sweep proof**: with the pins current, a\ndispatched `org-drift-sweep` should be green across every job, which is\nthe program's definition of *done* for Phase 2.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n- **Chores**\n- Updated CI, security, release, and build automation dependencies to\nnewer verified revisions.\n- Improved caching support for JavaScript, Rust, and browser tooling to\nkeep automated checks current.\n- Updated Rust toolchain references used by development and security\nvalidation workflows.\n\n- **Tests**\n- Added validation to ensure tracked automation references use correctly\nformatted refs and maintain expected stable-toolchain tracking.\n\n- **Security**\n- Refreshed build provenance attestation tooling to support current\nrelease verification practices.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-07-27T02:16:42Z",
+          "tree_id": "1ba9b054b28308cd1bf322ec83ddb098356874ae",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/d32a5c03706646799bc5ef03e20f996354c90343"
+        },
+        "date": 1785119129688,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 251.28987035000029,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 248.29466370000154,
             "unit": "ms"
           }
         ]
