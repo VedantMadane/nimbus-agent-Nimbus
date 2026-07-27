@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785120559190,
+  "lastUpdate": 1785171252201,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -5371,6 +5371,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 329.6601608000063,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bb729c5b55f3d64823a29e1b15bdd7e6c85a110a",
+          "message": "fix(ci): retry the Rust toolchain install, drop the redundant one, and close #809/#810/#812 (#855)\n\nAddresses the failure in [run\n30232465108](https://github.com/nimbus-agent/Nimbus/actions/runs/30232465108)\nand the repo's open issues. Closes #809, #810, #812. (#854 is a bot\nrelease-health alert — every row `ok` except the already-tracked\n`VSCE_PAT` 2026-09-20 deadline; nothing to fix in code.)\n\n## 1. The CI failure\n\n`Cargo deny` died in **`Setup Rust`** — cargo-deny itself never ran.\n`rustup toolchain install 1.95.0` took a TLS reset from\n`static.rust-lang.org` (`Connection reset by peer`, os error 104).\nHarden Runner is on `egress-policy: audit` here, so nothing was blocked;\nit was simply an unretried single point of failure, and there were\n**four** copies of it.\n\n**The failing step did not need to exist.** `cargo-deny-action` is a\n*Docker* action on `rust:1.85.0-alpine3.20` that brings its own cargo\nand resolves `rust-toolchain.toml` inside the container — the host\ntoolchain is never consulted. That step is deleted, with a comment so it\ndoes not come back.\n\nThe three genuine host installs now go through\n`.github/actions/setup-rust-toolchain`: three attempts, 10s then 20s\nbackoff, propagating the last exit code so a real failure still fails.\n\nTwo things were settled by experiment rather than assumption:\n\n- **Pre-warming does not work.** rustup re-syncs the channel manifest on\n*every* `toolchain install`, even for an already-installed pinned\nversion — verified by pointing `RUSTUP_DIST_SERVER` at an unresolvable\nhost with 1.95.0 already on disk; it still failed. So the retry must\nwrap the install itself.\n- **`continue-on-error` is unavailable to composite-action steps**,\nwhich is why the retry is in-script rather than the usual two-step\nwrapper.\n\nFallout worth noting:\n\n- `rust-toolchain.toml` is now the single source of truth — the action\nparses `channel` and `components` from it, so the 1.95.0 pin is no\nlonger copy-pasted into `codeql.yml` and `security.yml`, and that file's\n\"when bumping this, also update …\" comment describes something that can\nno longer drift.\n- `setup-rust-tauri` passed no `toolchain:`, so it installed\n**`stable`** and then `rust-toolchain.toml` pulled 1.95.0 down a\n*second* time on the first `cargo fmt` — two toolchains, two unretried\ndownloads. Now one.\n- `dtolnay/rust-toolchain` is unused, so its dependabot group entry and\n`TRACKED_REF_OVERRIDES` pin-freshness entry are retired. A stale\noverride is dead config no gate would catch (an override for an unpinned\naction is silently never consulted), so the test asserting the dtolnay\nentry is replaced by one asserting **every** override still names an\naction the repo actually pins, checked against the real `.github` tree.\n\n**Live proof:** dispatched `security.yml` on this branch — [run\n30280225651](https://github.com/nimbus-agent/Nimbus/actions/runs/30280225651)\nis fully green, and the `Cargo audit` log shows `Installing Rust 1.95.0\n(components: rustfmt,clippy)` parsed from the TOML.\n\n## 2. #812 — the connector-auth suite depended on winning a race\n\n`… google_drive …` timed out at 5000ms in the combined\n`packages/gateway/src/ipc/` run and passed in ~190ms alone. Not a timer\nleak and not `mock.module` — a premise that only holds when the file\nwins a race.\n\n`Config` is a module-level literal, so it snapshots every\n`NIMBUS_OAUTH_*` var **once, at first import**. The suite blanked those\nvars then imported lazily, which only works if it is the first file in\nthe process to load `config.ts`. A sibling gets there first, the\nblanking becomes a no-op, and `Config.oauthGoogleClientId` keeps\nwhatever the developer has configured. `google_drive` then walks past\nthe `clientId === \"\"` guard into `runPKCEFlow` — **a live local redirect\nlistener and a real request to Google using the developer's own\ncredentials** — and hangs. Only google failed because it is the only\nprovider most machines configure; CI never failed because CI has no\nclient id at all.\n\nProven, not inferred: adding only `NIMBUS_OAUTH_GOOGLE_CLIENT_ID=\"\"` to\nthe outer environment takes the combined run from 1341 pass / 1 fail to\n**1342 / 0**.\n\nThe issue asks for the masking to be fixed rather than the timeout\nraised, so the ordering dependency is removed: provider arms are\nasserted directly on the now-exported, pure\n`oauthClientConfigForProvider`, and the fail-closed guards are asserted\nthrough `handleConnectorAuth` with an **injected**\n`resolveOAuthClientConfig`, so emptiness is established *by the test*.\n`runPKCEFlow` is unreachable from this suite by construction, on any\nmachine.\n\nNet coverage change: the empty-client-id guard is now exercised for\n**all 12** providers instead of only those a given box leaves\nunconfigured; `workday` gains an arm test it never had; and the\nclient-secret-required guard is covered for the first time — it needs a\n*non-empty* client id, so the old env-driven suite could never reach it.\n14 tests → 29. The env-blanking preamble and its `afterAll` restore are\ngone, removing this file's own process-wide `process.env` mutation — the\nsame hazard class the failure came from.\n\n## 3. #809 / #810 — notification contracts\n\nBoth were filed against the gateway because *which* notifications are\npublic contract is a gateway decision. Payload shapes are now recorded\nin `docs/architecture.md`, read off the emit sites:\n\n- `connector.configChanged` carries the full post-mutation snapshot `{\nservice, intervalMs, depth, enabled }`.\n- `workflow.run({ stream: true })` has **no chunk method of its own** —\nit reuses the untagged `agent.chunk { text }`, the same notification\n`engine.askStream` emits. #810 asked for surface-vs-retire;\n**surfaced**, since the emission already works.\n\nThe consequence bounds what any client can offer and is stated\nexplicitly: those chunks carry no stream id, so a caller cannot\nattribute a chunk to a run. Adding one is gateway work and stays open in\nthe ecosystem roadmap.\n\nClient half: **nimbus-agent/nimbus-client#39** (green), adding\n`subscribeConnectorConfigChanged` and `workflowRunStream`.\n\n## Verification\n\nFull gateway suite **8832 pass / 0 fail** across 665 files. Typecheck,\nbiome (via `bunx biome check packages scripts` — `bun run lint` reports\n0 files inside `.claude/worktrees`), `audit:invariants`, `structure`,\n`boundaries`, `any`, `cross-platform`, `exclusion-parity`,\n`openapi-drift`, `readme-cli`, `package-readmes`, `svg-assets`,\n`consumed-by`, `release-please`, `action-sha-pins`, `actions-allowlist`,\n`doc-refs` (622 refs), markdownlint, and lychee (1008 OK / 0 errors,\nwhole branch) all clean.\n\nBoth new guards red-proven: mis-routing the google arm fails the arm\ntest, and deleting the empty-client-id guard fails the fail-closed test\nfor **every** provider. The retry loop was red-proven to exhaust 3\nattempts and propagate the exit code, and the action script was run\nend-to-end against a simulated GHA environment.\n\n**One gate I could not run locally:** `audit:coverage-floor` is\nLinux-authoritative via Docker, and Docker is not running on this\nmachine. `auth.ts` is not in the baseline (it already clears both\nfloors) and the change only adds covered paths, so it should be\nunaffected — but CI is the authority here, not that reasoning.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-27T16:40:51Z",
+          "tree_id": "b3afe25a39ce9f0e48f9b4619d3d20ee43b05fe4",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/bb729c5b55f3d64823a29e1b15bdd7e6c85a110a"
+        },
+        "date": 1785171250420,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 321.2874537499956,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 317.09793944999257,
             "unit": "ms"
           }
         ]
