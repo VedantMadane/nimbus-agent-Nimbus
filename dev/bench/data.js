@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785119131141,
+  "lastUpdate": 1785119829195,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -5303,6 +5303,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 248.29466370000154,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aad4d70a134c793d0dc8376dea0a6b9798746248",
+          "message": "test(cli): stop the update dispatcher tests reading the ambient install channel (#852)\n\n## Summary\n\nEight `runUpdate dispatcher` tests failed on my machine and passed in\nCI. **The cause is not the platform** — it is one environment variable.\n\n`runUpdate` resolves the install channel first and short-circuits with\nan upgrade hint *before* opening any IPC:\n\n```ts\nconst channel = opts.channel === undefined ? resolveDistributionChannel() : opts.channel;\nif (channel !== null) { console.log(channelUpgradeHint(channel)); return; }  // ← no IPC\n```\n\nThat behaviour is correct — a package-managed install must upgrade\nthrough its package manager. But those eight tests omitted\n`opts.channel`, so they called the **real**\n`resolveDistributionChannel()`, which reads\n`NIMBUS_DISTRIBUTION_CHANNEL` from the environment. This box has it set\nto `msi`, so the dispatcher returned early and the mock recorded\n**zero** calls.\n\nThe whole diagnosis in one command:\n\n```\n$ env -u NIMBUS_DISTRIBUTION_CHANNEL bun test packages/cli/src/commands/update.test.ts\n 22 pass  0 fail        # vs 14 pass / 8 fail with it set\n```\n\n**CI passed only because the variable is unset there.** The coverage was\naccidental rather than guaranteed, and any developer who had installed\nthe `.msi` — i.e. anyone dogfooding the installer program — would have\nseen eight phantom failures and gone looking for a bug that wasn't\nthere.\n\n## Fix\n\nEach dispatcher test now passes `{ channel: null }` explicitly, matching\nthe convention the **same file already uses** for the channel cases (`{\nchannel: \"homebrew\" }` at lines 132/140). Injection, not ambient state.\n\nVerified deterministic in both environments:\n\n| | result |\n| --- | --- |\n| with `NIMBUS_DISTRIBUTION_CHANNEL=msi` | 23 pass / 0 fail |\n| without it (CI's condition) | 23 pass / 0 fail |\n\n## Regression guard\n\nRather than only fixing the calls, there's now a test that forces the\nexact broken condition — `NIMBUS_DISTRIBUTION_CHANNEL=msi` — and asserts\nthe dispatcher **still** reaches `updater.applyUpdate`, restoring the\nvariable in a `finally`.\n\n**Red-proved:** dropping the explicit `{ channel: null }` from that\nguard makes it fail, so it genuinely catches the regression rather than\npassing vacuously.\n\n## Correcting my earlier note\n\nI had previously characterised these as *\"Windows-only —\n`withGatewayIpc` bails before dispatch on a named-pipe socket path\"*.\nBoth halves were wrong: nothing here is platform-specific, and the\nsocket is never involved. The named-pipe theory was a plausible-sounding\nguess I hadn't yet tested; tracing `runUpdate` to its first `return`\nshowed the real path.\n\n## Testing\n\n- `bun test packages/cli/src` — **1801 pass / 0 fail** (was 1792 / 8\nfail)\n- `bunx tsc -p packages/cli/tsconfig.json --noEmit` — exit 0\n- biome — clean\n\n## Type of Change\n\n- [x] Bug fix (non-breaking change that fixes an issue) — test-only; no\nproduct code touched\n- [x] Test improvement\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` — exit 0\n- [x] `bun run lint` (Biome) — clean\n- [x] All existing tests pass — 1801\n- [x] New behaviour is covered by tests — 1 regression guard, red-proved\n- [x] No `any` introduced\n- [x] No credentials in logs/IPC/config/fixtures\n- [x] Platform-specific code behind `PlatformServices` — n/a\n- [x] HITL gate untouched — n/a\n\n## Notes for Reviewers\n\nNo product code changed. `runUpdate`'s short-circuit is correct as\nwritten, and the channel path keeps its own coverage via the existing `{\nchannel: \"homebrew\" }` cases.\n\nWorth noting the class of bug: a test that reads ambient environment\ndoesn't fail loudly — it silently stops testing what it claims to. Here\nthe dispatch path was simply never exercised on any machine with the\nvariable set.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n* Fixed update command behavior when the distribution channel is set to\nMSI, ensuring confirmed updates are correctly applied.\n* Improved consistency across update checks, confirmations, release-note\nflows, and interactive terminal prompts.\n* Prevented ambient environment settings from causing inconsistent\nupdate command results.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-07-27T05:24:24+03:00",
+          "tree_id": "c9bdd860bdb103c5ae361d9948fcfc785a74b376",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/aad4d70a134c793d0dc8376dea0a6b9798746248"
+        },
+        "date": 1785119828140,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 305.88299795000205,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 307.3333941500059,
             "unit": "ms"
           }
         ]
