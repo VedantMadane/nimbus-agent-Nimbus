@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785231703494,
+  "lastUpdate": 1785232446107,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -5711,6 +5711,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 286.8726821500051,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f16b012cd2d4af2f2bc3ccf90cf74cc34ab12a99",
+          "message": "fix(gateway): nimbus init could never index — connector.sync rejected every local syncable (#895)\n\n## Summary\n\n**`nimbus init` could never actually index.** Found by running the\nzero-config funnel against a real gateway for the first time — #887\nshipped the sync step covered only by unit tests with an injected fake,\nso neither bug in here was reachable by the suite.\n\n```\n$ nimbus init\nAdded .../repo to nimbus.toml (code indexing on).\nStarting the gateway...\nIndexing this repository...\n  (indexing did not complete: Invalid serviceId)     ← the headline promise, failing\nNext:\n  nimbus connector sync filesystem                   ← and this command exits 1\n```\n\nTwo fixes, plus the end-to-end verification that should have existed\nbefore the relaunch.\n\n## Related Issue\n\nFollow-up to #887 (zero-config onboarding) and #888 (cast recut). No\ntracking issue.\n\n## Type of Change\n\n- [x] Bug fix (non-breaking change that fixes an issue)\n- [ ] New feature (non-breaking change that adds functionality)\n- [ ] Breaking change (fix or feature that changes existing behaviour)\n- [ ] Refactor (no behaviour change)\n- [x] Test improvement\n- [x] Documentation only\n- [ ] CI / tooling\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` passes with zero errors (gateway + cli)\n- [x] `bun run lint` passes (Biome — format + lint)\n- [x] All existing tests pass (`bun test`)\n- [x] New behaviour is covered by tests\n- [x] No `any` types introduced — `unknown` is used for external data\n- [x] No credentials, tokens, or secret values appear in logs, IPC\nmessages, config, or test fixtures\n- [x] Platform-specific code is behind the `PlatformServices`\nabstraction — the socket override sits in `platform/paths.ts` alongside\nthe existing `NIMBUS_CONFIG_DIR` seam, applied in all three creators\n- [x] The HITL consent gate has not been weakened, bypassed, or made\nconfigurable\n- [x] N/A — `docs/README.md` is not touched\n\n> **Note on `bun run lint`:** inside `.claude/worktrees/` Biome reports\n\"0 files processed\" and exits 1 (known worktree path issue). Validated\nwith `bunx biome check packages scripts` → 2995 files, 0 errors.\n\n## Coverage (if engine/ or vault/ was changed)\n\n- [ ] N/A — neither `engine/` nor `vault/` is touched.\n\n## Testing\n\n- `bun test packages/gateway/src/{ipc,platform,connectors}` → **4170\npass / 0 fail**\n- `bun run audit:invariants` → OK\n- `lint:markdown` / `audit:doc-refs` / `audit:readme-cli` → all OK\n- `tsc` clean on gateway and cli\n\n**Verified end-to-end against a real gateway**, in an isolated config +\ndata dir (`APPDATA`/`LOCALAPPDATA` redirected, distinct socket) so it\ncould not touch a real index:\n\n```\n$ nimbus init\nAdded <sandbox>/repo to nimbus.toml (code indexing on).\nStarting the gateway...\nSocket: \\.\\pipe\\nimbus-fix-verify          ← the override, now honoured by the gateway\nIndexing this repository...\nTry it:\n  nimbus why src/auth.ts:1   # verifyToken  ← real file:line from the repo\n$ nimbus why src/auth.ts:1\n## Authorship\n- **t · b877723027bf** — 2026-07-28 · add auth helpers\n$ nimbus connector sync filesystem\nSync requested: filesystem                  ← was: Invalid serviceId, exit 1\n```\n\n## Notes for Reviewers\n\n### 1. The local syncables were unreachable over IPC\n\n`requireRegisteredSchedulerServiceId` admitted only catalog connector\nids and `mcp_*` user-MCP ids. But **four** syncables — `filesystem`,\n`blame`, `openapi`, `obsidian` — are registered straight into the\nscheduler by `assemble.ts` with no catalog entry, so none of them could\nbe synced on demand. This is wider than the init bug that surfaced it.\n\nFixed with an explicit `GATEWAY_SYNCABLE_SERVICE_IDS` SSoT rather than\nby loosening the regex, because an enumerable list is what this codebase\nuses elsewhere and it keeps the surface auditable.\n\n**Membership only widens which NAMES are addressable.** The\n`persistedConnectorStatuses(id).length === 0` check still runs\nimmediately after and is what authorises the sync — a covering test\nasserts a listed-but-unregistered id is still rejected with `Unknown\nconnector`, and that `forceSync` is never reached.\n\nThe drift test reads `assemble.ts` and fails in **both** directions: an\nid here that nothing registers, or a registered non-catalog id missing\nfrom the list.\n\n**Indexing was never broken** — the scheduler registers with `nextRunAt\n= now`, so data landed seconds later regardless. The promise was\nmistimed, not absent. Worth knowing when judging severity.\n\n### 2. `NIMBUS_GATEWAY_SOCKET` was CLI-only\n\nRead by `cli/src/paths.ts` and never by the gateway, so setting it\nproduced the worst kind of failure: the gateway comes up healthy, the\nCLI waits on a socket that will never be bound, and `nimbus start` burns\nits full 60s timeout before failing. Cost me a run before I spotted it.\n\nDeliberately kept **separate** from `NIMBUS_CONFIG_DIR` rather than\nfolding both into one \"isolation\" variable — one variable moving config\n*and* socket would let a test-isolation mistake silently reroute live\nIPC. Also documented that it does **not** move the data directory, since\na gateway started with it still reads the real index (that gap is why\nthe #887 e2e stops at `--no-sync`).\n\n### 3. Why the test suite missed both\n\n`init`'s effects are injected (`InitDeps`), which made the CLI logic\ntestable but meant `syncFilesystem` was a fake that always succeeded.\nThe demo cast (#888) didn't catch it either — it runs against a fake\ngateway that answers anything, so it happily depicted `Sync requested:\nfilesystem` for a command that returned `Invalid serviceId` in reality.\n\nBoth are reasonable test designs; neither can catch a contract mismatch\nwith the real gateway. The new `lifecycle.test.ts` cases close the\nspecific hole at the RPC boundary, but the general lesson is that this\nfunnel needs a real-gateway smoke test before the relaunch, which is\nwhat found these.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T12:36:01+03:00",
+          "tree_id": "a6f09f81c1a79e038c67f899889a381c21e3be3f",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/f16b012cd2d4af2f2bc3ccf90cf74cc34ab12a99"
+        },
+        "date": 1785232445017,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 316.03490359999705,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 315.07364094999974,
             "unit": "ms"
           }
         ]
