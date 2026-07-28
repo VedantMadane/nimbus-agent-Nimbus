@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785266124222,
+  "lastUpdate": 1785266876663,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -6255,6 +6255,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 309.3038538500008,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "393e7de7982e1a74f5544c1571b463bf66207c52",
+          "message": "fix(docs): serve .well-known/security.txt by disabling Jekyll filtering (#915)\n\n`security.txt` was added to `packages/docs/public/.well-known/` in #909,\nthe docs deploy succeeded — and the file **404s**:\n\n```\nGET https://nimbus-agent.dev/.well-known/security.txt   → 404\nGET https://nimbus-agent.dev/perf/latest.json           → 200\n```\n\nBoth live in `packages/docs/public/`. Both are emitted by the same\nbuild. The only difference is the **leading dot** — GitHub Pages filters\ndot-directories out of the published site unless a `.nojekyll` marker is\npresent, and `public/` had none.\n\nFix: an empty `packages/docs/public/.nojekyll`, which Astro copies to\n`dist/` and which disables that filtering. Verified locally — `dist/`\nnow contains both `.nojekyll` and `.well-known/security.txt`.\n\n## How this was missed\n\nThe original verification was that `astro build` **produced**\n`dist/.well-known/security.txt`. It did. That proved nothing about what\nPages *serves*.\n\nBuilding a file and serving it are different claims, and only one of\nthem was checked — the same presence-vs-validity error behind today's\nother failures: seven store secrets that existed but didn't work, and\nDependabot reporting zero alerts while `bun audit` found ten.\n\n## Post-merge check\n\n```bash\ncurl -o /dev/null -w '%{http_code}' https://nimbus-agent.dev/.well-known/security.txt\n```\n\nMust return **200**. Until it does, RFC 9116 discovery doesn't work and\nthe org's public disclosure policy has no machine-readable entry point —\nwhich was the entire point of publishing it.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T22:01:00+03:00",
+          "tree_id": "dce32267c8bf23468b1ace63905471190bcfeb0f",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/393e7de7982e1a74f5544c1571b463bf66207c52"
+        },
+        "date": 1785266875734,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 308.1464588500006,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 313.8771685500084,
             "unit": "ms"
           }
         ]
