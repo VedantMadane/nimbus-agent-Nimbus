@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785253683656,
+  "lastUpdate": 1785257684657,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -6051,6 +6051,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 310.09842154999717,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "63fd75c1bd49ec49366844ce1a5a462c173dc87a",
+          "message": "docs(security): honest disclosure policy + actually serve .well-known/security.txt (#909)\n\nCompanion to nimbus-agent/nimbus-security#1, which rewrites the central\npolicy. This PR fixes the same class of problem in the flagship repo and\nmakes `security.txt` real.\n\n## Two dead channels and an unkeepable promise\n\n**1. A second nonexistent email contact.** `docs/SECURITY.md` listed as\nreporting channel 2:\n\n> **Email** — contact the maintainers at the address listed in the\nrepository profile\n\nThere is no such address:\n\n```\n$ gh api orgs/nimbus-agent --jq '{email,blog,name}'\n{\"blog\":null,\"email\":null,\"name\":null}\n```\n\nA reporter who preferred email over PVR had nowhere to go. Removed, with\nan explicit statement of *why* there is no mail/PGP contact rather than\nanother dead pointer. (No email address was invented to replace it — see\n\"Owner decisions\" below.)\n\n**2. An SLA we cannot keep.** The policy promised acknowledgement within\n**72 hours** and a status update within **7 days**. That is not\nachievable for a one-person side project, and a missed promise in a\nsecurity policy is worse than no promise. Replaced with: no guaranteed\nresponse time, severity-based prioritisation, a **30-day\nunilateral-disclosure escape hatch** so reports can't be sat on, and no\nbug bounty. Now consistent with nimbus-security and\n`.github/SECURITY.md`.\n\n**3. Supported Versions named a release line that is three majors old.**\nThe table said fixes land in the next `v0.13.x` and listed\n`v0.1`–`v0.12` as the only older line — so **v1.5.0, the actual current\nrelease, did not appear as supported at all**:\n\n```\n$ gh release list --repo nimbus-agent/Nimbus --limit 1\nv1.5.0  Latest  2026-07-28T15:36:18Z          # root package.json: \"version\": \"1.5.0\"\n```\n\nRewritten around `v1.x`, latest-only, no backport programme.\n\nAlso corrected the stale invariant ceiling in `.github/SECURITY.md`\n(I1–I27 → I1–I30, I28 reserved), verified against `CLAUDE.md` and the 29\ninvariant headings in `docs/SECURITY-INVARIANTS.md`.\n\n## `.well-known/security.txt` was decorative — now it is served\n\nIt existed only in the `nimbus-security` repo and was published at no\nURL:\n\n```\n$ curl -o /dev/null -w \"%{http_code}\" https://nimbus-agent.dev/.well-known/security.txt\n404\n```\n\nIts `Canonical:` pointed at a `github.com` blob URL, which RFC 9116 does\nnot accept — the file has to be served from the org's own domain. One\nalready exists and needs **no new infrastructure**: `nimbus-agent.dev`\nis the live docs site (Pages, HTTPS cert approved, `deploy-docs.yml`\ngreen on `main`).\n\nAdding `packages/docs/public/.well-known/security.txt` publishes it at\n`https://nimbus-agent.dev/.well-known/security.txt` on the next docs\ndeploy. Verified Astro copies dotfile directories out of `public/` (a\nplain `cp` into `public/` then `astro build` emits\n`dist/.well-known/security.txt` — dotfile dirs are not skipped, and the\nPages build type is `workflow`, so no Jekyll underscore/dot filtering\napplies).\n\n## Verification\n\n```\npreflight PASSED   # all 21 fast gates, incl. audit:doc-refs + audit:status-drift\nlychee docs/SECURITY.md → 18 Total, 18 OK, 0 Errors\n```\n\n## Owner decisions (flagged, not made)\n\n- **No email address was invented.** Your personal GitHub profile lists\na real address, but designating a personal inbox as the project's\nsecurity contact is your call, not mine — so the policy is written to\nstand without one and to accept one additively later.\n- The 30-day disclosure window, \"latest release only\" support scope, and\n\"no bug bounty\" are judgement calls; each is a one-line edit.\n- `security.txt` now exists in two places (here and `nimbus-security`).\nThe header comment names this copy as the served one and asks that they\nbe kept in sync; `Expires:` is 2027-07-01 and needs a refresh before\nthen.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T19:42:31+03:00",
+          "tree_id": "4be98763f35f9033de1aafc0b7608ee60a4c5066",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/63fd75c1bd49ec49366844ce1a5a462c173dc87a"
+        },
+        "date": 1785257682834,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 314.5747372500038,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 314.33546139999527,
             "unit": "ms"
           }
         ]
