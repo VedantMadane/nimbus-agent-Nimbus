@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785265037972,
+  "lastUpdate": 1785266124222,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -6221,6 +6221,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 315.8476614499999,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e684541cc4fb6efaab93283f72795e3de7eeac67",
+          "message": "docs(roadmap): sequence the client surfaces (#914)\n\nFollow-up to #913, which merged before this commit landed on the branch.\n#913 deleted `ecosystem-roadmap.md` and declared that the Spine now owns\nsurface sequencing; **this is that ownership made real rather than\nasserted.**\n\nAdds a **Client surfaces** table to Track 2 (Scale & Surface), where\nproductization already lives.\n\n## The order, and why\n\nSequenced by thesis fit, not by ease:\n\n| Surface | State | Position |\n|---|---|---|\n| `nimbus-vscode` · `nimbus-web-clipper` | ✅ shipping | — |\n| **`nimbus-statuspage`** | 🧱 scaffold | **First.** \"On-call\nintelligence for DevOps and platform teams\" is the Nimbus repo's own\ndescription, and statuspage is that sentence rendered. Its entire data\ndependency already ships — the DORA calculators, `incident`/`alert`\nitems — and it is read-only, so it cannot violate an invariant. |\n| `nimbus-postmortem` | 🧱 scaffold | Second. Same thesis, same read-only\nshape, but needs incident-narrative assembly over the relationship graph\nthat doesn't exist yet. |\n| `nimbus-raycast` | 🧱 scaffold | Third. Pleasant but generic — a\nquick-ask surface differentiates least, and it's macOS-only. |\n\n## What changed outside this PR\n\nAll three scaffolds are now **public and MIT**, with private\nvulnerability reporting enabled to match the other public repos.\n`nimbus-postmortem` was **created** — it was named in the retired\necosystem roadmap and handed off to \"its own repo's `ROADMAP.md`\",\nexcept the repository didn't exist. It now carries the same\nvision-README + build-prompt shape its two siblings already had.\n\n## One deliberate omission\n\n**None of the three gets its own `ROADMAP.md`.** A vision README, a\nbuild prompt *and* a roadmap is three documents answering one question\nin a repo with no code — which is precisely how `ecosystem-roadmap.md`,\n`nimbus-client` and `nimbus-vscode` ended up claiming the same\nauthority. The scaffolds say what they are; this table says when they\nget built.\n\nVerification: `lint:markdown` 0 issues · `audit:doc-refs` 626 refs all\nresolve · `lychee` 78 links, 0 errors.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T22:00:34+03:00",
+          "tree_id": "7e4ab389ec240cf03f0d2f6e559c0a8a17248d54",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/e684541cc4fb6efaab93283f72795e3de7eeac67"
+        },
+        "date": 1785266122731,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 315.7374384000024,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 309.3038538500008,
             "unit": "ms"
           }
         ]
