@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785259149536,
+  "lastUpdate": 1785259846590,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -6119,6 +6119,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 301.85324340000733,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "84d4f3d70017d5749a32f6c5b54bb5421cfef933",
+          "message": "docs(ci-secrets): correct the release-environment scope claim (#910)\n\n## Why\n\nWhile adding deployment branch policies to the `release` environments\nacross the org, I checked this repo's claim against the live API and the\nworkflow sources. The intro of `docs/ci-secrets.md` was wrong, and wrong\nin a way that would break a release if someone followed it.\n\nIt said:\n\n> Release/publish secrets are scoped to the **`release`** GitHub\ndeployment environment (jobs that read them declare `environment:\nrelease`); add those under **Settings → Environments → release →\nEnvironment secrets**.\n\nTwo problems:\n\n1. **The `release` environment holds zero environment secrets.** All\nseven repo secrets sit at repository scope:\n   ```\n   $ gh api repos/nimbus-agent/Nimbus/environments/release/secrets\n   {\"total_count\":0,\"secrets\":[]}\n   ```\n2. **Most of them cannot move there as the workflows stand.** Only three\njobs declare `environment: release` — `release.yml`'s `publish-release`\nand `update-manifest`, and `secret-health.yml`'s `check`. Every other\nconsumer would stop seeing the secret.\n\nThe second point is the dangerous one, because an environment secret\ninvisible to a job **resolves to the empty string rather than\nerroring**. Following the old instruction for `GPG_SIGNING_SUBKEY` would\nnot break the environment-scoped `publish-release` job — it would break\n`release.yml`'s `build-gateway` job, which is what actually signs the\nartifacts.\n\nThe page was also self-contradictory: the RELEASE_BOT_* section already\nexplains this exact mechanism correctly (\"`release-please.yml` … mint a\ntoken without declaring `environment: release`, so an environment-scoped\nsecret would be invisible to them\"). Only the intro was stale.\n\n## What changed\n\nDocs only — one section of `docs/ci-secrets.md`. It now states the real\nscope, warns about the silent-empty failure mode, and carries a\nper-secret table naming the job that blocks each move:\n\n| Secret | Blocked by |\n|---|---|\n| `SECRET_AUDITOR_CLIENT_ID` / `SECRET_AUDITOR_PRIVATE_KEY` | — **safe\nto move today** |\n| `GPG_SIGNING_SUBKEY`, `GPG_PASSPHRASE` | `release:build-gateway`,\n`publish-linux-repo` |\n| `UPDATER_SIGNING_KEY` | `release:build-gateway` |\n| `WINGET_PAT` | `publish-package-managers:winget` |\n| `WINDOWS_CERT_*` | `release:build-msi` |\n| `APPLE_*` (7) | `release:build-pkg` |\n| `RELEASE_BOT_*` | `release-please`, `publish-package-managers`,\n`publish-linux-repo`, `org-drift-sweep` |\n\nDerived by parsing every workflow, attributing each `secrets.*`\nreference to its job, and checking that job's `environment:` key — not\nby reading prose.\n\n## Also done (API, outside this PR)\n\nThe `release` environment had `protection_rules: []` and\n`deployment_branch_policy: null` — no gate at all. It now has a\ndeployment branch policy mirroring how `github-pages` is already\nconfigured in this repo (`custom_branch_policies: true` + explicit\npolicies):\n\n```\nPUT  /repos/nimbus-agent/Nimbus/environments/release\n     {\"deployment_branch_policy\":{\"protected_branches\":false,\"custom_branch_policies\":true}}\nPOST /repos/nimbus-agent/Nimbus/environments/release/deployment-branch-policies  {\"name\":\"v*\",\"type\":\"tag\"}\nPOST /repos/nimbus-agent/Nimbus/environments/release/deployment-branch-policies  {\"name\":\"main\",\"type\":\"branch\"}\n```\n\n`main` is included deliberately: `secret-health.yml` declares\n`environment: release` and runs on a Monday cron, which executes from\nthe default branch. A tags-only policy would have broken that job.\n\n## Not done — needs your call\n\nMaking the release credentials genuinely non-readable by every job\nrequires adding `environment: release` to `build-gateway`, `build-msi`,\n`build-pkg`, `publish-linux-repo` and `publish-package-managers:winget`,\nthen moving the secrets. That restructures the release pipeline of a\nrepo that cut v1.5.0 today, so I did not do it unilaterally. Happy to\nopen it as a follow-up if you want it.\n\n## Verification\n\n- `bun run audit:secret-inventory` — `OK (24 secrets referenced, all\ndocumented)`\n- `bun test scripts/structure-audit/check-secret-inventory.test.ts` — 16\npass, 0 fail\n- `bun run audit:doc-refs` — 627 refs across 16 docs, all resolve\n- No new links introduced (the one external link is reused from the text\nit replaced)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T20:07:41+03:00",
+          "tree_id": "b90837d7e5719f9be65ee5e0e2d9af2b761dec47",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/84d4f3d70017d5749a32f6c5b54bb5421cfef933"
+        },
+        "date": 1785259845629,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 311.8752297499959,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 314.9176818000109,
             "unit": "ms"
           }
         ]
