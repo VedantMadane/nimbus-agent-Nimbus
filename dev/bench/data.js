@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785251990069,
+  "lastUpdate": 1785253683656,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -6017,6 +6017,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 311.230293949999,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0aafb31e9b2926b5769fe2ea61d6f4cf7c074205",
+          "message": "chore: correct drifted doc counts and versions, prune shipped plans, clear 8 advisories (#908)\n\nTwo adjacent sweeps. Every claim below was verified against source\nbefore editing — no finding was taken on trust from the audit that\nproduced it.\n\n## 1. The canonical security doc understated the live write surface by\nhalf\n\n`docs/SECURITY-INVARIANTS.md` describes I13's `WRITE_ROUTE_ALLOWLIST` as\n**six entries**. `packages/gateway/src/ipc/http-write-routes.ts:50-63`\nfreezes **twelve**, and `security-invariants.test.ts` asserts\n`toHaveLength(12)` at both `:337` and `:1148`.\n\nWorse, `.claude/commands/nimbus-http-write-surface.md` was internally\ninconsistent — **eight** in one place, **six** in another, both wrong.\nThat is the skill an agent loads *before adding an I13 write route*, so\nit would have produced a wrong count bump and a red gate.\n\nSame class of drift, same cause (hand-maintained counts in prose):\n\n| Claim | Reality |\n|---|---|\n| `NO_TIMEOUT_METHODS`: 4 entries at `gateway_bridge.rs:152` | **5** at\n`:167` (`identity.login` added with the OIDC device-code flow),\n`assert_eq!(…, 5)` at `:556` |\n| `ALLOWED_METHODS.len() == 99` | **101**, asserted at\n`gateway_bridge.rs:518` |\n| `audit:invariants` checks \"D10 + D11\" | Enforces **D10 through D22** |\n\n## 2. A documented CLI command that does not exist\n\n`docs/cli-reference.md` documented `nimbus sync`. There is no handler\nand no `commands/sync.ts` — **every example in that section exits 1**.\nThe real command is `nimbus connector sync <name>`, documented correctly\nin the same file.\n\nIt survived `audit:readme-cli` only because `COMMAND_NAMES` listed\n`\"sync\"` and `\"voice\"` with nothing behind them, so **the gate was\nreporting green on broken docs**. Both removed from the registry; the\ntwo docs that consequently failed were fixed in the same pass.\n`audit:readme-cli` now reports 32 references, down exactly the two\nremoved.\n\nAlso added the genuinely missing `nimbus janitor` / `nimbus preflight`\nreference sections, and the two shipped agents (`janitor`, `preflight`)\nmissing from `architecture.md`'s catalogue.\n\n## 3. Version strings\n\n`CLAUDE.md`/`GEMINI.md` said `v1.0.0` against an actual **`v1.4.3`**;\n`docs/roadmap.md` said `v0.22.0`; `docs/README.md`'s badge said\n`v0.13.1`. The badge is now the **dynamic** shields.io release badge, so\nit cannot drift again.\n\n## 4. Dependencies — `bun audit` 10 → 2\n\nRaised three pins in the root `overrides` block, this project's\nestablished remediation mechanism (`fast-uri`, `linkify-it`,\n`brace-expansion`, `js-yaml`, `postcss` already live there):\n\n```\ntar          7.5.20  -> 7.5.22   <- the only DIRECT PRODUCTION dep affected\nhono         4.12.25 -> 4.12.32\nprotobufjs   7.6.4   -> 7.6.5\n```\n\n`protobufjs` deliberately stayed on 7.x rather than the 8.7.1 latest — a\nmajor bump under `@xenova/transformers` (the MiniLM embedding stack) is\nnot worth a moderate advisory. The embedding suite was run to confirm:\n180 pass.\n\n> **Worth knowing:** GitHub's Dependabot API returns **zero** open\nalerts for this repo while `bun audit` found **ten**. The dependency\ngraph does not resolve `bun.lock`, so Dependabot is structurally blind\nhere and `bun audit` is the authoritative signal.\n\nTwo advisories remain, both requiring a major bump and therefore left\ndeliberately: `@hono/node-server` (patched only in 2.x; the 1.x line\ntops out at 1.19.17 with no backport) and `@ai-sdk/provider-utils` (the\npublished 3.x line ends at 3.0.30, entirely inside the vulnerable range\n— and `@mastra/core` imports it under an npm *alias* that a bare\n`overrides` key cannot target).\n\n## 5. Prune — 28 shipped plan/spec docs\n\nSix fully-shipped workstreams: P2 (both phases), P4b (measurement +\ntuning), zero-config onboarding, CLA Phase 1. **Kept** the un-executed\n`launch-execution` set, the unshipped P5/P3 spec, and `cla-design.md`\n(which `infrastructure-roadmap.md` cites for deferred scope).\n\nSix inbound references were fixed to keep the prune link-closed —\nincluding `.github/release-train.json` and `ci.yml:596-599`, which the\noriginal finding list had **missed**. Had only the listed sites been\nfixed, this would have shipped two dead paths.\n\n## Verification\n\n| Gate | Result |\n|---|---|\n| `preflight:fast` | **PASSED — all 21 gates** |\n| `lychee` (CI's exact invocation) | 1092 links, **0 errors** |\n| `bun audit --audit-level high` | exit 0 |\n| `typecheck` / `lint` | pass — 3016 files |\n| embedding · tar consumers · TUI | 180 · 5 · 152 pass |\n\n## Follow-up worth doing (not in this PR)\n\n**Nothing gates version strings or hand-maintained counts in prose** —\n`audit:status-drift` guards only the `I<N>`/`V<N>` ceilings. That is why\nhalf these findings existed, and it will recur. Two cheap fixes: extend\n`check-status-drift.ts` to compare the CLAUDE.md/GEMINI.md \"Latest\nrelease\" string against `.release-please-manifest.json`, and add a test\nasserting `COMMAND_NAMES ⊆ COMMAND_HANDLERS ∪ {bench, help}`.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T15:35:57Z",
+          "tree_id": "a2f910e00536b51b99a3dbdc3671ada04cd8683b",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/0aafb31e9b2926b5769fe2ea61d6f4cf7c074205"
+        },
+        "date": 1785253682747,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 306.8094265500025,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 310.09842154999717,
             "unit": "ms"
           }
         ]
