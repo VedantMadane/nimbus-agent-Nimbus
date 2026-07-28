@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785264138004,
+  "lastUpdate": 1785265037972,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -6187,6 +6187,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 239.81172170000028,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b68254a2261c0caadab3d562c42b64da994c42bf",
+          "message": "docs: retire the ecosystem roadmap, fold sequencing into the product roadmap (#913)\n\nDeletes `docs/ecosystem-roadmap.md` and gives each of its two jobs a\nreal home.\n\n## Why\n\nIt **closed on 2026-07-24** — but never went away. Four days later three\nrepositories still cited it, and two of them called it *authoritative*,\nin the present tense:\n\n| Repo | Said |\n|---|---|\n| `docs/ecosystem-roadmap.md` | \"Closed… each surface owned by its own\nrepo's `ROADMAP.md`\" |\n| `nimbus-client/ROADMAP.md` | closed — **and claims** the vacated\ncross-surface role |\n| `nimbus-vscode/docs/ROADMAP.md` | \"**it owns** the client-surfaces /\ndelivery plan across all Nimbus clients\" |\n| `nimbus-sdk/docs/ROADMAP.md` | \"the cross-surface plan… **lives in**\nthe gateway repo's Ecosystem Roadmap\" |\n\nA closed document that three repos treat as live is worse than no\ndocument.\n\n## Where each job went\n\n**Sequencing folds into `roadmap.md`.** The Scope note used to delegate\n\"how capability reaches a human\" elsewhere. It no longer does — which\nsurface should exist next is a product question, and splitting it into a\nsecond sequencing document is precisely how two files came to claim the\nsame authority.\n\nThat note also claimed the client surface is **\"15 methods wide\"**. It\nis **58**, as of client 0.13.0.\n\n**Architecture moves to org level.** How the ecosystem fits together —\nthe repo map, the one-way MIT-into-AGPL contract rule — is not the\nbusiness of one of the repositories it describes. It now lives in\n[`nimbus-agent/.github`\n`ECOSYSTEM.md`](https://github.com/nimbus-agent/.github/blob/main/ECOSYSTEM.md)\n(.github#7, merged), which also corrected two things the old map had\nwrong: it listed 8 repositories when there are **18**, and called\n`nimbus-mcp-servers` \"proposed\" when it exists.\n\n## Other changes\n\n- `infrastructure-roadmap.md` said *\"Three roadmaps, three axes\"* and\n**yielded to** the ecosystem roadmap on client reachability. Now two\naxes, with a note recording where the third went so the change is\nlegible to anyone who remembers it.\n- `docs/CHANGELOG.md`'s historical entry is **delinked rather than\nrewritten**. It is a dated record of what happened, and the file it\nreferenced was real at the time — a link would 404, but the text stays\ntrue.\n- `docs/README.md`'s tree entry removed.\n\n## Verification\n\n`lint:markdown` 0 issues · `audit:doc-refs` **626** refs all resolve\n(down exactly one, as expected) · `lychee` 1062 links, **0 errors**\n\n## Companion PRs\n\nTwelve files across three satellites referenced the deleted document.\nRepointed at whichever successor each actually meant:\n\n- nimbus-agent/nimbus-sdk#53\n- nimbus-agent/nimbus-client#42\n- nimbus-agent/nimbus-vscode#61\n\n**Merge those first** — this PR is what makes their links 404.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T18:44:25Z",
+          "tree_id": "83967435ac0b8fd1d9f34016ed2fab2e3119de85",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/b68254a2261c0caadab3d562c42b64da994c42bf"
+        },
+        "date": 1785265036456,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 313.151608700004,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 315.8476614499999,
             "unit": "ms"
           }
         ]
