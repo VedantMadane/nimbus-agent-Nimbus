@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785216346304,
+  "lastUpdate": 1785218910851,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -5609,6 +5609,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 315.12992369999995,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ad437ba28522369411d96289998e8f2b9d95d016",
+          "message": "feat(demos): recut the hero cast to the zero-config path (#888)\n\n## Summary\n\nRecuts the demo cast to the zero-config path, so the thing a visitor\nclicks matches the page it sits on.\n\nSince #887 the README leads with *\"no credentials, no API key, no LLM\"*\n— but the header link and the docs-site hero both showed `nimbus expert`\n+ `nimbus ask` posting to Slack: an LLM, a connector, and credentials.\nSame contradiction #887 fixed in prose, one layer up.\n\nNew `zero-config` demo: **`nimbus init` → `connector sync filesystem` →\n`nimbus why`**, ending on the deterministic-render footer — the mode a\nfirst-time user actually lands in.\n\nLive: <https://asciinema.org/a/HBEHmA2twRB7pPzI>\n\n## Related Issue\n\nFollow-on from #887 (zero-config onboarding). No tracking issue.\n\n## Type of Change\n\n- [x] Bug fix (non-breaking change that fixes an issue)\n- [x] New feature (non-breaking change that adds functionality)\n- [ ] Breaking change (fix or feature that changes existing behaviour)\n- [ ] Refactor (no behaviour change)\n- [x] Test improvement\n- [x] Documentation only\n- [ ] CI / tooling\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` passes with zero errors (`tsc -p\nscripts/tsconfig.json` clean)\n- [x] `bun run lint` passes (Biome — format + lint)\n- [x] All existing tests pass (`bun test`)\n- [x] New behaviour is covered by tests\n- [x] No `any` types introduced — `unknown` is used for external data\n- [x] No credentials, tokens, or secret values appear in logs, IPC\nmessages, config, or test fixtures\n- [x] Platform-specific code is behind the `PlatformServices`\nabstraction (no OS checks in business logic)\n- [x] The HITL consent gate has not been weakened, bypassed, or made\nconfigurable\n- [x] `docs/README.md` IS touched — see Screenshots / Output below\n\n> **Note on `bun run lint`:** inside `.claude/worktrees/` Biome reports\n\"0 files processed\" and exits 1 (known worktree path issue). Validated\nwith `bunx biome check scripts docs` → 185 files, 0 errors.\n\n## Coverage (if engine/ or vault/ was changed)\n\n- [ ] N/A — neither `engine/` nor `vault/` is touched. `scripts/` is\noutside the coverage-floor globs (`scripts/coverage-floor/check.ts`),\nconsistent with its sibling script tooling.\n\n## Testing\n\n- `bun test scripts/` → **819 pass / 0 fail** (839 incl. skips)\n- `bun run record-casts --check` → both demos OK; **`incident-response`\nhash `2cb4d6f912e7` is unchanged throughout**\n- `bunx biome check scripts docs` → 185 files, 0 errors\n- `tsc -p scripts/tsconfig.json` → clean\n- `lint:markdown` → 0 issues in 84 files\n- `audit:doc-refs` → 624 refs resolve\n- `lychee` → **1086 links, 0 errors** (the new asciinema URL resolves)\n- Both render paths exercised: `render:hero-cast` and `render:hero-cast\nincident-response`\n\nRecorded and verified on Windows 11.\n\n## Screenshots / Output\n\nThe recorded transcript (`docs/demos/snapshots/zero-config.txt`):\n\n```text\nAdded <TMP>/sample-repo to nimbus.toml (code indexing on).\n\nNext:\n  nimbus connector sync filesystem\n  nimbus why <file>:<line>\nSync requested: filesystem\n## Why: src/auth.ts:2\n\n**verifyToken** — introduced in `a1b2c3d` \"harden token check\"\n\n| Lane | Evidence |\n| --- | --- |\n| Commit | `a1b2c3d` — harden token check |\n| Pull request | #214 — Reject empty bearer tokens |\n| Ticket | AUTH-88 — Empty token accepted on /session |\n| Incident | INC-31 — auth bypass reported by on-call |\n| Downstream | 4 call sites across 2 packages |\n\n_Rendered deterministically — configure an LLM for prose synthesis._\n```\n\n`docs/README.md` embeds the regenerated `hero-cast-{light,dark}.svg` —\nplease eyeball both in light and dark.\n\n## Notes for Reviewers\n\n### Two pre-existing harness bugs, found while preparing the upload\n\nNeither is caused by this branch; nothing caught them because no\nexisting demo printed a path or was ever watched at recorded speed.\n\n1. **The `.cast` leaked the recording machine's path — and therefore its\nusername.** It was built from RAW capture chunks while only the snapshot\ngot normalized:\n\n   ```\n[0.821,\"o\",\"Added\nC:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\cast-driver-yGSOR5\\\\sample-repo\n…\n   ```\n\nThe `.cast` is uploaded to asciinema and rendered into the docs hero, so\nit now gets exactly the scrubbing the snapshot gets. **This is why the\npublished cast and the committed SVGs are clean** — verified: zero\nmatches for the username, `AppData`, or `Users` in either SVG.\n\n2. **Recorded casts were unwatchable.** Harness timings are wall-clock\nfrom the test run, so all four events landed inside one second. New\nopt-in `pacingSeconds` re-times them at record time (`zero-config` uses\n3s beats, ~15s total).\n\n**Pacing deliberately does NOT affect the snapshot hash** — the tripwire\ntracks what a demo *says*, not how fast it plays, so re-pacing can never\nread as a behavioural regression. Pinned by a test.\n\n### Harness extensions are additive and defaulted\n\n`incident-response` is byte-identical throughout — hash `2cb4d6f912e7`\nbefore and after every change. I verified its `.cast` diff is only\nnondeterministic timestamps, and restored the file rather than commit\nthat churn.\n\n- **`setup.repo`** materialises a fixture git repo under the harness\ntmpdir and runs steps there. Needed because `nimbus init` refuses to run\noutside a git repository *and prints its repo root* — recorded in a\nmaintainer's checkout it would bake that machine's absolute path into\nthe snapshot. Traversing `dir`/file keys are rejected so a script cannot\nwrite outside the sandbox.\n- **`pacingSeconds`** as above; omitted ⇒ raw timings preserved.\n\n### Cross-platform correctness is proven by test, not by recording on\none OS\n\nMy first recording produced `<TMP>\\sample-repo` — a Windows backslash,\nagainst an ubuntu tripwire, which would have drifted the committed\nsnapshot on CI. Rather than record on Linux and hope, the new\n`placeholder-path-separators` rule is covered by tests asserting a\n**Windows-prefixed and a POSIX-prefixed transcript normalise to the\nidentical string**. That is a permanent guard, and it is the direct\nlesson from #887 where a Windows-only verification hid a POSIX bug.\n\n### One deviation from the obvious script\n\nThe demo runs `init --no-sync` then an explicit `connector sync\nfilesystem`, rather than plain `nimbus init`. Plain `init` starts a real\ngateway, which a recording harness cannot do reproducibly. The two-step\nform shows the same sequence the README documents, just with the halves\nvisible separately.\n\n### termsvg gotcha worth knowing\n\n`termsvg` **v0.11.0 ships no binary assets** (source tarball only).\nv0.10.0 is the newest release with prebuilt binaries — so\n`docs/assets/README.md`'s \"download from the releases page\" step lands\non a release with nothing to download if you follow `latest`. Rendering\nhere used v0.10.0, checksum-verified against\n`termsvg-0.10.0-checksums.txt`.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T08:59:27+03:00",
+          "tree_id": "0c5b5019ff800ea7b04f2c2eae40641aa04d3330",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/ad437ba28522369411d96289998e8f2b9d95d016"
+        },
+        "date": 1785218909811,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 212.33535134999656,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 213.3473583000028,
             "unit": "ms"
           }
         ]
