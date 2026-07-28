@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785215049620,
+  "lastUpdate": 1785216346304,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -5575,6 +5575,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 240.81136845000145,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6116f312e22029d68a554b9b480be66cfc49a947",
+          "message": "chore: release main (#886)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>1.3.0</summary>\n\n##\n[1.3.0](https://github.com/nimbus-agent/Nimbus/compare/v1.2.0...v1.3.0)\n(2026-07-28)\n\n\n### Features\n\n* zero-config onboarding — nimbus init, and the LLM demoted to optional\n([#887](https://github.com/nimbus-agent/Nimbus/issues/887))\n([3e51aaf](https://github.com/nimbus-agent/Nimbus/commit/3e51aaf9f8171415c81d97a9b77f0f0141d40c76))\n\n\n### Bug Fixes\n\n* **perf:** stop a huggingface.co stall from blowing the 45m bench\ntimeout ([#885](https://github.com/nimbus-agent/Nimbus/issues/885))\n([22938ac](https://github.com/nimbus-agent/Nimbus/commit/22938ac57788eed724d1ab6a28553bb7138b7631))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-07-28T05:12:56Z",
+          "tree_id": "7a256e06b5dacba63a58c2c6397511b254d805c2",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/6116f312e22029d68a554b9b480be66cfc49a947"
+        },
+        "date": 1785216345059,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 316.3507044999962,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 315.12992369999995,
             "unit": "ms"
           }
         ]
