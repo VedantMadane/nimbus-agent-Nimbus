@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785232446107,
+  "lastUpdate": 1785233773553,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -5745,6 +5745,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 315.07364094999974,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a39b8696f27d73a0932850441d9d51118ec187e2",
+          "message": "chore: release main (#896)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>1.4.1</summary>\n\n##\n[1.4.1](https://github.com/nimbus-agent/Nimbus/compare/v1.4.0...v1.4.1)\n(2026-07-28)\n\n\n### Bug Fixes\n\n* **gateway:** nimbus init could never index — connector.sync rejected\nevery local syncable\n([#895](https://github.com/nimbus-agent/Nimbus/issues/895))\n([f16b012](https://github.com/nimbus-agent/Nimbus/commit/f16b012cd2d4af2f2bc3ccf90cf74cc34ab12a99))\n\n\n### Performance Improvements\n\n* **ci:** cut a push run 105 -&gt; 75 jobs — CI was queueing behind its\nown fan-out ([#894](https://github.com/nimbus-agent/Nimbus/issues/894))\n([1462894](https://github.com/nimbus-agent/Nimbus/commit/146289412bcc865d8583093a25a747c5fb979563))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-07-28T09:57:21Z",
+          "tree_id": "e675c08d7685950139c79a5630b5cd09a7e32b9e",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/a39b8696f27d73a0932850441d9d51118ec187e2"
+        },
+        "date": 1785233772322,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 317.4808936499994,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 321.9110020499931,
             "unit": "ms"
           }
         ]
