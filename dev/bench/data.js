@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785220339259,
+  "lastUpdate": 1785231703494,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -5677,6 +5677,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 312.61675130000185,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "146289412bcc865d8583093a25a747c5fb979563",
+          "message": "perf(ci): cut a push run 105 -> 75 jobs — CI was queueing behind its own fan-out (#894)\n\n## Summary\n\nP4b's **tuning slice**. The measurement slice shipped `audit:ci-latency`\nand deliberately stopped short of tuning, because the first measurement\ncontradicted the design of record's hunch. This slice acts on what two\nfollow-up probes actually found.\n\n**The roadmap's own stated lead was wrong.** It recorded macOS\ncontention as \"the clearest lead\". Across 45 `E2E Desktop` legs the\nbinding upstream job was ubuntu 30×, windows 15×, **macOS only 3×**, and\nrunner queue was ~10 min median on *every* OS — that uniformity is the\ntell. The real constraint is **slot starvation**: a push run demands\n~105 job slots against a pool granting 12–17, with 32–41 jobs\ncreated-but-waiting at peak. One sampled run opened with **nine\nconsecutive minutes at zero running jobs**. 72 of those 105 jobs were a\nsingle 24-entry coverage matrix run once per OS.\n\nThis also **retires the design of record's sharding proposal** —\nsharding adds jobs to the pool that *is* the constraint.\n\nThree changes:\n\n- **A — PAL-aware coverage matrix.** Threshold gates run on Linux only,\nexcept the **9** whose covered code branches on host platform. Coverage\ngates **72 → 42**; a push run **105 → 75**.\n- **B — narrow the E2E edge.** `e2e-desktop` waited on `ci-ts` (30 jobs,\n**60.5 min** median DAG wait) through an edge carrying no artifacts — it\ndoes its own checkout, install and Tauri setup. It now waits on\n`ci-rust` (**1.17–1.72 min**), the prerequisite that actually carries\nmeaning.\n- **C — `audit:coverage-gate-pal`.** A static audit so the platform\nclassification cannot decay silently.\n\n## Related Issue\n\nRelates to the Org Infrastructure Program, sub-program **P4b** —\n`docs/infrastructure-roadmap.md`.\n\n## Type of Change\n\n- [x] CI / tooling\n- [x] New feature — the `audit:coverage-gate-pal` gate\n- [x] Documentation only — roadmap record + design/plan documents\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` passes with zero errors\n- [x] `bun run lint` passes (Biome) — verified as `bunx biome check\n--error-on-warnings packages scripts`; the packaged `bun run lint`\nfalse-fails inside a `.claude/worktrees/` checkout, a known local-only\nartifact\n- [x] All existing tests pass — `bun test scripts/` 881 pass / 0 fail\nacross 83 files\n- [x] New behaviour is covered by tests\n- [x] No `any` types introduced — GitHub API data is narrowed with\n`isRecord`\n- [x] No credentials, tokens, or secret values anywhere — all reads are\npublic\n- [x] Platform-specific code behind `PlatformServices` — n/a, **no\nproduction code changed**\n- [x] The HITL consent gate has not been weakened — n/a, no engine\nsurface touched\n\n## Coverage\n\nn/a — neither `engine/` nor `vault/` was modified. This PR touches CI\nworkflows, `scripts/`, and docs only.\n\n## Testing\n\n- `bun run audit:coverage-gate-pal` → OK\n- `bun test scripts/` → 881 pass / 0 fail\n- `bunx tsc -p scripts/tsconfig.json --noEmit` → exit 0\n- `bunx biome check --error-on-warnings packages scripts` → exit 0\n- `bun run lint:markdown` → exit 0, red-proved against a deliberately\ninvalid file\n- `bun run audit:doc-refs` → 625 refs across 16 docs, all resolve\n- `bun run audit:action-sha-pins`, `bun run audit:invariants` → OK\n- `bun test scripts/preflight.test.ts` → the workflow-drift guard passes\nwith the new gate registered in `PREFLIGHT_GATES`\n- Both probes were run **live against `main`** to capture the\nbefore-measurement\n\n## Notes for Reviewers\n\n**A Critical defect was caught by the whole-branch review, and it is\nworth knowing how.** The original mechanism put `matrix.gate.pal` in a\n**job-level** `if:`, where GitHub does not expose the `matrix` context —\na job condition is evaluated before the matrix expands. It would have\neither failed workflow validation or evaluated falsy on non-Linux,\n**silently skipping all 24 coverage gates on Windows and macOS,\nincluding the 9 PAL gates** whose preservation is the entire safety\nargument. Every other `matrix.`-referencing `if:` in this repo is\nstep-level.\n\nThe fix splits the matrix into `coverage-gates-pal` and\n`coverage-gates-linux`, each gated only on `inputs`. The job-name\ntemplate is byte-identical in both, so produced check-context names do\nnot change. `fromJSON` was rejected: it loses the property that a\nskipped leg still creates its check context — the trap documented at\n`ci.yml:137-144`.\n\n**The audit now constrains the mechanism it protects.** That defect\nshipped green precisely because the audit validated the `pal:` fields\nbut never read the `if:` consuming them. It now asserts both jobs'\nconditions and cross-checks the runner literal against what `ci.yml`\nactually passes, with red-proofed tests — including one that reproduces\nthe broken condition verbatim and asserts it fails.\n\n**The static classification was wrong three times during this work**,\neach caught and fixed: `doctor-core.ts` (the detector didn't match\n`import { platform } from \"node:os\"`, the dominant idiom in this\ncodebase), `packages/cli/src/paths.ts`, and then `Embedding`/`DB layer`\n(both reach `sqlite-vec-load.ts` through static imports). The design's\n\"static evidence is sufficient\" judgement is recorded alongside those\ncounter-examples rather than quietly restated.\n\n**The problem worsened mid-flight.** DAG wait measured 33.4 min on\n2026-07-27 and **60.5 min** on 2026-07-28. Cross-checked by running the\noriginal throwaway probe and the promoted one over the same window —\nidentical output, so this is real congestion growth, not an instrument\nartifact. Both captures are date-stamped in the roadmap; **60.5 is the\nbaseline** any after-comparison must use.\n\n**Two open items, both recorded in the roadmap:**\n\n1. **The after-measurement cannot be taken until this merges** and a\npush run completes under the new workflow. `audit:ci-latency` gates\n*execution*, while this slice's win lands in queue and DAG wait — so\nthat gate structurally cannot prove this worked. The two promoted probes\nare the instrument, and no predicted figure is written anywhere it could\nbe mistaken for a measurement.\n2. **One known enforcement gap.** An allowlist entry names a single\ngate, so demoting `Embedding` is caught but demoting `DB layer` is not.\nThe entry's comment states the gap rather than claiming protection the\ncode does not provide. Closing it needs a co-gate field on\n`PlatformFileEntry`.\n\n**Worth a live check after merge:** the first push run should show **75\njobs** — 24 coverage legs on ubuntu, 9 each on macOS and Windows.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n- **New Features**\n- Added automated checks to ensure platform-specific code is covered by\nthe appropriate coverage gates.\n- Added CI latency diagnostics for workflow dependencies, concurrency,\nand job wait times.\n\n- **Improvements**\n- Split coverage checks by platform requirements to reduce unnecessary\nrunner usage.\n- Streamlined desktop end-to-end workflow dependencies so checks can\nstart sooner.\n\n- **Documentation**\n- Updated infrastructure planning and review documentation with CI\ntuning results, safeguards, and operational guidance.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T12:29:09+03:00",
+          "tree_id": "1aabb1c304ea52158509d615ec601c1b8fd384a0",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/146289412bcc865d8583093a25a747c5fb979563"
+        },
+        "date": 1785231702667,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 288.88237629999713,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 286.8726821500051,
             "unit": "ms"
           }
         ]
