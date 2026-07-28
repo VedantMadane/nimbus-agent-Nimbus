@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785212991663,
+  "lastUpdate": 1785215049620,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -5541,6 +5541,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 319.5809850500074,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3e51aaf9f8171415c81d97a9b77f0f0141d40c76",
+          "message": "feat: zero-config onboarding — nimbus init, and the LLM demoted to optional (#887)\n\n## Summary\n\nMakes `nimbus why` work immediately after install — no credentials, no\nAPI key, no config editing.\n\nThe key finding is that **the zero-config path already existed in the\ncode and was simply unexposed**, while the README asserted the opposite.\n`synthesize.ts` returns a deterministic render when no LLM is\nconfigured, and filesystem indexing needs no credentials. So this is\npackaging, not new capability.\n\n- **`nimbus init`** — indexes the git repo in the current directory.\nAppends a `[[filesystem.roots]]` block (with `code_index = true`) to\n`nimbus.toml` rather than rewriting it, starts the gateway, syncs, and\nprints a real `file:line` from the user's own repo to try with `nimbus\nwhy`.\n- **`index.demoSymbol`** — new read-only IPC method backing that\nsuggestion. Picking from the index rather than the filesystem means a\nlockfile or binary asset can never be suggested.\n- **No-LLM is now a stated mode** — the deterministic render carries a\nfooter, and the gateway's `no_api_key` message names *both* routes\n(local Ollama, hosted key) plus the fact that indexing, `nimbus why`,\nand the agent briefs need no LLM at all.\n- **`NIMBUS_CONFIG_DIR`** now relocates the config dir in both the\ngateway's and the CLI's paths modules (config dir only — never the data\ndir or socket).\n- **README/docs rewritten** to lead with the zero-config path and demote\nthe LLM to an optional upgrade.\n\n## Related Issue\n\nRelates to the launch-funnel work — no tracking issue.\n\n## Type of Change\n\n- [ ] Bug fix (non-breaking change that fixes an issue)\n- [x] New feature (non-breaking change that adds functionality)\n- [ ] Breaking change (fix or feature that changes existing behaviour)\n- [ ] Refactor (no behaviour change)\n- [x] Test improvement\n- [x] Documentation only\n- [ ] CI / tooling\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` passes with zero errors\n- [x] `bun run lint` passes (Biome — format + lint)\n- [x] All existing tests pass (`bun test`)\n- [x] New behaviour is covered by tests\n- [x] No `any` types introduced — `unknown` is used for external data\n- [x] No credentials, tokens, or secret values appear in logs, IPC\nmessages, config, or test fixtures\n- [x] Platform-specific code is behind the `PlatformServices`\nabstraction (no OS checks in business logic)\n- [x] The HITL consent gate has not been weakened, bypassed, or made\nconfigurable\n- [x] N/A — `docs/README.md` is not touched\n\n> **Note on `bun run lint`:** inside `.claude/worktrees/` Biome reports\n\"0 files processed\" and exits 1 (known worktree path issue, not a lint\nfailure). Validated with `bunx biome check packages scripts` → **2992\nfiles, 0 errors**.\n\n## Coverage (if engine/ or vault/ was changed)\n\n- [x] `bun run test:coverage:engine` passes (Engine ≥85%) —\n`engine/gateway-agent-error.ts` was modified; 372 pass / 0 fail\n- [ ] N/A — `vault/` not modified\n\nNew files are not in `docs/structure-audit/coverage-baseline.json`, so\nthey must clear the 80% line+branch floor outright. Measured with the\nistanbul preloads rather than assumed:\n\n| File | Line | Branch |\n| --- | --- | --- |\n| `cli/src/commands/init.ts` | 91.4 | 85.4 |\n| `cli/src/lib/toml-append.ts` | 97.1 | 96.4 |\n| `cli/src/paths.ts` | 100.0 | 100.0 |\n| `gateway/src/agents/_lib/demo-symbol.ts` | 100.0 | 90.0 |\n| `gateway/src/ipc/index-demo-symbol-rpc.ts` | 100.0 | 100.0 |\n| `gateway/src/ipc/server/dispatchers.ts` | 86.7 | 81.3 |\n| `gateway/src/ipc/lan-rpc.ts` | 100.0 | 90.0 |\n\n## Testing\n\nFull suite: **10,776 pass / 0 fail** across 791 files\n(`packages/gateway/src packages/cli/src packages/cli/test`).\n\nGates run individually (bare, not through a pipe):\n\n- `typecheck` — 0 errors across all packages including `@nimbus/docs`\n- `bunx biome check packages scripts` — 2992 files, 0 errors\n- `lint:markdown` — 0 issues in 84 files\n- `audit:doc-refs` — 624 refs across 16 docs, all resolve\n- `audit:readme-cli` — 32 README references match the CLI registry\n- `audit:cross-platform` — clean\n- `audit:status-drift` — OK\n- `audit:invariants` — OK\n- `lychee --config lychee.toml 'docs/**/*.md' '*.md'` — 1076 links, **0\nerrors**\n\nPlatform: developed and verified on Windows 11.\n\n## Notes for Reviewers\n\n### Two security-surface decisions, both deliberate\n\n`index.demoSymbol` is:\n\n- **NOT on the Tauri renderer allowlist (I7)** — it is a CLI onboarding\naffordance with no renderer consumer, and only `index.metrics` is\nexposed from `index.*` today. The allowlist stays minimum-necessary.\n- **`FORBIDDEN_OVER_LAN` (I5)** — `index.*` reads are default-allow over\nLAN, but a paired peer has no use for this machine's onboarding hint.\n\nBoth are recorded in `docs/architecture.md`.\n\n### Four places the plan/spec was wrong, corrected against the code\n\n1. **The spec claimed nothing writes `nimbus.toml`.** True for the\ngateway only — `packages/cli/src/lib/nimbus-toml-config.ts` already\nwrites it via `setTomlValueInFile`. The append-only contract still\nstands on its own merits.\n2. **`NIMBUS_CONFIG_DIR` was half-wired.** The earlier commit added it\nto the *gateway's* `platform/paths.ts`, but `init` resolves config\nthrough the CLI's own `paths.ts`. Left unfixed, the e2e would have\nwritten to the developer's real config directory — exactly what the\ndesign review demanded be impossible — and in production the CLI and\ngateway would disagree about where `nimbus.toml` lives whenever the\noverride is set. The `configDir: root` darwin trap recurred verbatim in\nthe CLI module.\n3. **The plan's test DDL was invented.** Real schema: `graph_entity.id`\nis `TEXT PRIMARY KEY` (not autoincrement integer), `metadata.file` is\nroot-relative, and `repoRoot` is already `resolve()`d by\n`parseNimbusTomlFilesystemRoots` before sync stores it.\n4. **The numeric-error-code route does not exist.** The plan called for\nkeying `nimbus ask` on the JSON-RPC error code, but\n`@nimbus-dev/client`'s transport rejects with a plain `Error` carrying\nonly the message — the code never reaches the CLI. The guidance now\nlives at the source (the gateway message), which is better placement\nanyway: CLI, TUI, and VS Code all surface it without each reimplementing\nit. `ask` matches an exported sentinel, pinned by a gateway test.\n\n### Two things deliberately NOT done\n\n- **The e2e stops at `init --no-sync`.** `NIMBUS_CONFIG_DIR` moves only\n`configDir`; there is no data-dir override, so a gateway spawned under\ntest would index into the developer's real database — which the design\nspec forbids. The sync + demo-symbol half is covered by `init.test.ts`\nthrough injected effects. The boundary is documented in the test file\nheader.\n- **`init` does not restart a running gateway.** A daemon that is\nalready up cannot see a root just appended (roots are read once at\nstartup in `platform/assemble.ts`). `init` says so and asks the user to\n`nimbus stop && nimbus start`, rather than syncing nothing and then\nprinting a demo line it cannot back — or killing someone's running\ndaemon.\n\n### Behaviour worth a second look\n\nEverything downstream of the config write degrades to the generic\n`nimbus why <file>:<line>` next step and still **exits 0**: gateway\nwon't start, sync errors, or index has no symbols yet. Rationale: the\nconfig edit is the durable half of the work, and a connector hiccup\nshould not undo the impression that `init` worked. Happy to flip this if\nreviewers disagree.\n\nDesign-spec open question 1 is settled empirically rather than by\ninference — `zero-config-lifecycle.test.ts` asserts config loading\nsurvives a `nimbus.toml` with no `[llm]` block, that an absent file\nloads to defaults, and that the exact block `toml-append.ts` writes\nround-trips back through the gateway's parser with `codeIndex = true`.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T04:54:58Z",
+          "tree_id": "1e429e12fc967a68cae5a8f28f114b0253075c10",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/3e51aaf9f8171415c81d97a9b77f0f0141d40c76"
+        },
+        "date": 1785215048114,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 237.29068874999976,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 240.81136845000145,
             "unit": "ms"
           }
         ]
