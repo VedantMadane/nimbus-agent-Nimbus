@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785257684657,
+  "lastUpdate": 1785259149536,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -6085,6 +6085,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 314.33546139999527,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "de4bca3b8163d3f11bf423059d0a99ea20e00a57",
+          "message": "docs(infra): measurement-grounded CI/CD improvement plan (#911)\n\n## What this is\n\nA CI/CD improvement plan for the monorepo and the four satellites,\nwritten to the standard\n`docs/infrastructure-roadmap.md` § P4b set: **measurement overrules the\ndesign of record.**\nEvery proposal is labelled *measured* or *hypothesis*, and **no proposal\nadds a job to the\nrunner pool** — P4b established that the pool is the binding constraint.\n\nAnalysis + a written plan. No workflow is restructured in this PR.\n\n## How it was measured\n\n`gh run list --limit 100` covers **2.4 hours** on Nimbus (276.8\nruns/day), so it is a snapshot,\nnot a window. The plan uses **3000 Nimbus runs / 10.8 days** and 300 per\nsatellite. All 73\nNimbus failures were classified by the **names of the jobs and steps\nthat failed**, not by log\nprose. Two proposed drift gates were replayed over real `origin/main`\nhistory before either was\nrecommended.\n\n## Four findings the existing controls structurally cannot see\n\n1. **`main` was red for 4.75 hours and nothing said so.** Six\nconsecutive `CI` push runs failed\n   on 2026-07-28 (05:59Z–10:44Z), five on the identical job+step\n(`Unit + Coverage — macos-15` / cast-driver snapshot).\n`scripts/ci-latency/collect.ts`\nqueries `status=success` and then drops jobs where `conclusion !==\n\"success\"`, so a job that\n   is failing 100% of the time produces zero observations.\n2. **A scheduled workflow has never once succeeded.** `Performance\nReference Run (M1 Air)`:\n11 runs, **0 successes**, ten of them queued ~24 h (median 1462.9 min)\nthen cancelled. It is\n   not a `startup_failure`, so `audit:actions-allowlist` misses it too.\n3. **Two prose-drift surfaces, red-proved retroactively.** `CLAUDE.md`'s\n\"Latest release\" was\nstale on **152 of 158** first-parent `main` commits (96.2%) since\n2026-06-20 — worst window\n27 days and eleven minor versions behind. `COMMAND_NAMES` carried `sync`\nand `voice` with no\nhandler for **468 consecutive commits / 77 days**, cleared only today by\n#908 — and\n`audit:readme-cli` treats that list as the authority for whether a\n`nimbus <cmd>` exists.\n4. **A push to `main` demands 101 job slots, not 77.** P4b counted only\nthe `CI` workflow; six\nothers fire on the same push (Docs Quality 8, Security 7, Perf 4–5,\nCodeQL 2–3, Scorecard 1,\nrelease-please 1). Five merges landed within **63 seconds** and took\n**44–57 min** each,\nwhile isolated post-change runs take **19–22 min**. P4b's tuning is\nholding — `probe-dag` at\nn=6 gives **4.4 min** median DAG wait vs 60.5 before — the residual is a\n*different*\n   variable: batch size at the merge point.\n\n## Failure MODES (73 Nimbus failures, categorical)\n\n| mode | share |\n| --- | --- |\n| Ambient dependency advisory (`Dependency audit` / Trivy / `Cargo\ndeny`) | **26%** |\n| Docs quality (lychee / markdownlint) | 18% |\n| Platform-specific test (macOS ×6, Windows ×4) | 14% |\n| PR-quality aggregate | 10% |\n| Credential / deadline · Dependabot infra | 7% each |\n\nPlus **88 `startup_failure` runs** — excluded from every rate because\nthey are not failures in\nany API sense: `Lint PR Title` 55, `CLA Assistant` 24, `Lock Threads` 9.\nAlso measured:\n**retries are effectively unused** — 9 of 3000 runs (0.3%) reached\nattempt 2 — so \"re-run the\nflake\" has no precedent here and is not proposed as a remedy.\n\n## Verdicts on the four named candidates\n\n| candidate | verdict |\n| --- | --- |\n| Credential liveness gate | **ACCEPT, narrowed** — generalise to\n`VSCE_PAT`/`OVSX_PAT`; **reject for `NPM_TOKEN`** (registry state is\n`forbidden`, publishing is OIDC-only — nothing to probe). Load-bearing\nconstraint: **do not** fold it into `secret-health`, which is red every\nMonday on the `VSCE_PAT` 2026-09-20 deadline row for eight more weeks,\nso a newly dead credential would be indistinguishable from the standing\nred. |\n| Doc-drift gate | **ACCEPT both**, with a correction: automate before\ngating. A strict-equality release-string check would red on every\nrelease commit; mark the token with `x-release-please-version` +\n`extra-files` so the gate becomes a regression detector rather than a\nchore generator. |\n| Required-check consistency | **ACCEPT the property, REJECT the\nframing.** Parity across 10/6/5/4/3 required contexts is permanently\nunsatisfiable — the anti-pattern the roadmap names. The checkable\nproperty is **coverage with declared exceptions**, and it finds three\nreal gaps, including one the brief did not anticipate: **`Validate PR\ntitle` is required on no repo**, against a measured **10.7%**\nunparseable-title rate on `main` since 2026-06-01. |\n| Scorecard `DangerousWorkflowID` restructure | **REJECT.** Verified\nfrom source: `release.yml` triggers only on `push: tags: v*`; the\npublish workflows' `workflow_run` names only `Release` and gates on\n`conclusion == 'success'`. The generic pwn-request premise does not\nhold. The split would roughly double those workflows' jobs — added to\nthe measured binding constraint — against a threat model needing repo\n**write**. Instead: dismiss with a written premise **and gate the\npremise**, so it fails if `release.yml` ever gains a non-tag trigger. |\n\n## What could NOT be measured\n\nStated explicitly in the plan so nothing reads as grounded when it is\nnot: the runner-pool\nceiling (no API exposes it), whether contention is self-inflicted or\norg-wide, cost/billing,\nwhether collapsing the 42 coverage-gate legs is net-positive (Task 7 is\na **probe**, not a\nchange), the self-hosted runner's state, and whether merge queue is\navailable on this plan.\n\n## Owner decisions flagged, not invented\n\n- Promoting `Validate PR title` to required on Nimbus + nimbus-vscode\n(changes merge-blocking).\n- Dismissing the three Scorecard alerts (do it *after* the premise gate\nis live).\n- `nimbus-vscode` uniquely requires the third-party `CodeRabbit` context\n— recorded, not changed.\n- Adding a `creation` rule to the release-tag ruleset would close the\nreal residual but could\nbreak release-please's own tag reconcile unless the App is a bypass\nactor.\n\n## Verification\n\n- `bun run lint:markdown` → `0 issues`\n- `bun run audit:doc-refs` → `627 refs across 16 docs — all resolve`\n- `bun run audit:status-drift` → `OK`\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+          "timestamp": "2026-07-28T20:07:22+03:00",
+          "tree_id": "db1b58c18854b599cc2dd0b4385b3a6903e75878",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/de4bca3b8163d3f11bf423059d0a99ea20e00a57"
+        },
+        "date": 1785259148718,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 300.5081358500032,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 301.85324340000733,
             "unit": "ms"
           }
         ]
