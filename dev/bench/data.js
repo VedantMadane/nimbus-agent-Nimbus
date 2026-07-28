@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785246317008,
+  "lastUpdate": 1785251990069,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -5983,6 +5983,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 307.82499159999713,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c1cc50552fbd899249ee4bb9964d69c070965ef2",
+          "message": "chore: release main (#907)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>1.5.0</summary>\n\n##\n[1.5.0](https://github.com/nimbus-agent/Nimbus/compare/v1.4.3...v1.5.0)\n(2026-07-28)\n\n\n### Features\n\n* **ci:** close out P4b — after-measurement, co-gate enforcement, sweep\nproof ([#901](https://github.com/nimbus-agent/Nimbus/issues/901))\n([eaa1999](https://github.com/nimbus-agent/Nimbus/commit/eaa199953e2253cf03d24b7efb82d64a12bbb872))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-07-28T18:07:41+03:00",
+          "tree_id": "9a6a1228e4dfbc9cdf1b4dc073b37066fc73fc0e",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/c1cc50552fbd899249ee4bb9964d69c070965ef2"
+        },
+        "date": 1785251989267,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 310.4413129500041,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 311.230293949999,
             "unit": "ms"
           }
         ]
