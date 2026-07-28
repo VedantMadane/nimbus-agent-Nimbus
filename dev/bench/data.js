@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785237657947,
+  "lastUpdate": 1785239971577,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -5881,6 +5881,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 314.30566919999984,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dd2b021f9bdc894325df56f0e1b17d27d1f9455a",
+          "message": "chore: release main (#900)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>1.4.3</summary>\n\n##\n[1.4.3](https://github.com/nimbus-agent/Nimbus/compare/v1.4.2...v1.4.3)\n(2026-07-28)\n\n\n### Bug Fixes\n\n* **cast-driver:** normalize macOS's /private tmpdir alias — unbreaks\nmain on macOS\n([#899](https://github.com/nimbus-agent/Nimbus/issues/899))\n([de0a5f2](https://github.com/nimbus-agent/Nimbus/commit/de0a5f28c3313eef2c5f54c1c5aa616586bb6d50))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-07-28T14:47:01+03:00",
+          "tree_id": "8ae22689359950da74a0d88dd1e9f39082b15ede",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/dd2b021f9bdc894325df56f0e1b17d27d1f9455a"
+        },
+        "date": 1785239970225,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 310.6935637500061,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 310.0937011499962,
             "unit": "ms"
           }
         ]
