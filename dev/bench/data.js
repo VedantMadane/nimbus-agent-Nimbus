@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785259846590,
+  "lastUpdate": 1785264138004,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -6153,6 +6153,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 314.9176818000109,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bf543612d63697dadd6dd20f70678f47343999cf",
+          "message": "docs(credentials): credential health design, plan, and both review rounds (#912)\n\nDesign of record and implementation plan for **credential health**:\nmaking Nimbus notice a connector credential is dead, dying, or\nunverifiable instead of discovering it when something fails.\n\nDocs only — no runtime code. Four files, two review rounds applied.\n\n## Why\n\nOn 2026-07-28 the web-clipper v0.2.0 release failed at **both**\nstore-upload steps on credentials recorded as \"configured\" since 07-19\nand never once exercised. Three independent defects, none visible to any\ncontrol:\n\n1. **Silent expiry** — an OAuth refresh token minted while the consent\nscreen was in *Testing* mode; the provider expires those after 7 days.\nIt died on 07-26.\n2. **Partial rotation** — the client secret was rotated and stored while\nthe freshly minted token was not. A credential set half-updated with no\nsignal.\n3. **Shape damage** — an issuer stored with one trailing whitespace\ncharacter.\n\nFour rounds of hypothesis failed. What found all three, first run, was\ninstrumenting the real environment and printing what was actually\nstored.\n\nThe generalisable defect: **presence treated as validity.** Every\ncredential control in this codebase answers \"is a secret set?\" — none\nanswers \"does it work?\"\n\n## What is designed\n\nOne record, three writers, two readers, one pre-existing fix path.\n\n- **Writer 1 — sync observer.** Free: every sync already authenticates,\nso health is a by-product. No scheduler, no daemon, no new network\ncalls.\n- **Writer 2 — declared expiry.** The only mechanism that makes a known\ndeadline on an opaque token visible. `VSCE_PAT` expires 2026-09-20 and\nis guarded today by human memory alone.\n- **Writer 3 — active probe.** **One** implementation, not 97, because\n`list`/`get`/`search` are contractually mandatory per the connector\ncontract test.\n- **Readers** — `nimbus creds` plus one line in `nimbus doctor`.\n\n### It never writes a credential\n\n`vault.set` and `vault.delete` are in the HITL frozen set\n(`engine/executor.ts:107-108`, I2/I4). Unattended rotation would require\nweakening a non-negotiable. The only operation touching a secret is the\nexisting `nimbus connector auth` flow, invoked by explicit delegation\nfrom `nimbus creds fix` so the gate still applies. Final verification\nincludes `rg \"vault\\.(set|delete)\"` over the new subsystem returning\n**nothing** — a mechanical check that the non-goal held.\n\n## Measured, not assumed\n\n| Fact | Value | Source |\n| --- | --- | --- |\n| Connectors declaring secrets | 97 | `connector-secrets-manifest.ts` |\n| Opaque token/key/secret keys | 53 | ditto |\n| `OAuthProvider` union members | 12 | `auth/oauth-registry.ts` |\n| Distinct `*.oauth` vault keys | 22 | gateway-wide (Google/Microsoft\nfan out per service) |\n\nOpaque credentials substantially outnumber refreshable ones, and only\nOAuth credentials self-heal or report their own expiry — so the design\ntargets the opaque majority.\n\n## Two blockers found while mapping the real seams\n\nNow Tasks 1–2 rather than surprises mid-implementation:\n\n- **`connectorFetch` discards the error body.** `FetchOutcome` was `{\nkind: \"http_error\"; bytes; status }`. Google returns `invalid_grant`\nwith HTTP **400**, so without widening that type the classifier would\nhave silently degraded to status-codes-only and missed the exact failure\nthat started this.\n- **`CONNECTOR_VAULT_SECRET_KEYS` mixes credentials with configuration**\n— `jira: [\"jira.api_token\", \"jira.email\", \"jira.base_url\"]` — with no\nmarker. The attribution rule had nothing to key off. Task 1 adds the\nsplit behind a guard that fails when a new key matches neither set.\n\n## Review rounds\n\nTwo rounds, both applied. Highlights:\n\n- **The design review caught a false green in the spec itself.** My\nclassifier ended `ok : anything else that returned data`, so a 400 from\na changed request schema would have been classified **healthy**. `ok`\nnow means 2xx; everything else non-2xx is `indeterminate` → `unknown`.\n- **The plan review caught the same class again** in `parse_error`:\nmapping it straight to `ok` would let a server answering an expired\nsession with *200 + a login page* read healthy. The auth-marker check\nnow runs ahead of the 2xx short-circuit.\n- **One suggestion was rejected as written.** Switching `suffixOf` to\n`lastIndexOf` would have introduced the bug it guarded against — for\n`a.b.c` it returns a name *fragment*. Verified all 174 keys have exactly\none dot, kept `indexOf`, and added a guard test pinning the invariant.\n\nAcross both rounds, **seven of twelve changes close paths where the\nsystem could have reported health it had not observed.**\n\n## Files\n\n| File | |\n| --- | --- |\n| `docs/superpowers/specs/2026-07-28-credential-health-design.md` |\ndesign of record |\n| `docs/superpowers/specs/…-design-review.md` | round 1 |\n| `docs/superpowers/specs/…-design-review-response.md` | round 1 applied\n|\n| `docs/superpowers/plans/2026-07-28-credential-health.md` | 14 tasks,\n86 TDD steps |\n| `docs/superpowers/plans/…-review.md` / `…-review-response.md` | round\n2 |\n\nTasks 1–9 are a shippable milestone on their own (passive observation +\n`nimbus creds`); 10–14 add declared expiry, the probe, config and the\nauth-time prompt.\n\n## Verification\n\n`lint:markdown` 0 issues · `audit:doc-refs` 627 refs all resolve ·\n`lychee` 8/8 links OK\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n- **Documentation**\n- Added comprehensive Credential Health design and implementation\nplanning documentation.\n- Documented credential status reporting, expiry tracking, active\nchecks, configurable staleness thresholds, and connector cleanup\nbehavior.\n- Clarified handling for authentication failures, transient errors,\nmalformed responses, and XML/SOAP error messages.\n- Recorded design and implementation review decisions, testing\nexpectations, concurrency safeguards, and security requirements for\nredacted error details.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T18:33:49Z",
+          "tree_id": "97daf72160712127bc0c87da4a1c4208ec64241b",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/bf543612d63697dadd6dd20f70678f47343999cf"
+        },
+        "date": 1785264136713,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 238.99155889999602,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 239.81172170000028,
             "unit": "ms"
           }
         ]
