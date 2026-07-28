@@ -114,7 +114,7 @@ Design of record:
 | P2 | Release Train | ✅ done — both phases (run 30231918767) | `audit:release-staleness` goes red when a channel (brew/scoop/linux/winget) lags the published Release past the grace window, when a release phantoms, when an npm package is tagged but unpublished, or when a consumer's **lockfile-resolved** dependency lags npm `@latest`. Red-proved on a real phantom and on three real dependency edges; green after both, `OK (12 edges current)`. |
 | P3 | Review Layer | 🔨 first step done (#846) | The monorepo now carries a tuned `.coderabbit.yaml` whose `path_instructions` encode I1–I30, the triple rule and the PAL ban — closing the satellites→monorepo direction of the pattern above. **Note:** the previously-stated gate ("an invariant violation is caught in CI") was already met — `_structure.yml` runs `audit:invariants` and all 17 static checks execute there; the one branch `--binary-only` excludes is a census that always exits 0. |
 | P4a | Main-CI concurrency | ✅ shipped | Every commit on `main` has a completed CI run |
-| P4b | Latency | 🔨 measurement shipped | `audit:ci-latency` tracks per-job execution, runner queue and DAG wait across the 9 org repos and fails when a job's execution regresses beyond its own measured noise band. Tuning is deliberately NOT in this slice — the first measurement showed execution is not the binding constraint. |
+| P4b | Latency | ✅ measurement + tuning shipped | `audit:ci-latency` tracks per-job execution, runner queue and DAG wait across the 9 org repos and fails when a job's execution regresses beyond its own measured noise band. Tuning followed the measurement, not the design of record's hunch: a push run demanded ~105 job slots against a pool granting 13-17, so the fix was cutting the fan-out (coverage gates 72 → 42 jobs, Linux-only except the 9 PAL-touching ones) and narrowing E2E's dependency edge — not the proposed cache tuning or sharding, which would have added jobs to the constrained pool. |
 | P5 | Org Legibility | ✅ both gates green (run 30231918767) | `audit:secret-inventory` fails on any workflow secret missing from the credential registry **or** `ci-secrets.md`; `audit:actions-allowlist` fails on an unpermitted action **or** any workflow whose latest run ended in `startup_failure`. The second found a live nightly outage on its first correct run. Remaining: the legibility dashboard. |
 | P6 | Access & Contribution Model | 🔨 P6a + CLA done | Every repo reachable through a team + org settings gated (both in the sweep); contributor-two switches recorded in checked-in config; CLA live and **actually executing** on all 6 repos. Remaining: bypass-actor audit |
 
@@ -395,8 +395,112 @@ moves to P6).
   same window the check reads, so nothing can exceed it on the first run. The
   red-proof is the unit test in `scripts/ci-latency/evaluate.test.ts`, not the
   live run.
-- **Remaining:** the tuning slice itself, which must be justified against this
-  data. The clearest lead is macOS runner contention.
+- **Delivered (tuning, 2026-07-28):** the measurement's own "clearest lead" was
+  wrong, and two probes disproved it. **Attribution capture A (2026-07-27,
+  throwaway probe):** across 45 `E2E Desktop` legs the binding upstream job was
+  ubuntu 27×, windows 15×, **macOS only 3×**, and runner queue was ~10min
+  median on every OS. The constraint is not macOS scarcity: a push run demands
+  ~105 job slots against a pool granting 13-17, with 32-41 jobs
+  created-but-waiting at peak; one sampled run opened with nine consecutive
+  minutes at zero running jobs. 72 of those 105 jobs were one 24-entry coverage
+  matrix run once per OS.
+- **Attribution capture B (2026-07-28, promoted `probe-dag.ts` +
+  `probe-concurrency.ts`) supersedes A's split across OSes — but not A's
+  conclusion.** Re-run over the same 15-run `main` push window, the corrected
+  probe reports **ubuntu 24×, macOS 18×, windows 3×** (45 legs, 0 legs
+  unattributed, 15/15 complete reads) — macOS at ~40% of the legs, not 7%. The
+  created-but-waiting figure moved the same way: 4 sampled runs give **14 / 8 /
+  0 / 51 jobs created-but-waiting at peak** (peak concurrent 15 / 12 / 14 / 12;
+  105 jobs on all four runs), against A's "32-41 at peak". Both captures are
+  kept on purpose — `.superpowers/` is git-ignored, so this prose is the only
+  durable record of what was measured, and A's numbers were genuinely measured
+  in A's window. A's conclusion — *macOS scarcity is not the binding
+  constraint* — held for that window and is not softened here; B disagrees only
+  about how the legs divide across OSes. What both windows agree on, and what
+  the two changes below act on, is **slot starvation**: 105 jobs against a pool
+  granting 12-17, one run sitting 51 jobs deep at its peak and spending its
+  first 17 minutes at zero running jobs.
+- **This retired the design of record's sharding proposal.** Sharding adds jobs
+  to the pool that IS the constraint.
+- **Two changes:** coverage-threshold gates run on Linux only except the nine
+  whose covered code branches on platform (72 → 42 jobs; a run 105 → 75), and
+  `e2e-desktop` now waits on `ci-rust` (1.17-1.72min) instead of `ci-ts` (30
+  jobs, DAG wait measured 33.4min median on 2026-07-27) — an edge that carried
+  no artifacts.
+- **The coverage-gate split is TWO jobs, and the first spelling of it was
+  wrong.** The obvious single-job form —
+  `if: inputs.run-tests && (inputs.runner == 'ubuntu-24.04' || matrix.gate.pal)`
+  — shipped through implementation and review before the whole-branch review
+  caught that `matrix` is not in the context set available to a **job-level**
+  `if:` (GitHub grants only `github`, `needs`, `vars`, `inputs`, because the
+  condition is evaluated before the matrix expands). It would have silently
+  skipped **all 24** coverage gates on Windows and macOS — including the PAL
+  gates whose preservation is the entire safety argument. The shipped form is
+  `coverage-gates-pal` (9 entries, `if: inputs.run-tests`) and
+  `coverage-gates-linux` (15 entries, `if: inputs.run-tests && inputs.runner ==
+  'ubuntu-24.04'`), each gated only on `inputs`. `fromJSON(...)` over one job
+  was rejected: a leg that never expands never creates its check context, and
+  this repo depends on a *skipped* leg still creating one.
+- **Two gates were promoted to `pal: true` by the same review.** `Embedding`
+  and `DB layer` both pull `index/sqlite-vec-load.ts` — which branches on
+  platform for the native extension filename — into their coverage denominators
+  through static imports (`embedding/lazy-scheduler.ts` and
+  `index/migrations/runner.ts`). The PAL set is therefore 9, not 7: `Vault`,
+  `Embedding`, `Extensions`, `Telemetry`, `DB layer`, `Doctor`, `Updater`,
+  `Perf`, `Sandbox`.
+- **The DAG-wait baseline nearly doubled between measurements.** The 33.4min
+  figure above was genuinely measured on 2026-07-27. Re-running the promoted
+  probe on 2026-07-28 against the same `main` window found **60.5min median
+  (max 110.8min, n=15)** — cross-checked by running both the original
+  throwaway probe and the promoted `probe-dag.ts` over the same window, which
+  returned identical figures, so the widening reflects real CI congestion
+  between the two dates (`main` took several merges in between, consistent
+  with the slot-starvation diagnosis: more concurrent runs competing for the
+  same pool) rather than an instrumentation change. Same-day probes
+  (2026-07-28, against `main`) also found: 105 jobs per run on all four
+  sampled runs, peak concurrent 12-14 (the plan predicted 13-17), and all
+  reads complete (15/15 DAG runs, 4/4 concurrency runs — so none of the above
+  is a partial-sample artifact). A third re-run later on 2026-07-28, after the
+  whole-branch review fixes, returned **60.1min median (max 110.8min, n=15)** —
+  the window had rolled by one run, so the figure is stable, not drifting.
+  **~60min median is the baseline any future "after" comparison must be
+  measured against — not 33.4.**
+- **`audit:ci-latency` cannot prove this worked**, since it gates execution
+  while the win lands in queue and DAG wait. `scripts/ci-latency/probe-dag.ts`
+  and `probe-concurrency.ts` are the instrument; the before figures above are
+  recorded, but the **after figures are not yet measured** — that requires
+  this branch to be merged and at least one push run to `main` to have
+  completed under the new workflow. Once that run exists, re-run
+  `bun scripts/ci-latency/probe-dag.ts` and
+  `bun scripts/ci-latency/probe-concurrency.ts` against `main` and record the
+  actual numbers here — never a predicted figure.
+- **Fast-follow — one enforcement gap is known and stated, not closed.** An
+  allowlist entry names a single gate, and rule 3 cross-checks only that gate.
+  `index/sqlite-vec-load.ts` reaches BOTH `Embedding` and `DB layer`, so
+  demoting `Embedding` is caught while demoting `DB layer` is not. The entry's
+  comment says so rather than claiming protection the code does not provide.
+  Closing it needs a co-gate field on `PlatformFileEntry`.
+- **Guarded against silent decay:** `audit:coverage-gate-pal` fails when a
+  platform-branching file is unclassified, when a classified file's gate is not
+  `pal: true`, when a new matrix entry carries no explicit `pal` field, when an
+  entry sits in the job that contradicts its `pal` value, when either job's
+  `if:` drifts from the condition the split depends on, or when the runner
+  literal in `coverage-gates-linux`'s condition stops matching the label
+  `ci.yml` actually calls `_test-suite.yml` with. The last three rules exist
+  because the first revision validated the `pal:` fields without ever reading
+  the `if:` lines that consume them — which is precisely how the broken
+  job-level `matrix.gate.pal` condition shipped green.
+- **Deferred:** guarding E2E against a TypeScript failure on `main`. Measured
+  2 of the last 40 `main` commits arrived without a PR, both `ci(cla)` workflow
+  commits touching no TypeScript. No standalone fast typecheck job exists to
+  depend on (`Static`, 4.57min, sits inside `_test-suite.yml` where `needs:`
+  cannot reach it), so guarding costs a duplicate typecheck job on every push.
+  **Adopt if** a `main` E2E run is ever seen burning on a TS compile failure.
+- **Baseline regeneration is due after ~12 post-change push runs**, when the
+  30 abandoned macOS/Windows coverage keys (15 Linux-only gates × 2 dropped
+  OSes) have aged out of the sampling window
+  (`MAX_RUNS_PER_WORKFLOW`). Regenerating sooner is a no-op: the window still
+  holds pre-change runs carrying those keys.
 
 ### P5 progress log
 
