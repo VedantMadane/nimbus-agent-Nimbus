@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785354699635,
+  "lastUpdate": 1785356214741,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -6663,6 +6663,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 308.5477130500054,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8640972adbc81a88c7999597a6feaf381491fc39",
+          "message": "fix(cli): handle the embedding warm-up error in `nimbus search` (#937)\n\n## The gap\n\n#928 made the gateway bind its IPC socket **before** the embedding model\nloads, and correctly answers a semantic query that arrives too early\nwith JSON-RPC `-32021` rather than silently degrading to BM25.\n\nNothing on the CLI side handled it. So on a genuinely cold machine — the\nexact first-run path #928 existed to fix — `nimbus search` printed a raw\nJSON-RPC error.\n\nIt now degrades the way the first-run design memo (#931 §2b) specified:\n**a one-line notice, keyword results, never fatal.**\n\n## Why it asks a second question instead of reading the first answer\n\nRecovery is **lazy**: run the search, and only on failure ask\n`gateway.ping` what the embedding runtime is doing.\n\n1. **The happy path keeps its single round-trip.** A ping-first design\nwould add one to every search — and would break every existing test in\nthis file, since the mock client answers from a positional queue.\n2. **It avoids branching on the error's shape.** `@nimbus-dev/client`'s\ntransport rejects with `new Error(jsonRpcErrorMessage(err))` — only\n`error.message` survives; the JSON-RPC `code` and `data` are\n**discarded**. `-32021` is therefore invisible to the CLI. Matching the\nmessage text would be brittle; asking the gateway for structured state\nis not.\n\n**No race:** readiness moves `warming → ready` monotonically and never\nreturns to `warming`, so the retry cannot land in the state that\nproduced the error.\n\nThe notice goes to **stderr**, so `nimbus search … | jq` still parses.\n\n## Tests\n\nSeven, each red-proved by sabotaging the implementation and watching the\nright one fail:\n\n| sabotage | tests that fail |\n|---|---|\n| remove the fallback (pre-fix behaviour) | 2 |\n| move the notice to stdout | 1 |\n| retry without dropping `semantic` | 1 |\n\nCovered: the fallback; stderr placement (with a real `JSON.parse` of\nstdout); a non-warming error rethrowing the **original** error; a\nfailing ping rethrowing the original error (the ping is a diagnostic and\nmust never replace the real failure); `--no-semantic` never pinging at\nall; a ping whose `embedding` block is absent entirely —\n`getEmbeddingStatus` is optional on the gateway (`?.() ?? {}`), so that\nshape is real; and the happy path adding no round-trip.\n\nFull `bun test packages/cli/src`: **1875 pass, 0 fail.**\n\n## Follow-up this PR deliberately does not do\n\nThe durable fix is for **`@nimbus-dev/client` to preserve `code`/`data`\non rejection**. Today every typed gateway error arrives at every\nconsumer as a bare message string — this one, and any future `-32xxx`.\nThat is a change in the `nimbus-client` repo plus a version bump, so it\nis out of scope here, but it is the reason this PR has to ask a second\nquestion at all. The VS Code extension consumes the same client and\nwould hit the same wall.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T23:06:42+03:00",
+          "tree_id": "434aa78b30378a461d5fbe0634754dcff666194d",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/8640972adbc81a88c7999597a6feaf381491fc39"
+        },
+        "date": 1785356212989,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 299.8309446499992,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 297.834194799991,
             "unit": "ms"
           }
         ]
