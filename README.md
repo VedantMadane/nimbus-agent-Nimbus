@@ -30,7 +30,7 @@ Three things, in one query:
 
 ## Three load-bearing words
 
-- **local** — the SQLite index, the Vault, and the audit log all live on your machine. The cloud is a connector, not the source of truth.
+- **local** — the SQLite index, the Vault, and the audit log all live on your machine. The cloud is a connector, not the source of truth. Telemetry is opt-in and off by default (`[telemetry] enabled = false`).
 - **consent-gated** — every destructive or outbound action is intercepted by a human-in-the-loop gate *before* it runs. It lives in the executor, not the prompt, so it can't be jailbroken away.
 - **MCP** — every connector speaks the [Model Context Protocol](https://modelcontextprotocol.io/). The engine never calls a cloud API directly.
 
@@ -42,6 +42,9 @@ Three things, in one query:
 <summary><b>macOS / Linux</b></summary>
 
 ```bash
+# Linux only — credentials live in the OS keystore, and the Gateway will not
+# start without it:  sudo apt install libsecret-tools   (Debian/Ubuntu)
+#                    sudo dnf install libsecret         (Fedora/RHEL)
 curl -fsSL https://github.com/nimbus-agent/Nimbus/releases/latest/download/install.sh -o /tmp/nimbus-install.sh
 # inspect it first if you like:  less /tmp/nimbus-install.sh
 bash /tmp/nimbus-install.sh

@@ -43,7 +43,7 @@
 - `pull_request` touching `scripts/install/**` or the release workflow → **all three OSes** (unchanged from today).
 - `workflow_dispatch` → all three, so the branch can be proven before merge.
 
-- [ ] **Step 1: Add `workflow_dispatch` so the change can be proven on the branch**
+- [x] **Step 1: Add `workflow_dispatch` so the change can be proven on the branch**
 
 A `pull_request`-only workflow cannot be triggered manually, so there is no way to verify the edit before merging. Add the trigger first.
 
@@ -62,7 +62,7 @@ on:
       - "packages/cli/src/**"
 ```
 
-- [ ] **Step 2: Restrict the matrix on gateway/CLI-only PRs**
+- [x] **Step 2: Restrict the matrix on gateway/CLI-only PRs**
 
 Replace the `strategy` block with one that collapses to Ubuntu unless an install-path or release file changed. Add this step before the matrix job, and gate the matrix on its output.
 
@@ -128,7 +128,7 @@ Then change the `smoke` job header to consume it:
 
 Note the timeout rises from 15 to 20 minutes — indexing adds real work.
 
-- [ ] **Step 3: Fix the stale `--version` comment**
+- [x] **Step 3: Fix the stale `--version` comment**
 
 The workflow asserts in two comments that `nimbus --version` does not exist. It does — v1.4.1 prints `1.4.1`. Leaving the comment misleads the next author.
 
@@ -161,7 +161,7 @@ with, respectively:
           nimbus --version
 ```
 
-- [ ] **Step 4: Add the quickstart assertion (Unix)**
+- [x] **Step 4: Add the quickstart assertion (Unix)**
 
 Insert this step immediately after the existing "Run install.sh + verify (Unix)" step, and before the uninstall assertions in that step. Extract the uninstall portion into its own step if it is currently inline, so the quickstart runs while the binaries are still installed.
 
@@ -210,7 +210,7 @@ Insert this step immediately after the existing "Run install.sh + verify (Unix)"
           nimbus stop || true
 ```
 
-- [ ] **Step 5: Add the quickstart assertion (Windows)**
+- [x] **Step 5: Add the quickstart assertion (Windows)**
 
 Insert the equivalent immediately after the existing "Run install.ps1 + verify (Windows)" step, before its uninstall assertions.
 
@@ -263,12 +263,12 @@ Insert the equivalent immediately after the existing "Run install.ps1 + verify (
           nimbus stop
 ```
 
-- [ ] **Step 6: Validate the workflow file parses**
+- [x] **Step 6: Validate the workflow file parses**
 
 Run: `bunx --bun js-yaml .github/workflows/install-smoke.yml > /dev/null && echo "YAML OK"`
 Expected: `YAML OK`. If `js-yaml` is unavailable, run `gh workflow view install-smoke --ref dev/asafgolombek/launch-plan` after pushing — a parse error surfaces there.
 
-- [ ] **Step 7: Commit and push, then prove it live**
+- [x] **Step 7: Commit and push, then prove it live**
 
 A workflow edit cannot be verified locally. Push first, then dispatch.
 
@@ -285,7 +285,7 @@ git push -u origin dev/asafgolombek/launch-plan
 gh workflow run install-smoke --ref dev/asafgolombek/launch-plan
 ```
 
-- [ ] **Step 8: Confirm the run is green on all three OSes**
+- [x] **Step 8: Confirm the run is green on all three OSes**
 
 Run: `gh run list --workflow install-smoke --branch dev/asafgolombek/launch-plan --limit 1`
 then `gh run watch <id>`.
@@ -293,7 +293,7 @@ Expected: three jobs (`ubuntu-24.04`, `macos-14`, `windows-2022`) all green.
 
 **If macOS fails here, that is a real finding, not a flake** — macOS is the platform the spec flags as unverified. Capture the log and fix before proceeding; do not disable the job.
 
-- [ ] **Step 9: Red-prove the assertion**
+- [x] **Step 9: Red-prove the assertion**
 
 A guard that never fails is not a guard. Temporarily break it to confirm it catches the #895 class of bug.
 
@@ -336,7 +336,7 @@ Tier definitions, which the script prints so the classification is never mistake
 - `implemented` — registers MCP tools and makes outbound calls, but has no test.
 - `unknown` — anything else.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `scripts/audit/connector-verification.test.ts`:
 
@@ -414,12 +414,12 @@ describe("classifyConnector", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `bun test scripts/audit/connector-verification.test.ts`
 Expected: FAIL — `Cannot find module './connector-verification.ts'`.
 
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 3: Write the minimal implementation**
 
 Create `scripts/audit/connector-verification.ts`:
 
@@ -498,12 +498,12 @@ export function summarize(rows: readonly ConnectorEvidence[]): {
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `bun test scripts/audit/connector-verification.test.ts`
 Expected: PASS, 6 tests.
 
-- [ ] **Step 5: Add the disk-reading CLI entry point**
+- [x] **Step 5: Add the disk-reading CLI entry point**
 
 Append to `scripts/audit/connector-verification.ts`:
 
@@ -546,7 +546,7 @@ if (import.meta.main) {
 }
 ```
 
-- [ ] **Step 6: Run it against the real tree and record the number**
+- [x] **Step 6: Run it against the real tree and record the number**
 
 Run: `bun run scripts/audit/connector-verification.ts | tail -20`
 Expected: a table plus a final counts line. **Write the `tier1` and `total` numbers down** — they are the input to Task 3 and to the launch copy decision.
@@ -560,13 +560,13 @@ above are ever narrowed: `aws`, `azure`, `gcp`, `iac`, `kubernetes`, `obsidian`.
 `runCliJson`, so it must classify as `implemented` or better. If it comes back
 `unknown`, the regex is wrong, not the connector.
 
-- [ ] **Step 7: Typecheck and lint**
+- [x] **Step 7: Typecheck and lint**
 
 Run: `bunx tsc --noEmit -p tsconfig.json` (or the repo's script if narrower)
 Run: `bunx biome check scripts`
 Expected: both clean. Remember `bun run lint` false-fails inside the worktree.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add scripts/audit/connector-verification.ts scripts/audit/connector-verification.test.ts
@@ -594,7 +594,7 @@ to prevent."
 - Consumes: nothing.
 - Produces: launch copy other tasks and the runbooks quote verbatim.
 
-- [ ] **Step 1: Add the telemetry position to the launch messaging sheet**
+- [x] **Step 1: Add the telemetry position to the launch messaging sheet**
 
 In `docs/launch-messaging.md`, add a new section immediately after "Honesty guardrails (do NOT claim)":
 
@@ -617,13 +617,13 @@ Do **not** say "Nimbus has no telemetry" — the collector exists, and being
 caught in an absolute that is technically false costs more than the nuance.
 ```
 
-- [ ] **Step 2: Verify the claim is still true before publishing it**
+- [x] **Step 2: Verify the claim is still true before publishing it**
 
 Run: `grep -n "enabled" docs/cli-reference.md | grep -A2 -B2 telemetry`
 Run: `grep -rn "cfg.enabled" packages/gateway/src/telemetry/flush-scheduler.ts`
 Expected: the documented default is `false`, and the flush scheduler short-circuits on `!cfg.enabled`. If either has changed, fix the copy rather than the code.
 
-- [ ] **Step 3: Add a one-line privacy note to the README**
+- [x] **Step 3: Add a one-line privacy note to the README**
 
 In `README.md`, in the "Three load-bearing words" section, append to the **local** bullet:
 
@@ -631,12 +631,12 @@ In `README.md`, in the "Three load-bearing words" section, append to the **local
 Telemetry is opt-in and off by default (`[telemetry] enabled = false`).
 ```
 
-- [ ] **Step 4: Lint the docs**
+- [x] **Step 4: Lint the docs**
 
 Run: `bunx markdownlint-cli2 docs/launch-messaging.md README.md`
 Expected: `0 error(s)`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/launch-messaging.md README.md
@@ -663,7 +663,7 @@ Gate 2 tells alpha testers to paste `nimbus doctor` output into an issue. `docto
 - Consumes: nothing.
 - Produces: a documented verdict used by the Gate 2 runbook.
 
-- [ ] **Step 1: Capture real output in an isolated sandbox**
+- [x] **Step 1: Capture real output in an isolated sandbox**
 
 Never run this against the real config — use the isolation pattern proven in this session.
 
@@ -684,7 +684,7 @@ On Windows, set the same four variables in PowerShell and use `\\.\pipe\nimbus-d
 live gateway's database. Setting `NIMBUS_CONFIG_DIR` alone is therefore *not*
 isolation; the OS variables are the load-bearing ones.
 
-- [ ] **Step 2: Audit the captured output**
+- [x] **Step 2: Audit the captured output**
 
 Read `$SANDBOX/doctor.txt` and answer, in writing:
 
@@ -694,13 +694,13 @@ Read `$SANDBOX/doctor.txt` and answer, in writing:
 
 The third is the only hard blocker — invariant 3 forbids credentials in any interface. The first two are judgement calls about what a tester is comfortable sharing.
 
-- [ ] **Step 3: Decide, and record the decision**
+- [x] **Step 3: Decide, and record the decision**
 
 If **no Vault values appear and paths are the only concern**, no code change is needed. Record in the Gate 2 runbook: *"`nimbus doctor` output contains local filesystem paths; redact your username before pasting publicly, or send it directly."*
 
 If **any Vault-sourced value appears**, stop. That is a security-invariant violation, not a launch task — escalate, file it, and fix it under the invariant triple rule (wiring + docs + test in one commit) before continuing.
 
-- [ ] **Step 4: Commit the runbook note**
+- [x] **Step 4: Commit the runbook note**
 
 Only if Step 3 produced a documentation change:
 
@@ -717,9 +717,33 @@ The three gates in the spec are human process. They are checklists, not tasks �
 
 ### Gate 1 runbook — foreign-machine proof
 
-- [ ] Linux: clean `ubuntu:24.04` container, no Bun preinstalled. Run the README quickstart verbatim against a **cloned third-party repo**, not Nimbus.
+**Two Gate 1 blockers are already known — CI found them before a human did.**
+Task 1's assertions caught both on their first real run; `nimbus --help` had
+been passing on machines where `nimbus init` cannot work at all.
+
+- **[#925](https://github.com/nimbus-agent/Nimbus/issues/925) — Linux `init`
+  fails on any headless machine.** Installing `secret-tool` is necessary but
+  not sufficient: libsecret reaches a Secret Service provider over D-Bus, so
+  with no session bus and no unlocked keyring every Vault operation fails and
+  the Gateway aborts. That is the state of any server, container, SSH session,
+  or WSL install — a large share of the ICP's machines. The README quickstart
+  never named the prerequisite; that half is fixed. Note `nimbus doctor` shares
+  the blind spot: it reports `[ok] Vault: secret-tool is on PATH` from a
+  `Bun.which` check alone, so it says OK where the Vault cannot work.
+- **[#928](https://github.com/nimbus-agent/Nimbus/issues/928) — first run
+  blocks on a HuggingFace fetch.** The Gateway does not bind its socket until
+  the embedding runtime initializes, which on a cold machine means downloading
+  MiniLM (`DEFAULT_EMBEDDING_INIT_TIMEOUT_MS = 600_000`). The macOS runner sat
+  at "starting embedding runtime" for a full 300 s without binding. For the
+  first command a new user ever runs, this is indistinguishable from a hang.
+
+Both are product-behaviour changes, deliberately **not** made under this plan's
+freeze. Gate 1 cannot pass while either stands: they are exactly the
+"works only on the author's machine" failures this gate exists to catch.
+
+- [ ] Linux: clean `ubuntu:24.04` container, no Bun preinstalled. Run the README quickstart verbatim against a **cloned third-party repo**, not Nimbus. **Blocked by [#925](https://github.com/nimbus-agent/Nimbus/issues/925).**
 - [ ] Windows: fresh local user account or a VM (Win 11 Home has neither Hyper-V nor Windows Sandbox). Same quickstart, same foreign repo.
-- [ ] macOS: covered by Task 1's `macos-14` job, or defer to a Gate 2 tester with a Mac and label it unverified.
+- [ ] macOS: covered by Task 1's `macos-14` job, or defer to a Gate 2 tester with a Mac and label it unverified. **Caveat:** that job now sets `NIMBUS_SKIP_EMBEDDING_RUNTIME=1`, so it does **not** cover the cold first-run model fetch ([#928](https://github.com/nimbus-agent/Nimbus/issues/928)) — a human still has to run one genuinely cold macOS first-run.
 - [ ] Every break gets a fix **and** a regression test at the real-gateway layer. A unit test with an injected fake does not count.
 - [ ] **Exit:** Linux and Windows complete with zero manual intervention.
 
@@ -727,13 +751,45 @@ The three gates in the spec are human process. They are checklists, not tasks �
 
 - [ ] Recruit 5–10 ICP engineers privately (network, ex-colleagues, zaalgol, communities you already belong to). Do **not** post publicly — that spends Gate 3's ammunition.
 - [ ] Ask each for a 15-minute screenshare of their *first* run, or an async note: where did you stop, what did you expect, would you run it again next week.
-- [ ] Point them at `nimbus doctor` as step one of troubleshooting, with the caveat from Task 4.
+- [ ] Point them at `nimbus doctor` as step one of troubleshooting, with the caveat from Task 4:
+
+  > `nimbus doctor` output contains local filesystem paths; redact your username
+  > before pasting publicly, or send it directly.
+
+  **Verdict (Task 4, audited 2026-07-29 — safe to paste with that one caveat).**
+  No Vault-sourced value can reach the output: `doctor` makes no `vault.*` call
+  at all, and its only vault interaction is a `Bun.which("secret-tool")`
+  presence check on Linux. The three gateway RPCs it does make are bounded —
+  `gateway.ping` returns an uptime number, `config.validate` returns two fixed
+  literal strings with no interpolated config content, and `diag.snapshot`
+  yields an item count plus `connectorId`/`state` pairs.
+
+  Two judgement-call disclosures remain, neither a blocker:
+
+  - **Absolute paths containing the username** — `Data dir` and `Gateway state
+    file` always print them (confirmed live: `C:\Users\<name>\...`), and a
+    `[voice]` misconfiguration additionally echoes `piper_path` / `whisper_path`.
+  - **Connector IDs** — when a gateway is running, the connector-health block
+    lists every registered `connectorId`, which can reveal an employer's
+    tooling. Testers on a work machine should skim that block before pasting.
 - [ ] **Exit:** ≥5 reach `nimbus why` on their own repo unaided; ≥3 still using it 14 days after their own first run.
 - [ ] If the exit criterion fails, fix the product. Do not proceed to Gate 3.
 
 ### Gate 3 runbook — public launch
 
 - [ ] Confirm launch copy cites the Task 2 audit numbers, not "80+", unless the audit supports it.
+
+  **Audit result (run 2026-07-29):** `tier1=4 implemented=85 unknown=5 total=94`.
+  So **89 of 94 connectors register MCP tools and make outbound calls** — the
+  "80+ services" claim is supported on the static evidence, provided it is
+  never phrased as live-API verification (only 4 have any test at all).
+
+  **Known tier-definition gap — decide before writing copy.** All 5 `unknown`
+  connectors (`dataprofile`, `great-expectations`, `localdb`, `obsidian`,
+  `storybook`) register tools but are pure local-filesystem readers, so
+  `makesOutboundCalls` is legitimately `false` for them. They are implemented;
+  the tier scheme just has no "local-only" bucket. Treat 89 as a floor, not a
+  ceiling — the honest full count of implemented connectors is 94 of 94.
 - [ ] Confirm the telemetry position from Task 3 is in the copy.
 - [ ] Re-read `docs/launch-messaging.md` honesty guardrails immediately before posting.
 - [ ] Fire channels in order, spaced out — MCP directories and `awesome-*` lists, then Lobsters and r/selfhosted, then r/devops and r/sre, then Show HN last.
