@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785356214741,
+  "lastUpdate": 1785356952355,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -6697,6 +6697,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 297.834194799991,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0a1838abe98d22d9143dbb003fcbbcaf05bf3355",
+          "message": "ci: cut PR fan-out from ~34 jobs to ~11 (#936)\n\n## Why\n\nPRs were taking hours, all queued. Measured before changing anything:\n\n| runner | queued | running | cap |\n|---|---|---|---|\n| ubuntu | 85 | 6 | — |\n| macOS | 3 | 5 | **5 (saturated)** |\n| windows | 0 | 7 | — |\n| **total** | **89** | **18** | **20 (saturated)** |\n\nTwo consecutive samples showed macOS at exactly 5/5 and the total at 18\nthen 19 — the account-wide cap was the binding constraint, not any\nmisconfiguration. One push fanned out to ~34 jobs across 9 workflows,\nagainst ~10 branches in flight.\n\nThe org has since moved to Team (20 → 60 concurrent; verified live — a\nlater sample showed **36** running, above the old ceiling). This PR\nremoves the fan-out that made the cap bind in the first place.\n\n## What\n\n| change | jobs |\n|---|---|\n| `coverage-gates-linux`: 15 one-gate jobs → 3 batched | **−12** |\n| `docs-quality`: 8 jobs → 2 | **−6** |\n| `cargo-audit`/`cargo-deny` skipped on non-Rust PRs | −2 |\n| cross-platform matrix narrowed to affected packages | −2 |\n| `js-licenses` folded into `Dependency audit` | −1 |\n\nEach of the 15 coverage legs ran 0.6–1.3 min but **queued 11–20 min**,\nand ~0.5 min of every leg was runner start + checkout + `bun install` —\nthe matrix spent more wall time on setup and queueing than on the\nthresholds it enforced. Five `Vault`/`Sandbox` prep steps in that job\nwere deleted as provably dead: its matrix has never contained either\ngate, so every `matrix.gate.name == '…'` condition was permanently\nfalse.\n\n## Ruleset safety\n\nTwo changes touch **required** contexts, so both were verified against\nthe live ruleset rather than the comments describing it:\n\n- The `ci.yml` comment asserting that rulesets require the expanded\n`Cross-platform (pkg, os)` names is **stale**. The General ruleset\nrequires only `PR quality — required gates`, the six Security contexts,\nthe two CodeQL contexts, and `cla`.\n- Every `name:` in `security.yml` is a literal with no `${{ }}`. The\ntrap that once blocked docs-only PRs fires only on names carrying an\nunexpanded expression, so a skipped job posts its exact required context\nand counts as passing.\n\nFail-open by construction: the Rust gate reads `!= 'false'` (not `==\n'true'`) and carries `!cancelled()`, so a failed detector, an\nunresolvable base SHA, a non-PR event, or a red gitleaks all **run** the\nscans rather than posting a passing `skipped`. The cross-platform matrix\ncan never be emitted empty — verified across all four GW/CLI\ncombinations — since an empty matrix fails a job rather than skipping\nit, which would red every docs-only PR.\n\n`audit:coverage-gate-pal` was **red-proved** against the new batch\nentries: flipping one `pal:` makes it name \"Runtime services\"\nexplicitly, so its green means it parsed them rather than skipped them.\n\n## Deliberately not taken\n\n- **`_perf.yml` `pull_request` trigger** — saves 1 job but removes the\nonly perf regression gate PRs have.\n- **Merging `integration` into `e2e-gateway`** — saves 1 job at the cost\nof sharing a process lifetime and temp-dir namespace between two suites\nthat currently cannot contaminate each other.\n\n## Trade-off\n\nThe coverage branch of the DAG gets **slower in isolation** (~1 min of\nparallel legs → ~3–5 min of serial ones). It wins because queueing, not\nexecution, is the dominant term — and it stops being the right call if\nthat ceases to be true.\n\n## Also\n\n- Pruned 8 dead `ci-latency-baseline.json` rows (7 deleted jobs + a\n`Bencher Report` entry naming no job). `check.ts` fails only on\nregressions, so these were inert, but they were drift.\n- **Separate finding, not fixed here:** `Validate PR title` is not in\nthe ruleset's required contexts, and `.github/BRANCH_PROTECTION.md` is\nstale against the live ruleset.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T23:16:42+03:00",
+          "tree_id": "3d79a87cb91e9e9cceba0b579e905a12038599e9",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/0a1838abe98d22d9143dbb003fcbbcaf05bf3355"
+        },
+        "date": 1785356950485,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 319.25392879999816,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 321.99078124999943,
             "unit": "ms"
           }
         ]
