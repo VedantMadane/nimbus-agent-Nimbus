@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785268304761,
+  "lastUpdate": 1785338465788,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -6323,6 +6323,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 307.9984760500003,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "04961ba9edf1d2ba0ccd2a9c4f122996df546783",
+          "message": "feat(ci): widen audit:org-settings-drift from 2 settings to 12 across 4 endpoints (#918)\n\n## Why\n\n`audit:org-settings-drift` exists because \"manual UI settings revert\nsilently\" — that is its own docstring. It watched **2** settings. `GET\n/orgs/nimbus-agent` returns ~20 security-relevant ones, and the org\nActions policy endpoints (which hold `sha_pinning_required`,\n`default_workflow_permissions` and the fork-PR approval policy) were\n**not consulted at all**.\n\nThe org is on the Free plan, so `GET /orgs/{org}/audit-log` is\nunavailable: a revert of any of the other eighteen is both undetected\n*and* unreconstructable after the fact. The gate wasn't wrong — it was\nscoped to the two settings whose reversion had bitten at the time it was\nwritten, which is the pattern this roadmap's opening table exists to\nbreak.\n\n## What\n\n`.github/org-access.json` grows from 2 declared settings to 12, across 4\nread endpoints.\n\n| Endpoint | Newly gated |\n| --- | --- |\n| `orgs/nimbus-agent` | `two_factor_requirement_enabled`,\n`members_can_fork_private_repositories`,\n`members_can_delete_repositories`, `members_can_change_repo_visibility`,\n`members_can_create_public_repositories`,\n`members_can_create_private_repositories` |\n| `orgs/nimbus-agent/actions/permissions` | `sha_pinning_required` |\n| `orgs/nimbus-agent/actions/permissions/workflow` |\n`default_workflow_permissions`, `can_approve_pull_request_reviews` |\n| `orgs/nimbus-agent/actions/permissions/fork-pr-contributor-approval` |\n`approval_policy` |\n\n`sha_pinning_required` is the highest-value entry: it is a single UI\ntoggle and the only real-time unpinned-`uses:` control covering the\npublic repos **outside** the 8-repo `sha-pins` matrix. Disarming it\ntoday is invisible to every gate in the program.\n\n`ORG_SETTING_SOURCES` is the one place the endpoint → declared-block\nmapping lives, and `diffOrgSettings` is reused **unchanged** — it\nalready looped over whatever keys the JSON declares. Adding a further\nsetting on an already-listed endpoint is therefore a one-line JSON\nchange with no code edit.\n\n## Failure classification (the part worth reviewing)\n\n`decideExit` mirrors the shape already in `check-ruleset-drift.ts`:\n\n- drift found on a readable endpoint is **never** discarded because a\n*different* endpoint's `gh` call failed;\n- a **404** on a declared endpoint is a finding — it was declared, so\nits disappearance is drift of exactly the kind this gate catches;\n- a **403 / 5xx / network** failure is `indeterminate`: it warns, and is\nnever silently recorded as compliance;\n- only \"nothing readable at all\" degrades to the pre-existing soft-local\n/ strict-CI skip, so an unauthenticated local run behaves\n**byte-identically** to before.\n\n`buildJqProjection` validates every declared key against\n`^[a-z][a-z0-9_]*$` before interpolating it into the jq program, and a\ntest asserts no endpoint carries a leading slash (Git Bash rewrites\n`/orgs/...` into a filesystem path — that failure would classify as\n`indeterminate`, i.e. a silently unwatched setting).\n\n## Token permissions — no workflow change needed\n\nThe sweep already mints its App token with\n`permission-organization-administration: read`, which is what all three\nActions endpoints require. `org-drift-sweep.yml` is untouched. **Watch\nthe first scheduled run**: if any Actions endpoint 403s, the gate warns\nand stays green rather than going red, and the fix is a token-permission\nchange, not a revert.\n\n## `approval_policy` is deliberately recorded at its *current* value\n\nLive is `first_time_contributors`. Declaring it means a **loosening** is\ncaught. The settings audit separately recommends tightening to\n`all_external_contributors` — that is an owner decision and a separate,\ndeliberate change to this file **and** the org setting in one reviewed\ndiff, not something this PR smuggles in.\n\n## Verification\n\n- `bun test scripts/structure-audit/` → **357 pass, 0 fail** (26 files)\n- `tsc -p scripts/tsconfig.json` → clean\n- `bunx biome check packages scripts .github docs` → 3005 files, clean\n- `bunx markdownlint-cli2` → 0 issues\n- `bun scripts/preflight.ts --fast` → `typecheck` ✓ (the `lint` leg is\nthe documented `.claude/worktrees/` biome false-fail — \"Checked 0\nfiles\"; validated via the direct invocation above)\n- **Live green:** `bun\nscripts/structure-audit/check-org-settings-drift.ts` →\n`audit:org-settings-drift: OK (4 sources)` against the real org\n- **Red-proved:** flipping the declared `sha_pinning_required` and\n`two_factor_requirement_enabled` in a copy of the file exits **1** and\nnames both the source and the field:\n\n  ```text\naudit:org-settings-drift: org: two_factor_requirement_enabled: expected\nfalse, got true\naudit:org-settings-drift: actions/permissions: sha_pinning_required:\nexpected false, got true\n  ```\n\nNo new npm script, so `scripts/lib/preflight-gates.ts` needs no manifest\nentry — `audit:org-settings-drift` is already listed there as\nsweep-only.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T18:06:16+03:00",
+          "tree_id": "4b0306ac946325926551e08396dbe1ad6af853c2",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/04961ba9edf1d2ba0ccd2a9c4f122996df546783"
+        },
+        "date": 1785338464920,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 310.4083240999997,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 309.8841382500024,
             "unit": "ms"
           }
         ]
