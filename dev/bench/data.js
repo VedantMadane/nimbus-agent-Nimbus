@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785359776658,
+  "lastUpdate": 1785360670442,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -6799,6 +6799,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 288.51768050000175,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9c1116f58b616af5db81f2100a1aa9d8ffae6020",
+          "message": "test(perf): make the rss-sampler window test deterministic (#940)\n\n## The failure\n\n`sampleRss > collects samples for the requested duration` failed on the\n**#939 release PR**:\n\n```\nexpect(result.samples.length).toBeGreaterThanOrEqual(4)\nExpected: >= 4\nReceived: 3\n```\n\n## Root cause\n\nThe sample count is a function of how many interval boundaries fit\ninside `durationMs`. Measured against a **real clock**, that made it an\nassertion about the scheduler's punctuality rather than about the\nsampler: a loaded runner overshoots each `setTimeout`, the overshoot\naccumulates against the deadline, and a run that should produce 5\nsamples produces 3.\n\nThe `>= 4 && <= 6` band was a tolerance for an effect that has **no\nupper bound under load** — so it was always going to fail eventually,\njust rarely.\n\n**Not caused by the CI fan-out change (#936):** that PR touched zero\nfiles under `packages/`, and GitHub-hosted jobs run on separate VMs, so\nbatching can't create CPU contention for `unit-coverage`. This test was\nlast modified months ago in #466.\n\n## The fix\n\n`sampleRss` takes optional `now` and `sleep`, defaulting to\n`performance.now` and the existing `setTimeout`-with-abort — **the\nproduction path is unchanged**. The test injects both and asserts the\nexact sample set, so the tolerance band collapses to a single number and\nthe test gets *stricter*, not more forgiving.\n\nA second test drives the real clock and asserts only what a real clock\ncan guarantee — the window closes, at least one sample lands, never a\ncount — so the default path stays covered.\n\nBoth halves are injected together, never one: this repo has already paid\nfor a virtual clock left racing a real timer (#591).\n\n## The spin guard, which earned its place\n\nSabotaging the loop bound to `<=` **did not fail the suite — it hung it\nfor ten minutes.** The sampler skips its sleep when the computed wait is\n`<= 0`, and a sleep-driven clock then never advances.\n\nA hang is strictly worse than the flake this fixes, so the virtual clock\nthrows after 10k reads without advancing. That sabotage now fails in\nseconds.\n\n## Red-proof\n\n| sabotage | result |\n|---|---|\n| loop bound `<=` | **fails** (previously hung) |\n| ignore the injected clock | **fails** |\n| replace deadline-capped wait with bare `intervalMs` | **passes** |\n\nThe third is honest rather than a gap: under an exact clock those two\nare behaviourally identical, and they diverge only under the drift a\ndeterministic test exists to remove.\n\nBoth `sampleRss` call sites (`bench-rss-idle`, `bench-rss-heavy-sync`)\npass no clock and are unaffected. Full perf suite: **260 pass, 0 fail**.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T21:19:46Z",
+          "tree_id": "2e7dfd5deb321600194fbdc288f506e23e0fccb8",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/9c1116f58b616af5db81f2100a1aa9d8ffae6020"
+        },
+        "date": 1785360669729,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 315.10933850000185,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 314.53646285000104,
             "unit": "ms"
           }
         ]
