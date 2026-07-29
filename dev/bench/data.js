@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785339273587,
+  "lastUpdate": 1785340100574,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -6391,6 +6391,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 314.9621900500009,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "daca5bc8ebd4edfdc32f5145dbdecb9c24c367b4",
+          "message": "chore: release main (#919)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>1.6.0</summary>\n\n##\n[1.6.0](https://github.com/nimbus-agent/Nimbus/compare/v1.5.1...v1.6.0)\n(2026-07-29)\n\n\n### Features\n\n* **audit:** detect when main is red\n([#917](https://github.com/nimbus-agent/Nimbus/issues/917))\n([0f0b140](https://github.com/nimbus-agent/Nimbus/commit/0f0b14029396f4bc6cc5f73ce6427f115d03d1e5))\n* **ci:** widen audit:org-settings-drift from 2 settings to 12 across 4\nendpoints ([#918](https://github.com/nimbus-agent/Nimbus/issues/918))\n([04961ba](https://github.com/nimbus-agent/Nimbus/commit/04961ba9edf1d2ba0ccd2a9c4f122996df546783))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-07-29T15:31:06Z",
+          "tree_id": "32a24d587af520de5be6d2894cc5aeafa3f0f8a3",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/daca5bc8ebd4edfdc32f5145dbdecb9c24c367b4"
+        },
+        "date": 1785340099201,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 319.8467996500029,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 322.81307100000487,
             "unit": "ms"
           }
         ]
