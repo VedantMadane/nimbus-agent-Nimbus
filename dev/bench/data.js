@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785362301594,
+  "lastUpdate": 1785363337590,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -6867,6 +6867,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 326.98042985000427,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "83b83f491479c3ca8f0f8f45e12d4d08c0b425f2",
+          "message": "feat(connectors): index Readwise books as `readwise:book` (#926)\n\nRefs #891 — adds the `readwise:book` item type alongside the existing\n`readwise:highlight`. (Leaving the issue open for you to close after\nreview.)\n\n## What ships\n\nA second, independent single-pass walk in `readwise-sync.ts` over `GET\n/api/v2/books/?page_size=1000&page=N` — the endpoint I verified against\nReadwise's current API docs (<https://readwise.io/api_deets>, \"Books\nLIST\"). It uses the same DRF `{ count, next, previous, results }`\nenvelope as the highlights walk, so `parseReadwisePage` is shared\nverbatim, and the same `MAX_PAGES=20` cap.\n\nNew pure mapper `mapReadwiseBookToItem` →\n`packages/gateway/src/connectors/readwise-book-mapping.ts`.\n\n## Three decisions worth your attention\n\n### 1. `external_id` is `book/<id>`, not the bare numeric id — this is a\ncorrectness fix, and it contradicts the issue text\n\nThe issue says \"`external_id` is the vendor's stable numeric id as a\nstring\". I checked that against source and it does not hold for a\n**second** type on the same service:\n\n- `itemPrimaryKey(service, externalId)` → `` `${service}:${externalId}`\n`` (`packages/gateway/src/index/item-key.ts`)\n- `upsertIndexedItem` writes `INSERT … ON CONFLICT(id) DO UPDATE SET …\ntype = excluded.type …`\n\nReadwise numbers books and highlights in **separate sequences** — the\nexisting highlight fixture in this repo literally uses `id: 123456,\nbook_id: 9001`. So with bare ids, book 9001 and highlight 9001 both map\nto `readwise:9001` and each sync silently overwrites whichever ran\nfirst, flipping the row's `type`, `title`, `url` and `metadata`.\n\nBooks get the `book/` prefix; **highlights keep their existing bare id**\n— re-prefixing them would orphan every already-indexed highlight row for\nevery current user. The asymmetry is documented in the module header,\nthe README, and the roadmap row.\n\nProven, not asserted:\n`packages/gateway/test/integration/connectors/readwise-sync-fake-server.test.ts`\ndrives a real sync with highlight 9001 and book 9001 and asserts\n**both** rows survive. I red-proved it by dropping the prefix — 3 tests\nfail, including that one.\n\n### 2. `metadata.book_id` is the raw **number**\n\n`readwise:highlight` stores its parent as `metadata.book_id` (a number,\nvia `numberField`). Storing the book's own id as a string would have\nbroken the exact join the issue calls out as the payoff. There is an\nintegration test that runs the join in SQL\n(`json_extract(b.metadata,'$.book_id') =\njson_extract(h.metadata,'$.book_id')`) and asserts one match.\n\n### 3. `readwise:book` stays OFF `PROSE_HEAVY_TYPES` — MiniLM 384-dim\n\nSame call as `readwise:highlight`, for the reason the\n`nimbus-embedding-routing` skill gives (\"default to omitting\"): a book\nrecord is a title, an author, a category and a short user\n`document_note` — not paragraph-shaped prose. Adding it would push every\nhybrid-mode user's **entire library** through OpenAI on the next embed\npass, which is exactly the surprise-spend the existing entries are\ncareful to avoid. No change to\n`packages/gateway/src/embedding/routing.ts`.\n\n## Other choices\n\n- **`ensureRunning` / `loadCreds` resolved once** in `sync()`, before\neither walk, so the unconfigured case still returns the exact\n`syncNoopResult` (no MCP spawn, no HTTP) it did when this connector\nindexed highlights only. The existing \"noop when token unset — no\nrequests\" test still asserts zero requests.\n- **Walks are independent.** A first-page failure in one leaves the\nother's upserts intact (`runSinglePassPaginatedSync` already degrades a\nfirst-page error to an empty pass-cursor result). Covered by a test\nwhere the highlights body is garbage and the books walk still upserts.\n- **`canonical_url`** = `source_url`, falling back to the Readwise\nbook-review page (`highlights_url`) — Kindle/ePub books have no public\nsource URL, and that page is the only stable, user-openable one.\n- **Restraint kept**: `cover_image_url`, `resurface_weighting` and\n`source_syncs_all_books_together` are deliberately not indexed\n(mirroring the Raindrop mapper's `cover` restraint). A test asserts they\nare absent.\n- **MCP tool surface** grew by three read-only tools —\n`readwise_books_list`, `readwise_book_get`, `readwise_books_search` —\nfollowing the `looker_models_list` precedent for a connector with two\nlist endpoints. `hitlRequired` stays `[]`. `readwise_book_get`'s\ndescription warns that the book id space is separate from the highlight\nid space.\n\n## Wiring already present (verified, not re-added)\n\nContrary to the issue's heads-up, all of these already carry `readwise`\nand needed **no** change: `connector-catalog.ts`,\n`connector-secrets-manifest.ts`, `sync/rate-limiter.ts`,\n`platform/assemble-sync-registrations.ts`,\n`lazy-mesh/first-party-manifests.ts`, `lazy-mesh/phase3-config.ts`. The\nextension manifest version is left at `0.1.0` — all 94 connector\nmanifests are at `0.1.0`, so bumping just this one would create drift.\n\n## Verification\n\n- `bun run typecheck` — clean (exit 0).\n- `bunx biome check packages scripts docs` — clean. (`bun run lint`\nreports \"0 files processed\" inside `.claude/worktrees/**` because biome\nhonours `.gitignore`; that is the known worktree false-fail, so\n`preflight:fast` aborts on it and the remaining gates were run\nindividually.)\n- Every other `preflight:fast` gate run individually and green:\n`lint:markdown`, `audit:doc-refs`, `audit:openapi-drift`,\n`audit:boundaries`, `audit:invariants`, `audit:any --check`,\n`audit:release-please`, `audit:js-licenses`, `audit:svg-assets`,\n`audit:readme-cli`, `audit:package-readmes`, `audit:cross-platform`,\n`audit:status-drift`, `audit:action-sha-pins`,\n`audit:coverage-gate-pal`, `audit:consumed-by`,\n`audit:secret-inventory`, `audit:exclusion-parity`, `jscpd` (3.85%\ntotal, threshold 4).\n- `bun test packages/gateway/src/connectors\npackages/gateway/test/unit/connectors\npackages/gateway/test/integration/connectors\npackages/mcp-connectors/readwise` — 4588 pass, 0 fail.\n- Istanbul coverage of the touched sources: `readwise-book-mapping.ts`\n**100% line / 100% branch**; `readwise-sync.ts` **100% line / 94.4%\nbranch** (the one uncovered arm is the `?? 0` fallback on the optional\n`SyncResult.bytesTransferred`, which `runSinglePassPaginatedSync` always\npopulates — it is a type-level guard, folded into a single `bytesOf`\nhelper by the follow-up commit so it is not counted twice). Two tests\nwere added for pre-existing uncovered defensive arms in\n`parseReadwisePage` while I was in there.\n\n## Acceptance checklist (from #891)\n\n- [x] `readwise:book` items appear after a sync\n- [x] A pure mapper unit test covers the happy path plus a row with a\nmissing/non-numeric id\n- [x] `bun run typecheck` passes; `preflight:fast` gates pass (see the\nworktree-biome caveat above)\n- [x] The `docs/roadmap.md` Readwise row is updated to reflect what now\nships\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n  * Readwise now indexes books and articles alongside highlights.\n  * Added book browsing, detail, and search tools.\n* Book and highlight records remain distinct, even when they share an\nID.\n  * Book metadata supports linking books with related highlights.\n\n* **Bug Fixes**\n  * Improved Readwise syncing and pagination resilience.\n* Added clearer canonical URLs, timestamps, tags, and searchable book\nfields.\n\n* **Documentation**\n* Updated the roadmap, changelog, connector guide, and feature\ndescription.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T22:04:30Z",
+          "tree_id": "9a3bec31e2746f266b1b33a2084415abaa9c7bc1",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/83b83f491479c3ca8f0f8f45e12d4d08c0b425f2"
+        },
+        "date": 1785363336307,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 309.3903751499976,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 312.9971819000028,
             "unit": "ms"
           }
         ]
