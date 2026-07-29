@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785357646065,
+  "lastUpdate": 1785359776658,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -6765,6 +6765,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 306.29573464999487,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "af9d246b5f06dceaeee4f43e8665c8b70932e956",
+          "message": "fix(ci): repair the coverage-gate count assertion broken by #936 (#941)\n\n## main is red\n\n```\n(fail) auditCoverageGatePal > the real workflow carries all 24 gates, 9 PAL and 15 Linux-only\nExpected length: 24\nReceived length: 12\n```\n\n#936 batched `coverage-gates-linux` from 15 one-gate jobs into 3. The\naudit's own test file hard-coded 24/9/15.\n\n**My miss, and a specific one.** Before merging #936 I ran the audit\n*script* (`bun run audit:coverage-gate-pal` → OK) and treated that green\nas proof the audit was satisfied. I never ran the audit's own *test\nfile*, where the hard-coded counts lived. A passing script is not a\npassing suite — and I even red-proved the script against a bad `pal:`\nvalue, which made the green feel more thorough than it was.\n\n## The fix is stronger than a number change\n\nCounts corrected to 12/9/3. But the useful half is what replaces\n`toHaveLength(15)`.\n\nThat number was really protecting coverage **breadth**, which the entry\ncount no longer expresses: batching changed how many jobs run, not how\nmuch is covered. A batch that silently dropped a script would keep the\nentry count at 3 and sail straight through.\n\nThe test now parses the `scripts:` lists and asserts all **15 distinct\n`test:coverage:*` scripts appear exactly once**.\n\n**Red-proved:** deleting `test:coverage:lan` from a batch reds the test.\nThe old assertion could not have caught that either — it counted matrix\nentries, never scripts — so this is strictly stronger than what #936\nbroke.\n\n## Blast radius\n\nI checked for other fallout rather than assuming this was the only\nbreakage: **404 structure-audit tests, this was the single failure.**\nThe `Sync scheduler` / `Rate limiter` references in `nimbus-testing.md`\nand `architecture.md` are coverage *thresholds* per subsystem, not job\nnames — unchanged and still accurate, since all 15 scripts still run at\nthe same thresholds.\n\nThis unblocks #926, #939 and #940, which are all based on the red main.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T21:06:35Z",
+          "tree_id": "7151f74c82604d52551ca572eef5340d3f4855e9",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/af9d246b5f06dceaeee4f43e8665c8b70932e956"
+        },
+        "date": 1785359775517,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 288.0910688000007,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 288.51768050000175,
             "unit": "ms"
           }
         ]
