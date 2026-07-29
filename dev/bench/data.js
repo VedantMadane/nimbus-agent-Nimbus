@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785352338045,
+  "lastUpdate": 1785354699635,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -6629,6 +6629,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 319.51456064999473,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "81d6f6edd9d510aab40fa5800e4468326fedee0c",
+          "message": "chore: release main (#930)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>1.7.0</summary>\n\n##\n[1.7.0](https://github.com/nimbus-agent/Nimbus/compare/v1.6.0...v1.7.0)\n(2026-07-29)\n\n\n### Features\n\n* **ci:** split secret-health's \"expiring\" from \"dead\" so a new failure\nis visible ([#922](https://github.com/nimbus-agent/Nimbus/issues/922))\n([2adae3c](https://github.com/nimbus-agent/Nimbus/commit/2adae3cc3d036ca97b1771ae9f880fbea5929881))\n* **connectors:** index Mercury transactions (`mercury:transaction`)\n([#924](https://github.com/nimbus-agent/Nimbus/issues/924))\n([d9a4708](https://github.com/nimbus-agent/Nimbus/commit/d9a4708318fc0ccd321f1e1dd96ad6fc074e863d))\n\n\n### Bug Fixes\n\n* **gateway:** bind IPC before the embedding model loads\n([#928](https://github.com/nimbus-agent/Nimbus/issues/928))\n([#934](https://github.com/nimbus-agent/Nimbus/issues/934))\n([79b18f0](https://github.com/nimbus-agent/Nimbus/commit/79b18f0e484d22a381324f660aa0631dce1385d5))\n* **security:** close the last two bun audit advisories —\n@hono/node-server fixed, @ai-sdk/provider-utils accepted with a re-check\ndate ([#923](https://github.com/nimbus-agent/Nimbus/issues/923))\n([ede61eb](https://github.com/nimbus-agent/Nimbus/commit/ede61eb4772b443abc1f7d24f843f04b8b90d7b5))\n* **vault:** probe the Linux Secret Service instead of secret-tool's\nPATH ([#935](https://github.com/nimbus-agent/Nimbus/issues/935))\n([ccba4aa](https://github.com/nimbus-agent/Nimbus/commit/ccba4aa2dde285c7145ca2b6a94f3a6677954199))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-07-29T19:40:05Z",
+          "tree_id": "c5d0afcba84e40a7864637a39881b5947087013d",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/81d6f6edd9d510aab40fa5800e4468326fedee0c"
+        },
+        "date": 1785354698555,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 309.1611530499973,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 308.5477130500054,
             "unit": "ms"
           }
         ]
