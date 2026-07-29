@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785360670442,
+  "lastUpdate": 1785362301594,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -6833,6 +6833,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 314.53646285000104,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5d54bd1438992298988fbf8d8de7979ad4189ddc",
+          "message": "chore: release main (#939)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>1.8.0</summary>\n\n##\n[1.8.0](https://github.com/nimbus-agent/Nimbus/compare/v1.7.0...v1.8.0)\n(2026-07-29)\n\n\n### Features\n\n* **connectors:** index Google Meet participant detail on conference\nrecords ([#927](https://github.com/nimbus-agent/Nimbus/issues/927))\n([69282ef](https://github.com/nimbus-agent/Nimbus/commit/69282ef9712ec966afd9b5e6f4bc11527aa77d35))\n\n\n### Bug Fixes\n\n* **ci:** repair the coverage-gate count assertion broken by\n[#936](https://github.com/nimbus-agent/Nimbus/issues/936)\n([#941](https://github.com/nimbus-agent/Nimbus/issues/941))\n([af9d246](https://github.com/nimbus-agent/Nimbus/commit/af9d246b5f06dceaeee4f43e8665c8b70932e956))\n* **cli:** handle the embedding warm-up error in `nimbus search`\n([#937](https://github.com/nimbus-agent/Nimbus/issues/937))\n([8640972](https://github.com/nimbus-agent/Nimbus/commit/8640972adbc81a88c7999597a6feaf381491fc39))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-07-30T00:46:39+03:00",
+          "tree_id": "0205dfe46c7c2f8f83cb6e074ca9a8c2172a8858",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/5d54bd1438992298988fbf8d8de7979ad4189ddc"
+        },
+        "date": 1785362300738,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 324.92739394999626,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 326.98042985000427,
             "unit": "ms"
           }
         ]
