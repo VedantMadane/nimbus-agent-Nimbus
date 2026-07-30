@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785407525812,
+  "lastUpdate": 1785408373351,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -7207,6 +7207,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 315.95772839999773,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "96bb3a2591f999c2e8ed790ad281cf6ad40dcc9a",
+          "message": "chore(deps): refresh @nimbus-dev/sdk resolution to 1.10.0 (#959)\n\nClears the `sdk:Nimbus` edge in `audit:release-staleness`.\n\n**Lockfile-only.** Every workspace manifest already declares `^1.8.1`,\nwhich 1.10.0 satisfies — the `1.x` case the P2 progress log describes,\nwhere a lockfile refresh is sufficient and no manifest edit is needed.\n\n**Targets 1.10.0, not the 1.9.0 the sweep reported.** 1.10.0 published\nat 09:00Z today and was still inside the gate's 6h grace window, so the\nedge read green while actually sitting two minors behind. Bumping to\n1.9.0 would have gone red again this afternoon.\n\n**On the leftover 1.8.1 in the lockfile:** it remains at path\n`@nimbus-dev/client/@nimbus-dev/sdk` — nested inside a third-party\npackage, which is that package's business, not ours. The gate's reader\nis workspace-scoped and correctly reads the hoisted 1.10.0. This is the\nsame situation the P2 log already records.\n\nI also reverted a side effect: `bun update` adds `@nimbus-dev/sdk` as a\n**root** dependency, but the sdk belongs to the workspace packages, not\nthe root. The committed diff is `bun.lock` only.\n\n## Verification\n\n- `bun run typecheck` — PASS\n- `bunx biome check packages scripts` — PASS\n- `bun test packages/mcp-connectors` — **948 pass, 0 fail** (the\nconnectors import the sdk directly, so this is the suite that would\ncatch a breaking change)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-30T13:34:55+03:00",
+          "tree_id": "5e83ccf26bc448fa291c8ab2b3e510cb1756f96d",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/96bb3a2591f999c2e8ed790ad281cf6ad40dcc9a"
+        },
+        "date": 1785408372420,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 316.2173920500012,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 310.39946009999767,
             "unit": "ms"
           }
         ]
