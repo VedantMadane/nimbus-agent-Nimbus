@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785363337590,
+  "lastUpdate": 1785384221493,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -6901,6 +6901,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 312.9971819000028,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f232802f61894d69c7b543fa17d4b7e0487ac729",
+          "message": "ci(audit): add audit:workflow-lint so an invalid workflow fails before the push (#942)\n\n## Why\n\nAn invalid GitHub Actions workflow is uniquely expensive to diagnose:\nGitHub records a run with **zero jobs** and a `failure` conclusion, so\nthere is no job, no log and no annotation to read. It reads like a\nproduct failure. This bit `install-smoke.yml` during the launch work\n(#920) and cost a full CI round trip.\n\nThe specific shape is a heredoc body starting at column 0 inside a `run:\n|` block. Column 0 **terminates the enclosing YAML block scalar**, which\ninvalidates the file. `js-yaml` parses it without complaint, so \"it\nparses\" is not sufficient validation — hence the explicit textual\ncolumn-0 check, which is the real point of this gate.\n\n## What\n\n- `scripts/audit/workflow-lint.ts` — column-0 escape check (textual,\ndeliberately not AST-based, since the parser is exactly what fails to\nnotice) plus a `bash -n` pass over every bash `run:` body.\n- `scripts/audit/workflow-lint.test.ts` — 16 tests.\n- Wired into the preflight **fast** tier and the **Static** CI job.\n\nLocal and deterministic — checked-in files only, no network, no token.\n\n## Verification\n\nBoth halves red-proved against a **real** workflow tree, not just\nfixtures:\n\n| Check | Result |\n| --- | --- |\n| Clean tree | `OK (23 workflow(s), 161 bash body(ies) parsed)` |\n| Column-0 heredoc spliced into a copy of `install-smoke.yml` | exit 1,\ncorrect line numbers |\n| Unterminated `if` in a bash body | reported against its job + step\nname |\n\nAll fast-tier preflight gates pass locally. (`bun run lint` false-fails\ninside `.claude/worktrees` with \"0 files\" — verified separately via\n`bunx biome check packages scripts`: clean.)\n\n## Known gap\n\nStated rather than implied: `bash -n` is a *parser*, so an unbound\nvariable under `set -u` still parses and would need shellcheck-grade\nanalysis to catch. The runner reports plainly when bash is unavailable,\nso a green line never overstates what was actually checked.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-30T06:52:19+03:00",
+          "tree_id": "e34c67e1f69f1f42e4180deb26b895944fabb1d1",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/f232802f61894d69c7b543fa17d4b7e0487ac729"
+        },
+        "date": 1785384220718,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 321.307620000001,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 320.8271554499981,
             "unit": "ms"
           }
         ]
