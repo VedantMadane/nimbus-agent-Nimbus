@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785386235760,
+  "lastUpdate": 1785387485651,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -7003,6 +7003,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 305.3155214499981,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "461cc55c35807d4e5e7658ae16135143337c3d76",
+          "message": "ci(install-smoke): run the shipped embedding config; refresh the Gate 1 runbook (#949)\n\nNow that #925, #928 and #932 are all closed, two related cleanups.\n\n## 1. Stop skipping the embedding runtime\n\n`NIMBUS_SKIP_EMBEDDING_RUNTIME=1` existed because the gateway wouldn't\nbind its socket until the embedding runtime finished, so a cold machine\nwaited on a third-party CDN. **#928 removed that coupling** —\nbind-first: the runtime constructs in the background, a failed fetch\nsettles to `unavailable`, and the gateway keeps serving.\n\nSo the skip no longer buys anything. It just hid the exact configuration\nevery real user runs.\n\n**This is less of a leap than it looks.** The flag was only ever set on\nthe *Unix* step — the **Windows leg has been running with embeddings\nenabled all along and passing**. This brings Unix in line with what\nWindows already demonstrates.\n\n**Green stays decoupled from the CDN.** Nothing asserted needs a vector,\nand I verified rather than assumed: `index.demoSymbol` is a synchronous\nDB read, and the `why` agent has zero embedding references.\n\n## 2. Make the change verifiable\n\nThe gateway logs `[gateway] embeddings: <state>` at bind time (#928).\nBoth legs now assert on it:\n\n| State | Result | Why |\n| --- | --- | --- |\n| `ready` | pass | model loaded |\n| `warming` | **pass** | fetch still running — bind-first says this must\nnot block |\n| `unavailable` | **pass** | fetch failed — same reason |\n| `disabled` | **fail** | the skip is back |\n| no line at all | **fail** | gateway never reported readiness |\n\nRequiring `ready` would re-couple green CI to the CDN, which is what\nmade this job painful in the first place. The assertion's real job is to\nfail if someone quietly restores the skip and turns this job back into a\ntest of a configuration nobody ships.\n\nBoth variants were rehearsed locally against all five states in their\nreal shells — bash for Unix, pwsh for Windows — and only the last two\nfail.\n\n## 3. Refresh the Gate 1 runbook\n\nIt had gone stale enough to actively mislead: still said Linux was\n\"**Blocked by #925**\" and warned about a #928 caveat, both closed — and\nit predated #932 entirely. Someone picking it up would have skipped\nLinux and chased a resolved caveat.\n\nNow records all three as resolved with what fixed them, while **keeping\nthe checks**: a closed issue is evidence the fix landed, not evidence a\nforeign machine works. Also flags Windows as the least-covered platform\n(no first-run defect was ever found there, which is weaker evidence than\nit looks — the macOS and Linux failures were only found because CI ran\nthem), and states the remaining macOS gap precisely.\n\n**The macOS gap is narrowed, not closed.** The job now proves the\nshipped configuration *boots*; it does not prove the MiniLM download\n*completes*. A human cold macOS first-run is still required for that,\nand the runbook says so.\n\nAlso corrects the `nimbus doctor` note — it no longer PATH-checks\n`secret-tool`; `doctor-core.ts` probes the session bus and collection\nstate.\n\n## Verification\n\n`audit:workflow-lint`, `audit:workflow-run-triggers`,\n`audit:action-sha-pins`, `lint:markdown`, `audit:doc-refs`,\n`audit:status-drift`, biome, and lychee at CI's exact scope (0 errors).\n\nThe real proof is this PR's own install-smoke run: it touches\n`.github/workflows/install-smoke.yml`, so the full 3-OS matrix executes\nwith embeddings enabled.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-30T04:46:26Z",
+          "tree_id": "7f514a702487bf5540b80b92b232b5a27ac5f60e",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/461cc55c35807d4e5e7658ae16135143337c3d76"
+        },
+        "date": 1785387484606,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 320.9073311499993,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 319.6127406000036,
             "unit": "ms"
           }
         ]
