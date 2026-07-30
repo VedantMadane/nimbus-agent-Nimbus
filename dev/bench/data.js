@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785410115841,
+  "lastUpdate": 1785410613791,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -7309,6 +7309,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 309.8373953499984,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7247d657e050738c39aa21e1de01e713c1cef8d8",
+          "message": "docs(claude): record that squash discards commit messages (#965)\n\n## Summary\n\nDocuments that squash merging discards commit messages in this repo —\nthe PR title and description *are* the commit.\n\nThis is the root cause of the failed first attempt at cutting 1.12.0.\n#960 carried the version trailer in its commit message, which is the one\nplace guaranteed never to reach `main`, so release-please saw nothing\nand cut no release PR. #962 fixed the symptom by putting the trailer in\nthe PR description; this fixes the reason nobody knew to do that.\n\nTwo practical consequences, both now written down:\n\n- **The PR title is load-bearing.** It becomes the squash subject, which\nis what release-please parses for the version bump. A wrong type there\ncuts a wrong release — or none.\n- **The PR description is the permanent commit body.** Reasoning belongs\nthere, not in a local commit message. So does any git trailer that has\nto survive.\n\nAnd the same fact in reverse, which is a live hazard now that trailers\nare a documented tool: a bare trailer line left in *any* PR description\nforces a release nobody asked for. The bullet says so explicitly — this\ndescription deliberately keeps every mention of it quoted and inline for\nexactly that reason.\n\n## Related Issue\n\nRelates to #957 — the last of the follow-ups from that incident.\n\n## Verification\n\nNot asserted from the settings alone. Confirmed both ways:\n\n- `gh api repos/nimbus-agent/Nimbus` → `allow_squash_merge: true`,\n`allow_merge_commit: false`, `allow_rebase_merge: false`,\n`squash_merge_commit_title: PR_TITLE`, `squash_merge_commit_message:\nPR_BODY`.\n- `git log -1 --format='%b' 1d75dcea` → the body of #958's squash commit\nis that PR's *description*, markdown headings and all, not the message\nthat was authored on the branch.\n\n## Type of Change\n\n- [x] Documentation only\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` passes with zero errors\n- [x] `bun run lint` passes (Biome — format + lint)\n- [x] All existing tests pass (`bun test`) — no code touched; one\n`CLAUDE.md` bullet added\n- [x] New behaviour is covered by tests — n/a, no behaviour change\n- [x] No `any` types introduced — `unknown` is used for external data\n- [x] No credentials, tokens, or secret values appear in logs, IPC\nmessages, config, or test fixtures\n- [x] Platform-specific code is behind the `PlatformServices`\nabstraction\n- [x] The HITL consent gate has not been weakened, bypassed, or made\nconfigurable\n- [x] If this PR touches `docs/README.md`, a screenshot is attached —\nn/a\n\n`bun run preflight:fast` passes in full, including `lint:markdown`.\n\n## Coverage (if engine/ or vault/ was changed)\n\nn/a — neither was modified.\n\n## Testing\n\n`bun run preflight:fast` — PASSED (typecheck, lint, markdown lint, 20\naudits, duplication). No suite run: documentation only.\n\n## Notes for Reviewers\n\nI considered recommending a change to the merge configuration instead\nand decided against it. The current setup is coherent: the PR title\nreliably drives versioning (proven across 1.6.0–1.11.0), and `PR_BODY`\nas the commit body means this repo's PR reasoning becomes the permanent\ngit record — switching to `COMMIT_MESSAGES` would discard that and\nproduce noisy concatenations on multi-commit PRs. Re-enabling merge\ncommits for the one forced-version edge case would weaken a deliberate\nlinear-history invariant. The gap was documentation, not configuration.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+          "timestamp": "2026-07-30T14:09:33+03:00",
+          "tree_id": "353e6f4089f4917e100fb8162cbff39c9a679da4",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/7247d657e050738c39aa21e1de01e713c1cef8d8"
+        },
+        "date": 1785410612324,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 238.20242535000105,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 240.40558505001246,
             "unit": "ms"
           }
         ]
