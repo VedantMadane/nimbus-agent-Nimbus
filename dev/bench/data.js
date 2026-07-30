@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785408373351,
+  "lastUpdate": 1785409214492,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -7241,6 +7241,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 310.39946009999767,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ad447c3bfd3afdedd8a891d675d5344d6636d29b",
+          "message": "docs(changelog): record v1.11.0 as never published, superseded by 1.12.0 (#960)\n\n## Summary\n\nAbandons `v1.11.0` in place and ships its content as **1.12.0**.\n\n`v1.11.0` was tagged but **never published**: its release build failed\nthe *Unit + Coverage* gate on a flaky test, which skipped every build\nand publish job. There is no GitHub Release, installer, or updater\nmanifest for it — the git tag is the only trace. Users are still on\n1.10.0, and the one feature tagged as 1.11.0 (#954, ruleset bypass-actor\ngating) has never shipped.\n\nMoving the tag onto the fix is **not possible, by design**: the\n*Protected release tags* ruleset enforces `deletion`,\n`non_fast_forward`, and `update` on `refs/tags/v*` with **no bypass\nactors**. A retag was attempted and correctly refused (`GH013: Cannot\ndelete this tag`). That ruleset is doing exactly its job, so the tag\nstays and the version is abandoned instead.\n\nThis PR does two things:\n\n1. **Marks 1.11.0 as never published** in `CHANGELOG.md`, so the entry\nstops implying a release anyone can install and points at its successor.\nWithout this, `CHANGELOG.md` lists a feature under a version that does\nnot exist as an artifact.\n2. **Forces the next version** via a `Release-As: 1.12.0` footer.\nrelease-please would otherwise cut nothing at all — every commit since\nthe `v1.11.0` tag is `docs:` or `test:`, so no bump is triggered and the\nstranded feature would sit unpublished until some unrelated feature\nhappened to land.\n\n### Why 1.12.0 and not 1.11.1\n\nThe delta against the last **published** release (1.10.0) is one `feat`.\nA patch number would describe a feature release as a patch, relative to\na version nobody can install. 1.12.0 is the semver-honest successor and\nleaves 1.11.0 as a visible, documented gap.\n\n### ⚠️ Merging this PR — the footer must survive the squash\n\nrelease-please reads `Release-As:` from commit messages in the release\nrange. **If the squash commit message drops the `Release-As: 1.12.0`\nline, no release PR will be created** and this PR accomplishes only the\nchangelog note. GitHub's squash default includes the commit body, so the\nfooter normally survives — but please confirm it is present in the\nsquash message before confirming the merge.\n\nFailure mode is benign and recoverable: no release PR appears. Fixes, in\norder of preference — land another commit carrying the footer, or set\n`\"release-as\": \"1.12.0\"` on the `.` package in\n`.release-please-config.json` (remembering to remove it after the\nrelease, or every subsequent release pins to 1.12.0).\n\n### What happens after merge\n\n1. release-please opens a `chore: release main` PR for **1.12.0**.\n2. Merging that tags `v1.12.0`, which triggers `release.yml`.\n3. That build runs the **deterministic** gate — #958 fixed the flaky\ntest — so the failure that killed 1.11.0 should not recur.\n4. `v1.12.0` publishes with its assets, and #957 can be closed.\n\n## Related Issue\n\nRelates to #957\n\nNot `Closes` — merging this does not itself publish anything. #957\nshould close when `v1.12.0` publishes with assets.\n\n## Type of Change\n\n- [x] Documentation only\n- [x] CI / tooling — carries the `Release-As:` footer that drives the\nversion bump\n- [ ] Bug fix (non-breaking change that fixes an issue)\n- [ ] New feature (non-breaking change that adds functionality)\n- [ ] Breaking change (fix or feature that changes existing behaviour)\n- [ ] Refactor (no behaviour change)\n- [ ] Test improvement\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` passes with zero errors\n- [x] `bun run lint` passes (Biome — format + lint)\n- [x] All existing tests pass (`bun test`) — no code touched; one\n`CHANGELOG.md` line block changed\n- [x] New behaviour is covered by tests — n/a, no behaviour change\n- [x] No `any` types introduced — `unknown` is used for external data\n- [x] No credentials, tokens, or secret values appear in logs, IPC\nmessages, config, or test fixtures\n- [x] Platform-specific code is behind the `PlatformServices`\nabstraction (no OS checks in business logic)\n- [x] The HITL consent gate has not been weakened, bypassed, or made\nconfigurable\n- [x] If this PR touches `docs/README.md`, a screenshot is attached —\nn/a, not touched\n\n`bun run preflight:fast` passes in full, including\n`audit:release-please`.\n\n## Coverage (if engine/ or vault/ was changed)\n\nn/a — neither was modified.\n\n## Testing\n\n- `bun run audit:release-please` — OK (manifest/config consistency\nunaffected).\n- `bun run preflight:fast` — PASSED (typecheck, lint, 20 audits,\nduplication).\n- No test suite run: this changes one prose block in `CHANGELOG.md` and\na commit footer.\n\n## Notes for Reviewers\n\n**The v1.11.0 tag is deliberately left pointing at `31177cd`.** It is\nimmutable and unpublished. Anyone can still `git checkout v1.11.0`;\nnobody can install it.\n\n**Nothing in the repo documents that release tags are immutable**, which\nis why moving the tag looked like a viable recovery at first. A line\nunder *Development Workflow* in `CLAUDE.md` would make the constraint\ndiscoverable before someone attempts a retag during an incident — happy\nto add it in a follow-up if wanted.\n\n**Separately, an unrelated pre-existing failure**, noted while verifying\n#958 and worth its own issue:\n`packages/gateway/test/integration/updater/wiring.test.ts:78` fails on\nWindows. The test passes `_platformOverride: \"linux-x86_64\"` precisely\nto be platform-independent, yet `createUpdaterFromConfig` still returns\n`undefined` there, which reads like a platform-equality gap rather than\na test bug. It passes on Ubuntu, so CI is green on it.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-30T10:49:04Z",
+          "tree_id": "ea4f61658f2576b9c688a118ce519093f9cf43db",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/ad447c3bfd3afdedd8a891d675d5344d6636d29b"
+        },
+        "date": 1785409213686,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 308.1170535499943,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 307.2441254000056,
             "unit": "ms"
           }
         ]
