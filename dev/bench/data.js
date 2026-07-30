@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785404410141,
+  "lastUpdate": 1785405721032,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -7139,6 +7139,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 335.45354944999997,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1df10add6e26cba0c97c792eda37d59a4b65e854",
+          "message": "docs(infra): close P3 and P6 on sweep proof; record open P2 edges + a deferred gap (#956)\n\nDocs-only. Closes **P3** and **P6** in `docs/infrastructure-roadmap.md`\non their actual bar — a gate green in the scheduled sweep — and records\nwhat each run surfaced.\n\n## Why two sub-programs in one PR\n\nBoth are the same kind of change to the same file: a status row moving\nto done *because a sweep job came back green*, plus the progress-log\nentry that makes the claim checkable. Splitting them would mean two PRs\nracing on adjacent lines of one document.\n\n## P3 — closed on run 30518344699\n\nThe row read \"gate green locally, awaiting first sweep run\".\n`audit:review-coverage` shipped in #948 and was verified locally, but\nthis file's own operating principle is that **a sub-program is done when\nits gate is green in CI, not when its code merges**. A dispatched\n`org-drift-sweep` ran it on `main` and it passed.\n\n## P6 — closed on run 30530210861\n\n`bypass-attestation` is green in the sweep. Stated plainly because it is\neasy to get wrong: **merging #954 was not the bar.** The gate had to run\nin the scheduled harness.\n\n## Both sweeps were red overall, on the same unrelated cause\n\nRecorded explicitly in each entry, following the precedent the P4b log\nset (\"Do not read that red as P4b\"):\n\n| run | job that failed | related? |\n| --- | --- | --- |\n| 30518344699 | `release-staleness` | no — P2 dependency edges |\n| 30530210861 | `release-staleness` | no — same edges |\n\nA reader finding a red sweep next to a \"✅ done\" row deserves to know\nwhich is which.\n\n## Open P2 remediation, newly recorded\n\nRun 30518344699 surfaced four **new** dependency edges. The\n`client:Nimbus` edge that reddened the 2026-07-28 sweep was fixed at\nsource in #848; these are new drift on top of it, and are exactly what\nthe 2026-07-27 entry predicted would happen \"once grace expires unless\nthey are bumped\":\n\n```text\nsdk:nimbus-client     1.7.0  < npm 1.9.0\nsdk:nimbus-vscode     1.7.0  < npm 1.9.0\nsdk:Nimbus            1.8.1  < npm 1.9.0\nclient:nimbus-vscode  0.12.1 < npm 0.14.0\n```\n\nThis is the gate working, not a gate defect. Note `client:nimbus-vscode`\nis a **`0.x`** edge and so needs a manifest edit rather than a lockfile\nrefresh — a caret on a `0.x` pins the minor, so `^0.12.1` can never\nreach `0.14.0`. That asymmetry is exactly why the gate reads the\nlockfile rather than the declared range. Remediation is separate work\nacross three repos.\n\n## One finding deliberately not fixed, now written down\n\nThe final review of #954 raised it and I chose not to fold it into that\nPR, because it is new scope rather than a defect in the shipped code:\n\n**Nothing verifies that the credential a run is using can actually *see*\n`bypass_actors`.** An empty array is indistinguishable from \"this repo\nhas none\" — which is precisely the App token's proven behaviour, the\nfact the whole two-gate design exists to route around.\n\nIt is harmless today: three of five repos declare a non-empty actor\nlist, so a wrong-token run reds immediately with three `missing declared\nbypass actor` findings. It becomes dangerous the moment `bypass.by_repo`\ngoes all-empty — the direction the program is heading — because a run\nunder the wrong token would then read `[]` everywhere, exit 0, and write\na false-clean attestation the sweep honours for the full 90-day grace\nwindow. A positive capability probe closes it.\n\nRecorded rather than fixed, so it reads as *decided* rather than\n*forgotten*.\n\n## Verification\n\n`lint:markdown`, `audit:doc-refs`, `audit:status-drift`,\n`audit:readme-cli`, lychee — all clean. Rebased onto `2a3187bd`; clean\nfast-forward, zero conflicts.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-30T12:50:47+03:00",
+          "tree_id": "8eab8bcee5c9491ffa7d6f1938553040deea89f3",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/1df10add6e26cba0c97c792eda37d59a4b65e854"
+        },
+        "date": 1785405720131,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 319.72823399999726,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 326.19556854999684,
             "unit": "ms"
           }
         ]
