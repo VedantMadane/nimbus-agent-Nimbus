@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785384772028,
+  "lastUpdate": 1785386235760,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -6969,6 +6969,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 275.51404849999017,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5ad05a8c69e98624897f3996b6989fc145e69bba",
+          "message": "feat(ci): audit:review-coverage — close P3's org-wide half (#948)\n\nCompletes **P3 (Review Layer)**. The sub-program's stated gate was\nalready met, so this delivers what was actually missing rather than\ndeclaring it done.\n\n## The gap\n\n`.coderabbit.yaml` shipped for the monorepo in #846, and\n`check-coderabbit-config.test.ts` validates it deeply — globs resolve to\nreal directories, every cited `I<n>` exists in `SECURITY-INVARIANTS.md`,\nnothing tells the reviewer to enforce the reserved I28.\n\n**Nothing validated the four satellites' configs.** That is this\nsub-program's own founding pattern — a control that stops where it was\nwritten — sitting inside P3 itself.\n\n## What the gate asserts\n\n`audit:review-coverage` reads `.coderabbit.yaml` from all five code\nrepos and requires it be present, parseable **and active**:\n\n- `auto_review.enabled === true` — written as `!== true`, so a *missing*\nkey fails closed rather than defaulting to enabled\n- `auto_review.base_branches` includes `main`\n- `reviews.path_instructions` is non-empty\n\n**Active, not merely present**, is the direct lesson from the CLA outage\nand from `audit:actions-allowlist`'s `startup_failure` half: a control\ncan be committed, valid-looking and completely inert. A config with\n`auto_review` off reviews nothing while reading as covered — presence\nalone passes it.\n\n`unparseable` is a **distinct verdict from absent**, because CodeRabbit\nsilently ignores a config it cannot parse and the repair differs. A YAML\ndocument parsing to a scalar or list is also `unparseable`: legal YAML,\nunusable config.\n\n## Two deliberate non-goals\n\n- **Instruction CONTENT is not gated.** The five repos are different\nproducts under different licences — the SDK must stay dependency-free,\nthe gateway carries I1–I30 — so a shared-content assertion could only be\nsatisfied by making every instruction vaguer. A gate that degrades what\nit guards isn't worth having; content stays the owning repo's local\ntest's job.\n- **`awesome-nimbus` is an explicit `EXEMPT_REPOS` entry with a stated\nreason** (curated link list, no source tree), covered by a test, so the\nnext reader can tell \"decided\" from \"forgotten\".\n\n## Verification\n\n- **Live green:** `audit:review-coverage: OK (5 repos, 1 exempt)`\n- **Red-proved:** added the exempt `awesome-nimbus` to the gated set,\n**verified the mutation had actually landed in the file** before\ntrusting the result, and confirmed exit 1 with `awesome-nimbus: no\n.coderabbit.yaml`. Reverted, re-confirmed green.\n- Scope honesty: the live red-prove exercised the **absent** path. The\ninert and unparseable paths are proved by unit test — red-proving those\nlive would mean degrading a real repo's config.\n- `bun test scripts/` — **943 pass, 0 fail** (includes the\npreflight-gate manifest drift test, which accepts the new\n`CI_ONLY_GATES` entry)\n- 23 unit tests covering the pure diff, the parse verdicts and the read\nclassification\n- `bun run typecheck` — **exit 0**, 0 errors across the full log\n- `bunx biome check packages scripts .github docs` — 3009 files, no\nfixes\n- `markdownlint-cli2` — 0 issues; `lychee` — 1071 links, **0 errors**\n(whole branch)\n\nRegistered in `package.json`, `CI_ONLY_GATES` (network + `gh`,\nsweep-only), and a new `review-coverage` job on `org-drift-sweep.yml`.\nPer the known constraint, the net-new sweep job's first real run is\npost-merge.\n\n> Touches `docs/infrastructure-roadmap.md`, as does #944 — different\nregions, but whichever merges second may need a trivial rebase.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-30T07:25:48+03:00",
+          "tree_id": "0f2a875dc8b460bb0927d07e9f65b176e8e7247c",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/5ad05a8c69e98624897f3996b6989fc145e69bba"
+        },
+        "date": 1785386234596,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 307.4283524499995,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 305.3155214499981,
             "unit": "ms"
           }
         ]
