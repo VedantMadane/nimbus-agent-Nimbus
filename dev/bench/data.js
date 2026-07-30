@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785411418946,
+  "lastUpdate": 1785419589096,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -7377,6 +7377,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 269.81675159999907,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "da390f7b3b8da6b06fdd1163342390093015e881",
+          "message": "ci: retry bun audit transport failures and fail closed on a blind bypass-actor read (#971)\n\nCloses #966, closes #961, closes #854.\n\nThree independent CI/audit hardening items, each one that lets a green\nresult mean less than it appears to.\n\n## #966 — a registry 503 could block merges and releases\n\n`bun audit` exits non-zero for two unrelated reasons: a HIGH/CRITICAL\nadvisory (which must block) and an unreachable audit service (which says\nnothing about our dependencies). The step conflated them, so a 503\nblocked the 1.12.0 release with no vulnerability involved.\n\nRather than blanket-retrying, the two cases are **separated**:\n\n- a **transport failure** — matched on Bun's `audit request failed\n(status NNN)` — is retried up to 3 times with 10s/20s backoff;\n- **anything else fails immediately on attempt 1**, with no retry and no\ndelay, because a real advisory fails identically on every attempt and\nre-running it only delays the feedback.\n\nIf all three attempts hit transport failures the step still **fails**.\nThat is deliberate — `continue-on-error` here would also swallow genuine\nHIGH/CRITICAL findings, which the issue explicitly warned against.\n\nVerified against a stubbed `bun` covering all four paths, since this\nsits on the release path and a mistake here is invisible until it\nmatters:\n\n```\nPASS  clean            : exit=0 attempts=1   (no retries on success)\nPASS  transport_then_ok: exit=0 attempts=3   (absorbs two 503s, then passes)\nPASS  transport_always : exit=1 attempts=3   (fails closed, does not go green)\nPASS  real_finding     : exit=1 attempts=1   (fails FAST — no retry, no delay)\n```\n\nThe retry-loop shape follows the existing convention in `_perf.yml` /\n`_test-suite.yml` / `ci.yml`.\n\n## #961 — `audit:bypass-actors` could not tell \"clean\" from \"blind\"\n\nThe gate reads an absent-or-empty `bypass_actors` as `[]`, and `[]`\ndiffs cleanly against a declared `[]`. So \"this repo has no bypass\nactors\" and \"my token cannot see them\" were the same observation — and\nthe second is the *proven* behaviour of the App installation token,\nwhich is the entire reason this gate is separate from\n`audit:ruleset-drift`.\n\nAs the issue notes, the current config is only **accidentally**\nload-bearing: three repos declare a non-empty list, so a blind\ncredential reds with three `missing declared bypass actor` findings. The\nmoment `bypass.by_repo` goes all-`[]` — the program's stated direction —\na blind read yields a green diff, a complete read, `decideAttestWrite`\npermits the write, and a false-clean attestation is honoured for the\nfull **90-day** grace window.\n\nImplemented exactly as the issue specified, as pure functions plus one\nthin impure probe:\n\n1. **Positive control** (`assessBypassReadCapability`) — if at least one\nrepo whose declared intent is non-empty actually reads back non-empty,\nthe credential can see the field: `verified`. If *every*\ndeclared-non-empty repo reads empty, that is far more likely a blind\ncredential than a simultaneous org-wide removal: `blind`, fail closed.\nOne surviving witness is enough, so a genuine single removal is not\nmisreported.\n2. **Fallback** (`no-positive-control`) — with nothing declared\nnon-empty there is no control in the data, so the credential must vouch\nfor itself: `parseOAuthScopes` reads `X-OAuth-Scopes` from `gh api -i\nuser` and requires `admin:org`. Same technique that root-caused the App\n`403` in the P2 progress log.\n\nTwo details that matter for fail-closed-ness:\n\n- A missing `X-OAuth-Scopes` header (App installation token,\nfine-grained PAT) is reported as **unknown**, not as \"no scopes\" and\ncertainly not as \"fine\" — it fails closed.\n- An **unreachable** repo is absence of evidence, not evidence of\nblindness: only repos actually queried this run are considered, so a\nread failure elsewhere cannot manufacture a `blind` verdict.\n\nThe findings feed `result.ok`, which `decideAttestWrite` already\nconsumes — so a blind read now cannot write an attestation at all, which\nis the specific failure scenario in the issue.\n\nThe network probe only runs in the `no-positive-control` branch, and the\nwhole check is skipped when `queried === 0` so an unauthenticated\ncontributor's soft skip does not become a hard red.\n\nVerified live, not just in unit tests: `bun run audit:bypass-actors`\nagainst the real org still exits 0 (`OK (5 repos)`) — the positive\ncontrol is satisfied by today's config, so **no behaviour change now**.\nThe `no-positive-control` fallback was exercised end-to-end by\ntemporarily blanking `by_repo`, confirming the real `gh api -i user`\nprobe reads this machine's `admin:org` scope and adds no spurious\nfinding. Deliberately **not** in scope, per the issue: the credential\nmodel is unchanged.\n\n## #854 — `org/CLA_BOT_APP_ID` was an unreferenced leftover\n\nThe secret-health report flagged it as `undocumented — add it or delete\nit`. Investigated rather than just documented:\n\n- Created **2026-07-24T09:30Z**, then superseded hours later by\n`CLA_BOT_CLIENT_ID` (**12:39Z**) when the mint step used `client-id`\ninstead of the deprecated `app-id` input.\n- `cla.yml` reads only `CLA_BOT_CLIENT_ID` + `CLA_BOT_PRIVATE_KEY`.\nNothing in the repo references `CLA_BOT_APP_ID`.\n\nExactly the shape of `RELEASE_BOT_APP_ID`, retired the same way on\n2026-07-22. So it is registered `state: \"forbidden\"` (present now means\nsomeone reintroduced the deprecated input) and the org secret has been\n**deleted** — confirmed, only `CLA_BOT_CLIENT_ID` and\n`CLA_BOT_PRIVATE_KEY` remain. `audit:secret-inventory` and\n`audit:consumed-by` both pass, and the registry count assertions were\nupdated (38 to 39 entries, ORG 6 to 7).\n\n## Verification\n\n- `typecheck` PASS (all workspaces)\n- `biome check --error-on-warnings packages scripts .github` PASS, 3040\nfiles\n- 13 static gates PASS individually, including `audit:workflow-lint`\n(actionlint over the changed `security.yml`), `audit:any --check`,\n`audit:invariants`, `audit:consumed-by`, `audit:secret-inventory`\n- `bun test scripts` PASS — 1104 pass / 0 fail (92 files), including 18\nnew tests for the capability probe\n- `bun run audit:bypass-actors` PASS live against the org — exit 0, `OK\n(5 repos)`\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+          "timestamp": "2026-07-30T13:41:59Z",
+          "tree_id": "9b8e4a0953af3eeaa3415aaf1f4b5ea3716aef8c",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/da390f7b3b8da6b06fdd1163342390093015e881"
+        },
+        "date": 1785419588089,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 311.8373783499974,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 311.9473614999959,
             "unit": "ms"
           }
         ]
