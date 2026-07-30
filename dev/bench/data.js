@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785409214492,
+  "lastUpdate": 1785410115841,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -7275,6 +7275,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 307.2441254000056,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "039176c781f6f2617c581d50c8a8921c152f3cfc",
+          "message": "docs(claude): record that release tags are immutable, and how to recover (#962)\n\n## Summary\n\nTwo things, deliberately together:\n\n1. **Documents that release tags are immutable, and how to recover when\na release build fails.** Nothing in the repo said so, which is why\nmoving the `v1.11.0` tag onto its fix looked viable until the push was\nrejected with `GH013`. The new bullet records the ruleset, the real\nrecovery path, and the squash-merge trap below.\n2. **Carries the release trailer that cuts 1.12.0.** #960 was supposed\nto do this and did not — see below.\n\n## Related Issue\n\nRelates to #957\n\n## Why this PR is needed at all\n\n#960 carried the same trailer in its commit message, but squash-merging\nreplaced that message with the PR title and description, so the trailer\nnever reached `main` and **no release PR was created**. The only\nsurviving mentions were backtick-quoted prose, which release-please does\nnot match.\n\nEvery commit since the `v1.11.0` tag is `docs`, `chore` or `test`, so\nrelease-please bumps nothing on its own. Until a trailer lands, the\nfeature stranded by the failed release (#954) stays unpublished and\nusers remain on 1.10.0.\n\nThis time the trailer is the **last line of this description**, which is\nwhat actually becomes the squash commit body.\n\n## ⚠️ When merging\n\nConfirm the squash commit message still ends with the trailer line. If\nit is edited out, this PR only lands the documentation and no release PR\nappears — same benign failure as #960, retry the same way.\n\n## What happens after merge\n\nrelease-please opens `chore: release main` for **1.12.0** → merging that\ntags `v1.12.0` → `release.yml` runs against the deterministic gate (#958\nfixed the flaky test) → publishes with assets → #957 can close.\n\n## Type of Change\n\n- [x] Documentation only\n- [x] CI / tooling — carries the version-forcing trailer\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` passes with zero errors\n- [x] `bun run lint` passes (Biome — format + lint)\n- [x] All existing tests pass (`bun test`) — no code touched; one\n`CLAUDE.md` bullet added\n- [x] New behaviour is covered by tests — n/a, no behaviour change\n- [x] No `any` types introduced — `unknown` is used for external data\n- [x] No credentials, tokens, or secret values appear in logs, IPC\nmessages, config, or test fixtures\n- [x] Platform-specific code is behind the `PlatformServices`\nabstraction\n- [x] The HITL consent gate has not been weakened, bypassed, or made\nconfigurable\n- [x] If this PR touches `docs/README.md`, a screenshot is attached —\nn/a\n\n`bun run preflight:fast` passes in full. `lint:markdown` initially\nfailed on MD049 (emphasis must use underscores, not asterisks) — fixed.\n\n## Coverage (if engine/ or vault/ was changed)\n\nn/a — neither was modified.\n\n## Testing\n\n`bun run preflight:fast` — PASSED (typecheck, lint, markdown lint, 20\naudits, duplication). No suite run: documentation plus a commit trailer.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nRelease-As: 1.12.0",
+          "timestamp": "2026-07-30T14:03:35+03:00",
+          "tree_id": "9407af315c2f2e2f0a60fd70bf51d3ce97fa95a0",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/039176c781f6f2617c581d50c8a8921c152f3cfc"
+        },
+        "date": 1785410114810,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 306.7072001500026,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 309.8373953499984,
             "unit": "ms"
           }
         ]
