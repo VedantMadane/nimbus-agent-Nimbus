@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785437224995,
+  "lastUpdate": 1785439693070,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -7513,6 +7513,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 298.5946716500075,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ee248fb149d12791d779db7e18e2854e9a69acb9",
+          "message": "docs(outreach): correct the listing spec against what shipped (#980)\n\nFollow-up to #979. Three corrections, each from something that turned\nout differently in practice.\n\n**The official client list is gone.** The spec listed\n`modelcontextprotocol/docs` → `clients.mdx` as a Tier 1 target. That\npage has been retired: `modelcontextprotocol.io/clients` redirects to\nthe homepage, the repo is archived (last push 2025-04-08), and no\n`clients.mdx` exists anywhere in the org. The Registry replaced it and\nis servers-only, so there is no official client list to join. Marked\ndead with the evidence, so the next reader does not spend an afternoon\non an archived repo.\n\n**Glama takes a build spec, not a Dockerfile.** Despite the\n`/admin/dockerfile` URL, the page wants a JSON array of shell commands\nplus a JSON `cmd` array; pasting a Dockerfile fails with an invalid-JSON\nerror. The recorded artifact is replaced with the real one, along with\nwhat Glama generates around it — a `debian:trixie-slim` base with\nNode/`uv`/`mcp-proxy` preinstalled, a `git clone` of this repo at a\npinned commit, and a rewritten `CMD [\"mcp-proxy\", \"--\", \"nimbus\",\n\"mcp-server\", \"--stdio\"]`.\n\nThat wrapper was worth verifying rather than assuming: a stdio server\ncan work standalone and still misbehave behind a proxy. Replicated it\nlocally and drove a full MCP handshake over HTTP through\n`mcp-proxy@6.4.3` — all six tools returned.\n\nAlso recorded: the platform cannot be pinned from a build spec, so an\narm64 builder would fail at start with an exec-format error rather than\nat build. That is a support question, not something the steps can fix.\n\n**Tracking refreshed.** Glama listed and claimed, `awesome-mcp-clients`\nand `awesome-mcp-servers` PRs open, PulseMCP emailed.\n\n`preflight:fast` PASSED · `audit:links` 0 errors.\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-30T19:16:17Z",
+          "tree_id": "63fe30f0d6549cc4c2d961f11924f96719c0074b",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/ee248fb149d12791d779db7e18e2854e9a69acb9"
+        },
+        "date": 1785439691268,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 328.72880710000135,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 325.3172897500073,
             "unit": "ms"
           }
         ]
