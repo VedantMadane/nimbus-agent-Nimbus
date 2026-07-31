@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785487551848,
+  "lastUpdate": 1785489732484,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -7785,6 +7785,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 321.63358645000045,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c571fe18122cdaa81c6fa41fc2d37a20a65145a0",
+          "message": "fix(glossary): stop --refresh hanging when the gateway dies mid-pass (#989)\n\nCloses the known limit recorded in #987: `nimbus glossary --refresh`\ncould hang forever if the gateway died mid-pass.\n\n## The gap\n\nSpecific to results delivered by **notification**. `IPCClient.call()` is\nbounded by the client's `requestTimeoutMs`, but the call that *starts* a\npass resolves immediately with a job id — the result arrives later as\n`glossary.passDone`. A gateway dying in between left nothing to detect\nit: no pending call for the transport to reject, and no notification\never coming. The CLI waited forever.\n\nFixed upstream first:\n[`nimbus-client#48`](https://github.com/nimbus-agent/nimbus-client/pull/48)\nadded `IPCClient.onClose` / `offClose`, released as `@nimbus-dev/client`\n0.15.0. This bumps `^0.14.0` → `^0.15.0` and uses it.\n\n## There is still deliberately no timeout\n\nA pass legitimately runs up to `max_new_terms_per_pass ×\nconsolidate_timeout_ms` — 12.5 minutes at defaults — so a clock cannot\ndistinguish \"still working\" from \"gone\". Imposing one would either cut\noff legitimate long passes or be so generous it never fires. The\ntransport closing is the signal instead.\n\nA mid-pass death now fails with `gateway connection closed during the\npass: …` and exit code **2** (agent error), consistent with every other\npass failure. Note this is distinct from exit **1**, which the\n`--rebuild` preview path uses for gateway-*not-running* — that split was\nitself a fix in #987 and is still pinned by tests on both sides.\n\n## Handler teardown\n\nEvery notification handler is now paired with its removal on settle. The\nclient documents this as a rule, and it is not theoretical here:\n`runAgentBriefCli` reuses the *same* client for the brief that runs\nimmediately afterwards, so a leaked handler was a live cross-phase\nlistener rather than merely untidy.\n\n## Tests\n\nTwo new cases, each red-proved by a mutation failing a different test:\n\n| Mutation | Test that fails | Time |\n|---|---|---|\n| Drop `client.onClose(onClose)` | \"a gateway death mid-pass rejects\ninstead of hanging forever\" | 252 ms |\n| Teardown stops removing handlers | \"removes every handler once the\npass settles\" | 0.9 ms |\n\nThe hang test **races a 250 ms deadline** rather than awaiting bare.\nWithout the `onClose` wiring an unraced `await` expresses the regression\nas a suite *timeout* — a slow, generic failure that this repo's own\nhistory shows is easily mistaken for flake. The race turns it into a\nfast assertion that names itself: `awaitPass never settled after the\ntransport closed — it hung`.\n\nThe DI fake gained `onClose`/`offClose`/`offNotification` and now stores\nhandlers in **Sets**, mirroring the real client. A fake keyed\none-handler-per-method would silently drop a second registration and\nhide the very leak the new `liveHandlers()` assertion exists to catch.\n\n## Verification\n\n`packages/cli/src` 1950 pass / 0 fail · e2e 36 pass · `tsc` 0 · biome 0\n· markdownlint 0 · `audit:doc-refs` 0.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-31T09:10:31Z",
+          "tree_id": "8d00301276ba54ef86e5339ba8bf1e62efdb6e3f",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/c571fe18122cdaa81c6fa41fc2d37a20a65145a0"
+        },
+        "date": 1785489731611,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 306.44547750000095,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 311.10334585000527,
             "unit": "ms"
           }
         ]
