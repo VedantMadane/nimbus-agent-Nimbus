@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785484980723,
+  "lastUpdate": 1785486702173,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -7717,6 +7717,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 312.0637479499925,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9d8def2ea3fe048044dbb908e4fc877f6ca784e5",
+          "message": "feat(glossary): consolidate through a local-only LLM, upgrade snippet definitions, and wire --refresh/--rebuild (#987)\n\nThree follow-ups the base glossary slice (#981) deferred. They ship\ntogether because each is inert without the ones before it.\n\nBefore this branch, `platform/assemble.ts` called `runGlossaryPass` with\nno `llm`, so **every definition a user ever saw on a real machine was a\nverbatim snippet** — the consolidation step the roadmap sells the\nfeature on existed but nothing invoked it. `--refresh` and `--rebuild`\nwere rejected as unimplemented.\n\n## 1. A local-only LLM in the scheduled pass\n\n`createGlossaryLlm(router)` adapts the existing `LlmRouter`, with one\ndifference from the `createBriefLlm` precedent it is modelled on: it\nrejects any non-local provider **before** dispatching a prompt.\n\nThat guard is the point. `selectProvider(_, { preferLocal: true })` only\nexpresses a preference — it walks `[\"ollama\",\"llamacpp\",\"remote\"]` and\nreturns the first *available* provider, so with both local providers\ndown it returns the remote one. `[briefs]` accepts that trade because it\nis default-off and documents source-text egress as its most\nprivacy-sensitive act. `[glossary]` is **default-on** and its spec\npromises \"local-only, no egress\", so it cannot. Checking\n`LlmGenerateResult.isLocal` afterwards would report egress that already\nhappened.\n\nScoped honestly: no `remote` provider is registered anywhere in the\ngateway today, so this changes nothing observable right now. It makes\n\"no egress\" a property of the code rather than of the current\nregistration list.\n\nTask type is `\"summarisation\"`, not `\"reasoning\"` — the\n`minReasoningParams` floor applies only to reasoning/agent_step, and\ngating consolidation behind it would exclude exactly the small local\nmodels that make a local-only guarantee viable on a laptop.\n\nGated by a new `[glossary].use_llm` (default on), so a laptop can keep\nthe cheap snippet glossary without disabling the feature outright.\n\n## 2. Snippet definitions upgrade in place\n\nConsolidated rows with `definition_source='snippet'` are re-consolidated\nwhen a model is available. Without this, (1) would help only terms\ndiscovered *after* the upgrade — `selectPendingBatch` reads\n`status='pending'` only, and a consolidated row never returns to pending\non its own, so a week-old glossary would stay snippets forever.\n\nNo migration: round-robin fairness comes from `last_attempt_at ASC` and\nfailure backoff from the existing `retryCooldownMs` curve, both already\non the V45 table. Schema stays V45.\n\n**Budget allocation is the subtle part, and two obvious formulations are\nwrong.** `UPGRADE_RESERVE` is a floor on upgrade slots, never a ceiling,\nand each queue absorbs the other's slack:\n\n- *Upgrades capped at the reserve* idles 20 of 25 slots when the pending\nqueue is empty.\n- *Pending capped at `budget − reserve`* idles 5 slots whenever no\nsnippet rows exist — the **common** case, since a machine that always\nhad a model never accumulates one. A permanent 20% throughput loss on\nmining.\n\nThe shipped form is correct at every boundary from `budget = 0` through\n25, with `hasLlm` and `reserve` kept as separate sentinels: the reserve\nis legitimately 0 at `budget <= 1`, and an earlier revision that reused\nit to skip the upgrade query idled the entire pass while work waited.\n\n**One consequence deserves stating plainly:** enabling the LLM can\n*remove* terms. Snippet mode has no veto path, so an upgrade can veto a\nterm that was previously visible. The row survives as `vetoed`,\n`--rebuild` brings it back, and `--refresh` names the affected terms.\n\n## 3. `--refresh` / `--rebuild [--yes]`\n\nA new `glossary.*` IPC namespace, deliberately **not** extra parameters\non `agents.glossary`. Every built-in agent is read-only and HITL-free,\nand that property is what certified `agents.glossary` for renderer\nexposure under I7; letting the agent RPC run a write pass or truncate\ntwo tables would invalidate that trace.\n\nBoth methods are long-running jobs (a pass runs up to\n`max_new_terms_per_pass × consolidate_timeout_ms` — 12.5 minutes at\ndefaults) following the `index.reembed` precedent. On-demand passes go\nthrough the refresher's existing single-flight guard, so a scheduled and\na manual pass can never run concurrently; a concurrent request fails\nfast rather than silently awaiting someone else's pass.\n\n`--rebuild` without `--yes` touches nothing — it prints a count plus a\nsample of the highest-scoring terms, mirroring `nimbus clip delete\n--all`. `rebuildGlossary` finally has a caller, having shipped with none\nin the base slice.\n\n### Security surfaces\n\n- **I5:** `checkLanMethodAllowed` is a **denylist**, so a new namespace\nis LAN-callable by default. `\"glossary\"` is added to\n`FORBIDDEN_OVER_LAN` — without it a paired peer could spend the owner's\nGPU or truncate the glossary remotely. Nothing static enforces this:\n`check-nimbus-invariants.ts` has no rule keyed on `glossary/` or\n`ipc/*-rpc.ts`, so `ipc/lan-rpc.test.ts` is the sole guard.\n`agents.glossary` stays LAN-readable.\n- **I7:** `ALLOWED_METHODS` unchanged at 102. Neither write method is\nrenderer-exposed.\n- **I14 / I11 / I29:** unchanged — writes go through `dbRun`, snippets\nreach the model inside `wrapToolOutput`, and the glossary never touches\n`connectors.dispatch`, so it appends no `egress_ledger` rows.\n\n## Verification\n\n13,902 tests green (gateway/src 9272, gateway/test 2646, cli/src 1948,\ncli e2e 36). Docker coverage floor re-run after the final fix wave: 987\nsource files, both new source files clear ≥80% line **and** branch,\n**zero new exclusions**. `audit:invariants`, `audit:any --check`,\n`doc-refs`, `cross-platform`, `readme-cli`, `security-invariants`, both\n`tsc` projects and biome all exit 0.\n\nEvery task went through an independent review; six needed fix rounds.\nSeven false-green tests were found and corrected during the run —\nincluding one where the guard behind the \"your local model isn't\nrunning\" warning was **provably unsatisfiable**, and the test pinning it\nused a summary the gateway cannot emit. That warning now keys on\n`retried`, which is what a configured-but-unreachable model actually\nproduces.\n\n## Known limits\n\n- **`nimbus glossary --refresh` can hang if the gateway dies after\nreturning a job ID.** `@nimbus-dev/client@0.14.0`'s `IPCClient` exposes\nno close hook — `failAll` and the socket handlers are private and it is\nnot an EventEmitter — so there is nothing to reject the wait on. A fix\nneeds an upstream `onClose` API in the `nimbus-client` repo. Verified\nagainst the installed type definitions.\n- The abort signal reaches the pass but not the provider:\n`LlmGenerateOptions` has no `signal` field and both providers hardcode\n`AbortSignal.timeout(120_000)`. Bounded by there being at most one abort\nper process, at shutdown.\n- Upgrades are slowed, not starved, by a saturated pending queue — 5 of\n25 slots instead of 25.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-31T11:21:35+03:00",
+          "tree_id": "339835964755b6d1d069eb1be7d22490acafda87",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/9d8def2ea3fe048044dbb908e4fc877f6ca784e5"
+        },
+        "date": 1785486700455,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 291.8285129499985,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 294.6145488500006,
             "unit": "ms"
           }
         ]
