@@ -33,6 +33,7 @@ import {
   loadNimbusEmbeddingFromPath,
   loadNimbusExtensionsFromConfigDir,
   loadNimbusFederationFromConfigDir,
+  loadNimbusGlossaryFromConfigDir,
   loadNimbusIdentityFromConfigDir,
   loadNimbusLanFromConfigDir,
   loadNimbusLlmFromPath,
@@ -117,6 +118,8 @@ import {
 import { NamespaceStore } from "../federation/namespace-store.ts";
 import { preflightConsent } from "../federation/preflight-consent-broker.ts";
 import { appendPreflightAudit, defaultRunCommand } from "../federation/preflight-gate.ts";
+import { runGlossaryPass } from "../glossary/glossary-extract.ts";
+import { createGlossaryRefresher, type GlossaryRefresher } from "../glossary/glossary-refresh.ts";
 import { buildIdentityBoot } from "../identity/identity-boot.ts";
 import { buildTeamsBotJwtValidator } from "../identity/teams-bot-jwt.ts";
 import { isOperatorValid } from "../identity/verifier.ts";
@@ -403,9 +406,11 @@ interface SchedulerWithMeshOpts {
   isConnectorAllowed: (serviceId: string) => boolean;
 }
 
-async function createSchedulerWithMesh(
-  opts: SchedulerWithMeshOpts,
-): Promise<{ syncScheduler: SyncScheduler; connectorMesh: LazyConnectorMesh }> {
+async function createSchedulerWithMesh(opts: SchedulerWithMeshOpts): Promise<{
+  syncScheduler: SyncScheduler;
+  connectorMesh: LazyConnectorMesh;
+  glossaryRefresher: GlossaryRefresher;
+}> {
   const {
     paths,
     vault,
@@ -429,6 +434,27 @@ async function createSchedulerWithMesh(
   const automation = loadNimbusAutomationFromConfigDir(paths.configDir);
   const watcherOpts = { graphConditionsEnabled: automation.graphConditions };
 
+  const glossaryCfg = loadNimbusGlossaryFromConfigDir(paths.configDir);
+  const glossaryRefresher = createGlossaryRefresher({
+    enabled: glossaryCfg.enabled,
+    debounceMs: glossaryCfg.debounceMs,
+    runPass: async (signal) => {
+      await runGlossaryPass(db, {
+        maxNewTermsPerPass: glossaryCfg.maxNewTermsPerPass,
+        statsRecheckPerPass: glossaryCfg.statsRecheckPerPass,
+        statsRecheckCooldownMs: glossaryCfg.statsRecheckCooldownMs,
+        minDocFreq: glossaryCfg.minDocFreq,
+        consolidateTimeoutMs: glossaryCfg.consolidateTimeoutMs,
+        retryBaseCooldownMs: glossaryCfg.retryBaseCooldownMs,
+        nowMs: Date.now(),
+        signal,
+      });
+    },
+    onError: (err) => {
+      syncLogger.warn({ err }, "glossary extraction pass failed");
+    },
+  });
+
   const syncScheduler = new SyncScheduler(syncContext, undefined, {
     notify: async (title, body) => {
       await notifications.show(title, body);
@@ -438,6 +464,7 @@ async function createSchedulerWithMesh(
       syncAnomaly.recordSample(`sync:duration_ms:${serviceId}`, durationMs, at);
       syncAnomaly.recordSample(`sync:items_upserted:${serviceId}`, result.itemsUpserted, at);
       evaluateWatchersAfterSync(db, serviceId, at, (t, b) => notifications.show(t, b), watcherOpts);
+      glossaryRefresher.trigger();
     },
   });
   const tomlRoots = loadNimbusFilesystemRootsFromConfigDir(paths.configDir);
@@ -480,7 +507,7 @@ async function createSchedulerWithMesh(
   registerUserMcpSyncablesFromDatabase(db, policyFilteredRegistrar, connectorMesh);
   syncScheduler.start();
   evaluateWatchersStartupCatchUp(db, Date.now(), (t, b) => notifications.show(t, b), watcherOpts);
-  return { syncScheduler, connectorMesh };
+  return { syncScheduler, connectorMesh, glossaryRefresher };
 }
 
 interface HttpSidecarOpts {
@@ -1728,7 +1755,7 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
     sidecarStops.push(() => auditShipper.stop());
   }
 
-  const { syncScheduler, connectorMesh } = await createSchedulerWithMesh({
+  const { syncScheduler, connectorMesh, glossaryRefresher } = await createSchedulerWithMesh({
     paths,
     vault,
     db,
@@ -1738,6 +1765,7 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
     syncLogger,
     isConnectorAllowed,
   });
+  sidecarStops.push(() => glossaryRefresher.stop());
 
   await verifyExtensionsBestEffort(db, syncLogger, connectorMesh, { vault });
 
