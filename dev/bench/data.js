@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785468141633,
+  "lastUpdate": 1785483382326,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -7649,6 +7649,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 305.21246309999987,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "606788c3c9b440a254d402f53f2aaba2f4d361f4",
+          "message": "fix(gateway): remove the data-export staging directory (#985)\n\n`runDataExport` creates a staging tree under the OS temp directory and\n**never removes it**.\n\nEvery export therefore leaves behind a second copy of everything it just\nexported:\n\n| File | |\n|---|---|\n| `audit-chain.json` | **plaintext** |\n| `vault-manifest.json.enc` | encrypted |\n| `watchers.json`, `workflows.json`, `extensions.json`, `profiles.json`\n| |\n| `manifest.json` | |\n\nNothing ever cleans it up, so the copies accumulate indefinitely —\nunbounded disk growth, and exported data persisting outside the bundle\nthe user asked for. `mkdtemp` gives the directory 0700, so this is not a\npermissions exposure; it is data living longer and in more places than\nintended.\n\n## The fix\n\nThe body is wrapped in `try`/`finally` with `rmSync(stage, { recursive:\ntrue, force: true })`.\n\n`finally` rather than \"after `packBundle`\" is the point: a failure\npart-way through is *exactly* when a half-written copy of vault and\naudit data should not be the thing left on disk.\n\n## Tests that were verified to fail without it\n\nTwo cases — a successful export and one that fails mid-way (output\nnested under a file, so `mkdirSync` fails with `ENOTDIR` after the\nstaging tree is already populated).\n\nBoth were run with the cleanup line disabled to confirm they catch the\nleak, rather than assuming:\n\n```\ncleanup disabled:  (fail) is removed after a successful export\n                   (fail) is removed even when the export fails part-way through\n                   8 pass, 2 fail\nrestored:          10 pass, 0 fail\n```\n\nThey compare the set of `nimbus-export-stage-*` directories before and\nafter, so they assert on this export's leftovers rather than on a global\ncount that other tests could disturb.\n\n## Gates\n\n`bun run typecheck` exit 0 (whole workspace) · `biome check` on both\nchanged files exit 0 · `bun test src/commands/` 27 pass / 0 fail.\n\n## How it was found, and what is still outstanding\n\nWhile investigating temp-directory accumulation: one full run of this\nrepo's test suite left ~6,080 directories in `%TEMP%`. Most are test\nfixtures that never clean up (`nimbus-ext-test` ~384, `nimbus-mesh`\n~320, `nimbus-snapshot-test` ~280, and others across 213 files using\n`mkdtemp`).\n\n`nimbus-export-stage` was ~293 of those — and unlike the rest it traced\nback to **production code**, which is why it is fixed here on its own.\nThe test-fixture leaks are real but cosmetic by comparison, and fixing\n213 call sites belongs in its own change;\n`packages/gateway/test/fixtures/extension.ts` is the single biggest and\nwould be the place to start.\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n* Temporary files created during data exports are now automatically\ncleaned up after successful exports.\n* Temporary files are also removed when an export fails, helping prevent\nleftover data and disk usage.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-07-31T10:24:51+03:00",
+          "tree_id": "e1b5fb97f6d52be16b2121f0a88dd7f01ca8c41d",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/606788c3c9b440a254d402f53f2aaba2f4d361f4"
+        },
+        "date": 1785483381168,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 309.85745075000085,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 313.1242445499964,
             "unit": "ms"
           }
         ]
