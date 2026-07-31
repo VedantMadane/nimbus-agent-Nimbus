@@ -262,6 +262,49 @@ export function selectPendingBatch(
   return rows.map(toTerm);
 }
 
+/**
+ * Consolidated terms whose definition is a verbatim snippet, due for an
+ * LLM re-consolidation.
+ *
+ * This function returns matching rows unconditionally — it has no
+ * LLM-availability check. Gating the call on LLM availability is the
+ * caller's responsibility: with no LLM configured, an "upgrade" would just
+ * re-derive the same snippet from the same sources, so a caller must not
+ * invoke this batch (or must no-op on its results) when no LLM is available.
+ *
+ * `ORDER BY last_attempt_at ASC` rotates round-robin so a large snippet
+ * population drains fairly, and the backoff clause — the same shape
+ * `selectPendingBatch` uses, so `retryCooldownMs` stays the single definition
+ * of the curve — keeps a repeatedly-failing term to one attempt per 24 h
+ * instead of letting it hold a reserved slot every pass.
+ *
+ * The `limit <= 0` guard exists because SQLite treats `LIMIT -1` as UNLIMITED,
+ * not as "no rows". The current caller always passes a positive budget, so this
+ * is defence-in-depth — but the natural way to write a caller is by
+ * subtraction, and the failure it prevents (consolidating the entire snippet
+ * population in one pass) is silent and expensive.
+ */
+export function selectSnippetUpgradeBatch(
+  db: Database,
+  limit: number,
+  opts: { nowMs: number; retryBaseCooldownMs: number },
+): GlossaryTerm[] {
+  if (limit <= 0) return [];
+  const rows = db
+    .query(
+      `SELECT * FROM glossary_term
+       WHERE status = 'consolidated' AND definition_source = 'snippet'
+         AND (
+           attempts = 0
+           OR last_attempt_at + MIN(86400000, ? * (1 << (attempts - 1))) <= ?
+         )
+       ORDER BY last_attempt_at ASC, score DESC
+       LIMIT ?`,
+    )
+    .all(opts.retryBaseCooldownMs, opts.nowMs, limit) as Row[];
+  return rows.map(toTerm);
+}
+
 /** Records a failed consolidation so the backoff above takes effect. */
 export function recordAttempt(db: Database, termKey: string, nowMs: number): void {
   dbRun(
@@ -325,13 +368,14 @@ export function markConsolidated(
     `UPDATE glossary_term
      SET status = 'consolidated', definition = ?, definition_source = ?,
          synonyms = ?, near_misses = ?, consolidated_at = ?,
-         stats_verified_at = ?, updated_at = ?
+         stats_verified_at = ?, last_attempt_at = ?, updated_at = ?
      WHERE term_key = ?`,
     [
       p.definition,
       p.definitionSource,
       JSON.stringify(p.synonyms),
       JSON.stringify(p.nearMisses),
+      p.nowMs,
       p.nowMs,
       p.nowMs,
       p.nowMs,
@@ -396,6 +440,29 @@ export function countByStatus(db: Database): { total: number; pending: number; v
     )
     .get() as { total: number | null; pending: number | null; vetoed: number | null } | null;
   return { total: r?.total ?? 0, pending: r?.pending ?? 0, vetoed: r?.vetoed ?? 0 };
+}
+
+/**
+ * How many CONSOLIDATED terms carry a verbatim-snippet definition rather than
+ * a model-consolidated one.
+ *
+ * Unlike `countByStatus` above, this has no `?? 0` fallback, and that is
+ * deliberate rather than an oversight: `countByStatus` aggregates with
+ * `SUM(CASE …)`, which genuinely returns NULL over zero rows. This query is a
+ * bare `COUNT(*)` with no `GROUP BY` — it always returns exactly one row, and
+ * `COUNT` (unlike `SUM`) never yields NULL, returning `0` over zero matches.
+ * So `.get()` cannot return `null` and `n` cannot be null here; adding the
+ * fallback back "for safety" would just re-introduce an unreachable branch.
+ */
+export function countSnippetSourced(db: Database): number {
+  return (
+    db
+      .query(
+        `SELECT COUNT(*) AS n FROM glossary_term
+         WHERE status = 'consolidated' AND definition_source = 'snippet'`,
+      )
+      .get() as { n: number }
+  ).n;
 }
 
 export type GlossaryPassState = {

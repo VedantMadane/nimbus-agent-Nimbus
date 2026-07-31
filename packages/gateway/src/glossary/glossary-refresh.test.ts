@@ -1,5 +1,6 @@
-import { expect, test } from "bun:test";
+import { describe, expect, it, test } from "bun:test";
 
+import type { GlossaryPassSummary } from "./glossary-extract.ts";
 import { createGlossaryRefresher } from "./glossary-refresh.ts";
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
@@ -10,6 +11,21 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve };
 }
 
+const SUMMARY: GlossaryPassSummary = {
+  scanned: 0,
+  discovered: 0,
+  demoted: 0,
+  consolidated: 0,
+  upgraded: 0,
+  vetoed: 0,
+  upgradesVetoed: 0,
+  vetoedTerms: [],
+  retried: 0,
+  llmConfigured: false,
+  llmProduced: false,
+  aborted: false,
+};
+
 test("a trigger runs the pass after the debounce window", async () => {
   let runs = 0;
   const r = createGlossaryRefresher({
@@ -17,6 +33,7 @@ test("a trigger runs the pass after the debounce window", async () => {
     debounceMs: 5,
     runPass: async () => {
       runs += 1;
+      return SUMMARY;
     },
   });
   r.trigger();
@@ -32,6 +49,7 @@ test("a burst of triggers coalesces into one pass", async () => {
     debounceMs: 15,
     runPass: async () => {
       runs += 1;
+      return SUMMARY;
     },
   });
   r.trigger();
@@ -55,6 +73,7 @@ test("triggers during an in-flight pass coalesce into exactly one follow-up", as
     runPass: async () => {
       runs += 1;
       if (runs === 1) await gate.promise;
+      return SUMMARY;
     },
   });
   r.trigger();
@@ -79,6 +98,7 @@ test("stop aborts the signal handed to an in-flight pass", async () => {
     runPass: async (signal) => {
       seen = signal;
       await gate.promise;
+      return SUMMARY;
     },
   });
   r.trigger();
@@ -99,6 +119,7 @@ test("stop suppresses the follow-up pass a mid-flight trigger asked for", async 
     runPass: async () => {
       runs += 1;
       if (runs === 1) await gate.promise;
+      return SUMMARY;
     },
   });
   r.trigger();
@@ -118,6 +139,7 @@ test("disabled never runs the pass", async () => {
     debounceMs: 1,
     runPass: async () => {
       runs += 1;
+      return SUMMARY;
     },
   });
   r.trigger();
@@ -133,6 +155,7 @@ test("stop cancels a pending trigger", async () => {
     debounceMs: 20,
     runPass: async () => {
       runs += 1;
+      return SUMMARY;
     },
   });
   r.trigger();
@@ -153,6 +176,7 @@ test("a trigger after stop never runs a pass", async () => {
     debounceMs: 1,
     runPass: async () => {
       runs += 1;
+      return SUMMARY;
     },
   });
   r.stop();
@@ -177,4 +201,108 @@ test("a thrown pass does not wedge the refresher", async () => {
   await Bun.sleep(25);
   expect(runs).toBe(2);
   r.stop();
+});
+
+describe("runNow", () => {
+  it("runs immediately without waiting for the debounce", async () => {
+    let ran = 0;
+    const r = createGlossaryRefresher({
+      enabled: true,
+      debounceMs: 60_000,
+      runPass: () => {
+        ran += 1;
+        return Promise.resolve(SUMMARY);
+      },
+    });
+    await r.runNow({ rebuild: false });
+    expect(ran).toBe(1);
+    r.stop();
+  });
+
+  it("forwards the rebuild flag", async () => {
+    let sawRebuild: boolean | undefined;
+    const r = createGlossaryRefresher({
+      enabled: true,
+      debounceMs: 1,
+      runPass: (_s, o) => {
+        sawRebuild = o.rebuild;
+        return Promise.resolve(SUMMARY);
+      },
+    });
+    await r.runNow({ rebuild: true });
+    expect(sawRebuild).toBe(true);
+    r.stop();
+  });
+
+  it("rejects a concurrent call instead of awaiting the running pass", async () => {
+    // Only the FIRST invocation blocks on `gate`. This makes a missing
+    // `running` guard fail FAST with a wrong VALUE (the second call resolves
+    // with SUMMARY instead of rejecting) rather than deadlocking: if the
+    // guard were gone, the second `runNow()` would reach `runPass` too, and
+    // since `calls` is already 2 by then it would skip the gate and resolve
+    // immediately — so `rejects.toThrow(...)` fails right away with "promise
+    // resolved instead of rejecting", not a hang. A shared unconditional gate
+    // would instead deadlock (the second call and the un-reached `release()`
+    // line below would wait on each other forever), which is a liveness
+    // failure a future engineer would misread as a flake, not a value bug.
+    let calls = 0;
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((res) => {
+      release = res;
+    });
+    const r = createGlossaryRefresher({
+      enabled: true,
+      debounceMs: 1,
+      runPass: async () => {
+        calls += 1;
+        if (calls === 1) await gate;
+        return SUMMARY;
+      },
+    });
+    const first = r.runNow({ rebuild: false });
+    expect(r.status()).toBe("running");
+    await expect(r.runNow({ rebuild: false })).rejects.toThrow("ERR_GLOSSARY_PASS_RUNNING");
+    release?.();
+    await first;
+    expect(r.status()).toBe("idle");
+    r.stop();
+  });
+
+  it("rejects when the glossary is disabled", async () => {
+    const r = createGlossaryRefresher({
+      enabled: false,
+      debounceMs: 1,
+      runPass: () => Promise.resolve(SUMMARY),
+    });
+    expect(r.status()).toBe("disabled");
+    await expect(r.runNow({ rebuild: false })).rejects.toThrow("ERR_GLOSSARY_DISABLED");
+    r.stop();
+  });
+
+  it("rejects after stop()", async () => {
+    const r = createGlossaryRefresher({
+      enabled: true,
+      debounceMs: 1,
+      runPass: () => Promise.resolve(SUMMARY),
+    });
+    r.stop();
+    expect(r.status()).toBe("stopped");
+    await expect(r.runNow({ rebuild: false })).rejects.toThrow("ERR_GLOSSARY_STOPPED");
+  });
+
+  it("passes the refresher's abort signal so stop() cancels an on-demand pass", async () => {
+    let seen: AbortSignal | undefined;
+    const r = createGlossaryRefresher({
+      enabled: true,
+      debounceMs: 1,
+      runPass: (s) => {
+        seen = s;
+        return Promise.resolve(SUMMARY);
+      },
+    });
+    await r.runNow({ rebuild: false });
+    expect(seen?.aborted).toBe(false);
+    r.stop();
+    expect(seen?.aborted).toBe(true);
+  });
 });

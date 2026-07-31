@@ -118,7 +118,9 @@ import {
 import { NamespaceStore } from "../federation/namespace-store.ts";
 import { preflightConsent } from "../federation/preflight-consent-broker.ts";
 import { appendPreflightAudit, defaultRunCommand } from "../federation/preflight-gate.ts";
-import { runGlossaryPass } from "../glossary/glossary-extract.ts";
+import type { ConsolidatorLlm } from "../glossary/glossary-consolidate.ts";
+import { rebuildGlossary, runGlossaryPass } from "../glossary/glossary-extract.ts";
+import { createGlossaryLlm } from "../glossary/glossary-llm-adapter.ts";
 import { createGlossaryRefresher, type GlossaryRefresher } from "../glossary/glossary-refresh.ts";
 import { buildIdentityBoot } from "../identity/identity-boot.ts";
 import { buildTeamsBotJwtValidator } from "../identity/teams-bot-jwt.ts";
@@ -404,6 +406,11 @@ interface SchedulerWithMeshOpts {
   notifications: NotificationService;
   syncLogger: Logger;
   isConnectorAllowed: (serviceId: string) => boolean;
+  /**
+   * Local-only consolidation model for the glossary pass. Optional so tests and
+   * degraded boots keep the snippet path. Gated below on `[glossary].use_llm`.
+   */
+  glossaryLlm?: ConsolidatorLlm;
 }
 
 async function createSchedulerWithMesh(opts: SchedulerWithMeshOpts): Promise<{
@@ -420,6 +427,7 @@ async function createSchedulerWithMesh(opts: SchedulerWithMeshOpts): Promise<{
     notifications,
     syncLogger,
     isConnectorAllowed,
+    glossaryLlm,
   } = opts;
   const syncAnomaly = new AnomalyDetectorStub({
     windowSize: 64,
@@ -435,20 +443,27 @@ async function createSchedulerWithMesh(opts: SchedulerWithMeshOpts): Promise<{
   const watcherOpts = { graphConditionsEnabled: automation.graphConditions };
 
   const glossaryCfg = loadNimbusGlossaryFromConfigDir(paths.configDir);
+  // Gate at the point of use, so the single config read stays single.
+  const consolidationLlm = glossaryCfg.useLlm ? glossaryLlm : undefined;
   const glossaryRefresher = createGlossaryRefresher({
     enabled: glossaryCfg.enabled,
     debounceMs: glossaryCfg.debounceMs,
-    runPass: async (signal) => {
-      await runGlossaryPass(db, {
+    runPass: async (signal, runOpts) => {
+      const passOpts = {
         maxNewTermsPerPass: glossaryCfg.maxNewTermsPerPass,
         statsRecheckPerPass: glossaryCfg.statsRecheckPerPass,
         statsRecheckCooldownMs: glossaryCfg.statsRecheckCooldownMs,
         minDocFreq: glossaryCfg.minDocFreq,
         consolidateTimeoutMs: glossaryCfg.consolidateTimeoutMs,
         retryBaseCooldownMs: glossaryCfg.retryBaseCooldownMs,
+        ...(consolidationLlm === undefined ? {} : { llm: consolidationLlm }),
+        ...(runOpts.onProgress === undefined ? {} : { onProgress: runOpts.onProgress }),
         nowMs: Date.now(),
         signal,
-      });
+      };
+      return runOpts.rebuild
+        ? await rebuildGlossary(db, passOpts)
+        : await runGlossaryPass(db, passOpts);
     },
     onError: (err) => {
       syncLogger.warn({ err }, "glossary extraction pass failed");
@@ -1764,6 +1779,7 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
     notifications,
     syncLogger,
     isConnectorAllowed,
+    glossaryLlm: createGlossaryLlm(llmRegistry.llmRouter),
   });
   sidecarStops.push(() => glossaryRefresher.stop());
 
@@ -2079,6 +2095,8 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
     requestPruneApproval: () => Promise.resolve(false),
   };
   ipcOpts.egressRpcCtx = egressRpcCtx;
+
+  ipcOpts.glossaryRefresher = glossaryRefresher;
 
   collectSidecarsFromEnv(db, paths, sidecarStops, httpSidecarOpts);
 

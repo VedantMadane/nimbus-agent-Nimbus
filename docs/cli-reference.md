@@ -301,12 +301,15 @@ nimbus why src/billing/retry.ts --line 42 --json
 
 Turn terminology the team already uses — but has never written down — into a queryable glossary, extracted entirely from the local index. `nimbus glossary` with no argument prints terms sorted by frequency; `nimbus glossary <term>` prints the team's consolidated definition, resolved against an exact term match, then a known synonym, then (on a miss) a "did you mean" list of near-misses. Candidates are mined deterministically from indexed titles/bodies (5 surface-form families — acronyms, backticked tokens, PascalCase identifiers, hyphenated compounds, capitalized phrases) and require evidence across at least `min_doc_freq` (default 3) source items before a term is considered; a local LLM then consolidates or vetoes each candidate.
 
-Extraction itself is **not** triggered by this command — it runs as a background pass, debounced after a successful connector sync (`[glossary]` in `nimbus.toml`, default on). `nimbus glossary` only reads the already-materialized `glossary_term` table.
+Extraction normally runs as a background pass, debounced after a successful connector sync (`[glossary]` in `nimbus.toml`, default on); `nimbus glossary` with no mutating flag only reads the already-materialized `glossary_term` table. `--refresh` and `--rebuild` drive an on-demand pass instead of waiting for the next sync.
 
 ```bash
 nimbus glossary
 nimbus glossary CDR
 nimbus glossary --limit 50 --json
+nimbus glossary --refresh
+nimbus glossary --rebuild
+nimbus glossary --rebuild --yes
 ```
 
 **Options:**
@@ -315,12 +318,17 @@ nimbus glossary --limit 50 --json
 |---|---|
 | `--limit <n>` | Cap the number of terms/entries returned |
 | `--json` | Machine-readable JSON output (otherwise Markdown) |
+| `--refresh` | Run an on-demand incremental pass now, then print the (possibly updated) brief. Fails with `ERR_GLOSSARY_PASS_RUNNING` if a pass is already in flight. |
+| `--rebuild` | Truncate every consolidated/pending glossary term and re-derive. Without `--yes`, prints a count of what would be deleted plus a sample of the highest-scoring terms and exits without touching anything. **One `--rebuild` runs exactly one bounded pass** (`SCAN_BATCH_LIMIT` items scanned, `max_new_terms_per_pass` terms consolidated — 25 by default) — it does not re-derive the whole glossary in one shot; the rest comes back incrementally over subsequent connector syncs or further `--refresh`/`--rebuild` runs. |
+| `--yes` | Required alongside `--rebuild` to actually run the destructive rebuild. |
 
-`--refresh` and `--rebuild` are **not implemented** and are **rejected with an error**. The gateway's `agents.glossary` handler reads only `term` and `limit`, so neither ever triggered a pass; they previously parsed and forwarded silently, which meant `nimbus glossary --rebuild` printed an ordinary listing while looking like it had re-derived the glossary. Extraction is driven solely by the post-sync background trigger.
+`--refresh` and `--rebuild` are mutually exclusive. A pass can take several minutes (up to `max_new_terms_per_pass * consolidate_timeout_ms`, ~12.5 minutes at defaults); on a TTY, progress prints in place as `consolidating <done>/<total>` and is suppressed for piped/redirected output. On completion, up to three summary lines are written to **stderr** (never stdout, so `--json`'s stdout stays JSON-only): a base line reporting new/upgraded term counts, a warning if a local LLM was configured but never answered and terms were deferred to retry (Ollama not running), and a line naming (up to 10, with a count of any remainder) any previously snippet-defined term vetoed during an upgrade.
 
 **Output (Markdown):** with no argument, a frequency-sorted term list with coverage stats (how many terms are consolidated vs. still pending). With `<term>`, the consolidated definition, first-seen / last-seen dates, up to 5 top sources, and known synonyms/near-misses; gap notes explain an empty or partially-built glossary (no pass has run yet, every candidate fell below the frequency floor, consolidation is still in progress) rather than looking broken.
 
-**Definition provenance.** A definition's `definitionSource` is either `"llm"` (the local model consolidated it from source snippets) or `"snippet"` (no LLM was available at consolidation time, so the verbatim sentence containing the term was used instead — honest and attributable, but not synthesized). The background pass currently runs with no LLM wired into it, so unattended passes always produce snippet-sourced definitions today. There is no automatic upgrade path: configuring a local LLM later does not re-queue an already-consolidated snippet-sourced term for re-consolidation — that is a follow-up, not current behavior.
+**Definition provenance.** A definition's `definitionSource` is either `"llm"` (the local model consolidated it from source snippets) or `"snippet"` (no LLM was available at consolidation time, so the verbatim sentence containing the term was used instead — honest and attributable, but not synthesized). The background pass consolidates through a local model whenever `[glossary].use_llm` is true (the default) and one is available (Ollama or llama.cpp); with neither running, or `use_llm = false`, it produces snippet-sourced definitions instead. A snippet-sourced definition is not permanent: a later pass automatically re-consolidates it once a local LLM becomes available, using a reserved share of that pass's budget so a large backlog of new terms cannot starve upgrades indefinitely.
+
+**Enabling the LLM can remove terms you've already seen.** Snippet mode has no veto path, so a glossary built without a model can accumulate terms nothing has ever judged. The upgrade path above puts those same terms in front of a real model for the first time, and a term the model vetoes is removed from the glossary (it survives internally as `vetoed`, and returns only if a later `--rebuild` re-derives it). `--refresh` names up to 10 terms vetoed this way in its stderr summary — plus a count of any remainder beyond that (`VETOED_TERMS_REPORTED`), so the total is never silently dropped — but a user who only reads the terminal output between runs, or consumes the glossary via search/`nimbus ask`, will not see that line unless they run `--refresh` themselves.
 
 **Read-only:** never triggers HITL, never makes a live API call — the extraction pass calls only the local LLM (when configured), and the `nimbus glossary` read path is pure SQLite. Zero `egress_ledger` rows.
 

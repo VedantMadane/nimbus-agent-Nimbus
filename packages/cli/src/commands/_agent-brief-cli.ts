@@ -3,7 +3,10 @@ import { readGatewayState } from "../lib/gateway-process.ts";
 import { registerInteractiveCliIpcHandlers } from "../lib/interactive-ipc-handlers.ts";
 import { getCliPlatformPaths } from "../paths.ts";
 
-const TIMEOUT_MS = 30_000;
+/** Shared 30s notification-wait bound. Exported so sibling read paths outside
+ * `runAgentBriefCli` (e.g. `glossary`'s `--rebuild` preview read) fail closed
+ * with the same timeout discipline instead of hanging indefinitely. */
+export const TIMEOUT_MS = 30_000;
 
 /** Reads the value following a `--flag`, rejecting empty / another-flag values. Shared by agent CLIs. */
 export function flagValue(args: string[], i: number, flag: string): string {
@@ -34,6 +37,12 @@ export type AgentBriefCliSpec<TFindings> = {
   timeoutMs?: number;
   /** Invoked with the typed findings before output — lets a command set its own exit code. */
   onResult?: (findings: TFindings) => void;
+  /**
+   * Runs after connect, BEFORE the brief-notification timer is armed. Used by
+   * `glossary --refresh` to drive a pass that can take minutes; arming the 30 s
+   * brief timeout first would kill it.
+   */
+  beforeCall?: (client: IPCClient) => Promise<void>;
 };
 
 function awaitBrief<TFindings>(
@@ -87,6 +96,7 @@ export async function runAgentBriefCli<TFindings>(
   try {
     await client.connect();
     registerInteractiveCliIpcHandlers(client);
+    if (spec.beforeCall !== undefined) await spec.beforeCall(client);
     const briefPromise = awaitBrief(client, spec, (t) => {
       timeout = t;
     });

@@ -9,9 +9,11 @@ function runMigrations(db: Database): void {
   runIndexedSchemaMigrations(db, CURRENT_SCHEMA_VERSION);
 }
 
+import { dbRun } from "../db/write.ts";
 import { upsertIndexedItem } from "../index/item-store.ts";
 import type { ConsolidatorLlm } from "./glossary-consolidate.ts";
 import { rebuildGlossary, runGlossaryPass } from "./glossary-extract.ts";
+import { projectTerm } from "./glossary-project.ts";
 import {
   clearGlossary,
   getTerm,
@@ -20,6 +22,7 @@ import {
   readPassState,
   upsertCandidate,
 } from "./glossary-store.ts";
+import type { GlossaryPassProgress } from "./glossary-types.ts";
 
 let db: Database;
 
@@ -32,6 +35,23 @@ const OPTS = {
   retryBaseCooldownMs: 1000,
   nowMs: 5000,
 };
+
+/**
+ * Disables the phase-A reconcile sweep for the snippet-upgrade tests below.
+ *
+ * Those tests seed `glossary_term` rows directly via raw SQL rather than
+ * through `markConsolidated`/`upsertCandidate`, so `stats_verified_at` is left
+ * at its schema default of 0. With `OPTS.statsRecheckCooldownMs` at 0,
+ * `reconcilePass` (which runs unconditionally at the top of every
+ * `runGlossaryPass` call) would treat every one of those rows as stale,
+ * recompute its FTS doc frequency against the throwaway backing item text
+ * (which never mentions the synthetic term keys), find 0 < `minDocFreq`, and
+ * demote the row back to `pending` with its definition cleared — before
+ * `consolidatePhase` (the thing under test) ever runs. `statsRecheckPerPass: 0`
+ * makes that sweep select zero rows, so the tests exercise only the
+ * allocation logic they name.
+ */
+const PASS_OPTS = { ...OPTS, statsRecheckPerPass: 0 };
 
 function definingLlm(): ConsolidatorLlm {
   return {
@@ -356,4 +376,336 @@ test("stored near-misses draw from consolidated keys only, not pending or vetoed
   const t = getTerm(db, "cdr");
   expect(t?.nearMisses).toContain("cdz");
   expect(t?.nearMisses).not.toContain("cdq");
+});
+
+// --- snippet upgrades -------------------------------------------------
+
+function llmReturning(json: string): ConsolidatorLlm {
+  return {
+    generateJson: () => Promise.resolve(json),
+  };
+}
+
+/**
+ * Backs a `top_sources` reference with a real `item` row so `snippetsFor`
+ * does not short-circuit `consolidateTerm` into a `retry` for every term.
+ * Idempotent (`upsertIndexedItem` upserts), so many terms can share one item.
+ */
+function seedBackingItem(itemId: string): void {
+  const sep = itemId.indexOf(":");
+  const service = sep === -1 ? "slack" : itemId.slice(0, sep);
+  const externalId = sep === -1 ? itemId : itemId.slice(sep + 1);
+  upsertIndexedItem(db, {
+    service,
+    type: "message",
+    externalId,
+    title: "t",
+    bodyPreview: "t",
+    modifiedAt: 2,
+    syncedAt: 2,
+  });
+}
+
+function seedSnippetTerm(key: string, itemId: string, score: number): void {
+  seedBackingItem(itemId);
+  dbRun(
+    db,
+    `INSERT INTO glossary_term
+       (term_key, display_term, status, definition, definition_source, doc_freq,
+        service_spread, score, form, first_seen_at, last_seen_at, top_sources,
+        attempts, last_attempt_at, updated_at)
+     VALUES (?, ?, 'consolidated', 'old snippet text', 'snippet', 5, 2, ?, 'acronym',
+             1, 2, ?, 0, 0, 1)`,
+    [
+      key,
+      key.toUpperCase(),
+      score,
+      JSON.stringify([{ itemId, title: "t", url: null, service: "slack", modifiedAt: 2 }]),
+    ],
+  );
+}
+
+function seedPendingTerm(key: string, score: number): void {
+  seedBackingItem("slack:1");
+  dbRun(
+    db,
+    `INSERT INTO glossary_term
+       (term_key, display_term, status, doc_freq, service_spread, score, form,
+        first_seen_at, last_seen_at, top_sources, attempts, last_attempt_at, updated_at)
+     VALUES (?, ?, 'pending', 5, 2, ?, 'acronym', 1, 2, ?, 0, 0, 1)`,
+    [
+      key,
+      key.toUpperCase(),
+      score,
+      JSON.stringify([
+        { itemId: "slack:1", title: "t", url: null, service: "slack", modifiedAt: 2 },
+      ]),
+    ],
+  );
+}
+
+test("does not run upgrades when no LLM is configured", async () => {
+  seedSnippetTerm("cdr", "slack:1", 10);
+  // `seedBackingItem` (called by `seedSnippetTerm`) writes generic `"t"` /
+  // `"t"` text that never mentions the term, so `pickSnippetDefinition`
+  // could never match regardless of whether the `hasLlm` gate ran — making
+  // this test pass even with the gate deleted. Overwriting the same backing
+  // item (`upsertIndexedItem` upserts by service+externalId) with text that
+  // actually mentions "CDR" means a gate-free query WOULD pick this term up
+  // and re-derive its definition via `pickSnippetDefinition`, so the
+  // assertions below are only true when the gate is intact.
+  upsertIndexedItem(db, {
+    service: "slack",
+    type: "message",
+    externalId: "1",
+    title: "t",
+    bodyPreview: "The CDR is a change envelope.",
+    modifiedAt: 2,
+    syncedAt: 2,
+  });
+  const summary = await runGlossaryPass(db, { ...PASS_OPTS });
+  expect(summary.upgraded).toBe(0);
+  const row = db
+    .query("SELECT definition_source, definition, attempts FROM glossary_term WHERE term_key='cdr'")
+    .get() as {
+    definition_source: string;
+    definition: string;
+    attempts: number;
+  };
+  expect(row.definition_source).toBe("snippet");
+  // Untouched entirely, not merely re-labelled the same: the gate keeps the
+  // upgrade query from running at all, so neither the definition text nor
+  // the attempt counter moves.
+  expect(row.definition).toBe("old snippet text");
+  expect(row.attempts).toBe(0);
+});
+
+test("upgrades a snippet definition in place and re-sources it as llm", async () => {
+  seedSnippetTerm("cdr", "slack:1", 10);
+  const summary = await runGlossaryPass(db, {
+    ...PASS_OPTS,
+    llm: llmReturning('{"isDomainTerm":true,"definition":"model definition","alsoKnownAs":[]}'),
+  });
+  expect(summary.upgraded).toBe(1);
+  const row = db
+    .query("SELECT definition, definition_source FROM glossary_term WHERE term_key='cdr'")
+    .get() as { definition: string; definition_source: string };
+  expect(row.definition).toBe("model definition");
+  expect(row.definition_source).toBe("llm");
+});
+
+test("leaves the snippet definition intact when the upgrade fails", async () => {
+  seedSnippetTerm("cdr", "slack:1", 10);
+  const summary = await runGlossaryPass(db, {
+    ...PASS_OPTS,
+    llm: { generateJson: () => Promise.resolve("not json") },
+  });
+  expect(summary.upgraded).toBe(0);
+  const row = db
+    .query("SELECT definition, definition_source, attempts FROM glossary_term WHERE term_key='cdr'")
+    .get() as { definition: string; definition_source: string; attempts: number };
+  expect(row.definition).toBe("old snippet text");
+  expect(row.definition_source).toBe("snippet");
+  expect(row.attempts).toBe(1);
+});
+
+test("vetoes an upgraded term, unprojects it, and names it in the summary", async () => {
+  seedSnippetTerm("cdr", "slack:1", 10);
+  // `seedSnippetTerm` inserts the `glossary_term` row directly via raw SQL and
+  // never projects it, so without this the `item` row this test checks for
+  // never existed in the first place and the count-goes-to-0 assertion below
+  // would pass whether or not `unprojectTerm` actually ran. Projecting it
+  // here first makes the assertion mean something: a real, user-visible
+  // "glossary:cdr" search hit that the veto must remove.
+  const seeded = getTerm(db, "cdr");
+  if (seeded === null) throw new Error("seedSnippetTerm did not create the row");
+  projectTerm(db, seeded, 1);
+  const before = db
+    .query("SELECT COUNT(*) AS n FROM item WHERE external_id = 'glossary:cdr'")
+    .get() as { n: number };
+  expect(before.n).toBe(1);
+
+  const summary = await runGlossaryPass(db, {
+    ...PASS_OPTS,
+    llm: llmReturning('{"isDomainTerm":false,"definition":"","alsoKnownAs":[]}'),
+  });
+  expect(summary.upgradesVetoed).toBe(1);
+  // `displayTerm` ("CDR"), not the lowercased `termKey` ("cdr") — the rebuild
+  // preview shows the display form, and this list must match it.
+  expect(summary.vetoedTerms).toEqual(["CDR"]);
+  const status = db.query("SELECT status FROM glossary_term WHERE term_key='cdr'").get() as {
+    status: string;
+  };
+  expect(status.status).toBe("vetoed");
+  const after = db
+    .query("SELECT COUNT(*) AS n FROM item WHERE external_id = 'glossary:cdr'")
+    .get() as { n: number };
+  expect(after.n).toBe(0);
+});
+
+// Budget allocation corners. UPGRADE_RESERVE is a FLOOR, not a ceiling, and
+// neither queue may leave budget idle while the other has work. Assert BOTH
+// numbers in every case: `upgraded` alone passes under several wrong
+// allocations.
+test("reserves upgrade slots when the pending queue exceeds the budget", async () => {
+  for (let i = 0; i < 30; i++) seedPendingTerm(`pending${String(i)}`, 100 - i);
+  for (let i = 0; i < 8; i++) seedSnippetTerm(`snip${String(i)}`, "slack:1", 5);
+  const summary = await runGlossaryPass(db, {
+    ...PASS_OPTS,
+    maxNewTermsPerPass: 25,
+    llm: llmReturning('{"isDomainTerm":true,"definition":"d","alsoKnownAs":[]}'),
+  });
+  expect(summary.consolidated).toBe(20);
+  expect(summary.upgraded).toBe(5);
+});
+
+test("gives pending the whole budget when no upgrades are outstanding", async () => {
+  for (let i = 0; i < 30; i++) seedPendingTerm(`pending${String(i)}`, 100 - i);
+  const summary = await runGlossaryPass(db, {
+    ...PASS_OPTS,
+    maxNewTermsPerPass: 25,
+    llm: llmReturning('{"isDomainTerm":true,"definition":"d","alsoKnownAs":[]}'),
+  });
+  expect(summary.consolidated).toBe(25);
+  expect(summary.upgraded).toBe(0);
+});
+
+// The reserve must not become a CEILING: with nothing pending, upgrades take
+// the whole budget rather than stopping at 5 and idling 20 slots.
+test("gives upgrades the whole budget when nothing is pending", async () => {
+  for (let i = 0; i < 40; i++) seedSnippetTerm(`snip${String(i)}`, "slack:1", 100 - i);
+  const summary = await runGlossaryPass(db, {
+    ...PASS_OPTS,
+    maxNewTermsPerPass: 25,
+    llm: llmReturning('{"isDomainTerm":true,"definition":"d","alsoKnownAs":[]}'),
+  });
+  expect(summary.consolidated).toBe(0);
+  expect(summary.upgraded).toBe(25);
+});
+
+test("lets upgrades absorb the slack of a partially-filled pending queue", async () => {
+  for (let i = 0; i < 3; i++) seedPendingTerm(`pending${String(i)}`, 100 - i);
+  for (let i = 0; i < 40; i++) seedSnippetTerm(`snip${String(i)}`, "slack:1", 50 - i);
+  const summary = await runGlossaryPass(db, {
+    ...PASS_OPTS,
+    maxNewTermsPerPass: 25,
+    llm: llmReturning('{"isDomainTerm":true,"definition":"d","alsoKnownAs":[]}'),
+  });
+  expect(summary.consolidated).toBe(3);
+  expect(summary.upgraded).toBe(22);
+});
+
+// Completeness corner: both queues non-empty but together under budget —
+// nothing should be left behind or arbitrarily truncated.
+test("processes both queues fully when their combined size is under budget", async () => {
+  for (let i = 0; i < 3; i++) seedPendingTerm(`pending${String(i)}`, 100 - i);
+  for (let i = 0; i < 4; i++) seedSnippetTerm(`snip${String(i)}`, "slack:1", 50 - i);
+  const summary = await runGlossaryPass(db, {
+    ...PASS_OPTS,
+    maxNewTermsPerPass: 25,
+    llm: llmReturning('{"isDomainTerm":true,"definition":"d","alsoKnownAs":[]}'),
+  });
+  expect(summary.consolidated).toBe(3);
+  expect(summary.upgraded).toBe(4);
+});
+
+// `UPGRADE_RESERVE` (5) clamps to half the budget at small budgets so it can
+// never starve pending outright: at budget 4 a naive `min(5, 4)` reserve
+// would hand upgrades the ENTIRE budget. Half-budget clamping keeps both
+// queues represented even when the configured pass is tiny (a real setting —
+// `max_new_terms_per_pass` is how a laptop-class local LLM is throttled).
+test("halves the reserve at a small budget instead of letting it consume the whole pass", async () => {
+  for (let i = 0; i < 10; i++) seedPendingTerm(`pending${String(i)}`, 100 - i);
+  for (let i = 0; i < 10; i++) seedSnippetTerm(`snip${String(i)}`, "slack:1", 50 - i);
+  const summary = await runGlossaryPass(db, {
+    ...PASS_OPTS,
+    maxNewTermsPerPass: 4,
+    llm: llmReturning('{"isDomainTerm":true,"definition":"d","alsoKnownAs":[]}'),
+  });
+  expect(summary.consolidated).toBe(2);
+  expect(summary.upgraded).toBe(2);
+});
+
+// At `budget = 1` the reserve floor is 0 (`Math.floor(1 / 2) = 0`), but the
+// upgrade QUERY must still run when an LLM is configured — otherwise, with
+// nothing pending and real snippet work outstanding, the pass does nothing
+// at all with a full slot of budget idle. This is the regression the
+// hasLlm/reserve split (as opposed to gating the query on `reserve === 0`)
+// exists to prevent.
+test("gives the single slot to upgrades at budget 1 when nothing is pending", async () => {
+  for (let i = 0; i < 2; i++) seedSnippetTerm(`snip${String(i)}`, "slack:1", 100 - i);
+  const summary = await runGlossaryPass(db, {
+    ...PASS_OPTS,
+    maxNewTermsPerPass: 1,
+    llm: llmReturning('{"isDomainTerm":true,"definition":"d","alsoKnownAs":[]}'),
+  });
+  expect(summary.consolidated).toBe(0);
+  expect(summary.upgraded).toBe(1);
+});
+
+// Pins the contested-slot rule at budget 1: with BOTH queues populated and no
+// guaranteed reserve, the single slot goes to pending, not upgrades.
+test("gives the single slot to pending at budget 1 when both queues are populated", async () => {
+  seedPendingTerm("pending0", 100);
+  seedSnippetTerm("snip0", "slack:1", 100);
+  const summary = await runGlossaryPass(db, {
+    ...PASS_OPTS,
+    maxNewTermsPerPass: 1,
+    llm: llmReturning('{"isDomainTerm":true,"definition":"d","alsoKnownAs":[]}'),
+  });
+  expect(summary.consolidated).toBe(1);
+  expect(summary.upgraded).toBe(0);
+});
+
+// Pins VETOED_TERMS_REPORTED (10) and proves `upgradesVetoed` and
+// `vetoedTerms.length` are independent counters — nothing distinguishes the
+// cap from an unconditional push, or from a much larger cap, without this.
+test("caps the reported vetoed-term names while still counting every veto", async () => {
+  for (let i = 0; i < 12; i++) seedSnippetTerm(`snip${String(i)}`, "slack:1", 100 - i);
+  const summary = await runGlossaryPass(db, {
+    ...PASS_OPTS,
+    maxNewTermsPerPass: 25,
+    llm: llmReturning('{"isDomainTerm":false,"definition":"","alsoKnownAs":[]}'),
+  });
+  expect(summary.upgradesVetoed).toBe(12);
+  expect(summary.vetoedTerms.length).toBe(10);
+});
+
+test("onProgress reports per-term counts across both queues and finishes done === total", async () => {
+  for (let i = 0; i < 3; i++) seedPendingTerm(`pending${String(i)}`, 100 - i);
+  for (let i = 0; i < 4; i++) seedSnippetTerm(`snip${String(i)}`, "slack:1", 50 - i);
+  const events: GlossaryPassProgress[] = [];
+  await runGlossaryPass(db, {
+    ...PASS_OPTS,
+    maxNewTermsPerPass: 25,
+    llm: llmReturning('{"isDomainTerm":true,"definition":"d","alsoKnownAs":[]}'),
+    onProgress: (p) => events.push(p),
+  });
+  // 3 pending + 4 upgrades = 7 units of work — `total` must count BOTH
+  // queues, not just the one `onProgress` happened to have been introduced
+  // alongside. A regression back to `total: batch.length` (pending only)
+  // would report `total: 3` instead.
+  expect(events.length).toBe(7);
+  expect(events.at(-1)).toEqual({
+    done: 7,
+    total: 7,
+    consolidated: 3,
+    upgraded: 4,
+    vetoed: 0,
+    retried: 0,
+  });
+});
+
+test("reports llmConfigured and llmProduced separately", async () => {
+  seedPendingTerm("cdr", 10);
+  const none = await runGlossaryPass(db, { ...PASS_OPTS });
+  expect(none.llmConfigured).toBe(false);
+  expect(none.llmProduced).toBe(false);
+
+  const dead = await runGlossaryPass(db, {
+    ...PASS_OPTS,
+    llm: { generateJson: () => Promise.resolve(null) },
+  });
+  expect(dead.llmConfigured).toBe(true);
+  expect(dead.llmProduced).toBe(false);
 });

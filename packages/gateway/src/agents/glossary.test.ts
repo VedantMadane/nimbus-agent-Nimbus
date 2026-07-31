@@ -9,12 +9,15 @@ function runMigrations(db: Database): void {
   runIndexedSchemaMigrations(db, CURRENT_SCHEMA_VERSION);
 }
 
-import { markConsolidated, upsertCandidate } from "../glossary/glossary-store.ts";
+import { markConsolidated, upsertCandidate, writePassState } from "../glossary/glossary-store.ts";
 import { runGlossary } from "./glossary.ts";
 
 let db: Database;
 
-function seed(key: string, opts: { score?: number; synonyms?: string[] } = {}): void {
+function seed(
+  key: string,
+  opts: { score?: number; synonyms?: string[]; definitionSource?: "llm" | "snippet" } = {},
+): void {
   upsertCandidate(db, {
     key,
     surface: key.toUpperCase(),
@@ -26,7 +29,7 @@ function seed(key: string, opts: { score?: number; synonyms?: string[] } = {}): 
   markConsolidated(db, {
     termKey: key,
     definition: `definition of ${key}`,
-    definitionSource: "llm",
+    definitionSource: opts.definitionSource ?? "llm",
     synonyms: opts.synonyms ?? [],
     nearMisses: [],
     nowMs: 1000,
@@ -143,4 +146,45 @@ test("the brief carries latency and a version", async () => {
   expect(brief.kind).toBe("glossary");
   expect(brief.agentVersion).toBe(1);
   expect(brief.latencyMs).toBeGreaterThanOrEqual(0);
+});
+
+test("reports how many definitions are raw snippets", async () => {
+  // Asymmetric on purpose: 2 snippet + 1 llm. A symmetric 1-of-2 split would
+  // make "count = 1" ambiguous between the two filters, so flipping the
+  // store query's `definition_source` predicate would coincidentally produce
+  // the identical "1 of 2" text and the assertion below would still pass —
+  // verifying message formatting, not that the count came from the intended
+  // filter. With 2-of-3, flipping the filter yields a different count
+  // (1-of-3), so this assertion catches that mutation on its own.
+  seed("cdr", { definitionSource: "snippet" });
+  seed("slo", { definitionSource: "snippet" });
+  seed("rpo", { definitionSource: "llm" });
+  // A gap note about extraction never having run takes priority over the
+  // snippet-ratio note (buildGaps returns early on lastPassAt === null), so a
+  // completed pass must be on record for this test to reach that logic.
+  writePassState(db, {
+    watermarkMs: 900,
+    watermarkId: "rpo",
+    lastPassAt: 1000,
+    lastPassNew: 3,
+    scannedItems: 3,
+  });
+  const brief = await runGlossary({}, ctx());
+  const note = brief.gaps.find((g) => g.detail.includes("verbatim snippet"));
+  expect(note).toBeDefined();
+  expect(note?.detail).toContain("2 of 3");
+  expect(note?.remediation).toContain("--refresh");
+});
+
+test("omits the snippet note when every definition came from a model", async () => {
+  seed("slo", { definitionSource: "llm" });
+  writePassState(db, {
+    watermarkMs: 900,
+    watermarkId: "slo",
+    lastPassAt: 1000,
+    lastPassNew: 1,
+    scannedItems: 1,
+  });
+  const brief = await runGlossary({}, ctx());
+  expect(brief.gaps.some((g) => g.detail.includes("verbatim snippet"))).toBe(false);
 });
