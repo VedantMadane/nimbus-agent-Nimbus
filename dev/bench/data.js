@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785582034544,
+  "lastUpdate": 1785585115705,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -8193,6 +8193,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 321.24157645000486,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d3d252e8c6ea3342fb5b9b80391eb056d952ff3c",
+          "message": "feat(cli): implement --json on the six commands that documented it (#1011)\n\nCloses #998.\n\n`--json` was documented on six commands and parsed by none — silently\nignored, with human-readable output printed instead. A script piping\n`nimbus status --json` into `jq` got formatted text and failed\nconfusingly.\n\nNow implemented on **`status`**, **`connector list`**, **`db verify`**,\n**`db repair`**, **`config list`** and **`audit`**. Each emits parseable\nJSON on stdout with **nothing else on stdout**, verified end-to-end\nagainst a live gateway.\n\n## A false claim, corrected\n\nThe first cut documented behaviour that a reviewer proved wrong in three\nplaces: `status.ts`'s `StatusJson` docblock and `docs/cli-reference.md`\nboth claimed *\"a stale state file whose socket no longer responds\nreports `running: false` with the IPC message in `error`\"*. That isn't\nwhat happens. All three places now describe the behaviour actually\nestablished by experiment, pinned by two red-proved tests.\n\nBehaviour was **documented, not changed** — `runStatus` is untouched.\nThere's a defensible alternative (catch and report the IPC error rather\nthan describing the current shape), but changing runtime behaviour\nbelongs in its own PR, not one whose remit is making a documented flag\nreal.\n\n## Interaction with #1000\n\n#1000 corrected 52 wrong doc claims, including adding *\"`nimbus status`\nreads only `--verbose` and `--drift`; there is no JSON output mode\"* —\nwhich this PR makes false. Rebased onto it and resolved by documenting\nthe new support **on top of** #1000's corrected text. An independent\nreviewer confirmed **none of #1000's other corrections were reverted**\nin the process.\n\n## Note on scope\n\nThis is an API commitment: the JSON shapes are now something consumers\ncan depend on. The shapes follow the convention already used by `nimbus\nquery --json` rather than inventing a new envelope. Tests assert the\n**parsed shape**, not string matches against formatted text.",
+          "timestamp": "2026-08-01T11:40:26Z",
+          "tree_id": "174262ba3948995215c7faff75660bf575f4420c",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/d3d252e8c6ea3342fb5b9b80391eb056d952ff3c"
+        },
+        "date": 1785585114637,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 308.82578834999697,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 316.2260839499992,
             "unit": "ms"
           }
         ]
