@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785561111549,
+  "lastUpdate": 1785569327839,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -7989,6 +7989,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 317.3064365499919,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f2062e625eb20ea96443f6a719c829cdbd99bbfc",
+          "message": "docs: correct 52 verified-wrong claims and repair the CLAUDE/GEMINI mirror (#1000)\n\nAn 8-agent audit checked **1,373 factual claims** across README,\nroadmap, architecture, cli-reference, CHANGELOG, the `scripts/` READMEs\nand the CLAUDE.md/GEMINI.md pair. **52 were demonstrably wrong.** Every\nfix was re-verified against source before editing, and a separate\nverifier re-checked the result and spot-checked 22 corrected claims\n(22/22 correct).\n\n## The dominant failure: documented CLI surface that does not exist\n\nA reader following the docs hit a hard error, not a subtle inaccuracy:\n\n- `nimbus search` — six documented flags (`--since`, `--until`,\n`--state`, `--assignee`, `--query`, `--json`) **do not exist**, and\n`search` hard-rejects unknown dash-args, so every documented example\naborted with `Unknown flag:`. The flag that actually changes behaviour\n(`--no-semantic` / `--keyword-only`) was undocumented.\n- `nimbus connector add <service>` was given as the OAuth path; `add`\naccepts only `--mcp`. The correct verb is `connector auth`.\n- `nimbus workflow save ./file.yml --name x` — the signature is\ninverted; it is `save <name> --file <path>` and there is no `--name`\nflag.\n- `nimbus db prune` — an entire documented section for a subcommand that\nthrows `Unknown db subcommand`.\n- `nimbus connector remove --yes` \"requires confirmation\" — no\nconfirmation and no `--yes` exist.\n- `nimbus lan enable / pair / grant-write` — none are subcommands.\n- `NIMBUS_DATA_DIR`, `NIMBUS_SYNC_INTERVAL_SECONDS` — neither exists\nanywhere in the repo.\n\n## architecture.md\n\nTen of thirteen documented `team.vault.*` / `team.*` IPC methods do not\nexist (the namespace is `teamvault`). A code snippet was attributed to\n`engine/script-runner.ts` — a file with neither of its named symbols\nanywhere in the tree. `AgentCoordinator.executeAll` is really `run()`.\n`share.approvalRespond` was described as renderer-exposed when it is\ndeliberately excluded from Tauri's `ALLOWED_METHODS` and is\nLAN-forbidden.\n\n## The mirror was broken\n\n`GEMINI.md` was missing two bullets `CLAUDE.md` carried — the\nsquash-merge/PR-title rule and the immutable-release-tags rule — so\nGemini sessions had been operating without the release mechanics. The\ntwo files now differ only in the H1 title and the companion-file\npointer.\n\nAlso corrected: `v1.5.0` → `v1.15.0`, `schema V45` → `V46`, and the\n`bun-version: latest` claim (the test/quality workflows go through\n`.github/actions/setup-nimbus-ci`, which defaults to `\"1.3\"`; only\n`org-drift-sweep.yml` uses `latest`).\n\n## Deliberately not changed\n\nFour findings were code gaps the docs had papered over. The docs now\ndescribe **actual** behaviour and the gaps are filed separately as #997,\n#998 and #999, so this PR stays documentation-only.\n\n## Verification\n\n`markdownlint-cli2` 0 issues (93 files) · `audit:doc-refs` 642 refs all\nresolve · `audit:readme-cli` all 32 references match the CLI registry ·\n`audit:links` (lychee, whole branch) 1,182 links, **0 errors** · `git\ndiff --check` clean · only markdown changed.\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n- **Documentation**\n- Updated CLI guidance for revised commands, flags, output formats,\nvalidation, safety controls, database maintenance, workflows,\nconnectors, and platform paths.\n  - Corrected OAuth connector authentication instructions.\n- Updated architecture and deployment documentation to reflect current\nworkflow behavior, platform storage, sharing controls, connector\ncoverage, and integration surfaces.\n- Clarified HTTP API write operations, authentication, rate limits, and\naudit behavior.\n- Refreshed release status, roadmap information, security notes, cleanup\nscripts, and project structure documentation.\n  - Updated changelog references for retired documentation.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-08-01T07:17:14Z",
+          "tree_id": "23d94989a613409c74e3cf95199ae0ff4df3d36c",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/f2062e625eb20ea96443f6a719c829cdbd99bbfc"
+        },
+        "date": 1785569326878,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 325.5770153999965,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 324.3380174999969,
             "unit": "ms"
           }
         ]
