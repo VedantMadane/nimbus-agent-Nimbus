@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785569327839,
+  "lastUpdate": 1785570289952,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -8023,6 +8023,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 324.3380174999969,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bed4f385c7130da4fc23499a39073e8b5772cf4e",
+          "message": "refactor(glossary): clear all 44 open SonarCloud findings (#1001)\n\nClears all **44 open SonarCloud findings** (3 CRITICAL, 41 MINOR) in\ncode. No exclusions, no `NOSONAR`, no deleted or weakened tests.\n\n## The three CRITICAL cognitive-complexity findings\n\n`agents/_lib/render.ts:273` (complexity 39 vs 15 allowed),\n`glossary/glossary-extract.ts:246` and\n`config/nimbus-toml-glossary-terms.ts:70` were decomposed into named\nprivate helpers, following the pattern established in 37298086. The\noriginal explanatory comments were carried verbatim into the extracted\nfunctions so no design rationale was lost.\n\n## The 41 MINOR findings\n\nMechanical, behaviour-identical rewrites: `toHaveLength`/`toBeNull`\nmatchers over generic assertions (31 of them), variadic `push`,\n`String.raw`, `replaceAll`, `.at(-1)`, one merged duplicate import, and\na `GlossaryMatchedVia` type alias.\n\n## Behaviour preservation was proven, not assumed\n\nAn independent verifier ran a **13,824-case differential** on\n`renderGlossary` — extracting main's implementation and comparing output\nacross every combination of mode, matchedVia, definitionSource, entry\ncount, synonyms, near-misses, top-sources, null definitions, missing\nquery, suggestions and gaps. **Zero mismatches.** `collectBlocks` was\ndifferentially tested the same way.\n\n## Reviewer's eye\n\n`consolidatePhase`'s return type changed from an inline 8-field object\nliteral to `ConsolidationTally & { aborted: boolean }`. The resolved\nshape is identical and both return sites spread the tally, but it is the\nlargest single change here. The 217 glossary tests cover the\nabort/resume, backoff and progress-event paths that read every counter.\n\n## Verification\n\n`biome check packages scripts` 0 · gateway + cli `tsc --noEmit` 0 ·\n**955 scoped tests across 67 files** pass · every fast preflight gate\nrun individually, all 0.\n\nNote: SonarCloud is only authoritative after a re-scan, which happens on\nthis PR. The local gates do not prove the board reaches zero — the scan\ndoes.\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T07:33:26Z",
+          "tree_id": "883bb5090c81dede507ca0ebe8cf18ee63355afc",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/bed4f385c7130da4fc23499a39073e8b5772cf4e"
+        },
+        "date": 1785570288762,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 312.386841000001,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 313.6647055500049,
             "unit": "ms"
           }
         ]
