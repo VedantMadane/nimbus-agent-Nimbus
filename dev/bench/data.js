@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785498145275,
+  "lastUpdate": 1785560240247,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -7921,6 +7921,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 246.98000219999886,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b25c0f1a119700b7f2d50294c6165dc09eb89ce2",
+          "message": "feat(glossary): author and correct terms in nimbus.toml (#993)\n\nLets a human author and correct glossary terms in `nimbus.toml`. Config\nis desired state for authored rows only — the\n`definition_source='manual'` subspace — and nothing else in the glossary\nchanges ownership.\n\nA pre-pass at the head of every glossary pass reads `[glossary.terms]` /\n`[glossary.synonyms]` and writes rows straight to\n`status='consolidated'` with `definition_source='manual'`: no model\ncall, no pending queue, no budget slot. Mining and the reconciliation\nsweep gain narrow guards so they refresh an authored row's statistics\nwithout ever overwriting its definition, display form, or status.\n\n## Design decisions\n\n**Removal demotes, it does not delete.** A manual row whose config entry\ndisappears is demoted to `pending` with its definition nulled.\n`selectPendingBatch`'s existing `doc_freq >= min_doc_freq` filter then\ndiscriminates the two cases for free: a term with real mined evidence\nre-enters the consolidation queue and comes back with a mined\ndefinition, while a pure invention sits below the floor, never selected\nand never projected. Hard deletion would lose the first case entirely,\nbecause `discoverPhase` only scans past the watermark and would never\nre-discover the term.\n\n**`loaded: false` means \"could not read the config\", never \"there are no\nauthored terms\".** The loader is deliberately not built on\n`loadTomlSection`, which catches every error and returns defaults — that\nwould make an unreadable file indistinguishable from an empty one, and\nunder desired-state semantics the second reading demotes every authored\nterm on the machine. Only the upsert half runs when the config could not\nbe read.\n\n**The sweep exemption is narrowed to demotion, not the whole sweep.**\nAuthored rows are still re-measured and re-projected, so `top_sources`\nself-heal when a cited thread is deleted. Exempting them entirely — the\nliteral reading of the base spec's §12 — would freeze their sources\nforever, so an authored term would keep citing threads the user deleted\nmonths ago: precisely the failure the sweep exists to prevent. §12 is\ncorrected in this PR.\n\n**Two upsert policies, deliberately opposite.** `upsertManualTerm`\noverwrites `display_term` unconditionally (the newest authored form\nwins); `upsertCandidate` now guards it (a mined sighting must never\nreplace an authored surface form). Both directions are pinned by test\nand both carry a comment forbidding unification.\n\n**Manual-first ordering lives at the read site.** `listConsolidated`\norders authored terms ahead of mined ones, which fixes three readers at\nonce — list mode, the agent's near-miss pool, and the extraction pass's\npool. `score` keeps its single meaning, strength of *mined* evidence, so\nan authored-but-unattested term legitimately scores 0 rather than having\nranking policy smuggled into the number.\n\n**The rebuild runs in one transaction.** `rebuildGlossary` wraps\nunproject + truncate + pre-pass together, so the state in which an\nauthored term is absent is never *committed* and is therefore\nunobservable to a concurrent reader — short is not the same as\nuncommitted. It also refuses to truncate at all when the config is\nunreadable and authored rows exist, failing loudly instead of destroying\nrows the CLI preview has just promised will be re-read.\n\n**`countByStatus.manual` is a subset of `total`, not a fourth bucket.**\nMined count is `total - manual`. The inverse reading made the rebuild\npreview claim more deletions than actually occur.\n\n## Blast radius beyond the glossary\n\nTwo shipped bugs became reachable once a config value carries human\nprose, and both are repaired here:\n\n- **The TOML line parser.** `stripComment` truncated at the first `#`\nanywhere, including inside a quoted string, and because the closing\nquote went with it `parseString` then returned the fragment with its\nleading quote attached. `parseString` also unescaped `\\\\\"` where TOML\nwrites `\\\"`. The scanner now runs twice — escape-aware, then\nbackslash-literal — so both `\"he said \\\"hi\\\"\"` and the Windows form\n`\"C:\\dev\\\"` survive; only a string unterminated under *both* scans is\nmalformed. All four `nimbus.toml` line loops now skip such a line rather\nthan acting on a mangled value. Extending the guard past the one loop\nthe plan named turned out to matter: `[federation.preflight]` was\nparsing an unterminated `command` value into a *usable* config entry.\n- **`filesystem-toml.ts` carried byte-identical private copies** of both\nbroken helpers, on a path surface where a directory named `#inbox` is\nordinary and a truncated root silently drops a whole indexed tree. The\ncopies are deleted in favour of the shared imports, which also removes\nthe drift source that produced two of them.\n\n`parseString` gains `\\\"` and deliberately nothing else — the same\nfunction parses `piper_path` / `llamacpp_server_path` / `whisper_path`,\nso a full escape decoder would read `C:\\tools\\new\\table.onnx` as `C:`\nTAB `ools` NEWLINE `ew` TAB `able.onnx`.\n\n**`depluralize` no longer truncates dotted identifiers.** It was turning\n`node.js` into `node.j`. The exemption is internal punctuation only: a\ngeneral \"consonant + s\" rule would break `SLOs` → `slo`, the\nnormalizer's headline purpose, and `docs` → `doc`, which is correct.\n`https` → `http` therefore remains — it needs an acronym allowlist,\nwhich is separate work — and is documented rather than hidden.\n\n## Schema\n\nV46 rebuilds `glossary_term` to widen `definition_source` to\n`('llm','snippet','manual')`. SQLite cannot alter a CHECK in place and\nV45 shipped, so the table is rebuilt rather than edited; columns are\ncopied by name, not position, so a future reordering of V45 cannot\nsilently misalign them. All four indexes are recreated after the rename,\nsince `DROP TABLE` takes them with it. Both `DefinitionSource` unions\nwiden together — `agents/_lib/glossary-types.ts` duplicates the literal\nunion rather than importing it, so widening one alone fails to compile.\n\n## Verification\n\nDocker Linux-authoritative coverage floor: **ok**, 990 source files, 0\nbaselined entries. Gateway glossary+config 654 pass, CLI glossary 59\npass, glossary e2e 6 pass, security-invariants 93 pass. biome (3085\nfiles), both `tsc` projects, the static structure audit, and\nmarkdownlint all clean.\n\nThis feature adds no security invariant: no HITL action, no egress row,\nno HTTP route, no Tauri-exposed method, no Vault key. Every new SQLite\nwrite goes through `dbRun` (I14 / D12).\n\n## Known limitation\n\nA `\"\"\"` block-string definition is correctly rejected and reported, but\ncurrently produces two skip entries rather than one — the meaningful\nentry plus a spurious one for the closing delimiter line. Stderr noise\nonly; the term is excluded either way. Follow-up.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T04:45:48Z",
+          "tree_id": "7606a5acbb5b22976d5645218cf2198694f1528f",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/b25c0f1a119700b7f2d50294c6165dc09eb89ce2"
+        },
+        "date": 1785560239001,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 322.710915749997,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 328.25229005,
             "unit": "ms"
           }
         ]
