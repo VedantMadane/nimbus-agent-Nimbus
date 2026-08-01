@@ -30,6 +30,7 @@ import {
   selectSnippetUpgradeBatch,
   selectStaleForRecheck,
   upsertCandidate,
+  upsertManualTerm,
   writePassState,
 } from "./glossary-store.ts";
 
@@ -472,4 +473,165 @@ test("markConsolidated stamps last_attempt_at", () => {
     .query("SELECT last_attempt_at FROM glossary_term WHERE term_key = 'cdr'")
     .get() as { last_attempt_at: number };
   expect(row.last_attempt_at).toBe(777);
+});
+
+test("a mined sighting refreshes a manual row's stats but not its display form", () => {
+  upsertManualTerm(db, {
+    termKey: "cdr",
+    displayTerm: "CDR",
+    definition: "Authored.",
+    synonyms: [],
+    nearMisses: [],
+    stats: { docFreq: 0, serviceSpread: 0, firstSeenAt: 0, lastSeenAt: 0, topSources: [] },
+    score: 0,
+    nowMs: 1000,
+  });
+
+  upsertCandidate(db, {
+    key: "cdr",
+    surface: "cdr",
+    form: "acronym",
+    stats: { docFreq: 7, serviceSpread: 2, firstSeenAt: 10, lastSeenAt: 20, topSources: [] },
+    score: 9,
+    nowMs: 2000,
+  });
+
+  const t = getTerm(db, "cdr");
+  // Order is load-bearing: `bun:test` halts a test body at its first failing
+  // assertion. `docFreq` MUST run and pass before `displayTerm` is checked —
+  // otherwise, when the CASE guard regresses to the unconditional clobber,
+  // this test would fail on `displayTerm` without ever proving `docFreq`
+  // still refreshed, and the red-prove separation of the two ANDed
+  // behaviours (statistics DO refresh; display form does NOT change) would
+  // not be reproducible from a straight test run. Do not reorder this back.
+  expect(t?.docFreq).toBe(7); // statistics DO refresh
+  expect(t?.displayTerm).toBe("CDR"); // authored form survives
+  expect(t?.definition).toBe("Authored.");
+  expect(t?.status).toBe("consolidated");
+});
+
+test("a mined sighting still updates a mined row's display form", () => {
+  // The other direction of the same CASE expression. A test for either alone
+  // passes against the wrong implementation of the other.
+  upsertCandidate(db, {
+    key: "widget",
+    surface: "widget",
+    form: "phrase",
+    stats: { docFreq: 3, serviceSpread: 1, firstSeenAt: 1, lastSeenAt: 2, topSources: [] },
+    score: 1,
+    nowMs: 1000,
+  });
+  upsertCandidate(db, {
+    key: "widget",
+    surface: "Widget",
+    form: "phrase",
+    stats: { docFreq: 4, serviceSpread: 1, firstSeenAt: 1, lastSeenAt: 2, topSources: [] },
+    score: 2,
+    nowMs: 2000,
+  });
+  expect(getTerm(db, "widget")?.displayTerm).toBe("Widget");
+});
+
+test("a manual row is selected by neither consolidation batch", () => {
+  upsertManualTerm(db, {
+    termKey: "cdr",
+    displayTerm: "CDR",
+    definition: "Authored.",
+    synonyms: [],
+    nearMisses: [],
+    stats: { docFreq: 9, serviceSpread: 3, firstSeenAt: 1, lastSeenAt: 2, topSources: [] },
+    score: 99,
+    nowMs: 1000,
+  });
+
+  // High score, zero attempts, well above the floor — it qualifies on every
+  // predicate except the ones that structurally exclude it.
+  const pending = selectPendingBatch(db, 10, {
+    nowMs: 9_000_000,
+    retryBaseCooldownMs: 1,
+    minDocFreq: 3,
+  });
+  const upgrades = selectSnippetUpgradeBatch(db, 10, {
+    nowMs: 9_000_000,
+    retryBaseCooldownMs: 1,
+  });
+
+  expect(pending.map((t) => t.termKey)).not.toContain("cdr");
+  expect(upgrades.map((t) => t.termKey)).not.toContain("cdr");
+});
+
+test("listConsolidated puts authored terms ahead of higher-scoring mined ones", () => {
+  upsertCandidate(db, {
+    key: "widget",
+    surface: "Widget",
+    form: "phrase",
+    stats: { docFreq: 50, serviceSpread: 5, firstSeenAt: 1, lastSeenAt: 2, topSources: [] },
+    score: 999,
+    nowMs: 1,
+  });
+  markConsolidated(db, {
+    termKey: "widget",
+    definition: "mined",
+    definitionSource: "llm",
+    synonyms: [],
+    nearMisses: [],
+    nowMs: 1,
+  });
+  upsertManualTerm(db, {
+    termKey: "cdr",
+    displayTerm: "CDR",
+    definition: "authored",
+    synonyms: [],
+    nearMisses: [],
+    stats: { docFreq: 0, serviceSpread: 0, firstSeenAt: 0, lastSeenAt: 0, topSources: [] },
+    score: 0,
+    nowMs: 1,
+  });
+
+  // Ordered, so assert the ORDER — a count would pass against ORDER BY score
+  // alone, which is exactly the bug this guards.
+  expect(listConsolidated(db, 10).map((t) => t.termKey)).toEqual(["cdr", "widget"]);
+});
+
+test("countByStatus reports manual as a subset of total", () => {
+  upsertManualTerm(db, {
+    termKey: "cdr",
+    displayTerm: "CDR",
+    definition: "authored",
+    synonyms: [],
+    nearMisses: [],
+    stats: { docFreq: 0, serviceSpread: 0, firstSeenAt: 0, lastSeenAt: 0, topSources: [] },
+    score: 0,
+    nowMs: 1,
+  });
+  const counts = countByStatus(db);
+  expect(counts.total).toBe(1);
+  expect(counts.manual).toBe(1);
+});
+
+// The fixture above (one manual row only) cannot distinguish "manual is a
+// SUBSET of total" from "manual is a disjoint fourth bucket that happens to
+// equal total" — both readings yield total===1 && manual===1 here. This
+// fixture adds a second, MINED consolidated row: a subset reading must count
+// it in `total` (2) but exclude it from `manual` (still 1); a disjoint-bucket
+// reading that only tallies rows sourced from config would also get this
+// right, so what this really pins is that `total` is NOT accidentally scoped
+// to `definition_source = 'manual'` — i.e. that `total` still means "every
+// consolidated row," authored or mined alike.
+test("countByStatus.total includes both a manual and a mined consolidated row", () => {
+  seedCandidate("widget");
+  consolidate("widget");
+  upsertManualTerm(db, {
+    termKey: "cdr",
+    displayTerm: "CDR",
+    definition: "authored",
+    synonyms: [],
+    nearMisses: [],
+    stats: { docFreq: 0, serviceSpread: 0, firstSeenAt: 0, lastSeenAt: 0, topSources: [] },
+    score: 0,
+    nowMs: 1,
+  });
+  const counts = countByStatus(db);
+  expect(counts.total).toBe(2);
+  expect(counts.manual).toBe(1);
 });

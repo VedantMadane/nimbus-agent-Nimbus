@@ -101,9 +101,24 @@ export type GlossaryPassSummaryLike = {
   retried: number;
   llmConfigured: boolean;
   llmProduced: boolean;
+  manualSkipped?: Array<{ entry: string; reason: string }>;
 };
 
 const REBUILD_SAMPLE = 10;
+
+/**
+ * How many entries `readRebuildPreview` actually asks `agents.glossary` for.
+ *
+ * `listConsolidated` (glossary-store.ts) orders authored terms FIRST, ahead
+ * of every mined term regardless of score. Asking for exactly
+ * `REBUILD_SAMPLE` and then filtering out manual entries would return an
+ * EMPTY mined sample once there are `REBUILD_SAMPLE` or more authored
+ * terms — exactly the configuration this feature creates. Padding the raw
+ * query and slicing to `REBUILD_SAMPLE` after filtering keeps the mined
+ * sample populated well past the common case; it is not a guarantee for an
+ * arbitrarily large authored glossary, but neither was the un-padded query.
+ */
+const REBUILD_SAMPLE_QUERY_LIMIT = 100;
 
 /**
  * One in-place progress line. `\r` returns to column 0 and `\x1b[K` clears to
@@ -147,24 +162,44 @@ export function renderPassOutcome(s: GlossaryPassSummaryLike): string[] {
         `${named} (no longer in the glossary).`,
     );
   }
+  const skipped = s.manualSkipped ?? [];
+  if (skipped.length > 0) {
+    // Otherwise a rejected config entry is invisible: the user edits
+    // nimbus.toml, sees a successful pass, and finds their term missing with
+    // no explanation.
+    lines.push(`Skipped ${String(skipped.length)} entry/entries in [glossary.terms]:`);
+    for (const s2 of skipped.slice(0, 10)) {
+      lines.push(`  ${s2.entry} — ${s2.reason}`);
+    }
+  }
   return lines;
 }
 
 /**
- * A count says how much is lost; the sample says WHAT. Sorted by score
- * upstream, so these are the terms most likely to be recognised.
+ * A count says how much is lost; the sample says WHAT.
+ *
+ * Authored terms are NOT lost: rebuild truncates them and the same pass
+ * re-reads them from `nimbus.toml` inside one transaction. Reporting them as
+ * deletions would be a false claim, and after the manual-first ordering change
+ * they head the sample — so the sample is filtered to mined terms too.
  */
 export function renderRebuildPreview(
-  counts: { total: number; pending: number },
+  counts: { total: number; pending: number; manual: number },
   sample: readonly string[],
 ): string {
+  const mined = counts.total - counts.manual;
   const lines = [
-    `${String(counts.total)} consolidated terms and ${String(counts.pending)} pending ` +
+    `${String(mined)} mined terms and ${String(counts.pending)} pending ` +
       "candidates would be deleted.",
   ];
   if (sample.length > 0) lines.push(`  ${sample.join(", ")}`);
-  const remainder = counts.total - sample.length;
+  const remainder = mined - sample.length;
   if (remainder > 0) lines.push(`  ... and ${String(remainder)} more`);
+  if (counts.manual > 0) {
+    lines.push(
+      `${String(counts.manual)} authored term(s) are re-read from nimbus.toml, not deleted.`,
+    );
+  }
   lines.push(
     "Rebuilding re-mines incrementally; the full glossary returns over subsequent passes.",
   );
@@ -243,16 +278,22 @@ function awaitPass(client: IPCClient, method: string): Promise<GlossaryPassSumma
 }
 
 type GlossaryPreviewLike = {
-  stats: { total: number; pending: number };
-  entries: Array<{ term: string }>;
+  stats: { total: number; pending: number; manual: number };
+  entries: Array<{ term: string; definitionSource?: string | null }>;
 };
 
 function isGlossaryPreviewLike(v: unknown): v is GlossaryPreviewLike {
   if (v === null || typeof v !== "object") return false;
   const b = v as { stats?: unknown; entries?: unknown };
   if (b.stats === null || typeof b.stats !== "object") return false;
-  const stats = b.stats as { total?: unknown; pending?: unknown };
-  if (typeof stats.total !== "number" || typeof stats.pending !== "number") return false;
+  const stats = b.stats as { total?: unknown; pending?: unknown; manual?: unknown };
+  if (
+    typeof stats.total !== "number" ||
+    typeof stats.pending !== "number" ||
+    typeof stats.manual !== "number"
+  ) {
+    return false;
+  }
   if (!Array.isArray(b.entries)) return false;
   return b.entries.every(
     (e: unknown) =>
@@ -272,17 +313,22 @@ function isGlossaryPreviewLike(v: unknown): v is GlossaryPreviewLike {
  * fail closed with the same "Agent timed out after N s" shape, not hang
  * forever. `timeoutMs` is overridable so tests can force the timeout branch
  * without a real 30s wait.
+ *
+ * Queries `REBUILD_SAMPLE_QUERY_LIMIT` entries, not `REBUILD_SAMPLE` — see
+ * that constant's docstring — then filters authored entries out and slices
+ * to `REBUILD_SAMPLE` afterward, so the displayed sample still names mined
+ * terms once there are `REBUILD_SAMPLE`-or-more authored ones.
  */
 export function readRebuildPreview(
   client: IPCClient,
   timeoutMs: number = TIMEOUT_MS,
-): Promise<{ counts: { total: number; pending: number }; sample: string[] }> {
+): Promise<{ counts: { total: number; pending: number; manual: number }; sample: string[] }> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       reject(new Error(`Agent timed out after ${Math.round(timeoutMs / 1000)} s`));
     }, timeoutMs);
     const settleResolve = (v: {
-      counts: { total: number; pending: number };
+      counts: { total: number; pending: number; manual: number };
       sample: string[];
     }): void => {
       clearTimeout(timeout);
@@ -304,14 +350,18 @@ export function readRebuildPreview(
         settleReject(new Error("Malformed glossary.briefReady payload"));
         return;
       }
-      settleResolve({ counts: p.findings.stats, sample: p.findings.entries.map((e) => e.term) });
+      const sample = p.findings.entries
+        .filter((e) => e.definitionSource !== "manual")
+        .map((e) => e.term)
+        .slice(0, REBUILD_SAMPLE);
+      settleResolve({ counts: p.findings.stats, sample });
     });
     client.onNotification("glossary.briefError", (params: unknown) => {
       const p = params === null || typeof params !== "object" ? {} : (params as { error?: string });
       settleReject(new Error(p.error ?? "Agent failed"));
     });
     client
-      .call<{ sessionId: string }>("agents.glossary", { limit: REBUILD_SAMPLE })
+      .call<{ sessionId: string }>("agents.glossary", { limit: REBUILD_SAMPLE_QUERY_LIMIT })
       .catch(settleReject);
   });
 }

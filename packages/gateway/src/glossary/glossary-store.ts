@@ -175,6 +175,12 @@ export function upsertCandidate(
   // ON CONFLICT deliberately leaves `status` untouched: a consolidated or
   // vetoed row must never be silently returned to the pending queue by a
   // later sighting of the same term.
+  //
+  // `display_term` is guarded for the same class of reason. Refreshing a
+  // manual row's STATISTICS from a mined sighting is wanted; overwriting the
+  // author's chosen surface form is not. The opposite policy lives in
+  // `upsertManualTerm`, where the newest authored form must win — the two are
+  // deliberately asymmetric and must not be unified into one helper.
   dbRun(
     db,
     `INSERT INTO glossary_term (
@@ -182,7 +188,9 @@ export function upsertCandidate(
        first_seen_at, last_seen_at, top_sources, updated_at
      ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(term_key) DO UPDATE SET
-       display_term = excluded.display_term, doc_freq = excluded.doc_freq,
+       display_term = CASE WHEN definition_source = 'manual'
+                           THEN display_term ELSE excluded.display_term END,
+       doc_freq = excluded.doc_freq,
        service_spread = excluded.service_spread, score = excluded.score,
        form = excluded.form, first_seen_at = excluded.first_seen_at,
        last_seen_at = excluded.last_seen_at, top_sources = excluded.top_sources,
@@ -340,9 +348,23 @@ export function selectStaleForRecheck(
   return rows.map(toTerm);
 }
 
+/**
+ * Consolidated terms, authored ones first.
+ *
+ * `score` keeps its single meaning — strength of MINED evidence — so an
+ * authored-but-unattested term legitimately scores 0. Ranking policy lives
+ * here instead, which fixes three readers at once: list mode, the agent's
+ * near-miss pool, and the extraction pass's near-miss pool. Without it an
+ * authored term would sort last and be the first dropped from the 500-term
+ * pool — the deliberately-authored term being the least likely to be
+ * suggested.
+ */
 export function listConsolidated(db: Database, limit: number): GlossaryTerm[] {
   const rows = db
-    .query("SELECT * FROM glossary_term WHERE status = 'consolidated' ORDER BY score DESC LIMIT ?")
+    .query(
+      `SELECT * FROM glossary_term WHERE status = 'consolidated'
+       ORDER BY (definition_source = 'manual') DESC, score DESC LIMIT ?`,
+    )
     .all(limit) as Row[];
   return rows.map(toTerm);
 }
@@ -429,17 +451,36 @@ export function applyStats(
   );
 }
 
-export function countByStatus(db: Database): { total: number; pending: number; vetoed: number } {
+export function countByStatus(db: Database): {
+  total: number;
+  pending: number;
+  vetoed: number;
+  manual: number;
+} {
   const r = db
     .query(
       `SELECT
          SUM(CASE WHEN status = 'consolidated' THEN 1 ELSE 0 END) AS total,
          SUM(CASE WHEN status = 'pending'      THEN 1 ELSE 0 END) AS pending,
-         SUM(CASE WHEN status = 'vetoed'       THEN 1 ELSE 0 END) AS vetoed
+         SUM(CASE WHEN status = 'vetoed'       THEN 1 ELSE 0 END) AS vetoed,
+         SUM(CASE WHEN definition_source = 'manual' THEN 1 ELSE 0 END) AS manual
        FROM glossary_term`,
     )
-    .get() as { total: number | null; pending: number | null; vetoed: number | null } | null;
-  return { total: r?.total ?? 0, pending: r?.pending ?? 0, vetoed: r?.vetoed ?? 0 };
+    .get() as {
+    total: number | null;
+    pending: number | null;
+    vetoed: number | null;
+    manual: number | null;
+  } | null;
+  // `manual` is a SUBSET of `total`, not a fourth disjoint bucket: `total`
+  // counts consolidated rows, which now include authored ones. Mined count is
+  // `total - manual`.
+  return {
+    total: r?.total ?? 0,
+    pending: r?.pending ?? 0,
+    vetoed: r?.vetoed ?? 0,
+    manual: r?.manual ?? 0,
+  };
 }
 
 /**
@@ -511,4 +552,90 @@ export function writePassState(db: Database, s: GlossaryPassState): void {
 export function clearGlossary(db: Database): void {
   dbRun(db, "DELETE FROM glossary_term", []);
   dbRun(db, "DELETE FROM glossary_pass_state", []);
+}
+
+/**
+ * Writes an authored term straight to `consolidated`.
+ *
+ * There is nothing to consolidate — the human supplied the definition — so
+ * these rows never enter the pending queue, never consume a slot of
+ * `max_new_terms_per_pass`, and never cost a model call.
+ *
+ * `display_term = excluded.display_term` is UNCONDITIONAL here, which is the
+ * exact opposite of `upsertCandidate`'s policy for a manual row. That is
+ * deliberate and the two must not be unified: an author who restyles `CDR` to
+ * `CDRs` in config is explicitly changing the surface form, while a mined
+ * sighting must never overwrite it. One rule: the authored form beats a mined
+ * one, and the newest authored form beats an older authored one.
+ *
+ * `status = 'consolidated'` is likewise UNCONDITIONAL, so authoring a key
+ * that collides with a `vetoed` row takes it over — author intent wins. This
+ * is correct, not merely tolerated: a manual row can never itself *become*
+ * vetoed (`markVetoed` is reachable only from batches that structurally
+ * exclude manual rows — see `glossary-extract.ts`), so there is no case where
+ * this upsert needs to preserve a prior veto the way `upsertCandidate` guards
+ * `display_term`.
+ */
+export function upsertManualTerm(
+  db: Database,
+  p: {
+    termKey: string;
+    displayTerm: string;
+    definition: string;
+    synonyms: string[];
+    nearMisses: string[];
+    stats: TermStats;
+    score: number;
+    nowMs: number;
+  },
+): void {
+  dbRun(
+    db,
+    `INSERT INTO glossary_term (
+       term_key, display_term, status, definition, definition_source,
+       doc_freq, service_spread, score, first_seen_at, last_seen_at,
+       top_sources, synonyms, near_misses, consolidated_at,
+       stats_verified_at, updated_at
+     ) VALUES (?, ?, 'consolidated', ?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(term_key) DO UPDATE SET
+       display_term = excluded.display_term,
+       status = 'consolidated',
+       definition = excluded.definition,
+       definition_source = 'manual',
+       doc_freq = excluded.doc_freq,
+       service_spread = excluded.service_spread,
+       score = excluded.score,
+       first_seen_at = excluded.first_seen_at,
+       last_seen_at = excluded.last_seen_at,
+       top_sources = excluded.top_sources,
+       synonyms = excluded.synonyms,
+       near_misses = excluded.near_misses,
+       consolidated_at = excluded.consolidated_at,
+       stats_verified_at = excluded.stats_verified_at,
+       updated_at = excluded.updated_at`,
+    [
+      p.termKey,
+      p.displayTerm,
+      p.definition,
+      p.stats.docFreq,
+      p.stats.serviceSpread,
+      p.score,
+      p.stats.firstSeenAt,
+      p.stats.lastSeenAt,
+      JSON.stringify(p.stats.topSources),
+      JSON.stringify(p.synonyms),
+      JSON.stringify(p.nearMisses),
+      p.nowMs,
+      p.nowMs,
+      p.nowMs,
+    ],
+  );
+}
+
+/** Every row currently sourced from `[glossary.terms]`. */
+export function listManualKeys(db: Database): string[] {
+  const rows = db
+    .query("SELECT term_key FROM glossary_term WHERE definition_source = 'manual'")
+    .all() as Array<{ term_key: string }>;
+  return rows.map((r) => r.term_key);
 }

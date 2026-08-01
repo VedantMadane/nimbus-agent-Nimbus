@@ -17,7 +17,7 @@ export type GlossarySourceRef = {
 export type GlossaryEntry = {
   term: string;
   definition: string | null;
-  definitionSource: "llm" | "snippet" | null;
+  definitionSource: "llm" | "snippet" | "manual" | null;
   docFreq: number;
   serviceSpread: number;
   firstSeenAt: number;
@@ -40,5 +40,12 @@ export type GlossaryBrief = {
   entries: GlossaryEntry[];
   matchedVia: "exact" | "synonym" | null;
   suggestions: string[];
-  stats: { total: number; pending: number; vetoed: number; lastPassAt: number | null };
+  stats: {
+    total: number;
+    pending: number;
+    vetoed: number;
+    /** Subset of `total` — authored in `[glossary.terms]`. */
+    manual: number;
+    lastPassAt: number | null;
+  };
 };
