@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785585115705,
+  "lastUpdate": 1785586491599,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -8227,6 +8227,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 316.2260839499992,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7dc717a0fc0f8b8138a3e62bf3fdde867c44b06a",
+          "message": "fix(release): prune the yum channel, keeping the newest N and the published release (#1010)\n\nCloses #995.\n\nThe `linux-repo` yum channel had grown to **~3.2 GB against a documented\n1 GB GitHub Pages limit** (3,410,232,418 bytes across 69 blobs),\nretaining 44 `nimbus-headless` RPMs forever and growing ~76 MB per\nrelease. The `apt/` pool was already pruned; `yum/` never was. This\nmirrors that logic for yum.\n\n## The destructive bug found in review, and fixed\n\nThe first cut of the retention planner prioritised *\"always keep the\nrelease being published\"* **over** *\"always keep the newest\"*. A\nreviewer reproduced the consequence by running it:\n\n```\nentries 1.0.0 / 2.0.0 / 2.1.0 / 2.2.0, currentVersion=1.0.0, retain=1\n  before:  keep=[1.0.0]           remove=[2.2.0, 2.1.0, 2.0.0]   ← deletes every newer release\n  after:   keep=[2.2.0, 1.0.0]    remove=[2.1.0, 2.0.0]\n```\n\nSo a `workflow_dispatch` re-publish of an **old** tag would have deleted\nevery newer RPM in the channel. The rule is now the **union** of \"newest\nN\" and \"the release being published\" — `retain` is a floor on how many\nnewest releases survive, never a ceiling that the current release can\ndisplace. Pinned by a test using exactly that scenario.\n\nAlso fixed: a malformed retention override was silently swallowed.\n`NIMBUS_LINUX_REPO_RETAIN=\"five\"` (or `\"3 \"`) became `NaN` and fell back\nto the default. It now requires an integer literal and errors otherwise.\n\n## Ordering is the safety property\n\nThe prune must run **before** `createrepo_c` regenerates the metadata. A\nprune that leaves stale repodata *breaks* the channel — worse than it\nbeing large. That ordering is asserted by a test, and that test still\npasses.\n\n## What this does NOT do — worth being explicit\n\nIt shrinks the **served Pages tree**, not the **git repository**. The\npublish workflow commits its output, so the deleted RPMs remain in\nhistory and the repo's packed size is unchanged. That stops the\nPages-limit bleed but does not reclaim the existing ~2.2 GB.\n\nReclaiming that needs either a history rewrite or — better — moving\nbinaries to GitHub Releases assets and keeping only signed metadata in\nthe Pages tree, which makes the question moot. Both are deliberately out\nof scope here; this is prune-forward only.\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n* Linux package repositories now support configurable retention\nsettings.\n* Yum repositories retain the newest releases while safely removing\nolder packages and regenerating metadata.\n  * Apt repositories remove superseded packages during publication.\n* Invalid retention settings are rejected instead of publishing\nincomplete repositories.\n\n* **Documentation**\n* Installation guidance now explains repository retention and how to\naccess older versions through the releases page.\n\n* **Tests**\n* Added comprehensive coverage for retention planning, configuration\nvalidation, package handling, and publication ordering.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T12:03:08Z",
+          "tree_id": "d82c067053fd592d9b7472a4591b5ae990b9fa0b",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/7dc717a0fc0f8b8138a3e62bf3fdde867c44b06a"
+        },
+        "date": 1785586490601,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 335.6346219999999,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 341.0804523999985,
             "unit": "ms"
           }
         ]
