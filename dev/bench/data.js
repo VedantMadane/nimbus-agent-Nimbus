@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785570289952,
+  "lastUpdate": 1785579176978,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -8057,6 +8057,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 313.6647055500049,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "982b4d2a2605338a539077db56d9d02c38ccbd01",
+          "message": "fix(cli): stop share argument errors crashing, and retire seven false coverage exclusions (#1004)\n\nRetires **seven** coverage-floor exclusions that were protecting nothing\nor resting on a false rationale, makes `share.ts` genuinely testable,\nand fixes a user-facing crash that fell out of the refactor.\n\nAn audit plus an adversarial re-check — both working from a real\nCI-Linux lcov generated in Docker — found only ~5 of 61 exclusions worth\nattacking. This is that shortlist, not a sweep.\n\n## The false rationales\n\n- **`platform/sandbox/win32.ts`** was excluded as *\"win32 job-object\nsandbox, unreachable on Linux CI\"*. It has **no OS-dependent code and no\nFFI import**. Its two pure functions were already tested — the whole\n`describe` just sat behind `describe.skipIf(process.platform !==\n\"win32\")`, so on the Linux-authoritative runner it read 0%. Removing the\nskip took it to **100/100**. It sits in the **I15** blast radius.\n- **`cli/commands/share.ts`** claimed its residual was *\"the\nrunShare/runVerifyShare IPC wrappers, same class as\npolicy.ts/chatops.ts\"*. Provably false: `policy.ts`, `chatops.ts`,\n`admin.ts` and `tribal.ts` each export an `XIpc` interface and take an\ninjected client. `share.ts` had **no seam at all**, which is the entire\nreason it sat at 28%.\n- **The `^types\\.ts$` regex** asserted every match was zero-executable\n*\"with a guardian header forbidding runtime logic\"*. False for\n`identity/types.ts` (six runtime declarations including\n`parseTokenResponse`, an **I18**-adjacent OIDC token parser) and\n`sync/types.ts`.\n- **Four dead-weight entries** already cleared both floors, so the\nexclusion only cost regression protection: `platform/linux.ts`,\n`chatops-tool-runner-e2e-sink.ts` (**I23**), `sandbox/orphan-reap.ts`,\nand all 43 generated `*-vNN-sql.ts`.\n\n## share.ts: the seam, and a real bug\n\n`share.ts` now follows the four-file precedent exactly — exported\n`ShareIpc`, a `ShareCommand` union, a pure `parseShareArgs(argv)` that\nthrows the usage text, and a `runShareCommand(client, cmd)` dispatcher.\n**28.06% → 93.15% line, 28.30% → 93.40% branch.**\n\nThat surfaced a genuine crash: argument errors escaped\n`parseShareCreateArgs` as an **unhandled rejection** because `runShare`\nnever wrapped the parse. So `nimbus share create s-1 --out` (and\nlikewise `--to-peer`, `--expires`, `--redact` with a missing or\nflag-shaped value) crashed instead of reporting the error. It now prints\nthe message and exits 1, like every other usage error.\n\n## Margins, deliberately widened\n\nFour newly-gated files initially sat within 2 points of the floor, where\none flipped branch reds CI. 16 further tests fixed that — each\n**red-proved by mutating the exact production line it targets**, then\nreverted:\n\n| File | branch before | after |\n|---|---|---|\n| `perf/pr-comment-formatter.ts` | 80.70% | **96.49%** |\n| `perf/worker-bench.ts` | 81.82% | **100%** |\n| `perf/process-spawn-bench.ts` | 84.21% | **92.11%** |\n| `platform/linux.ts` | 85.00% | **90%** |\n\n## The perf/ prefix, honestly\n\nNarrowing `packages/gateway/src/perf/` to the two patterns Sonar\nactually carries exposed **21** modules, not the 7 first estimated.\nSeven clear the floor and rejoin the gate; the other 14 needed explicit\nentries. Net: exclusions went **61 → 69**. That is growth — but it\nreplaces one blanket broader than Sonar's own with 14 individually\nvisible, justifiable entries.\n\n## Verification\n\nCI-Linux-authoritative, regenerated in Docker (`oven/bun:latest`): **990\nsource files, 29,279 branch records** — well clear of the ~199\nbroken-tooling signature, with the branch-data canary satisfied.\n\nEvery retired file re-measured on Linux clears both floors with margin\n(worst: `identity/types.ts` at 6.3 points clear).\n`coverage-baseline.json` **`\"files\"` is still empty** — checked\nexplicitly, because `reseed-docker.sh` runs `update-baseline` *before*\nthe gate and can otherwise absorb a failure as accepted debt.\n\n`audit:exclusion-parity` ok (40 Sonar patterns covered) ·\n`audit:coverage-floor` ok (0 baselined, 1113 scanned) · biome 3086 files\n· full workspace typecheck · `audit:invariants` · `audit:any` at\nbaseline · `audit:cross-platform` — all exit 0.\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n- **Bug Fixes**\n- Improved reliability of share creation and verification commands,\nincluding clearer validation, file/URL handling, signature checks,\nreplay reports, and tampered-share errors.\n  - Improved telemetry opt-out behavior when the service is not running.\n- Improved diagnostics for unsupported platform security states and\nsandbox failures.\n- Improved performance reporting and benchmark handling for edge cases\nsuch as timeouts, missing values, and negative changes.\n\n- **Tests**\n- Expanded coverage across CLI workflows, telemetry, platform\nsafeguards, performance tools, and coverage rules.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-08-01T10:01:36Z",
+          "tree_id": "fba57e6a4e543055cd557ec832c1bb1fdd239396",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/982b4d2a2605338a539077db56d9d02c38ccbd01"
+        },
+        "date": 1785579176031,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 312.76451169999854,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 313.08362885000827,
             "unit": "ms"
           }
         ]
