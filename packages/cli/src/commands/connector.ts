@@ -1,3 +1,5 @@
+import { confirm, isCancel } from "@clack/prompts";
+
 import { IPCClient } from "../ipc-client/index.ts";
 import {
   GOOGLE_OAUTH_CLIENT_ID_HELP,
@@ -8,6 +10,7 @@ import {
   SLACK_OAUTH_CLIENT_ID_HELP,
 } from "../lib/connector-oauth-env-help.ts";
 import { readGatewayState } from "../lib/gateway-process.ts";
+import { registerAutoApproveConsentHandler } from "../lib/interactive-ipc-handlers.ts";
 import { parseDurationToMs } from "../lib/parse-duration.ts";
 import { stripTrailingSlashes } from "../lib/strip-trailing-slashes.ts";
 import { getCliPlatformPaths } from "../paths.ts";
@@ -66,7 +69,18 @@ type ConnectorFlags = {
   datadogSite?: string;
 };
 
-async function withIpc<T>(fn: (c: IPCClient) => Promise<T>): Promise<T> {
+/**
+ * Connect to the Gateway, run `fn`, disconnect.
+ *
+ * `onConnect` runs after `connect()` and before `fn`, and is the seam for registering
+ * notification handlers on the freshly built client. Anything that calls a HITL-gated
+ * method MUST use it to register a `consent.request` handler — the Gateway blocks on
+ * `consent.respond` and a client that never answers just times out.
+ */
+async function withIpc<T>(
+  fn: (c: IPCClient) => Promise<T>,
+  onConnect?: (c: IPCClient) => void,
+): Promise<T> {
   const paths = getCliPlatformPaths();
   const state = await readGatewayState(paths);
   if (state === undefined) {
@@ -74,6 +88,7 @@ async function withIpc<T>(fn: (c: IPCClient) => Promise<T>): Promise<T> {
   }
   const client = new IPCClient(state.socketPath);
   await client.connect();
+  onConnect?.(client);
   try {
     return await fn(client);
   } finally {
@@ -1080,16 +1095,77 @@ async function runConnectorAddMcp(tail: string[]): Promise<void> {
   console.log(`Registered user MCP connector: ${id}`);
 }
 
+const REMOVE_YES_FLAGS: ReadonlySet<string> = new Set(["--yes", "-y"]);
+
+type ConnectorRemoveResult = {
+  ok: boolean;
+  itemsDeleted: number;
+  vaultKeysRemoved: string[];
+};
+
+/**
+ * Shape the Gateway returns instead of {@link ConnectorRemoveResult} when the executor's HITL
+ * gate rejects the action (`{ kind: "hit", value: { status: "rejected", reason } }` in
+ * `ipc/connector-rpc.ts`). Detecting it keeps a declined removal from printing
+ * `Removed index rows: undefined` and exiting 0.
+ */
+type ConnectorRemoveRejection = { status: "rejected"; reason?: string };
+
+function isConnectorRemoveRejection(r: unknown): r is ConnectorRemoveRejection {
+  return typeof r === "object" && r !== null && (r as { status?: unknown }).status === "rejected";
+}
+
+/**
+ * `nimbus connector remove` is irreversible (Vault entries + index rows are deleted
+ * atomically), so it is gated the same way `nimbus extension remove` is: an interactive
+ * confirmation, `--yes`/`-y` to skip it for scripts, and a fail-closed refusal rather
+ * than a hanging prompt when there is no TTY to prompt on.
+ *
+ * `connector.remove` is ALSO in the executor's frozen HITL set, so the Gateway pushes a
+ * `consent.request` notification and blocks until `consent.respond` arrives. The two
+ * confirmations are composed, not stacked: this CLI prompt is the single point of consent,
+ * and the decision it produces is what answers the Gateway. A declined prompt returns before
+ * any IPC connection is made, so the Gateway never sees the request at all; an accepted
+ * prompt (or `--yes`) registers an auto-approve `consent.request` handler on the client that
+ * `withIpc` builds, so the gate is answered programmatically with the decision the user
+ * already gave. Without that handler nothing would ever answer and the call would die on the
+ * client's 30s request timeout, removing nothing.
+ */
 async function runConnectorRemove(tail: string[]): Promise<void> {
-  const service = tail[0];
+  const accept = tail.some((a) => REMOVE_YES_FLAGS.has(a));
+  const service = tail.find((a) => !REMOVE_YES_FLAGS.has(a));
   if (service === undefined) {
-    throw new Error("Usage: nimbus connector remove <service>");
+    throw new Error("Usage: nimbus connector remove <service> [--yes]");
   }
-  const res = await withIpc((c) =>
-    c.call<{ ok: boolean; itemsDeleted: number; vaultKeysRemoved: string[] }>("connector.remove", {
-      serviceId: service,
-    }),
+  if (!accept) {
+    const interactive = process.stdin.isTTY === true && process.stdout.isTTY === true;
+    if (!interactive) {
+      throw new Error(
+        "Refusing to remove without confirmation in non-TTY mode. Pass --yes to proceed.",
+      );
+    }
+    const ok = await confirm({
+      message: `Remove connector "${service}"? This deletes its Vault credentials and index rows. This cannot be undone.`,
+    });
+    if (isCancel(ok) || ok !== true) {
+      console.log("Cancelled.");
+      return;
+    }
+  }
+  const res = await withIpc(
+    (c) =>
+      c.call<ConnectorRemoveResult | ConnectorRemoveRejection>("connector.remove", {
+        serviceId: service,
+      }),
+    (c) => {
+      registerAutoApproveConsentHandler(c, accept ? "--yes" : "confirmed");
+    },
   );
+  if (isConnectorRemoveRejection(res)) {
+    throw new Error(
+      `Gateway rejected the removal of "${service}": ${res.reason ?? "no reason given"}`,
+    );
+  }
   console.log(`Removed index rows: ${String(res.itemsDeleted)}`);
   if (res.vaultKeysRemoved.length > 0) {
     console.log(`Cleared vault keys: ${res.vaultKeysRemoved.join(", ")}`);
@@ -1204,7 +1280,7 @@ Usage:
   nimbus connector pause <service>
   nimbus connector resume <service>
   nimbus connector set-interval <service> <duration>
-  nimbus connector remove <service>
+  nimbus connector remove <service> [--yes]         Irreversible; prompts unless --yes
 
 Services (examples): google_drive, gmail, google_photos, onedrive, outlook, teams, github, gitlab, linear, jira, notion, confluence, jenkins, circleci, pagerduty, kubernetes
 

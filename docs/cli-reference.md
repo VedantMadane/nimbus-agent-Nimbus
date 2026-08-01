@@ -991,10 +991,15 @@ Output is always JSON.
 Remove a connector: deletes all associated Vault entries and index rows atomically.
 
 ```bash
-nimbus connector remove github
+nimbus connector remove github          # Prompts: y/n
+nimbus connector remove github --yes    # Skip confirmation (-y also works)
 ```
 
-> **Irreversible and unprompted.** There is no confirmation step and no `--yes` flag — the command sends `connector.remove` as soon as it is invoked, and prints the number of index rows deleted plus the Vault keys it cleared. Take a snapshot first (`nimbus db snapshot`) if you may want the index rows back.
+> **Irreversible.** On success the command prints the number of index rows deleted plus the Vault keys it cleared, and nothing restores them. Take a snapshot first (`nimbus db snapshot`) if you may want the index rows back.
+
+The CLI asks for confirmation before it sends `connector.remove`. Declining the prompt (or cancelling it with Ctrl-C) prints `Cancelled.` and sends nothing. Outside an interactive shell — piped, or run from a script — there is no prompt to answer, so the command refuses with a non-zero exit rather than waiting for input; pass `--yes` or `-y` to proceed non-interactively.
+
+`connector.remove` is also a HITL action on the Gateway side, but you are only asked once: the CLI confirmation *is* the consent decision, and the CLI answers the Gateway's consent request with it. A declined prompt never reaches the Gateway at all, and `--yes` covers both — the auto-approval is still noted on stderr (`[--yes] auto-approving HITL request: …`) so it shows up in a script's log. If the Gateway rejects the removal anyway (for example an org policy that forbids it), the command exits non-zero with the rejection reason and removes nothing.
 
 ---
 
