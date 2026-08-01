@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785586491599,
+  "lastUpdate": 1785587175505,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -8261,6 +8261,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 341.0804523999985,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7a3d0e7dd411f73efdb5e4be97d857f8a38bddb0",
+          "message": "ci(release): create brew/scoop publish commits via createCommitOnBranch and assert they are verified (#1014)\n\nAddresses #996 — **step 1 only**, deliberately.\n\nhomebrew-tap, scoop-bucket and linux-repo accept **unsigned, unreviewed\nbot pushes straight to `main`**. Every recent commit is\n`nimbus-release-bot` with `verification.verified = false`. These three\nrepos are what `brew install`, `scoop install` and `yum install` read,\nwhich makes them the shortest path in the estate from a leaked token to\ncode on a user's machine.\n\n## Scope, and why it stops here\n\nThe full fix is two **ordered** steps:\n\n1. **This PR** — create publish commits via the GraphQL\n`createCommitOnBranch` mutation so App-token commits come out\n**Verified**\n2. **NOT this PR** — add `required_signatures` to the three rulesets\n\nDoing (2) first, or both together, breaks the next publish. **No ruleset\nis touched here.**\n\n## The workflow now proves itself\n\nAn earlier review found the mutation selected only `commit { oid url }`\n— so nothing asserted the one property the change exists to deliver. It\nnow selects the signature and **fails the publish** if the commit is not\nverified.\n\nField names were taken from **GraphQL schema introspection, not\nguesswork** — a wrong field would break publishing at release time\nrather than in review. Confirmed: `Commit.signature` is a **nullable**\n`GitSignature` **interface**, with `isValid` / `state` /\n`wasSignedByGitHub` declared on the interface itself (no inline fragment\nneeded), and the full `GitSignatureState` enum enumerated.\n\n**Fails closed:** a null signature is treated as *not verified*, never\nas \"no data, assume fine\". The step stops the publish rather than\nwarning, because that is the property step 2 will depend on.\n\n## What is proven, and what is not\n\n**Proven by tests:** payload building (additions, deletions, base64\nencoding), the stale-`expectedHeadOid` retry decision, and the\nverification assertion across verified / unverified / null-signature /\nmissing-field shapes.\n\n**Not proven, and cannot be locally:** that GitHub actually stamps\n`verification.verified = true` for *this App's installation token*, and\nthat the token's `Contents: write` scope is accepted for the GraphQL\nmutation as it was for the REST path. Both rest on documented GitHub\nbehaviour until a real release runs.\n\nThat is precisely why the assertion matters: after this lands, the\n**first real publish either proves it or fails loudly** — rather than\nsilently producing unverified commits that only surface when\n`required_signatures` is switched on and every publish starts breaking.",
+          "timestamp": "2026-08-01T15:07:23+03:00",
+          "tree_id": "4c946b9ac18fc45e9860b9dc4be176a2bc22fbf2",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/7a3d0e7dd411f73efdb5e4be97d857f8a38bddb0"
+        },
+        "date": 1785587174115,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 307.55797965000204,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 307.2872287999977,
             "unit": "ms"
           }
         ]
