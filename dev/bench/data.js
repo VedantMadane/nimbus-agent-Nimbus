@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785590484564,
+  "lastUpdate": 1785594504098,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -8329,6 +8329,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 314.6837783499999,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6dfdc81edfc73e0f8ff2ba3558004352c264e5d8",
+          "message": "fix(deps): reconcile overrides, align the sdk floor onto the BOM fix, and gate both (#1017)\n\nThree dependency findings where **the tooling itself was lying**, each\nnow fixed and gated, plus the design spec for the ratcheted quality\nfloor.\n\n## 1. The `overrides` block was silently winning\n\nRoot `overrides` pinned four packages **strictly below** the ranges\ntheir own manifests declared. The consequence: **Dependabot bumps on\nthose packages have been merging green and changing nothing in the\ninstalled tree** — the override wins, invisibly.\n\n**`js-yaml` 4.3.0 → 4.3.1**, with the declared ranges lowered `^5.2.2 →\n^4.3.1` in the same change, because moving one without the other keeps\nthe manifest lying. It's a v4-line security backport (quadratic\ncomplexity in `!!omap` duplicate-key detection) that **nothing in the\nrepo could surface**: `bun audit` has no GHSA for it, `bun outdated`\nfollows the `latest` dist-tag and reports 5.2.3 — hiding the entire v4\nline — and Dependabot never edits `overrides`.\n\nSized honestly: **DoS only**, no RCE or disclosure. Consumers here are\nObsidian frontmatter, local OpenAPI specs, share recipes and workflow\nYAML — local files. The one non-local path is user-initiated (`share\nverify <url>`). Impact ceiling is hanging one single-user gateway bound\nto `127.0.0.1`. Worth taking because it's free, not because it's urgent.\n\n**`nodemailer` override removed** — `git log -S` traced it to #692, a\ndeclared pure-extraction jscpd dedup refactor whose body never mentions\nit, with no `ACCEPTED_ADVISORIES` row. Not a security hold. The\nconnectors' own `^9.0.3` now governs (9.0.1 → 9.0.3).\n\n**`@mastra/core` and `@mastra/mcp`: declarations lowered to match the\npins, deliberately not the reverse.** The installed 1.43.0 is\nload-bearing for accepted advisory `GHSA-866g-f22w-33x8`, whose\nreachability analysis is written specifically against 1.43.0 and its\nvendored chunk, and which warns *\"do not judge this row on the version\nnumber alone.\"* Raising those pins is a real upgrade requiring that\nanalysis to be redone — a separate decision.\n\n> **Reviewer note:** this resolves three declared ranges *downward*,\nwhich reverts the manifest half of Dependabot PRs #902 and #904. That is\nintentional — it makes the manifests state what has actually been\ninstalled all along. The installed tree moves only for js-yaml and\nnodemailer.\n\n## 2. The SDK floor was running a known-broken reader\n\nSDK **1.11.1 fixed a start-of-stream BOM bug in `NdjsonLineReader`** —\nand the bug only reproduces **under Bun**, the runtime this project runs\non. Confirmed by `npm pack`ing both versions and diffing: 1.11.1 *is*\nexactly that change, and its own source comment names Bun.\n\nThe sharp part: **the only in-repo importer of `@nimbus-dev/sdk/ipc` is\nthe gateway's `jsonrpc.ts`**, and the gateway resolved **1.10.0**. The\nunfixed reader was live on the transport, not merely declared.\n\nRaising the root declaration was **necessary but not sufficient**. A\nnested `@nimbus-dev/client → @nimbus-dev/sdk@1.11.0` entry survived, and\nthat path is real: `client/dist/ipc-transport.js` imports the same\nreader and `packages/cli` consumes it. Neither `bun install` nor `bun\nupdate` removed it — client declares `^1.6.0`, which 1.11.0 satisfies,\nso bun had no reason to re-resolve.\n\nVerified by **clean-room install**: `rm -rf node_modules && bun install\n--frozen-lockfile` → exit 0, **exactly one resolution (`1.13.0`)**,\ncarrying the fix. Before this branch there were 97 nested copies.\n\n**The 94 connector manifests stay at `^1.8.1`, deliberately.** The low\nfloor was not the lever — the 97 duplicates came from root-vs-member\n*divergence*, and collapsed the moment root moved. No connector imports\nthe `/ipc` entry point, and these publish independently to npm, where a\nrange is a minimum-API contract rather than a statement of what the\nmonorepo installs. 94 edits changing zero installed bytes would bury the\ntwo lines that matter. **If you want to know which SDK runs, read\n`bun.lock`, never a connector manifest.**\n\n## 3. Both classes are now gated\n\n`audit:override-drift` fails when an `overrides` (or `resolutions`) pin\nfalls outside a range declared anywhere in the workspace. It skips\nnon-semver protocols, treats transitive-only overrides as non-findings,\nand fails closed on non-exact pins.\n\nRegistered in `preflight-gates.ts` **and wired into `_structure.yml`** —\na first pass had it in the local manifest only, which is exactly the\n\"defined but never wired\" failure this repo has been bitten by.\nRed-proved in both directions, including renaming the manifest entry to\nconfirm the manifest↔CI drift guard actually catches it.\n\n## 4. The quality-floor spec\n\n`docs/superpowers/specs/2026-08-01-quality-floor-design.md` — the four\nratcheted gates (file LOC, longest function, per-file cognitive\ncomplexity, module testability/DI seam), mirroring the proven\n`coverage-floor` ratchet.\n\nTwo findings changed the design while drafting. The AST prototype needs\n**no new dependency** (`@babel/core` + `preset-typescript` are already\nroot devDependencies) and scores the repo in **1.4s**, so local\ncomputation fits the fast tier — no SonarCloud API dependency at gate\ntime. And it recorded the measured reality: **length and complexity are\ndecoupled here**, so a pure length gate would target the wrong files.\n\n## Still open, flagged not fixed\n\nThe bug class that caused this is **still ungated**:\n`audit:override-drift` only checks `overrides`, and `@nimbus-dev/sdk`\nwas never in `overrides` — so nothing would catch a root-vs-member\ndivergence on a normal dependency recurring. A sibling gate asserting\nthat first-party `@nimbus-dev/*` declarations agree and that the lock\ncarries exactly one resolution each would close it. That's a design\ncall, not a mechanical addition.\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n- **New Features**\n- Added automated auditing to detect dependency override drift across\nproject manifests.\n  - Integrated the audit into fast preflight checks and CI validation.\n\n- **Documentation**\n- Added a quality-floor design specification covering maintainability,\ncomplexity, testability, rollout stages, and acceptance criteria.\n\n- **Bug Fixes**\n- Improved validation for dependency pins, ranges, workspace manifests,\nand malformed configuration.\n\n- **Chores**\n- Updated SDK and YAML parser versions and aligned package dependency\noverrides.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-08-01T14:16:30Z",
+          "tree_id": "56a1010bfb492ae824b776f48ff004740c085a85",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/6dfdc81edfc73e0f8ff2ba3558004352c264e5d8"
+        },
+        "date": 1785594502547,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 316.24780240000075,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 314.6822883999979,
             "unit": "ms"
           }
         ]
