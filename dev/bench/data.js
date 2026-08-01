@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785580188458,
+  "lastUpdate": 1785581340271,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -8125,6 +8125,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 317.48233564999464,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "99f5ef8572afae6ecb36e6229ef77f3cc8036249",
+          "message": "docs(roadmap): record the contextual-surfaces direction (#1008)\n\nRecords a direction change. **No build order changes** — the slot stays\nS1 (Local Brain), no phase was added, renumbered or re-sequenced.\n\n## The thesis\n\n**One gateway, N contextual surfaces.** The agents are the product; a\nsurface is only how you reach them without leaving where you already\nare. Every surface talks to the same Gateway over the same contract and\nruns the same built-in agents — no surface owns an agent, and no agent\nis reimplemented per surface. What differs is *context*: the surface\nalready knows what you're looking at, so the query you'd otherwise have\ntyped arrives pre-scoped.\n\nToday the terminal is the only first-class surface and the editor and\nbrowser are treated as accessories. That's a historical accident of\nbuild order, not a design decision.\n\n## Why it went in Client surfaces, not Phase 19\n\nPhase 19 is called \"Ambient Surfaces\", which looks like the obvious\nhome. It isn't. Phase 19 scopes itself to **non-screen** surfaces —\nwearables, voice-first, HMDs, physical actuation — and calls itself\n*\"the highest-risk phase in the roadmap\"* on hardware and\nplatform-sandbox grounds. A browser panel over an already-shipped IPC\ncontract is neither non-screen nor hardware-risk, and filing it there\nwould have meant rewriting Phase 19's goal.\n\nThe Spine's `Client surfaces` block already declares itself the owner of\n*\"where capability reaches a human\"* and states *\"this table owns the\norder they are built in\"*. That's the document's own designated home.\nPhase 19 gains a short boundary note recording that \"ambient\" is doing\ndifferent work in each place.\n\n## Credible, but not free\n\nThe entry says both parts. Eleven agents already ship (`catchup`,\n`conflicts`, `expert`, `ghost`, `glossary`, `huddle`, `impact`,\n`janitor`, `preflight`, `why`, `why-peek`), `agents.*` is already\ndispatched, and Bitbucket and Jenkins already index `pr` and `ci_run`\nitems with `canonicalUrl`.\n\nBut **two gateway surfaces don't exist yet**: a browser-reachable\nagent-invocation route (the HTTP API has no agents route), and a\nresolve-by-URL read — `canonical_url` is a **column, not an index**, so\na lookup would table-scan today. An earlier draft framed this as pure\nwiring; the code doesn't support that, and the entry now says so.\n\n## Honest state\n\nThe clipper has ~0 users, the category is occupied (Obsidian Web Clipper\nat 900k users already ships local Ollama; Karakeep has 28k stars under\nthe same licence), and **#1005** and **#1006** gate its current job —\nwith #1006 resolving first, since fixing #1005 via the embedding path\nwould *start* the egress #1006 describes.\n\n## CLAUDE.md / GEMINI.md\n\nUpdated per the roadmap's own amendment rule. One bullet changes in\neach, identically — the mirror still differs only in the H1 title and\nthe companion-file pointer.\n\nVerified: markdownlint clean (run from outside the worktree —\nin-worktree it silently lints zero files and false-greens),\n`audit:doc-refs` 646 refs all resolve, `audit:status-drift` OK.",
+          "timestamp": "2026-08-01T13:37:40+03:00",
+          "tree_id": "949406cba597107e69cd6d95d87c422a8aa6ea94",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/99f5ef8572afae6ecb36e6229ef77f3cc8036249"
+        },
+        "date": 1785581339303,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 307.04329924999803,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 307.3909680499968,
             "unit": "ms"
           }
         ]
