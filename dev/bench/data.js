@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785560240247,
+  "lastUpdate": 1785561111549,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -7955,6 +7955,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 328.25229005,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7e224fab4e33ad4c9937e17f90291ac12ab1cf4f",
+          "message": "chore: release main (#994)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>1.15.0</summary>\n\n##\n[1.15.0](https://github.com/nimbus-agent/Nimbus/compare/v1.14.2...v1.15.0)\n(2026-08-01)\n\n\n### Features\n\n* **glossary:** author and correct terms in nimbus.toml\n([#993](https://github.com/nimbus-agent/Nimbus/issues/993))\n([b25c0f1](https://github.com/nimbus-agent/Nimbus/commit/b25c0f1a119700b7f2d50294c6165dc09eb89ce2))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-01T05:00:22Z",
+          "tree_id": "bb62502e8f2b7952a64c5189ae88af729504f125",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/7e224fab4e33ad4c9937e17f90291ac12ab1cf4f"
+        },
+        "date": 1785561110340,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 316.8942339000005,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 317.3064365499919,
             "unit": "ms"
           }
         ]
