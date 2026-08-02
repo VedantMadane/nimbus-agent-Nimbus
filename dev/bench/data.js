@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785595310854,
+  "lastUpdate": 1785658385535,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -8397,6 +8397,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 309.3941897499964,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e99912257b32315641c1ac43c1f75790146679c5",
+          "message": "feat(decisions): add nimbus decisions, the implicit ADR extractor (#1019)\n\nThird and final member of the Spine S1 implicit-knowledge triad, after\n`nimbus why`\n(2026-07-24) and `nimbus glossary` (2026-07-30). Recovers decisions\nburied in already-indexed\nSlack/Discord/Teams messages, Notion/Confluence/Obsidian pages and\nLinear/Jira/GitHub/GitLab\nissues — \"we decided X because Y, alternatives were Z\" — corroborates\nthem against PRs and\ncommits in the local relationship graph, and returns a chronological\nbrief with a\ndeterministic confidence score and evidence links.\n\nArchitecture mirrors `glossary` rather than inventing a third pattern: a\ndebounced post-sync\npass (discover → extract → corroborate) writing to three new V47 tables,\nplus a read-only\nagent that does a pure SELECT. The read path never calls a model.\n\n## Surface\n\n```\nnimbus decisions [--since <duration>] [--service <name>] [--min-confidence <0..1>]\n                 [--explain] [--json] [--refresh | --rebuild [--yes]]\n```\n\n- Schema **V47** — `decision_record`, `decision_evidence`,\n`decision_pass_state`\n- `[decisions]` in `nimbus.toml` — `enabled`, `use_llm`,\n`min_confidence`,\n  `max_llm_calls_per_pass`, `debounce_ms`, `retry_cooldown_ms`\n- IPC: `agents.decisions` (read) and `decisions.refresh` /\n`decisions.rebuild` (maintenance)\n- Eleventh built-in read-only agent. No HITL, no `connectors.dispatch`,\nno `egress_ledger`\n  rows, no new security invariant.\n- `parseDurationToMs` gained `d` and `w` units (purely additive;\nexisting `ms|s|m|h`\n  behaviour unchanged).\n\n## Behaviour change\n\n**Default `nimbus decisions` now applies a 0.3 confidence floor where it\npreviously applied\nnone.** `[decisions].min_confidence` is a read-path default, so changing\nit re-filters stored\ndecisions immediately rather than requiring a destructive `--rebuild`.\nDocumented in\n`docs/cli-reference.md`.\n\n## Honest limits, stated in every brief\n\nThis feature reports what it cannot do, in the brief itself and not only\nin docs:\n\n- **512-character body cap.** Item bodies are clipped to 512 chars\nbefore this pass or the\nembedding pipeline sees them, so a decision stated later in a long\ndocument is structurally\n  invisible. Recall is capped, not complete.\n- **Confidence ceiling is 0.86, not 1.0.** The corroboration term\nreserves its top tier for\n`migration`/`iac` evidence, which needs changed-file paths no connector\nindexes. Those kinds\nstay in the schema CHECK so nothing has to change when a connector\nsupplies them, but\n  nothing emits them today.\n- **`noModel` counter.** Printed beside `extracted`/`upgraded` so a user\nwithout a local model\ncannot read \"extracted: 12\" and conclude the LLM ran when every row is a\nverbatim snippet.\n\n## Security posture\n\n- Agent is read-only: imports only store readers; no writer reachable.\nEnforced by an e2e\n  structural guard, red-proven.\n- `agents.decisions` added to the Tauri allowlist alphabetically, count\nassertion 102 → 103\nin the same commit as the entry, mirrored in\n`security-invariants.test.ts` (I7).\n- `decisions` namespace denied over LAN (`FORBIDDEN_OVER_LAN`, I5) — a\npaired peer cannot\n  trigger `rebuild`, which clears every veto. Red-proven.\n- `createDecisionLlm` keeps the `isLocalProviderKind` gate: private\nthread content never\n  reaches a remote model.\n\n## Verification\n\n- `bun test packages/gateway/src` — 9526 pass / 30 skip / 0 fail\n- `bun test packages/cli/src` — 2055 pass / 0 fail\n- `typecheck`, `build`, `jscpd`, and 12 audit gates — all pass\n- `audit:coverage-floor` — **ok (0 baselined files)** against\nDocker/Linux lcov; the baseline\nis byte-identical to `main`. No new file was ratcheted in as an accepted\nexception.\n\n## Open decision for review\n\n**A `merged_as` merge commit that no connector has indexed contributes\nzero corroboration.**\nThe `item` join is INNER, so evidence requires an indexed item. Whether\nentity-only evidence\nshould count is a scoring change that was deliberately not made here.\n\n## Known follow-ups (non-blocking)\n\n- The e2e scenario still passes a `minConfidence` property that was\nremoved from\n`DecisionPassOptions` — inert, and invisible to typecheck because the\ngateway tsconfig\n  includes `src/**` only. Worth a sweep.\n- `ALL_TIME_MS = 4e12` in test fixtures is absolute and stops meaning\n\"all time\" c. 2096.\n- `decisions` is absent from the static `--help` listing, as are\n`conflicts`/`ghost`/`huddle`\n  — pre-existing curation gap.\n\n## Notes for reviewers\n\nEight defects on this branch passed their own tests before being caught.\nThe recurring shape\nwas a contract asserted in one artifact and implemented in another, so\nthe highest-value\nreview attention is at seams rather than within modules:\n\n- `--since` was completely inert — the CLI sent a duration, the agent\nread an absolute cutoff.\n9459 tests passed because every test sat on one side of the seam. Now\ncovered by a\ncross-boundary test asserting row membership, with the literal pinned\nindependently on both\n  sides (neither package may import the other).\n- `--rebuild` was a silent no-op: `assemble.ts` ignored the `rebuild`\nflag, so it ran an\n  ordinary pass and cleared nothing.\n- The read-only structural guard read its source via a CWD-relative path\nand threw ENOENT\nunder the sharded coverage runner — it was never actually running in CI.\nNow anchored to\n  `__dirname`, matching `glossary.e2e.test.ts`.\n- Corroboration originally traversed a `pr → repository` graph edge that\ndoes not exist; the\n  test passed because the fixture hand-seeded it.\n\nDesign spec and the full build ledger (every defect, fix round and\ndeferral) are in\n`docs/superpowers/specs/2026-08-01-nimbus-decisions-design.md` and the\nplan alongside it.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n* **New Features**\n* Added `nimbus decisions` to extract chronological, confidence-scored\ndecisions from indexed collaboration and project sources.\n* Results include supporting evidence, links, ADR status, confidence\nexplanations, service filters, and known evidence gaps.\n* Added automatic post-sync refreshes plus manual refresh and rebuild\ncontrols.\n  * Added configurable local-only, read-only decision processing.\n\n* **Enhancements**\n  * Duration filters now support days (`d`) and weeks (`w`).\n\n* **Documentation**\n  * Added CLI, configuration, schema, changelog, and roadmap guidance.\n\n* **Tests**\n* Added comprehensive coverage for extraction, rendering, CLI behavior,\nrefreshes, security, and end-to-end workflows.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-02T08:01:23Z",
+          "tree_id": "cfebb9306f2fcfac65c1a4b054cb876416881206",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/e99912257b32315641c1ac43c1f75790146679c5"
+        },
+        "date": 1785658384281,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 333.1098696499994,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 328.5458217999985,
             "unit": "ms"
           }
         ]
