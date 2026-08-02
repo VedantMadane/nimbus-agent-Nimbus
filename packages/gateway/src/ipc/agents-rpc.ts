@@ -1,9 +1,11 @@
 import type { Database } from "bun:sqlite";
+import type { DecisionsInput } from "../agents/_lib/decisions-types.ts";
 import type { GlossaryInput } from "../agents/_lib/glossary-types.ts";
 import type { SynthesizerLlm } from "../agents/_lib/synthesize.ts";
 import type { WhyInput, WhyPeek } from "../agents/_lib/why-types.ts";
 import { emitCatchupBrief } from "../agents/catchup.ts";
 import { emitConflictsBrief } from "../agents/conflicts.ts";
+import { emitDecisionsBrief } from "../agents/decisions.ts";
 import { emitExpertBrief } from "../agents/expert.ts";
 import { emitGhostBrief } from "../agents/ghost.ts";
 import { emitGlossaryBrief } from "../agents/glossary.ts";
@@ -14,7 +16,10 @@ import { emitPreflightBrief } from "../agents/preflight.ts";
 import { emitWhyBrief } from "../agents/why.ts";
 import { runWhyPeek } from "../agents/why-peek.ts";
 import { loadNimbusFilesystemRootsFromConfigDir } from "../config/filesystem-toml.ts";
-import { loadNimbusUserFromConfigDir } from "../config/nimbus-toml.ts";
+import {
+  loadNimbusDecisionsFromConfigDir,
+  loadNimbusUserFromConfigDir,
+} from "../config/nimbus-toml.ts";
 import { KnownNamespaceStore } from "../index/known-namespace-store.ts";
 import { LocalIndex } from "../index/local-index.ts";
 import { dispatchByMethod, type RpcMissOrHit } from "./_lib/dispatch-by-method.ts";
@@ -189,7 +194,8 @@ function newSessionId(
     | "huddle"
     | "janitor"
     | "preflight"
-    | "why",
+    | "why"
+    | "decisions",
 ): string {
   return `${kind}_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
 }
@@ -463,6 +469,76 @@ async function handleGlossary(
   });
 }
 
+function requireDecisionsParams(params: unknown): DecisionsInput {
+  if (params === null || params === undefined) return {};
+  if (typeof params !== "object") {
+    throw new AgentsRpcError(-32602, "params must be an object");
+  }
+  const p = params as {
+    sinceMs?: unknown;
+    minConfidence?: unknown;
+    service?: unknown;
+    explain?: unknown;
+    limit?: unknown;
+  };
+  if (
+    p.sinceMs !== undefined &&
+    (typeof p.sinceMs !== "number" || !Number.isInteger(p.sinceMs) || p.sinceMs < 0)
+  ) {
+    throw new AgentsRpcError(-32602, "sinceMs must be a non-negative integer");
+  }
+  if (
+    p.minConfidence !== undefined &&
+    (typeof p.minConfidence !== "number" || p.minConfidence < 0 || p.minConfidence > 1)
+  ) {
+    throw new AgentsRpcError(-32602, "minConfidence must be between 0 and 1");
+  }
+  if (p.service !== undefined && typeof p.service !== "string") {
+    throw new AgentsRpcError(-32602, "service must be a string");
+  }
+  if (
+    p.limit !== undefined &&
+    (typeof p.limit !== "number" || !Number.isInteger(p.limit) || p.limit < 1)
+  ) {
+    throw new AgentsRpcError(-32602, "limit must be a positive integer");
+  }
+  return {
+    ...(p.sinceMs === undefined ? {} : { sinceMs: p.sinceMs as number }),
+    ...(p.minConfidence === undefined ? {} : { minConfidence: p.minConfidence as number }),
+    ...(p.service === undefined ? {} : { service: p.service as string }),
+    ...(p.explain === true ? { explain: true } : {}),
+    ...(p.limit === undefined ? {} : { limit: p.limit as number }),
+  };
+}
+
+/**
+ * `[decisions].min_confidence` as the read-path floor a caller gets when it
+ * sends no `minConfidence`. Read here rather than in `agents/decisions.ts` so
+ * the agent keeps no config-file dependency, and re-read per call (like the
+ * `[user]` block above) so an edit applies without a gateway restart. With no
+ * `configDir` — the test/embedded shape — the agent falls back to `0`.
+ */
+function decisionsMinConfidenceDefault(ctx: AgentsRpcContext): number | undefined {
+  return ctx.configDir === undefined
+    ? undefined
+    : loadNimbusDecisionsFromConfigDir(ctx.configDir).minConfidence;
+}
+
+async function handleDecisions(
+  params: unknown,
+  ctx: AgentsRpcContext,
+): Promise<{ sessionId: string }> {
+  const input = requireDecisionsParams(params);
+  const defaultMinConfidence = decisionsMinConfidenceDefault(ctx);
+  return await emitDecisionsBrief(input, {
+    db: ctx.db,
+    notify: ctx.notify,
+    sessionId: newSessionId("decisions"),
+    ...(ctx.llm === undefined ? {} : { llm: ctx.llm }),
+    ...(defaultMinConfidence === undefined ? {} : { defaultMinConfidence }),
+  });
+}
+
 export async function dispatchAgentsRpc(
   method: string,
   params: unknown,
@@ -480,5 +556,6 @@ export async function dispatchAgentsRpc(
     "agents.why": handleWhy,
     "agents.whyPeek": handleWhyPeek,
     "agents.glossary": handleGlossary,
+    "agents.decisions": handleDecisions,
   });
 }

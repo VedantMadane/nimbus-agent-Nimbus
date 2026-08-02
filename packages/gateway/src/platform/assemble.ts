@@ -30,6 +30,7 @@ import {
   loadNimbusBriefsFromPath,
   loadNimbusChatopsFromConfigDir,
   loadNimbusConnectorsFromConfigDir,
+  loadNimbusDecisionsFromConfigDir,
   loadNimbusEmbeddingFromPath,
   loadNimbusExtensionsFromConfigDir,
   loadNimbusFederationFromConfigDir,
@@ -89,6 +90,9 @@ import {
   startToolCallLogRetention,
 } from "../db/tool-call-log-retention.ts";
 import { applyWritablePragmas } from "../db/writable-pragmas.ts";
+import { rebuildDecisions, runDecisionPass } from "../decisions/decision-extract.ts";
+import { createDecisionLlm, type DecisionLlm } from "../decisions/decision-llm-adapter.ts";
+import { createDecisionRefresher, type DecisionRefresher } from "../decisions/decision-refresh.ts";
 import { makeEgressSink } from "../egress/egress-ledger.ts";
 import { createEmbeddingRuntimeNonBlocking } from "../embedding/create-embedding-runtime.ts";
 import {
@@ -411,12 +415,18 @@ interface SchedulerWithMeshOpts {
    * degraded boots keep the snippet path. Gated below on `[glossary].use_llm`.
    */
   glossaryLlm?: ConsolidatorLlm;
+  /**
+   * Local-only extraction model for the decisions pass. Optional so tests and
+   * degraded boots keep the snippet path. Gated below on `[decisions].use_llm`.
+   */
+  decisionLlm?: DecisionLlm;
 }
 
 async function createSchedulerWithMesh(opts: SchedulerWithMeshOpts): Promise<{
   syncScheduler: SyncScheduler;
   connectorMesh: LazyConnectorMesh;
   glossaryRefresher: GlossaryRefresher;
+  decisionsRefresher: DecisionRefresher | undefined;
 }> {
   const {
     paths,
@@ -428,6 +438,7 @@ async function createSchedulerWithMesh(opts: SchedulerWithMeshOpts): Promise<{
     syncLogger,
     isConnectorAllowed,
     glossaryLlm,
+    decisionLlm,
   } = opts;
   const syncAnomaly = new AnomalyDetectorStub({
     windowSize: 64,
@@ -474,6 +485,38 @@ async function createSchedulerWithMesh(opts: SchedulerWithMeshOpts): Promise<{
     },
   });
 
+  // Decisions (S1 Local Brain). Construction itself is gated on `[decisions].enabled` — unlike
+  // glossaryRefresher, which is always constructed and gates internally — so a disabled decisions
+  // pass leaves `decisionsRefresher` unset rather than idling.
+  const decisionsCfg = loadNimbusDecisionsFromConfigDir(paths.configDir);
+  // Gate at the point of use, so the single config read stays single.
+  const extractionLlm = decisionsCfg.useLlm ? decisionLlm : undefined;
+  const decisionsRefresher = decisionsCfg.enabled
+    ? createDecisionRefresher({
+        debounceMs: decisionsCfg.debounceMs,
+        runPass: (runOpts) => {
+          const passOpts = {
+            nowMs: Date.now(),
+            useLlm: decisionsCfg.useLlm,
+            maxLlmCalls: decisionsCfg.maxLlmCallsPerPass,
+            // `decisionsCfg.minConfidence` is deliberately NOT passed: it is a
+            // read-path floor (`agents/decisions.ts`), not an extraction filter.
+            retryCooldownMs: decisionsCfg.retryCooldownMs,
+            ...(extractionLlm === undefined ? {} : { llm: extractionLlm }),
+          };
+          // `decisions.rebuild` (ipc/decisions-rpc.ts) is the only caller that ever sets
+          // `rebuild: true` — the debounced post-sync `trigger()` path above never does, and
+          // `decisions.refresh` always passes `false` explicitly. `rebuildDecisions` clears
+          // `decision_record`/`decision_evidence`/the watermark, vetoes included, before
+          // re-running — the sole recovery path for a veto, which is otherwise permanent.
+          return runOpts?.rebuild ? rebuildDecisions(db, passOpts) : runDecisionPass(db, passOpts);
+        },
+        onError: (err) => {
+          syncLogger.warn({ err }, "decision extraction pass failed");
+        },
+      })
+    : undefined;
+
   const syncScheduler = new SyncScheduler(syncContext, undefined, {
     notify: async (title, body) => {
       await notifications.show(title, body);
@@ -484,6 +527,7 @@ async function createSchedulerWithMesh(opts: SchedulerWithMeshOpts): Promise<{
       syncAnomaly.recordSample(`sync:items_upserted:${serviceId}`, result.itemsUpserted, at);
       evaluateWatchersAfterSync(db, serviceId, at, (t, b) => notifications.show(t, b), watcherOpts);
       glossaryRefresher.trigger();
+      decisionsRefresher?.trigger();
     },
   });
   const tomlRoots = loadNimbusFilesystemRootsFromConfigDir(paths.configDir);
@@ -526,7 +570,7 @@ async function createSchedulerWithMesh(opts: SchedulerWithMeshOpts): Promise<{
   registerUserMcpSyncablesFromDatabase(db, policyFilteredRegistrar, connectorMesh);
   syncScheduler.start();
   evaluateWatchersStartupCatchUp(db, Date.now(), (t, b) => notifications.show(t, b), watcherOpts);
-  return { syncScheduler, connectorMesh, glossaryRefresher };
+  return { syncScheduler, connectorMesh, glossaryRefresher, decisionsRefresher };
 }
 
 interface HttpSidecarOpts {
@@ -1774,18 +1818,23 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
     sidecarStops.push(() => auditShipper.stop());
   }
 
-  const { syncScheduler, connectorMesh, glossaryRefresher } = await createSchedulerWithMesh({
-    paths,
-    vault,
-    db,
-    syncContext,
-    localIndex,
-    notifications,
-    syncLogger,
-    isConnectorAllowed,
-    glossaryLlm: createGlossaryLlm(llmRegistry.llmRouter),
-  });
+  const { syncScheduler, connectorMesh, glossaryRefresher, decisionsRefresher } =
+    await createSchedulerWithMesh({
+      paths,
+      vault,
+      db,
+      syncContext,
+      localIndex,
+      notifications,
+      syncLogger,
+      isConnectorAllowed,
+      glossaryLlm: createGlossaryLlm(llmRegistry.llmRouter),
+      decisionLlm: createDecisionLlm(llmRegistry.llmRouter),
+    });
   sidecarStops.push(() => glossaryRefresher.stop());
+  if (decisionsRefresher !== undefined) {
+    sidecarStops.push(() => decisionsRefresher.stop());
+  }
 
   await verifyExtensionsBestEffort(db, syncLogger, connectorMesh, { vault });
 
@@ -2101,6 +2150,9 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   ipcOpts.egressRpcCtx = egressRpcCtx;
 
   ipcOpts.glossaryRefresher = glossaryRefresher;
+  if (decisionsRefresher !== undefined) {
+    ipcOpts.decisionsRefresher = decisionsRefresher;
+  }
 
   collectSidecarsFromEnv(db, paths, sidecarStops, httpSidecarOpts);
 
