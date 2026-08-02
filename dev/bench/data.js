@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785687632499,
+  "lastUpdate": 1785689234453,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -8567,6 +8567,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 318.0654737499943,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b6cb3b5270b5e8317ff001fb27cf793898c95553",
+          "message": "chore: release main (#1025)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>1.18.0</summary>\n\n##\n[1.18.0](https://github.com/nimbus-agent/Nimbus/compare/v1.17.0...v1.18.0)\n(2026-08-02)\n\n\n### Features\n\n* **index:** full-body store — V48 item.body, uncapped keyword search,\nand full bodies for the prose sources\n([#1023](https://github.com/nimbus-agent/Nimbus/issues/1023))\n([faa23a8](https://github.com/nimbus-agent/Nimbus/commit/faa23a8b50fe7d8e9ae293adcb7e912572a1a900))\n\n\n### Bug Fixes\n\n* **share:** fail closed on unverified share replay\n([#1021](https://github.com/nimbus-agent/Nimbus/issues/1021))\n([e210723](https://github.com/nimbus-agent/Nimbus/commit/e210723c8885f77c9be560ff3ccb3cff90e9018e))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-02T19:35:37+03:00",
+          "tree_id": "bfac77a0712636c2716a7623d79a218ad6fc21fa",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/b6cb3b5270b5e8317ff001fb27cf793898c95553"
+        },
+        "date": 1785689232892,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 317.4844775000045,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 318.37864579999297,
             "unit": "ms"
           }
         ]
