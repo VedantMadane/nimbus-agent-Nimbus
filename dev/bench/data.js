@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785689234453,
+  "lastUpdate": 1785698036485,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -8601,6 +8601,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 318.37864579999297,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7bd2cdc128e4f5ab8fcdb3a8301bc8cdd6efade5",
+          "message": "fix(ipc): forbid the clip namespace over LAN — clip.pair opens the I30 pairing window (#1027)\n\n## What\n\nA paired LAN peer could mint a web-clipper bearer token without the\nmachine owner ever running `nimbus clip pair`, defeating invariant\n**I30**'s fail-closed guarantee. Found during unrelated work; live on\n`main` today.\n\nThree-line data change plus tests — no logic altered.\n\n## The chain\n\n**I30** states that clip token minting is fail-closed behind an\n**owner-opened** pairing window, opened via `nimbus clip pair`.\n\n1. `ipc/lan-rpc.ts` — `checkLanMethodAllowed` is a **denylist**: it\nthrows only when the method or its namespace appears in\n`FORBIDDEN_OVER_LAN`, then checks `WRITE_METHODS` for write permission.\nAnything in neither list is callable by any paired LAN peer.\n2. The `clip` namespace and every `clip.*` method were in **neither**\nlist.\n3. `ipc/clip-rpc.ts` `handleClipPair` calls `deps.pairing.open(label)`\nand **returns the pairing `code` in the RPC response**.\n\nSo: peer calls `clip.pair` → reads `code` from the response → `POST\n/v1/clips/pair/confirm` → receives a Vault-stored bearer token with\nclip-write access.\n\nThe HTTP confirm route correctly requires a live window to exist.\nNothing constrained **who may open one**. That is the gap: I30 gates\nminting on a window existing, and assumed only the owner could create\none.\n\n## Severity — deliberately not overstated\n\n**Low-to-moderate.** It requires an already-paired LAN peer, and LAN is\noff by default (`I6` binds `127.0.0.1`), so there is no remote\nunauthenticated path. What makes it worth fixing promptly is that it\ndefeats a *documented* invariant: I30 promises owner-gated minting and\ndid not deliver it over this path.\n\n## The fix\n\n`\"clip\"` added to `FORBIDDEN_OVER_LAN`. The gate already supports\nnamespace entries (`FORBIDDEN_OVER_LAN.has(ns)`), so one entry covers\n`clip.pair`, `clip.status`, `clip.revoke`, `clip.list` and\n`clip.delete`.\n\n**Verified nothing legitimate breaks:** the only caller of `clip.*` is\n`packages/cli/src/commands/clip.ts`, which goes through\n`IPCClient(state.socketPath)` — the local socket, not LAN. The browser\nextension only uses the bearer-authed HTTP surface (`POST /v1/clips`,\n`/v1/clips/pair/confirm`). Forbidding the namespace costs nothing.\n\n## Also documented: why `egress.prune` stays out\n\n`egress.prune` is likewise absent from both lists, and that is\n**correct**. `ipc/egress-rpc.ts:94` calls\n`ctx.requestPruneApproval(beforeTs)` and returns `{approved: false,\nprunedCount: 0}` on denial, so a LAN caller only triggers an owner\nconsent prompt — the same reasoning already recorded in-file for\n`federation.purge`.\n\nA comment now states this at the LAN-list site, so the next auditor\nneither re-derives it nor \"fixes\" it by listing the method and breaking\na legitimate flow.\n\n## Tests\n\nAdded to `ipc/lan-rpc.test.ts` and to the **I5 block** in\n`security-invariants.test.ts` — asserting both `clip.pair` and\n`clip.status` throw over LAN, so the namespace entry is proven rather\nthan a single method name.\n\n**Red-proved:** commenting out the `\"clip\"` entry makes both tests fail\nwith `Received function did not throw`; restoring it makes them pass. A\ntest that passed either way would document an intention rather than\nenforce it — which is exactly the gap this PR closes.\n\n## Verification\n\ntypecheck ✅ · `audit:invariants` ✅ · `packages/gateway/src/ipc/` 1,415\npass / 0 fail ✅ · `security-invariants.test.ts` 96 pass / 0 fail ✅\n\n`docs/SECURITY-INVARIANTS.md` is intentionally unchanged: this closes a\nsecond path into the already-documented I30 rather than adding a new\ndefence. A cross-reference there is a reasonable follow-up.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Security**\n* Restricted LAN access to local clip-management actions, including\npairing and status checks.\n* Prevented remote peers from opening pairing windows or minting clip\ntokens.\n* Confirmed unauthorized requests return the appropriate “method not\nallowed” response.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-08-02T19:02:44Z",
+          "tree_id": "aee5d8a6b6a584534827621d4ca429110a0614f9",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/7bd2cdc128e4f5ab8fcdb3a8301bc8cdd6efade5"
+        },
+        "date": 1785698035332,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 303.7920827499973,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 304.48510139999706,
             "unit": "ms"
           }
         ]
