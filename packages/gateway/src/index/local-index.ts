@@ -112,7 +112,7 @@ function ftsTitleMatchQuery(name: string): string {
   return tokens
     .map((t) => {
       const escaped = t.replaceAll('"', '""');
-      return `(title : "${escaped}"* OR body_preview : "${escaped}"*)`;
+      return `(title : "${escaped}"* OR body : "${escaped}"*)`;
     })
     .join(" AND ");
 }
@@ -262,7 +262,7 @@ export interface LanPeerRow {
   last_seen_at: string | null;
 }
 
-export const CURRENT_SCHEMA_VERSION = 47;
+export const CURRENT_SCHEMA_VERSION = 48;
 
 const ALLOWED_META_KEYS = new Set<string>(["onboarding_completed"]);
 
@@ -450,7 +450,11 @@ export class LocalIndex {
   listItemsForAuthor(personId: string, limit: number): NimbusItem[] {
     const lim = Math.min(200, Math.max(1, Math.floor(limit)));
     const rows = this.db
-      .query(`SELECT * FROM item WHERE author_id = ? ORDER BY modified_at DESC LIMIT ?`)
+      .query(
+        `SELECT id, service, type, external_id, title, body_preview, url, canonical_url,
+                modified_at, author_id, metadata, synced_at, pinned
+         FROM item WHERE author_id = ? ORDER BY modified_at DESC LIMIT ?`,
+      )
       .all(personId, lim) as ItemRow[];
     return rows.map(rowToItem);
   }
@@ -535,7 +539,9 @@ export class LocalIndex {
     limit: number,
   ): ItemRow[] {
     const sql = `
-        SELECT i.* FROM item i
+        SELECT i.id, i.service, i.type, i.external_id, i.title, i.body_preview, i.url, i.canonical_url,
+               i.modified_at, i.author_id, i.metadata, i.synced_at, i.pinned
+        FROM item i
         INNER JOIN item_fts ON i.rowid = item_fts.rowid
         WHERE item_fts MATCH ? ${whereExtra}
         ORDER BY rank
@@ -695,7 +701,9 @@ export class LocalIndex {
     try {
       const rows = this.db
         .query(
-          `SELECT * FROM item WHERE service = ? AND type = ? ORDER BY modified_at DESC LIMIT ? OFFSET ?`,
+          `SELECT id, service, type, external_id, title, body_preview, url, canonical_url,
+                  modified_at, author_id, metadata, synced_at, pinned
+           FROM item WHERE service = ? AND type = ? ORDER BY modified_at DESC LIMIT ? OFFSET ?`,
         )
         .all(service, indexedType, lim, off) as ItemRow[];
       return rows.map(rowToItem);
