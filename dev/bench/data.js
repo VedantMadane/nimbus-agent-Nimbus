@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785782247304,
+  "lastUpdate": 1785784770691,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -8839,6 +8839,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 321.0327577499993,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a8fabdbd93fc46a1e163b56f2ce2b8635945cd00",
+          "message": "refactor(db): give escapeIdentifier a canonical home and close a third I9 gap (#1037)\n\n## What\n\n`escapeIdentifier` — the SQL identifier-quoting helper invariant **I9**\ndepends on — had no canonical home. It existed as:\n\n- a module-scope `function` in `connectors/reindex.ts`\n- an **inline arrow inside a function body** in `db/repair.ts`\n- and **not at all** in `db/write.ts`, which\n`docs/SECURITY-INVARIANTS.md:165` names as an I9 wiring site\n\nSo the invariant documentation pointed at a file that did not contain\nthe defence, and two independent copies of a security primitive sat\nwaiting to drift into a subtly-different third.\n\nNow: one `export function escapeIdentifier` in `db/write.ts`, beside\n`dbRun`/`dbExec`/`dbStmtRun`. All call sites import it. **Behaviour is\nbyte-identical** — this is a pure relocation, not a rewrite of the\nescaping.\n\nConsolidating there makes the existing doc sentence **true**, rather\nthan requiring the doc to be reworded.\n\n## A third site was fixed, not documented away\n\n`search/vec-store.ts` built `vec_items_${dims}` from a plain template\nliteral, contradicting a \"Migrated rationale\" note that claimed it used\nthe helper.\n\nThe first pass corrected the *note* to describe the gap. That was the\nwrong direction and has been reverted: the identifier now goes through\n`escapeIdentifier`, making the note true.\n\nThis matches the decision already taken in #1026, where the identical\npattern in `connectors/reindex.ts` (`vec_items_${chunk.dims}`, `dims`\nconstrained to `SUPPORTED_EMBEDDING_DIMS`, not exploitable) was routed\nthrough the helper anyway — because **I9 is unconditional**. A rule that\nbends when a given instance looks safe is not a rule, and the next\nperson to copy the pattern may not have the constraint.\n\nVerified against **real sqlite-vec SQL execution**, not just typecheck:\n`vec-store.test.ts` 19 pass with `VEC_AVAILABLE` true.\n\n## The I9 enforcement test moved with the code\n\nThe old test asserted `db/repair.ts` contained both `escapeIdentifier`\nand the `replaceAll('\"', '\"\"')` literal. After the move that literal\nlives in `db/write.ts`, so the test had to change — and the interesting\npart is *how*.\n\nIt now asserts each consumer **imports** the helper and does **not**\nre-declare a local copy. An assertion that merely found the string\n`escapeIdentifier` would pass against a file that shadowed it with its\nown version — precisely the regression this consolidation exists to\nprevent.\n\n**Both assertions red-proved:**\n- Re-adding a shadowing local in `repair.ts` → fails on the\n`not.toMatch` assertion (98 pass / 1 fail), restored → 99 pass / 0 fail\n- Reverting `vec-store.ts` to the raw template literal → 99 pass / 1\nfail, restored → 100 pass / 0 fail\n\n## Deliberately left alone\n\n**The NUL-byte guard** (`isUnsafeSqlIdentifier`, `NUL_CHAR`) stays local\nto `repair.ts`. It is a caller-specific skip policy over identifiers\npulled from a live `PRAGMA foreign_key_check` scan, not a property of\nthe escape. `reindex.ts`'s identifier source is a fixed compile-time set\nthat structurally cannot need it. One consumer is not evidence for\ngeneralising.\n\n**FTS5 phrase quoting** at `glossary-store.ts:83`, `local-index.ts:114`\nand `hybrid-internal.ts:60` uses a textually identical `replaceAll('\"',\n'\"\"')`, but quotes *values* for `MATCH` queries, not SQL identifiers.\nDifferent purpose — conflating them would be a real bug.\n\n## Verification\n\n`security-invariants.test.ts` 100 pass ✅ · search + db + connectors\n3,020 pass / 0 fail ✅ · typecheck exit 0 ✅ · `audit:invariants` exit 0 ✅\n· `biome check --error-on-warnings` clean ✅\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n- **Security**\n- Improved protection for dynamically generated SQL identifiers across\ndatabase repair, reindexing, and vector search operations.\n- Standardized identifier escaping to prevent malformed or unsafe SQL\nvalues.\n\n- **Tests**\n- Expanded security coverage to verify consistent escaping across all\naffected operations and prevent duplicate implementations.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-03T19:10:15Z",
+          "tree_id": "e1fc47d7a6f5fe89a63995849c3c9c524cfd605b",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/a8fabdbd93fc46a1e163b56f2ce2b8635945cd00"
+        },
+        "date": 1785784769074,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 288.85077855000236,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 285.4970440500045,
             "unit": "ms"
           }
         ]
