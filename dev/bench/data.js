@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785698036485,
+  "lastUpdate": 1785730910486,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -8635,6 +8635,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 304.48510139999706,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bae0d86aea42d3161da828b53be69f19e8bd1614",
+          "message": "fix(connectors): metadata_only redaction must erase embedding chunks and the right vectors (#1026)\n\n## What\n\n`reindexConnector({ depth: \"metadata_only\" })` is the command a user\nruns to **strip indexed body text** from their local database. It\naudit-logs `data.minimization.prune` with `hitl_status: \"approved\"` —\ntelling the user the text is gone. It wasn't.\n\nTwo bugs, both pre-existing and both live on `main` before this PR.\nFound while reviewing adjacent code during the full-body store work\n(#1023), documented there, fixed here in their own diff.\n\n## Bug 1 — `embedding_chunk.chunk_text` was never cleared\n\n`reindex.ts` had zero references to `embedding_chunk`. That table's\n`chunk_text` column holds the plaintext chunked from each item's body at\nembed time. After a redaction the text survived there in full and stayed\nreadable.\n\n## Bug 2 — the vector delete targeted the wrong row\n\n```ts\nDELETE FROM vec_items_384 WHERE rowid = ?   // ← passed the *item* table's rowid\n```\n\nA vector row's identifier is `vec_rowid`, assigned in\n`embedding/pipeline.ts` as `COALESCE(MAX(rowid),0)+1` — a table-wide\nmonotonic counter across every item's chunks. Unrelated identifier\nspaces. So the redacted item's vectors mostly **survived**, and an\n**unrelated item's vector was deleted**, silently corrupting its search\nresults.\n\nIt went unnoticed because the existing tests used single-item,\nsingle-chunk fixtures where the two ids coincide by accident.\n\n## Demonstrated, not argued\n\nThe new test seeds item1 with 3 chunks (`vec_rowid` 1–3) and item2\nsecond (`item.rowid` 2, `vec_rowid` 4), forcing the id spaces apart.\nAgainst the old code the surviving vector rowids were **`[1,3,4]`** —\nrowid 4 is the redacted item's vector, still alive; rowid 2 belonged to\nan item that was never redacted and was deleted anyway. Both halves of\nthe bug in one assertion.\n\nThe test asserts the redacted item's vectors are gone **and** that the\nother item's are untouched. The second assertion is what catches the\ncollateral corruption.\n\n## The fix, and what actually does the work\n\nInside the existing transaction, each chunk's own `vec_rowid` and `dims`\nare read **before** the chunk rows are deleted, then vectors are removed\nfrom the dims-routed table.\n\nWorth stating plainly, because it surfaced in review: **fixing bug 1\nfixes bug 2 for free.** `embedding-v6-sql.ts` and\n`vec-items-1536-v30-sql.ts` define dims-aware `AFTER DELETE ON\nembedding_chunk` triggers that delete the correct vec row via\n`OLD.vec_rowid`. Deleting the chunk rows is what erases the vectors.\n\nThe explicit per-chunk loop is therefore **redundant by design** and\nkept deliberately as defence-in-depth against a database whose trigger\nis missing or altered — in a healthy database its deletes are expected\n0-row no-ops. That is now documented at the call site naming both\ntriggers, so it is neither \"optimised away\" as dead code nor mistaken\nfor the primary mechanism.\n\n## Erasure completeness, verified\n\n| Store | After `metadata_only` |\n|---|---|\n| `item.body` / `item.body_preview` | nulled |\n| `item_fts` (FTS5 external-content) | terms genuinely dropped via the\n`item_fts_update` trigger's `'delete'` command |\n| `embedding_chunk.chunk_text` | deleted ← **this PR** |\n| `vec_items_384` / `vec_items_1536` | deleted, keyed on `vec_rowid` ←\n**this PR** |\n| audit log `action_json` | `{connector, items_affected, depth}` only —\nno body text |\n| `graph_entity` / `graph_relation` | populated from structured refs,\nnot body text |\n\nThe `try`/`catch` around vec deletion — required because the tables are\n`sqlite-vec` virtual tables absent when the extension fails to load — is\nnarrowed to match only a genuine `no such table` error (verified\ncharacter-exact against the real bun:sqlite message). Permissions,\ncorruption or lock failures now propagate instead of being swallowed. An\nerasure that reports success while failing is the same class of bug this\nPR fixes.\n\n## Out of scope, reported\n\n`commands/data-delete.ts`'s `vecRowsForService()` has the same\nrowid/`vec_rowid` confusion, but it feeds only the dry-run preflight\n**count**. Independently verified that the real delete path is correct —\n`DELETE FROM item` cascades via `ON DELETE CASCADE` into the dims-aware\ntrigger. **Not** a second data leak; a cosmetically wrong count worth a\nfollow-up.\n\n## Verification\n\ntypecheck ✅ · build ✅ · **16,530 tests pass / 0 fail** ✅ ·\n`audit:invariants` ✅ · Docker-Linux coverage floor running at open; CI\nis authoritative.\n\nAll writes route through `dbRun` (invariant `I14`) with bound parameters\n(`I9`); zero bare `rawDb.run(` remain in the file. No schema change.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n* Improved metadata-only reindexing to reliably remove associated\nembedding data and vectors.\n* Added support for cleanup across all configured embedding dimensions.\n  * Preserved unrelated items and vectors during reindexing.\n* Improved handling of missing vector tables while surfacing unexpected\ndatabase errors.\n* Updated audit records and result counts to accurately reflect affected\nitems.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-08-03T04:10:38Z",
+          "tree_id": "f66a6b539204dce9b2a243e923f0acdbdd636a6f",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/bae0d86aea42d3161da828b53be69f19e8bd1614"
+        },
+        "date": 1785730909426,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 318.6272270000005,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 320.04806424999913,
             "unit": "ms"
           }
         ]
