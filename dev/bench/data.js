@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785773095424,
+  "lastUpdate": 1785776931541,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -8703,6 +8703,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 301.4615415999888,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9ab8c697f4aa81e843e4670a888f19d654c1c9cc",
+          "message": "feat(cli): nimbus index rebody, and correct the full-body-store connector accounting (#1032)\n\n## What\n\nAdds `index.rebody` (IPC + CLI) — the opt-in re-fetch that recovers full\nbodies for items indexed before V48 — and **corrects documentation that\nthis workstream proved wrong**.\n\nThird and final slice of the full-body store, after #1023 (V48 substrate\n+ connectors) and alongside the two security fixes it turned up, #1026\nand #1027.\n\n## The docs corrections matter as much as the command\n\n`docs/roadmap.md` (Wave 5 + Spine S1) and the design spec both claimed\n**twelve connectors** gained full bodies. Verified against the tree\nduring implementation, that is wrong:\n\n| | Sources |\n| --- | --- |\n| **Full body @ 16 KiB (10)** | slack, teams, discord, linear, jira,\n`github:issue`, snyk, obsidian, `zoom:transcript`, `nimbus:web_clip` |\n| **Partial — 2,000-char cap (1)** | `nimbus:research_brief`, capped\nupstream by `MAX_SUMMARY_CHARS` in `briefs/brief-report.ts` |\n| **Inert, still 512 (2)** | `bitbucket` (emits only `:pr`, while\n`PROSE_HEAVY_TYPES` lists `bitbucket:issue` — dead config nothing emits)\nand `github:pr` |\n\nThe design spec gets a **dated correction** rather than a rewrite: it is\na historical document, and silently editing it to match reality would\nerase the fact that the design was wrong, which is the more useful thing\nfor a future reader.\n\n## What `index.rebody` does — and what it deliberately does not\n\nClears a per-connector sync watermark and lets the existing sync run, so\nitems come back with `body` populated. It is opt-in because the original\ntext is genuinely gone — recovering it means re-fetching from the source\nAPI.\n\n**It tells you what it cannot fix.** `body_complete = 0` conflates three\npopulations, and one is unfixable by re-fetching: a connector that still\npasses the legacy `bodyPreview:` key can never set `body_complete = 1`,\nno matter how long the walk takes. Without this, `--dry-run` would\npromise to fix 4,210 Notion pages, cost a full workspace re-walk, and\nleave the count identical.\n\nSo:\n- `pendingBefore` / `pendingAfter` per service on real runs — an unmoved\ncount is **visible**.\n- `cannotImprove` on dry runs — you are warned **before** paying for the\nwalk.\n- The improvable set is an **inclusion** list\n(`REBODY_IMPROVABLE_SERVICES`), not an exception list. Anything absent\ndefaults to cannot-improve, so a forgotten entry produces an\nover-cautious warning rather than a false promise. Membership was\nverified by tracing all 74 connector call sites — the generic\n`MappedRow<S,T>` hardcodes `bodyPreview`, structurally excluding 51\nmapping files.\n\n**No `--only-truncated` flag.** It looks like an obvious optimisation\nand is not implementable: a sync fetches by page and time window, never\nby item id, so the flag would suppress writes (free) while every API\nrequest still happened. The file header records this and names the\ncondition that would change the answer.\n\n**Cost is not proportional to the pending count.** Delta-capable\nconnectors (Slack, Gmail) re-walk a bounded window; Notion and\nConfluence re-walk the entire account. Jira is bounded (an `updated >=\n-Nd` JQL floor on a cleared cursor) — an earlier draft misclassified it\nand was corrected against the connector source.\n\n## Security\n\n`index.rebody` and `index.rebodyCancel` are added to\n`FORBIDDEN_OVER_LAN` (invariant **I5**). `index.reembed` was already\nforbidden as a \"write-class index method\"; rebody is strictly more\ndangerous — it drives outbound third-party API traffic on the owner's\ncredentials and quota, rather than a local CPU recompute. Not\nrenderer-exposed either; `ALLOWED_METHODS` stays at 103 (**I7**).\n\n## Known limitations, stated rather than buried\n\n- The CLI **cannot** name which connectors are full-scan. That fact\nlives only in `Syncable` cursor behaviour in gateway source, and the CLI\nis structurally forbidden from importing it. Rather than hardcode a\nservice list that would drift, the output carries an always-shown caveat\nabout the real mechanism.\n- `zoom` and `nimbus` have **mixed per-item-type migration** (zoom\ntranscripts improve, meetings don't; web clips and briefs improve,\nglossary terms don't). Both are excluded from the improvable set because\nthe pending map groups by service, not `(service, type)` — the safe\ndirection, at the cost of a slightly over-cautious warning.\n- Targeting `nimbus` is meaningless anyway: it is not a registered\n`SyncScheduler` connector.\n\n## Verification\n\ntypecheck ✅ · build ✅ · **16,616 tests pass / 0 fail** ✅ · 16 audits ✅ ·\nBiome 1,786 files ✅ · Docker-Linux `audit:coverage-floor` ✅ (1,131 files\nscanned, **0 baselined**, baseline verified unratcheted)\n\n`index-rebody-rpc.ts` 100% line / 100% branch; `index-cmd.ts` 100% line\n/ 88.75% branch (measured on Docker/Linux, the authoritative platform\nfor this gate).\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n- **New Features**\n  - Added `nimbus index rebody` to re-fetch incomplete item content.\n- Supports filtering, dry runs, confirmation, limits, JSON output,\nprogress updates, cancellation, and failure reporting.\n- Expanded selected content indexing to 16 KiB and improved full-text\nsearch coverage.\n\n- **Documentation**\n- Added CLI usage, schema, migration, changelog, roadmap, and connector\ncoverage details.\n  - Documented content completeness reporting and rebody limitations.\n\n- **Security**\n- Prevented remote peers from triggering rebody operations over LAN\nconnections.\n\n- **Tests**\n- Added comprehensive coverage for command behavior, validation,\nprocessing, cancellation, errors, and access controls.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-03T19:57:32+03:00",
+          "tree_id": "491433570e8ce001d84fd2b59117637b1cb0427b",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/9ab8c697f4aa81e843e4670a888f19d654c1c9cc"
+        },
+        "date": 1785776930434,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 312.2814467499949,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 311.54307139999,
             "unit": "ms"
           }
         ]
