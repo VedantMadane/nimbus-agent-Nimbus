@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785784770691,
+  "lastUpdate": 1785785473240,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -8873,6 +8873,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 285.4970440500045,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6483726e5d57fcecb9bac3a41ea4f15514a27b5a",
+          "message": "chore: release main (#1036)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>1.19.1</summary>\n\n##\n[1.19.1](https://github.com/nimbus-agent/Nimbus/compare/v1.19.0...v1.19.1)\n(2026-08-03)\n\n\n### Bug Fixes\n\n* **deps:** bump the brace-expansion override to 5.0.9\n(GHSA-rgw5-rvv9-x895)\n([#1035](https://github.com/nimbus-agent/Nimbus/issues/1035))\n([8d66323](https://github.com/nimbus-agent/Nimbus/commit/8d663237a4ff3615e12cd6c8f106aa3c51b4f34e))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-03T22:11:32+03:00",
+          "tree_id": "08357520bf730270b6ada598e7f1c05461616312",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/6483726e5d57fcecb9bac3a41ea4f15514a27b5a"
+        },
+        "date": 1785785472206,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 327.5233440499982,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 320.95512549999984,
             "unit": "ms"
           }
         ]
