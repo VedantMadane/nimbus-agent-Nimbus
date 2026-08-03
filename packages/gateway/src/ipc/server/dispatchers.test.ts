@@ -9,6 +9,7 @@ import { ProfileManager } from "../../config/profiles.ts";
 import { appendEgressEntry } from "../../egress/egress-ledger.ts";
 import { InMemoryDiscoveryProvider } from "../../federation/discovery.ts";
 import { PeerPairing } from "../../federation/peer-pairing.ts";
+import { upsertIndexedItem } from "../../index/item-store.ts";
 import { CURRENT_SCHEMA_VERSION, LocalIndex } from "../../index/local-index.ts";
 import { runIndexedSchemaMigrations } from "../../index/migrations/runner.ts";
 import { SessionMemoryStore } from "../../memory/session-memory-store.ts";
@@ -48,6 +49,7 @@ import {
   tryDispatchFederationRpc,
   tryDispatchHitlRpc,
   tryDispatchIndexDemoSymbolRpc,
+  tryDispatchIndexRebodyRpc,
   tryDispatchIndexReembedRpc,
   tryDispatchIndexRegraphRpc,
   tryDispatchLanRpc,
@@ -65,6 +67,7 @@ import {
   tryDispatchUpdaterRpc,
   tryDispatchVoiceRpc,
 } from "./dispatchers.ts";
+import { RpcMethodError } from "./rpc-error.ts";
 
 function makePolicyRpcCtx(overrides: Partial<PolicyRpcCtx> = {}): PolicyRpcCtx {
   return {
@@ -398,6 +401,77 @@ describe("tryDispatchIndexReembedRpc", () => {
       jobId: "missing",
     }).catch((e: unknown) => e);
     expect(outcome).not.toBe(phase4RpcSkipped);
+  });
+});
+
+describe("tryDispatchIndexRebodyRpc", () => {
+  test("skips other methods", async () => {
+    const { ctx } = makeCtx();
+    expect(await tryDispatchIndexRebodyRpc(ctx, "engine.ask", {})).toBe(phase4RpcSkipped);
+  });
+  test("throws when localIndex missing", async () => {
+    const { ctx } = makeCtx();
+    await expect(tryDispatchIndexRebodyRpc(ctx, "index.rebody", {})).rejects.toThrow(
+      /requires LocalIndex/,
+    );
+  });
+  test("delegates index.rebody with valid wiring and no syncScheduler", async () => {
+    const db = trackedDb();
+    const localIndex = new LocalIndex(db);
+    const { ctx } = makeCtx({ localIndex });
+    const outcome = await tryDispatchIndexRebodyRpc(ctx, "index.rebody", { dryRun: true });
+    expect(outcome).not.toBe(phase4RpcSkipped);
+    expect((outcome as { jobId: string }).jobId).toMatch(/^rebody_/);
+  });
+  test("delegates index.rebodyCancel with valid wiring", async () => {
+    const db = trackedDb();
+    const localIndex = new LocalIndex(db);
+    const { ctx } = makeCtx({ localIndex });
+    const outcome = await tryDispatchIndexRebodyRpc(ctx, "index.rebodyCancel", {
+      jobId: "missing",
+    });
+    expect(outcome).toEqual({ cancelled: false });
+  });
+  test("rejects invalid params as RpcMethodError", async () => {
+    const db = trackedDb();
+    const localIndex = new LocalIndex(db);
+    const { ctx } = makeCtx({ localIndex });
+    await expect(
+      tryDispatchIndexRebodyRpc(ctx, "index.rebody", { service: "" }),
+    ).rejects.toBeInstanceOf(RpcMethodError);
+  });
+  test("forwards a live syncScheduler into the rebody context — the scheduler actually receives the forceSync call", async () => {
+    const db = trackedDb();
+    const localIndex = new LocalIndex(db);
+    // Seed a pending row so a REAL (non-dry) run has a target to act on — dryRun never reaches
+    // ctx.syncScheduler at all, so asserting anything with dryRun:true would guard nothing.
+    upsertIndexedItem(db, {
+      service: "test-svc",
+      type: "message",
+      externalId: "1",
+      title: "T",
+      bodyPreview: "not complete",
+      modifiedAt: 1,
+      syncedAt: 1,
+    });
+    const forceSyncCalls: string[] = [];
+    const { ctx } = makeCtx({
+      localIndex,
+      syncScheduler: {
+        forceSync: async (serviceId: string) => {
+          forceSyncCalls.push(serviceId);
+        },
+      } as unknown as NonNullable<ServerCtx["options"]["syncScheduler"]>,
+    });
+    const outcome = await tryDispatchIndexRebodyRpc(ctx, "index.rebody", { service: "test-svc" });
+    expect(outcome).not.toBe(phase4RpcSkipped);
+    // The job runs asynchronously inside LongRunningJobRegistry — give it a tick to reach the
+    // forceSync call before asserting on it.
+    await new Promise((r) => setTimeout(r, 50));
+    // This is the assertion that actually guards "forwards a live syncScheduler": deleting the
+    // `syncScheduler` spread in tryDispatchIndexRebodyRpc (dispatchers.ts) makes this fail,
+    // whereas the old `not.toBe(phase4RpcSkipped)` assertion would still pass.
+    expect(forceSyncCalls).toEqual(["test-svc"]);
   });
 });
 
