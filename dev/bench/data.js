@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785780824123,
+  "lastUpdate": 1785781553365,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -8771,6 +8771,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 253.4031290000039,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e3305428ef4411d90de010015d405b54acf32db6",
+          "message": "test: stop CI hiding a Windows hang and two silently-skipped suites (#1034)\n\n## What\n\nTwo fixes for the same underlying defect: **CI reporting something it\ndid not verify.** One hides a hang behind a timeout; the other hides\nskipped tests behind a passing count. Neither is a logic bug — the\nreporting is what's wrong.\n\n## Fix 1 — a Windows hook timeout that intermittently reds `main`\n\n`preflight-deploy.e2e.test.ts` fails on `windows-2025` with `a\nbeforeEach/afterEach hook timed out for this test` at ~11.7s. It is a\nflake: the commit it failed on changed only version strings, and the\ncommit before it — which changed the schema — passed.\n\nThe mechanism is already documented in this repo\n(`test/unit/db/statement-finalization.test.ts`, issue #969):\n`runIndexedSchemaMigrations` leaves prepared statements alive → an\nunfinalized `db.prepare()` makes `db.close()` a **silent no-op** → the\ndatabase file stays pinned → Windows' recursive `rmSync` retries\ninternally on `EBUSY` and burns the hook's ~5s budget.\n\nNote the `rmSync` was *already* inside a try/catch, so this is a\n**block, not a throw** — widening the catch would not have helped.\n\n**Fix:** `maxRetries: 0, retryDelay: 0` so cleanup fails fast instead of\nconsuming the budget. A leaked temp directory is the accepted status quo\n(#972/#973 track ~536 per full gateway run), so this trades a leaked dir\nfor a hook that cannot hang. Commented at each site citing those issues,\nso it isn't \"fixed\" back into a blocking call.\n\nApplied to **26 call sites across 20 files** sharing the vulnerable\n`db.close()` + `rmSync(dir, …)` shape.\n\n**Three sibling-looking files were deliberately left alone**, with\nreasons recorded: `db/writable-pragmas.test.ts`,\n`extensions/verify-extensions.test.ts`, `ipc/share-rpc.test.ts` —\nin-memory-only databases, or a missing try/catch where adding one would\nchange failure semantics.\n\nThis does **not** fix the underlying statement-finalization problem\n(#969) — that is a much larger change across the migration runner.\n\n## Fix 2 — tests that reported as PASSING when they never ran\n\nTwo sites in `index/migrations/runner-v30.test.ts` used:\n\n```ts\nif (!tryLoadSqliteVec(db)) { return; }\n```\n\nAn early return registers as a **pass**, not a skip. The test count is\nidentical whether the code ran or not, so a green run is\nindistinguishable from a fully-exercised one. This matters because\n`sqlite-vec` genuinely does not load on macOS CI (#1029) — these\n\"passed\" there having verified nothing.\n\nConverted to `test.skipIf(!VEC_AVAILABLE)`, matching the existing\nconvention in `connectors/reindex-vector-erasure.test.ts` and the\n`search/*.test.ts` files.\n\n**Proven, not assumed:** forcing `VEC_AVAILABLE = false` moves the file\nfrom `5 pass` to `3 pass / 2 skip`, confirming the two tests now report\nas skipped rather than silently passing.\n\nA third site named in the brief — `embedding/pipeline.test.ts:145` —\nturned out to be **already correctly `describe.skipIf`-wrapped** and was\nleft untouched (verified against `origin/main`).\n\n## Verification\n\ntypecheck ✅ exit 0 · `bunx biome check --error-on-warnings` ✅ 2,674\nfiles clean · combined 22-file run ✅ 269 pass / 0 fail\n\nRelated: #1029 (macOS `sqlite-vec` — 54 vec-dependent sites silently\nskip there), #969 (statement finalization), #972/#973 (leaked temp\ndirs).\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n- **Tests**\n- Test cleanup now fails fast when temporary files remain in use,\npreventing teardown from blocking.\n  - Cleanup errors remain non-fatal where applicable.\n- SQLite vector-dependent tests now skip gracefully when the required\ncapability is unavailable.\n- Migration and trigger coverage retains explicit validation when SQLite\nvector support is present.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-03T21:05:43+03:00",
+          "tree_id": "693c231834387bf0b7b40b3f85808416b9af808e",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/e3305428ef4411d90de010015d405b54acf32db6"
+        },
+        "date": 1785781551694,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 325.89187350000174,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 326.2160227000015,
             "unit": "ms"
           }
         ]
