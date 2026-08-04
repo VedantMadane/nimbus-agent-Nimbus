@@ -8,6 +8,102 @@ Phase-level history before `v0.1.0` (Phases 1–4) lives in [`docs/roadmap.md` �
 
 ## Post-Phase-6 deliveries
 
+- **2026-08-04 — Depth enforcement is now real (V49), plus real Gmail and Outlook bodies.**
+  Two independent gaps, closed together because the second built on the first: connector index
+  depth (`metadata_only` / `summary` / `full`) had never actually been enforced for body content,
+  and Gmail/Outlook only ever indexed a metadata snippet, never the message body.
+
+  **Depth enforcement.** `SyncContext.depth` is now a required field, resolved per sync run, and
+  every connector's item-writing call now routes through a single chokepoint
+  (`upsertIndexedItemForSync` in `index/item-store.ts`) that coerces the row to the configured
+  depth before it is written: `metadata_only` suppresses `body` **and** `body_preview` alike (an
+  empty string, not an omitted field — omission would fall through to the title); `summary` forces
+  the legacy preview arm, clamping to 512 characters and never claiming `body_complete`; `full` is a
+  pass-through. Obsidian was the one connector-side bypass — `connectors/obsidian-sync.ts` called
+  `upsertIndexedItem` directly, so a `metadata_only`/`summary` vault kept getting full note bodies
+  indexed on every sync regardless of the persisted setting. It now goes through the same
+  chokepoint. **This is a user-visible behavior change**: an Obsidian connector configured at
+  anything other than `full` depth stops leaking full note bodies into the index as of this release.
+
+  **Suppression now covers vectors, not only stored text.** `SqliteEmbeddingPipeline.embedItem`
+  (`embedding/pipeline.ts`) previously returned before its `DELETE FROM embedding_chunk` when an
+  item chunked to no embeddable text — the reachable state after a depth downgrade to
+  `metadata_only` leaves an item with a blank title, since `itemTextForEmbedding` falls back to the
+  title once `body_preview` is empty. Old chunks (and, via the V30 dim-aware delete triggers, their
+  vectors in `vec_items_384`/`vec_items_1536`) survived that early return, so a suppressed item's
+  content stayed searchable as vectors even though its stored text was gone. The early return now
+  deletes the item's existing chunks for its model first, so a depth downgrade clears
+  previously-computed embeddings along with the text.
+
+  Schema **V49** backfills `sync_state.depth` from `'summary'` to `'full'` for every existing row
+  (`metadata_only` rows are untouched). This is not cosmetic: V21 declared
+  `depth TEXT NOT NULL DEFAULT 'summary'`, so every row already held `'summary'` materialised rather
+  than NULL, and because depth had never been enforced for bodies, a stored `'summary'` expressed no
+  intent and had always behaved as `'full'` in practice. Enforcing depth without this backfill would
+  have silently truncated every existing index to 512 characters on its next sync. Three code-level
+  fallbacks (`local-index.ts` ×2, `sync/scheduler.ts`) that defaulted an absent depth row to
+  `"summary"` were flipped to `"full"` for the same reason, as was the `sync_state` insert in
+  `connectors/health.ts` — the one insert with production callers, and therefore the only path that
+  materialises a depth row for a connector added *after* this migration ran, which the backfill
+  cannot reach.
+
+  **If you deliberately chose `summary`, V49 reset it to `full` and you must re-apply it.** The
+  backfill cannot distinguish a `'summary'` you asked for from the column default nobody chose, and
+  because depth was never enforced for bodies, neither had ever behaved differently. Re-run
+  `nimbus connector reindex <name> --depth summary` for any connector you had deliberately set that
+  way; from this release it is genuinely enforced on every sync. `metadata_only` connectors are
+  untouched and need no action.
+
+  **Gmail** (`connectors/_lib/gmail/api.ts`) now fetches `format=full` instead of
+  `format=metadata` — the same Gmail API request at the same 5-quota-unit cost, though *not* the
+  same bandwidth: `format=full` returns the inline part bytes, so an initial mailbox sync moves
+  substantially more data than it used to — and walks the MIME
+  tree to extract text: `text/plain` is preferred by part type (not by document position), a
+  `multipart/alternative` picks one representation, and a `multipart/mixed` concatenates its parts.
+
+  **Outlook** (`connectors/outlook-sync.ts`) adds `body` to its Graph `$select`, and its cursor
+  prefix moves from `nimbus-outl1:` to `nimbus-outl2:` so every stored `@odata.deltaLink` is
+  invalidated once on upgrade — a delta link encodes the projection of the query that minted it, so
+  an old link would keep returning body-less responses forever, including for brand-new messages.
+
+  **The quoted-tail trimmer** (`string/email-quoted-text.ts`, new) strips the quoted reply chain
+  from an email body before it is indexed: email threads are heavily self-duplicating, and without
+  this a twenty-message thread would store the same quoted paragraphs twenty times, spending each
+  reply's body cap on text already indexed. It cuts a quoted TAIL (marker to end of message), not at
+  the first marker, so an inline quotation followed by more of the author's own prose is left alone.
+  Both Gmail and Outlook route HTML bodies through a new **line-preserving HTML-to-text helper**
+  (`string/html-plain-text-lines.ts`) rather than the existing `plainTextFromHtml`, which flattens
+  every newline to a space — fine for its other four prose-only consumers, but it would have made
+  the line-anchored trimmer a no-op, since the trimmer matches quote markers against whole lines.
+  Outlook is the first consumer handed a complete HTML *document* rather than a fragment, so that
+  helper also drops `<style>` / `<script>` / `<head>` sections (a Word-composed message carries
+  kilobytes of `mso-` CSS, which would otherwise land ahead of the prose and eat the body cap),
+  decodes character references (`&nbsp;` above all — Graph's `bodyPreview`, which Outlook indexed
+  before, is already decoded), and escapes a stray `<` in author prose so `"if a < b"` no longer
+  loses the rest of its line. An underscore divider is now treated as end-of-message only when a
+  quoted header block or a `>` quote actually follows it; a 10+ underscore rule is also an ordinary
+  human section separator, and treating it as unconditionally terminal deleted the rest of the
+  message. A Gmail or Outlook message whose body cannot be extracted at all (S/MIME, attachment-only)
+  keeps its provider snippet at `body_complete = 0` rather than recording an empty body as a
+  complete one, so `nimbus index rebody` can still revisit it.
+
+  `REBODY_IMPROVABLE_SERVICES` (`ipc/index-rebody-rpc.ts`) grows from eleven services to thirteen,
+  adding `gmail` and `outlook` in sorted position. The full-body-store connector accounting
+  (2026-08-02 entry below, most recently updated 2026-08-03) moves from 12 to **14 full body @
+  16 KiB** (the twelve from 2026-08-03 plus Gmail and Outlook, both already in `PROSE_HEAVY_TYPES`);
+  the partial (1) and inert (2) counts are unchanged. No new security invariant. Schema **V49**.
+  Design: `docs/superpowers/specs/2026-08-04-index-depth-and-email-bodies-design.md`.
+
+  **Outlook resets itself once.** The cursor prefix move means the next scheduled Outlook sync
+  performs one full mailbox delta with `body` requested on every page, rather than the usual
+  incremental trickle — that is the one-time cost of the feature, and no action is required. A large
+  mailbox will notice the sync taking longer than usual just this once.
+
+  **Gmail applies going forward.** `format=full` affects every message fetched from now on,
+  including new mail, so nothing further is required for the feature to work — at the cost of more
+  bytes over the wire per message, most noticeably on a first sync of a large mailbox. Messages already in
+  the index keep their old metadata-only snippet until they're next touched at the source or
+  recovered explicitly with `nimbus index rebody --service gmail`.
 - **2026-08-04 — Egress ledger (I29) Phase 1: make the completeness claim true, not just stated.**
   D22's own comment claimed "there is no escape hatch, no 'approved wrapper' carve-out … Any future
   shortcut or custom-wrapper bypass therefore fails this preflight static check immediately." That
