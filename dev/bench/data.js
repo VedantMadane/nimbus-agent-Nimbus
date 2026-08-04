@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785785473240,
+  "lastUpdate": 1785813116134,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -8907,6 +8907,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 320.95512549999984,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "609409ec07c6b72c9d817330a394e1b961ca27fb",
+          "message": "feat(connectors): index real Notion and Confluence page bodies (#1039)\n\nNotion and Confluence indexed **nothing but a title and a URL** — both\nconnectors passed a literal `bodyPreview: \"\"`. Keyword search over\n`item_fts` could only match a page by its title, and the three shipped\nimplicit-knowledge agents (`why`, `glossary`, `decisions`) saw nothing\nwhen they read `item.body` for either service. This also made an\nalready-published roadmap claim false: Wave 5 states `nimbus glossary`\nmines \"Slack threads + **Confluence/Notion pages** + …\", which had never\nbeen true and could not have been.\n\nBoth now index real page bodies into `item.body` (16 KiB for\n`PROSE_HEAVY_TYPES`, which both types were already in). This compounds\nthree agents that already ship rather than adding a fourth.\n\n## The cost asymmetry shapes the design\n\nThe two connectors are not comparable, and that drove everything.\n\n**Confluence is nearly free.** The CQL search already sent an `expand`;\nadding `body.storage` costs **zero extra API requests** — same call,\nfatter payload. The batch `limit` drops 50 → 25 to bound response size,\nand the paging loop now acquires the rate limiter per request rather\nthan once per sync.\n\n**Notion is an N+1.** `POST /v1/search` returns no content at all, so\nbodies need a paginated `GET /v1/blocks/{id}/children` per page,\nrecursing into nested blocks. A 1,000-page workspace goes from ~10\nrequests per sync to ~1,000+. Two existing behaviours made that\ndangerous rather than merely slow: the rate limiter was acquired once\nper *sync*, not per request, and a 429 threw and aborted the whole sync\nwithout returning a cursor — so a workspace large enough to hit the\nlimit would loop forever and index nothing.\n\n## How the Notion walk stays bounded and converges\n\nTwo limits, and **only one of them may ever truncate a page**:\n\n- The **per-page** request cap (10) and the depth cap (3) may truncate →\noutcome `capped`. Both are *permanent* properties: the page hits the\nsame limit every pass.\n- The **global** per-sync budget (200) is checked **before starting a\npage**, never during one. A page that starts can always afford to\nfinish.\n\nThat ordering is load-bearing. It means truncation only ever has\npermanent causes, which is what makes it safe to record a verdict and\nskip the page forever after. A connector-written `metadata.bodyFetch`\n(`complete` / `capped`, absent on `errored`) plus an unchanged\n`modified_at` is the skip-if-fresh key. A budget-stopped pass returns\n`hasMore: false` with the watermark **unadvanced**, so the ordinary\n5-minute tick carries the next pass and nothing older is skipped —\ndeliberately not `hasMore: true`, which the scheduler `unshift`s to the\nfront of the queue and would starve every other connector for the\nduration of a backfill.\n\nRecursion follows any `has_children` block except `child_page` /\n`child_database` (separate items already indexed in their own right).\nText is not uniformly at `rich_text`: `table_row` holds `cells`, and\nmedia blocks carry only a `caption` — both are extracted, since a\nglossary written as a table would otherwise index as nothing.\n\n## A live bug fixed on the way\n\n`_lib/teams/api.ts` called `plainTextPreviewFromHtml(content,\nBODY_MAX_PROSE)` and passed the result as `body:`. That clipped text to\nexactly the cap *before* the store saw it, so `upsertIndexedItem`'s\n`raw.length <= cap` check always passed and **every Teams message over\n16 KiB was recorded `body_complete = 1` while truncated**.\n`teams:message` is in `PROSE_HEAVY_TYPES`, so this was live in shipped\ndata. Both call sites now use a new non-truncating `plainTextFromHtml()`\nand let the store apply the cap. Bitbucket had the same shape, latent.\n\n## Also in here\n\n- **`bodyTruncated`** on `IndexedItemBodyInput`'s `body` arm — lets a\nconnector say \"I fetched a body and know it is incomplete\", which the\nlength-vs-cap test cannot express. Unavailable on the `bodyPreview` arm,\nwhich never claims completeness.\n- **Notion rate limit 30 → 120 req/min.** Notion's documented allowance\nis ~180/min; 30 was fine at ~10 requests per sync but meant a ~7-minute\npass at a 200-request budget.\n- **`REBODY_IMPROVABLE_SERVICES` 9 → 11.** Its membership-verification\ntable was re-checked row by row, which turned up two stale entries\nbeyond the one expected (bitbucket wrong in both line and expression;\nteams off by one).\n- **Accounting corrected to 12 full / 1 partial / 2 inert** across\n`roadmap.md`, `CHANGELOG.md` and `cli-reference.md`. Dated CHANGELOG\nentries were left historical — the 2026-08-02 entry still says what\nshipped that day.\n\n## Two limitations, stated plainly\n\n**A Confluence `rebody` recovers ~30 days, not the whole wiki.** Its\ncold-start CQL is `lastModified >= now(\"-30d\")`, so clearing the\nwatermark re-walks a bounded window — like Jira, unlike Notion, which is\ngenuinely full-scan. Adding `confluence` to the improvable list created\na promise three surfaces described wrongly; all three now say what it\nactually does.\n\n**An errored Notion page is not automatically retried on a later pass.**\nIts `last_edited_time` folds into the watermark before the fetch is\nattempted, and any newer successful page advances the watermark\nregardless, so the descending-sorted search never re-examines it.\nRecovery is a human editing the page, or `nimbus index rebody` clearing\nthe watermark. The alternatives were rejected deliberately: excluding\nerrored pages from the watermark max is ineffective (a newer success\nalready moved it), and pinning below the oldest error would let one\nunreadable 403 page re-walk the entire workspace every five minutes\nforever. A 429 is the exception — it zeroes the pass budget, which pins\nthe watermark, so those pages *are* retried next pass.\n\n## Dependency overrides (not from this feature)\n\nFour advisories were published against **unchanged** transitive\ndependencies while this PR was open, failing the required Dependency\naudit check. This branch adds no dependency of its own — it touches no\n`package.json` and no lockfile in its feature commits — and `bun audit`\non `main` fails identically. They are fixed here rather than in a\nseparate PR because nothing else is in flight behind them.\n\n| Package | From | To | Advisory |\n| --- | --- | --- | --- |\n| `fast-uri` | 3.1.4 | 3.1.5 | GHSA-7p8r-x3mc-p8w7 (high) |\n| `undici` | 7.28.0 | 7.29.0 | GHSA-4cwx-7wf7-3272 (high) |\n| `ip-address` | 10.2.0 | 10.3.1 | GHSA-mwp4-54f8-5fhr (high, newly\npinned) |\n| `hono` | 4.12.32 | 4.12.34 | GHSA-8j4g-w8fx-2239 (moderate) |\n\nAll four stay within their current major — patch-level only, no\nmajor-version jumps, even though 4.x/8.x/10.4 exist. `hono` is included\nbecause the Accepted-advisory registry step shares the Dependency audit\njob, so a moderate finding fails the same required check; bumping it\nbeats adding an accepted row.\n\n## Verification\n\nAll ten gates pass: scoped suites (4658 pass / 0 fail),\n`audit:invariants`, `audit:any --check`, `tsc`, `biome\n--error-on-warnings`, the Docker/Linux coverage floor (baseline\n`\"files\"` still `{}` — nothing ratcheted in), `audit:links` (1278 links,\n0 errors), `audit:doc-refs`, `audit:status-drift`, `markdownlint`. The\none new source file, `notion-page-body.ts`, is at **100% line and 100%\nbranch** coverage.\n\nNo new security invariant, no schema change — this sits on the V48\nsubstrate. Embeddings, the relationship graph and the federation query\ngate are deliberately untouched; all three keep reading the 512-char\n`body_preview`, so embedding egress stays exactly flat.\n\nDesign:\n`docs/superpowers/specs/2026-08-03-notion-confluence-full-body-design.md`\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-04T03:01:49Z",
+          "tree_id": "77ece62f9c2735e90fdf8d888a3fa042485cb1ac",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/609409ec07c6b72c9d817330a394e1b961ca27fb"
+        },
+        "date": 1785813114374,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 300.6200881499957,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 305.670578400002,
             "unit": "ms"
           }
         ]
