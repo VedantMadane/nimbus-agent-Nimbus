@@ -50,10 +50,16 @@ export function itemExternalIdFromInput(service: string, idOrExternal: string): 
  * wrapper, and a `string | undefined` value — and all compile clean, while
  * supplying both fields fails with TS2345. Relaxing it would trade a
  * compile-time guarantee for a runtime one and gain nothing.
+ *
+ * `bodyTruncated` rides the `body` arm only. It lets a connector say "I
+ * fetched a body, and I know it is not all of it" — the one thing the
+ * length-vs-cap test cannot express, because such a body is usually well
+ * under the cap. It is deliberately unavailable on the `bodyPreview` arm,
+ * which never claims completeness in the first place.
  */
 export type IndexedItemBodyInput =
-  | { bodyPreview?: string; body?: undefined }
-  | { body: string; bodyPreview?: undefined };
+  | { bodyPreview?: string; body?: undefined; bodyTruncated?: undefined }
+  | { body: string; bodyPreview?: undefined; bodyTruncated?: boolean };
 
 export function upsertIndexedItem(
   db: Database,
@@ -82,7 +88,7 @@ export function upsertIndexedItem(
   const raw = row.body ?? row.bodyPreview ?? row.title;
   const body = clampBody(raw, cap);
   const preview = clampBody(body, BODY_PREVIEW_MAX);
-  const bodyComplete = declaredFull && raw.length <= cap ? 1 : 0;
+  const bodyComplete = declaredFull && raw.length <= cap && row.bodyTruncated !== true ? 1 : 0;
   dbRun(
     db,
     `INSERT INTO item (
@@ -212,4 +218,28 @@ export function deleteAllItemsForService(db: Database, service: string): void {
     );
   }
   dbRun(db, "DELETE FROM item WHERE service = ?", [service]);
+}
+
+export type ItemBodyFetchState = { modifiedAt: number; bodyFetch: string | null };
+
+/**
+ * The two facts a connector needs to decide whether re-fetching an item's body
+ * could gain anything: when we last saw it change, and the verdict the
+ * connector recorded last time it tried. A `bodyFetch` of `"complete"` or
+ * `"capped"` both mean "do not re-fetch"; `null` means never attempted, or
+ * attempted and errored — which marks the item retryable in principle, but
+ * does not by itself guarantee a retry happens. A sync that folds this item's
+ * timestamp into its watermark before attempting the body fetch (Notion:
+ * see the errored branch in `connectors/notion-sync.ts`) will normally have
+ * already advanced past it by the time the fetch fails, so the item is
+ * re-examined only on a later edit or an explicit `nimbus index rebody`.
+ */
+export function selectItemBodyFetchState(db: Database, id: string): ItemBodyFetchState | null {
+  const row = db
+    .query<{ modified_at: number; body_fetch: string | null }, [string]>(
+      `SELECT modified_at, json_extract(metadata, '$.bodyFetch') AS body_fetch
+         FROM item WHERE id = ?`,
+    )
+    .get(id);
+  return row === null ? null : { modifiedAt: row.modified_at, bodyFetch: row.body_fetch };
 }

@@ -18,22 +18,33 @@ import { LongRunningJobRegistry } from "./_lib/long-running.ts";
  *   - Delta-capable / bounded-window (Slack, Gmail via history ids; Jira via
  *     a cold-start `updated >= -Nd` JQL floor — see `jiraJqlFromCursor` in
  *     `connectors/jira-sync.ts`, where `decodeCursor(null)` yields
- *     `hasFloor = false`): even from a fully cleared watermark, the re-sync
- *     walks a bounded recent window, not the whole account.
- *   - Full-scan (Notion, Confluence): clearing the watermark re-walks EVERY
- *     page in the account. Both reset `watermarkMs` to `-1` on a null cursor
- *     (`connectors/notion-sync.ts`, `connectors/confluence-sync.ts`) and their
- *     stop condition (`watermarkMs >= 0 && ...`) never fires at `-1`, so the
- *     walk never early-exits. On a large workspace that is tens of thousands
- *     of requests to recover bodies for a subset of items.
+ *     `hasFloor = false`; Confluence via the same shape — a cold-start CQL
+ *     floor, `type = page AND lastModified >= now("-30d")`, built in
+ *     `createConfluenceSyncable` in `connectors/confluence-sync.ts` from its
+ *     own `initialSyncDepthDays = 30`): even from a fully cleared watermark,
+ *     the re-sync walks a bounded recent window, not the whole account. A
+ *     Confluence `rebody` therefore recovers roughly the last 30 days of page
+ *     edits, not the whole wiki — a page untouched longer than that stays
+ *     `body_complete = 0` until it is next edited at the source.
+ *   - Full-scan (Notion only): clearing the watermark re-walks EVERY page in
+ *     the account. Notion resets `watermarkMs` to `-1` on a null cursor
+ *     (`connectors/notion-sync.ts`) and its search request sends only an
+ *     `object` filter and a sort — no server-side time floor at all (its
+ *     declared `initialSyncDepthDays: 30` is never read) — so the walk never
+ *     early-exits. On a large workspace that is tens of thousands of requests
+ *     to recover bodies for a subset of items.
  *
  * Cost is a separate axis from completeness — do not assume "bounded window"
  * implies "will complete". `REBODY_IMPROVABLE_SERVICES` below tracks
  * completeness: Gmail is bounded-window (cheap) but its connector still never
  * declares a full `body:`, so re-syncing it costs little AND recovers
- * nothing. Notion/Confluence are full-scan (expensive) AND cannot complete —
- * the worst combination, which is exactly why the dry-run result surfaces
- * `cannotImprove` before the caller pays for the walk.
+ * nothing. Confluence is bounded-window (cheap, ~30 days) and complete within
+ * that window: it recovers a page's whole body in the search response it
+ * already pays for. Notion is full-scan (expensive) and complete over
+ * successive budgeted passes, converging once no pass is cut short. Notion
+ * was the "expensive AND cannot complete" worst case until 2026-08-03;
+ * Confluence's fix that same day was completeness-only — it was never
+ * full-scan.
  *
  * There is deliberately no `--only-truncated` mode today, and it is not an
  * oversight — it is not implementable given how syncs work. A sync fetches by
@@ -133,18 +144,20 @@ export type RebodyParams = {
  *      EXCLUDED here (the safe direction) until/unless the pending grouping
  *      is made type-aware.
  *
- * Membership verified 2026-08-02 — every item-writing code path for each of
+ * Membership verified 2026-08-03 — every item-writing code path for each of
  * these services passes `body:`:
  *
- *   bitbucket  bitbucket-sync.ts:138        body: plainTextPreviewFromHtml(...)
- *   discord    discord-sync.ts:203          body: full
- *   github     github-sync.ts:207,247       body: body ?? "" (pr AND issue — both checked)
- *   jira       jira-sync.ts:268             body: d.bodyPrev
- *   linear     linear-sync.ts:175           body: desc ?? ""
- *   obsidian   obsidian-sync.ts:75          body: note.body
- *   slack      slack-sync.ts:282            body: full
- *   snyk       snyk-issue-mapping.ts:117    body: description
- *   teams      _lib/teams/api.ts:89         body: full
+ *   bitbucket   bitbucket-sync.ts:137        body: plainTextFromHtml(desc)
+ *   confluence  confluence-sync.ts:150       body: text (declared-full branch of the bodyInput ternary)
+ *   discord     discord-sync.ts:203          body: full
+ *   github      github-sync.ts:207,247       body: body ?? "" (pr AND issue — both checked)
+ *   jira        jira-sync.ts:268             body: d.bodyPrev
+ *   linear      linear-sync.ts:175           body: desc ?? ""
+ *   notion      notion-sync.ts:245           body: fetched.text
+ *   obsidian    obsidian-sync.ts:75          body: note.body
+ *   slack       slack-sync.ts:282            body: full
+ *   snyk        snyk-issue-mapping.ts:117    body: description
+ *   teams       _lib/teams/api.ts:88         body: full
  *
  * Add an entry only when you migrate a connector's LAST remaining
  * bodyPreview-only item type to pass `body:` — not when only some of its
@@ -166,10 +179,12 @@ export type RebodyParams = {
  */
 export const REBODY_IMPROVABLE_SERVICES: ReadonlySet<string> = new Set([
   "bitbucket",
+  "confluence",
   "discord",
   "github",
   "jira",
   "linear",
+  "notion",
   "obsidian",
   "slack",
   "snyk",

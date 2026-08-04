@@ -8,6 +8,63 @@ Phase-level history before `v0.1.0` (Phases 1–4) lives in [`docs/roadmap.md` �
 
 ## Post-Phase-6 deliveries
 
+- **2026-08-03 — Notion + Confluence full-body indexing, and a Teams `body_complete` fix.**
+  Closes the two full-body-store (V48, 2026-08-02) follow-ups named at the time: `notion:page` and
+  `confluence:page` moved from `bodyPreview: ""` (title and URL only, no text at all) to a
+  declared-full `body:`, joining the 16 KiB `PROSE_HEAVY_TYPES` cap.
+
+  **Confluence** (`connectors/confluence-sync.ts`) gets the whole page body for free: the CQL
+  search's `expand` param grows from `history.lastUpdated,space,version` to
+  `history.lastUpdated,space,version,body.storage`, and a new `confluenceBodyText()` helper pulls
+  `body.storage.value` (run through `plainTextFromHtml`) off the same response — zero extra API
+  requests. The larger per-row payload halved the page-fetch size (50 → 25) to stay within response
+  limits.
+
+  **Notion** (`connectors/notion-page-body.ts`) has no equivalent expand — a page's content is a
+  separate block tree — so it walks `blocks/children` recursively (depth capped at 3, a cycle
+  guard, not a cost bound) under two budgets: `NOTION_BODY_FETCH_BUDGET_PER_SYNC` (200 requests,
+  shared across every page in one sync pass) and `NOTION_BODY_REQUESTS_PER_PAGE_MAX` (10 requests,
+  per page — without it one list-heavy page could dominate a whole pass). A page that runs out of
+  its own per-page budget gets `outcome: "capped"` — permanent, since a re-fetch of unchanged text
+  would hit the same cap again, and skip-if-fresh means it is not re-attempted while the page
+  itself stays unedited. A page whose fetch fails outright (not the per-page budget — a network
+  error, 403/404, bad JSON) gets `outcome: "errored"` instead; a 429 additionally zeroes the
+  pass's remaining budget, which discards that whole pass's watermark advance, so a 429-errored
+  page is retried on the very next pass, while any other error is only retried when the page is
+  edited again at the source or via an explicit `nimbus index rebody`. Either way the page still
+  indexes with its title, URL, and whatever text was recovered, rather than failing outright.
+  Pages that don't fit in one pass converge over Notion's existing 5-minute sync cadence
+  (`defaultIntervalMs: 5 * 60 * 1000`) rather than in a single run. The Notion rate-limit quota
+  (`sync/rate-limiter.ts` `DEFAULT_QUOTAS.notion`) was raised from 30 to 120 requests/minute
+  (`burstSize` unchanged at 5) to give the block-tree walk headroom.
+
+  A new `bodyTruncated` flag on `IndexedItemBodyInput` (`index/item-store.ts`) lets a connector
+  assert "this body is incomplete" even when the raw text happens to fit under the cap — Notion's
+  `"capped"`/`"errored"` outcomes set it, so `body_complete` reflects the fetch outcome, not just a
+  length check. It is an in-memory input field read at write time, not a new column — no migration,
+  schema stays **V48**.
+
+  Fixed a live bug found while wiring the above: Teams (`connectors/_lib/teams/api.ts`) was calling
+  `plainTextPreviewFromHtml(content, BODY_MAX_PROSE)` — pre-truncating to the 16 KiB cap before
+  handing text to the store — so the store's own `raw.length <= cap` check always passed and every
+  over-cap Teams message was wrongly recorded `body_complete = 1`. Teams now calls a new
+  `plainTextFromHtml()` (`string/html-plain-text.ts`, no length limit) and lets the store apply the
+  cap, so truncated Teams messages are correctly marked incomplete and are eligible for `nimbus
+  index rebody`.
+
+  `REBODY_IMPROVABLE_SERVICES` (`ipc/index-rebody-rpc.ts`) grows from nine services to eleven,
+  adding `confluence` and `notion` in sorted position: `bitbucket`, `confluence`, `discord`,
+  `github`, `jira`, `linear`, `notion`, `obsidian`, `slack`, `snyk`, `teams`.
+
+  The full-body-store connector accounting (2026-08-02 entry below) moves from 10 full / 1 partial
+  / 2 inert to **12 full body @ 16 KiB (Slack, Teams, Discord, Linear, Jira, `github:issue`, Snyk,
+  Obsidian, Zoom transcripts, `nimbus:web_clip`, Notion pages, Confluence pages) / 1 partial
+  (`nimbus:research_brief`) / 2 inert (Bitbucket, `github:pr`)** — the partial and inert counts are
+  unchanged; this entry is the current statement of that accounting, superseding the (10) figure in
+  the 2026-08-02 entry below. This also makes true, as of 2026-08-03, a previously-false claim in
+  [`docs/roadmap.md`](./roadmap.md) Wave 5: `nimbus glossary` mining "Confluence/Notion pages" had
+  nothing to mine before this landed. No new security invariant. Design:
+  `docs/superpowers/specs/2026-08-03-notion-confluence-full-body-design.md`.
 - **2026-08-02 — `nimbus index rebody` — recover full bodies for already-indexed items.**
   A backfill for the full-body store below: re-fetches item bodies for rows the V48 migration (or
   a connector not yet migrated) left with `body_complete = 0`, by clearing a per-connector sync
@@ -51,6 +108,10 @@ Phase-level history before `v0.1.0` (Phases 1–4) lives in [`docs/roadmap.md` �
   Schema **V48**. No new security invariant — this widens a storage field and introduces no new
   chokepoint. Spec: `docs/superpowers/specs/2026-08-02-full-body-store-design.md`; plan:
   `docs/superpowers/plans/2026-08-02-full-body-store.md`. (#1023)
+
+  **Superseded 2026-08-03:** this (10) accounting was correct for what shipped on 2026-08-02; the
+  2026-08-03 entry above brought Notion and Confluence into the full-body group, moving the live
+  count to 12 full / 1 partial / 2 inert. See that entry for the current accounting.
 - **2026-08-02 — `nimbus decisions` — implicit ADR extractor.** The third and final member of the
   implicit-knowledge triad, after `nimbus why` (2026-07-24) and `nimbus glossary` (2026-07-30):
   recovers decisions buried in Slack/Discord/Teams messages, Notion/Confluence/Obsidian pages, and
