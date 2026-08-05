@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785943183977,
+  "lastUpdate": 1785945206404,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -9179,6 +9179,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 319.57123249999347,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ffdbe5b4e21873d0412abe5c19ae9b7d418d53de",
+          "message": "refactor(agents): route expert through the shared brief emitter (#1051)\n\nCloses the last of the follow-ups from the maintenance sweep (#1049).\n\n`emitExpertBrief` hand-rolled the exact body of `emitBriefWithSynthesis`\nwith `\"expert.\"` substituted for the method prefix — the same\nfire-and-forget `void (async () => …)()` wrapper, the same `synthesize`\ncall with the same `llm`-spread, the same `briefReady` payload shape,\nand the same `.catch` emitting `briefError`.\n\n`ExpertBrief` is already a member of the helper's `AnyBrief` union, so\nexpert was always intended to use it. It was **the last of the eleven\nbuilt-in agents still not doing so**, and SonarCloud measured the file\nat **8.0% duplication** — the highest of any gateway agent.\n\n## No behaviour change\n\nSame notification methods (`expert.briefReady` / `expert.briefError`),\nsame payload keys (`sessionId` / `brief` / `findings`), same `err\ninstanceof Error ? err.message : String(err)` coercion, and it still\nreturns `Promise<{ sessionId }>` **without awaiting the work** — the\nhelper preserves the fire-and-forget contract that the `briefReady` IPC\nnotification depends on.\n\nThe typed `runExpert` builder is untouched and stays in the agent\nmodule, which is exactly what the helper's own docstring prescribes.\n\n`synthesize` is no longer imported directly, so that import narrows to a\ntype-only import of `SynthesizerLlm`.\n\n## Verification\n\n`bun run typecheck` clean, `bun run lint` clean, and the full agents\nsuite passes: **269 tests, 0 fail** across 25 files.",
+          "timestamp": "2026-08-05T15:41:50Z",
+          "tree_id": "d1fd880b58033505044befb3acc2532369695b22",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/ffdbe5b4e21873d0412abe5c19ae9b7d418d53de"
+        },
+        "date": 1785945204997,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 325.94324054999925,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 316.6390349500049,
             "unit": "ms"
           }
         ]
