@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785945206404,
+  "lastUpdate": 1785945584181,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -9213,6 +9213,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 316.6390349500049,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c1fb8fbd3e73efb84bc8326d91faafc24f6cc34c",
+          "message": "ci(release): fail when a user-facing commit produces no release (#1052)\n\n> ⚠️ **Merging this PR cuts v1.21.0.** The last line of this description\nis a `Release-As:` trailer, which is the documented way to unstick the\nreleases that are currently stranded on `main`. **If you want the guard\nwithout the release, delete that one line before merging.**\n\n## The bug\n\nrelease-please parses every commit with the conventional-commits grammar\nand **silently skips any commit it cannot parse**, then decides from\nwhat is left. On 2026-08-05 it logged:\n\n\\\\\\\n❯ commit could not be parsed: dd98484b … feat(index): … (#1047)\n❯ error message: Error: unexpected token '(' at 155:42, valid tokens [)]\n❯ commits: 2                                        ← was 3\n✔ No user facing commits found since b561a9d… - skipping\n\\\\\\\n\nLine 155 of that 219-line message is:\n\n\\\\\\\n\\collapseWhitespace(stripHtmlTagsToSpaces(…))\\\n\\\\\\\n\nA nested call containing an ellipsis — **in prose**. Parens are balanced\n(22/22); the grammar simply rejects `(` in that position. With the\n`feat` dropped, only `docs` and `chore` remained, so release-please\nskipped. **The run reported success**, `v1.20.0` stayed latest, and\nschema V49 sat unreleased on `main` — along with the 4 ReDoS fixes from\n#1049.\n\nThis is structural, not bad luck. Squash-merge puts the **entire PR\ndescription** into the commit body (CLAUDE.md says so deliberately), so\nany prose token the grammar dislikes can cost a release, silently.\n\n## The guard\n\nIt asserts the one thing that cannot be true on a healthy run: **a\nuser-facing commit exists since the last release, yet there is neither a\nnew release nor an open release PR.**\n\nDesign notes:\n- **Subjects only.** `.commits[].commit.message | split(\"\\n\")[0]` — a\n*body* line that looks like a conventional header would otherwise\ninflate the count and fire on healthy runs.\n- **No `actions/checkout`.** This workflow has none, so the guard reads\nthe compare range through `gh api` rather than git.\n- **Fails loudly on ambiguity.** A 404 on `releases/latest` means \"first\nrelease, not my business\"; any *other* read error is fatal rather than\nsilently clean — the same discipline the phantom-release step above\nalready applies to tag lookups.\n- **Distinct from the phantom-release step.** That one recovers a\nrelease PR that merged without a tag. This one catches the opposite: no\nrelease PR is ever produced.\n\n## Red-proof\n\nRun against live repository state — a guard that cannot fire is\nworthless:\n\n| Scenario | Result |\n|---|---|\n| **Today's actual state** (1 feat since v1.20.0, no release, no PR) | ✅\n**fires**, naming #1047 |\n| docs/chore only | passes |\n| feat + open release PR | passes |\n| feat + release created | passes |\n| body line resembling a conventional header | not counted |\n\n`audit:workflow-lint` and `audit:action-sha-pins` both pass.\n\n## Follow-up not included here\n\nThe deeper fix is to stop feeding unparseable prose into commit bodies\nat all. Worth considering a PR-template note, or a check on the *title +\nbody* before merge. This PR deliberately covers only the detection half.\n\nRelease-As: 1.21.0",
+          "timestamp": "2026-08-05T18:50:50+03:00",
+          "tree_id": "c4fc28e0a76e366a36f96d7468ac88e19e8b55c7",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/c1fb8fbd3e73efb84bc8326d91faafc24f6cc34c"
+        },
+        "date": 1785945581513,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 182.96385184999744,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 183.2985942499974,
             "unit": "ms"
           }
         ]
