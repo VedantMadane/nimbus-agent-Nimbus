@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785945584181,
+  "lastUpdate": 1785946219610,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -9247,6 +9247,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 183.2985942499974,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e5dcea7daa5d778a143ab3e62c439e569c270e9e",
+          "message": "docs: document the Prometheus metrics surfaces and OpenMetrics scraping (#1054)\n\n## Why\n\nThe Gateway already exposes Prometheus text exposition on two separate\nsurfaces, and neither was documented anywhere on the docs site. That\nmakes an otherwise-shipped capability invisible: an autonomous Nimbus\nagent is scrapeable by Prometheus, Grafana Agent, or the Datadog Agent\ntoday, with no code change.\n\n## What\n\nNew `Monitoring` page (Reference sidebar, `/monitoring/`) covering both\nsurfaces:\n\n| | Index & performance | Governance |\n| --- | --- | --- |\n| Enabled by | `NIMBUS_METRICS_PORT` | `NIMBUS_HTTP_PORT` |\n| Auth | none, hard-bound to `127.0.0.1` | bearer\n(`http_api.deployment_token`), fails closed |\n| Source | `ipc/metrics-server.ts` | `status/prometheus-format.ts` |\n\nPlus suggested alerts, a Datadog Agent OpenMetrics snippet, a Prometheus\n`scrape_configs` snippet, and a local-first note making explicit what\ndoes and does not leave the machine (metadata and counts; never indexed\ncontent or credentials).\n\n## Notes\n\n- **`nimbus_hitl_pending` is partially stubbed.** `assemble.ts` builds\nit as `pendingApprovals + pendingQuorum` with the quorum term hard-coded\nto `0`, because `quorumCoordinator` exposes no pending-count accessor.\nDocumented in a caution block rather than letting the page imply a\nnumber the gauge does not deliver. Making it real is a small follow-up,\nnot in scope here.\n- The Datadog Agent snippet's option names are Datadog's schema and are\nnot verified against their current docs; the page says so and links out.\nThe Nimbus-side endpoints and metric names are read directly from\nsource.\n- Source paths are written as inline code rather than GitHub links,\nmatching the convention in `telemetry.mdx` and avoiding link rot.\n\n## Verification\n\nDocs-only. `bun run preflight:fast` passes all 24 gates, and `bun run\ndocs:build` exits 0 — 56 pages built, `/monitoring/` renders, \"All\ninternal links are valid\".\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-05T18:57:05+03:00",
+          "tree_id": "a120320e3bce541a37241e66558e10e5a684af72",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/e5dcea7daa5d778a143ab3e62c439e569c270e9e"
+        },
+        "date": 1785946217836,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 303.00772345000587,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 302.7649408000019,
             "unit": "ms"
           }
         ]
