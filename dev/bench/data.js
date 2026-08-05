@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785902615351,
+  "lastUpdate": 1785943183977,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -9145,6 +9145,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 324.24874199999977,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3414a524c86d4fc773ef8052b732cd66296c8e98",
+          "message": "chore(deps): adopt TypeScript 7, clear 32 Sonar findings incl. 4 ReDoS, correct docs and skills (#1049)\n\nMaintenance sweep for the monorepo: dependency upgrades (including the\nTypeScript 7 major), all 32 remaining SonarCloud findings, doc-drift\ncorrections and a skill refresh.\n\n## TypeScript 7 — adopted, with two forced carve-outs\n\nTypeScript 6.0.3 → 7.0.2, the native port. It typechecks **gateway, cli,\nadmin-console, ui and all ~90 connector workspaces with zero source\nchanges**. Two places could not follow, and both are load-bearing rather\nthan cosmetic:\n\n1. **`packages/docs` stays on TypeScript 6.** `astro check` runs\n`@astrojs/language-server`, which calls `this.ts.sys.fileExists`. The\nnative port's package does not expose `ts.sys`, so the docs typecheck\ndies with `undefined is not an object`. The workspace now pins `^6.0.3`\nand resolves its own copy; everything else in the repo is on 7.\n\n2. **The two compiler-API scripts resolve TypeScript 6 through an\nalias.** TS 7's `typescript` package exports only `./lib/version.cjs` at\nthe root — the compiler API moved to the explicitly **unstable**\n`typescript/unstable/*` subpaths. `scripts/cleanup/strip-comments.ts`\nand `scripts/cleanup/survey-oc.ts` drive that API directly. Rather than\nbuild repo tooling on an API its own maintainers label unstable, or drop\nthe two files out of the typecheck, they import through a\n`typescript-compiler-api` alias pinned to TypeScript 6. Both stay fully\ntypechecked and runnable, and the rationale is a comment at each import\nsite.\n\nNeither script is referenced by any package.json script, workflow or\npreflight gate — they are one-off cleanup utilities. If you would rather\nretire them than carry a second TypeScript, that is a clean follow-up\nand the alias disappears with them.\n\n## js-yaml 5 — attempted, and reverted as not adoptable\n\nWorth recording so it is not re-attempted. Upgrading exposed **three\nseparate problems**:\n\n- v5's ESM build **dropped the default export**. TypeScript did not\ncatch this; only running the tests did. Six files needed converting to\nnamed imports, **four of them CI gate scripts** (`workflow-lint`,\n`check-openapi-drift`, `check-workflow-run-triggers`,\n`linux-repo-config`) that would have failed every future preflight.\n- The **entire Astro/Starlight chain** — `astro`, `@astrojs/starlight`,\n`@astrojs/mdx`, `@astrojs/markdown-remark`, `@astrojs/internal-helpers`,\n`astro-expressive-code`, `starlight-links-validator` — imports js-yaml\nas a default export and declares `^4.3.0`/`^4.1.1`.\n- Since root `overrides` is global by construction, there is no\nconfiguration where the gateway gets v5 and Astro gets v4. And the\noverride **cannot simply be dropped**: it is also lifting `gray-matter`\nand `@istanbuljs/load-nyc-config` off js-yaml 3.x.\n\nSo js-yaml stays pinned at 4.3.1 and the source changes are reverted.\nThis is blocked on upstream Astro, not on us.\n\n## Other dependencies\n\n`@mastra/core` 1.43.0 → 1.56.0 and `@mastra/mcp` 1.10.0 → 1.15.1 (the\ngateway typechecks clean across that 13-minor jump), `@nimbus-dev/sdk` →\n1.16.0, `@nimbus-dev/client` → 0.15.1, `astro` 7.1.6,\n`@astrojs/starlight` 0.41.6, `imapflow` 1.6.5, `nodemailer` 9.0.4,\n`hyparquet` 1.27.1, `bonjour-service` 1.4.4, `@biomejs/biome` 2.5.7,\n`knip` 6.31.0, `dependency-cruiser` 18.1.1.\n\nThe `^1.8.1` `@nimbus-dev/sdk` floor across the 94 connector manifests\nis **deliberately untouched** — it already permits 1.16.0, so this is a\nlockfile refresh rather than 94 manifest edits. `audit:override-drift`\npasses.\n\n## SonarCloud — 32 findings\n\nThe four **S8786** results are the ones that mattered: real\nquadratic-backtracking exposure in `email-quoted-text.ts`,\n`decision-llm-adapter.ts` and `cue-mining.ts` (×2). A correctness test\ncannot catch a ReDoS, so each rewritten pattern now carries a\n**time-bounded test that measures growth across four input doublings**\nand asserts the ratio stays linear. The rest: 6 × S3776 extractions, 2 ×\nS5843 regex simplifications, 8 × S5906 `toHaveLength`, 2 × S5976\nparameterizations, and the tail. No suppressions.\n\n## Documentation\n\n- `docs/schema-reference.md` said **V48**; the applied migration is\n**V49**. This escaped `audit:status-drift` because that gate only\ninspects four files and only matches the phrasings `invariants through\nI<N>` / `schema V<N>`.\n- `docs/architecture.md` had no `decisions` row in the built-in agents\ncatalogue and no `agents.decisions` / `decisions.refresh` /\n`decisions.rebuild` in the IPC catalogue, despite shipping in #1019.\n- The public docs-site agents page presented itself as the complete\ninventory of **three** agents. **Eleven** ship. This matters most for\n`why`, which `README.md` tells a first-time user to run.\n- `packages/mcp-connectors/sonarqube/README.md` linked four levels up,\nresolving **outside the repository**.\n- The directory-submission copy still said `~80` services; it is 93.\nThat block is the text pasted into public directories, and eight\nsubmissions are still open.\n- `TypeScript 6.x` → `7.x` in CLAUDE.md, GEMINI.md,\n`docs/architecture.md` and `docs/README.md`, so the documented\nconstraint matches the upgrade. The two dated plan/spec records keep\ntheir original wording.\n\n## Skills and agents\n\n`nimbus-testing` — its `ToolExecutor` example **no longer compiled**:\n#1038 made the egress sink a required fifth constructor parameter. It\nalso prescribed a test layout the repo does not use (827 tests are\ncolocated under `src/**`, not `test/unit/**`) and documented a\n`test:e2e:desktop` script that does not exist.\n\n`nimbus-ipc` — documented 3 of the 12 registered `agents.*` methods and\nhad zero mention of the `glossary.*`, `decisions.*`, `tribal.*`,\n`policy.*`, `chatops.*`, `teamvault.*` or `index.rebody` namespaces.\nCLAUDE.md routes every \"adding an IPC method\" task here, so those were\nthe ones most likely to be re-invented.\n\n`nimbus-commands` — labelled `test:ci` as \"full CI parity\", directly\ncontradicting CLAUDE.md's correction that `preflight` is the full gate\nset.\n\nTwo agents refreshed, and `nimbus-implicit-knowledge-extraction` added.\n\n## Verification\n\n`bun run preflight:fast`: **all 24 gates pass**, plus `build` —\nincluding `audit:invariants`, `audit:override-drift`,\n`audit:status-drift`, `audit:any`, `audit:doc-refs` and `jscpd`.\n\nFive tests fail **locally on Windows only**, and all five fail\nidentically on a clean, unmodified `main` checkout, so none is\nintroduced here: four in `scripts/release/nimbus-verify-ps1.test.ts`\n(they spawn `bash`; CI is Ubuntu) and one in\n`packages/cli/src/commands/tui.test.tsx` (this shell has `NO_COLOR=1`,\nwhich outranks the non-TTY branch the assertion targets). This branch\ndoes not touch `tui`.",
+          "timestamp": "2026-08-05T18:08:49+03:00",
+          "tree_id": "b14b7fa472c4aa414574a734647317ed3d032e01",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/3414a524c86d4fc773ef8052b732cd66296c8e98"
+        },
+        "date": 1785943182124,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 320.48893040000513,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 319.57123249999347,
             "unit": "ms"
           }
         ]
