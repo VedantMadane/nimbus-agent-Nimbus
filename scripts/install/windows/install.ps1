@@ -55,6 +55,17 @@ if ((Test-Path (Join-Path $InstallDir "nimbus.exe")) -and -not $Yes) {
 Copy-Item -Path $NimbusSrc  -Destination (Join-Path $InstallDir "nimbus.exe")  -Force
 Copy-Item -Path $GatewaySrc -Destination (Join-Path $InstallDir "nimbus-gateway.exe") -Force
 
+# sqlite-vec loadable extension. The gateway looks for it beside its own executable, so it has to
+# be installed into the same directory. Optional: absent on an unsupported platform, which
+# disables semantic memory and nothing else.
+$Vec0Src = @(
+  (Join-Path $ScriptDir "vec0.dll"),
+  (Join-Path $ScriptDir "bin\vec0.dll")
+) | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($Vec0Src) {
+  Copy-Item -Path $Vec0Src -Destination (Join-Path $InstallDir "vec0.dll") -Force
+}
+
 # Update User PATH via .NET API (avoids setx 1024-char truncation bug).
 $currentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
 if ($null -eq $currentPath) { $currentPath = "" }
@@ -83,10 +94,10 @@ public static extern IntPtr SendMessageTimeout(
     $SMTO_ABORTIFHUNG = 0x0002
     $type::SendMessageTimeout($HWND_BROADCAST, $WM_SETTINGCHANGE, [UIntPtr]::Zero, "Environment", $SMTO_ABORTIFHUNG, 5000, [ref]$result) | Out-Null
   } catch {
-    Write-Warning "Could not broadcast environment change (likely Constrained Language Mode). PATH was updated successfully — open a new shell to pick it up."
+    Write-Warning "Could not broadcast environment change (likely Constrained Language Mode). PATH was updated successfully -- open a new shell to pick it up."
   }
 }
 
 Write-Host ""
-Write-Host "✓ Nimbus installed."
+Write-Host "OK: Nimbus installed."
 Write-Host "  Open a new shell, then run: nimbus --version"
