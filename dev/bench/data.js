@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785998832507,
+  "lastUpdate": 1786015782952,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -9451,6 +9451,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 311.6294448000037,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "826b76a1a5352ac226bfcd3c6a88b901d6afe33a",
+          "message": "feat(gateway): scope the HTTP API bearer tokens (#1062)\n\nGives the gateway's local HTTP bearer tokens a scope field and enforces\nit, so the agent-invocation, resolve-by-URL and fetch routes landing in\nlater PRs cannot be reached by a token minted only to clip a web page.\n\n`docs/ecosystem-roadmap.md` named the deadline: *\"a token minted to clip\na web page becomes: run any read-only agent over the whole index,\nresolve any URL, and read the pending-approval queue. Add scopes before\nthe second consumer, not the fifth.\"* This slice would have added\nconsumers five through eight, so the scopes land first.\n\nPR 1 of 4 from\n`docs/superpowers/specs/2026-08-06-http-agents-route-and-resolve-by-url-design.md`\n§ 3. Plan:\n`docs/superpowers/plans/2026-08-06-http-agents-pr1-token-scopes.md`.\n\n## What changes\n\n- The Vault map's value becomes `{token, scopes[]}`; a bare string still\nparses as the legacy form. Five scopes: `clip`, `briefs`, `agents`,\n`resolve`, `fetch`.\n- `ipc/http-route-auth.ts` — a route→auth table that is **total over the\nHTTP surface**, including the deliberately-unauthenticated routes, with\na source-scanned completeness guard.\n- Enforcement at the three sites that verify a client token: 401 for an\nunknown token, 403 `insufficient_scope` for a valid token missing the\nscope.\n- `nimbus clip pair [--scopes <a,b>]`, new `nimbus clip scopes <label>\n--set <a,b>`, and `nimbus clip status` now shows scopes.\n\n## No existing client breaks, and none gains reach\n\nA token stored in the pre-scopes bare-string form reads as exactly\n`[\"clip\",\"briefs\"]` — everything it can do today, none of what this\ndesign adds. Granting all scopes on upgrade would have been the easy\nmigration and the wrong one: it hands every token already in the wild\nthe escalation the scope work exists to prevent. New capability requires\n`nimbus clip scopes` or a re-pair.\n\n`http_api.web_clipper_tokens` is **unchanged**. The name is now\nhistorical — it backs every bearer-authed HTTP surface, not just clips —\nbut renaming it would strand every paired browser, and it sits on the\nstatically-enforced vault-key allow-list.\n\n## Properties, verified in source rather than argued\n\n- **Scopes are server-derived.** Recorded when the owner opens the\npairing window; `runClipPairConfirmRoute` reads only `code` from the\nconfirming request and mints with the window's scopes. There is no\nsyntactic path from the request to a scope.\n- **The table is the single source of truth.** Exactly two `hasScope(`\ncall sites in the gateway, both fed by `clipScopeFor(route.key)`. No\nenforcement site names a scope inline; all seven clip-kind entries have\na live gate.\n- **`route.key`, never a raw path.** A raw path misses every templated\nkey, returns null, and would wave the request through unchecked.\n- **I10 survives** — the verify loop iterates every entry with no\ndata-dependent early exit; scopes are read only after it completes.\n- **Operator input fails fast; stored data degrades closed.** `--scopes\ntelepathy` is rejected with the valid set named, rather than silently\nbecoming `clip,briefs`. `parseEntry` still drops unknown scopes\nsilently, because a stored record may come from a newer binary. That\nasymmetry is deliberate.\n- **The CLI validates nothing.** `packages/cli` cannot import gateway\nsource, so a check there would mean a second copy of the vocabulary that\ndrifts. The gateway is the sole validator.\n\n## I30\n\nRefined in place — no new invariant number. Minting now produces a\nscoped token, and `security-invariants.test.ts` gained tests that\n**fail** when the defense is reverted. The final review caught that the\ndocs had grown three normative claims while that file received only a\nsignature update: reverting `runClipPairConfirmRoute` to mint hardcoded\nscopes had left it green. Red-proved both directions.\n\n## Not in this PR\n\n`agents`, `resolve` and `fetch` are grantable but **no route consumes\nthem yet** — PRs 2–4 add those routes. One residual is recorded for PR\n2: the I30 claim that enforcement sites read scope from `clipScopeFor`\nrather than naming one inline is prose with no static confinement rule.\nNo live violation today; the rule earns its keep once PR 2 adds more\nenforcement sites.\n\n## Verification\n\n`preflight` PASSED; typecheck zero errors repo-wide; 1778 pass / 17 skip\n/ 0 fail across the affected suites; `lint:markdown` 0 issues in 87\nfiles. `audit:coverage-floor`'s real violation (`http-route-auth.ts`\nbranch 75%) was fixed with tests, never an exclusion — the two remaining\nentries are `socket-listeners.ts` and `platform/linux.ts`, neither in\nthis diff, both documented Windows false positives on a\nCI-Linux-authoritative gate.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n* **New Features**\n* Added scoped API bearer tokens for clips, briefs, agents, resolution,\nand fetching.\n  * Pair devices with selected scopes using `clip pair --scopes`.\n  * Update permissions without re-pairing via `clip scopes`.\n  * View granted scopes and brief availability in `clip status`.\n\n* **Bug Fixes**\n  * Invalid tokens return 401; insufficient permissions return 403.\n  * Legacy tokens retain clip and briefs access.\n\n* **Documentation**\n* Updated CLI, security, and API documentation with scope behavior and\nusage.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-06T14:21:08+03:00",
+          "tree_id": "1cbee1d27afebacf38c466203bab403ffa8120d0",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/826b76a1a5352ac226bfcd3c6a88b901d6afe33a"
+        },
+        "date": 1786015781172,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 242.31446925000347,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 242.62445494999412,
             "unit": "ms"
           }
         ]
