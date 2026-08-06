@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785987853192,
+  "lastUpdate": 1785994764861,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -9349,6 +9349,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 303.17210294999967,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dcc7bd7d1a1bbdf04273b4769df7e0f637bbc209",
+          "message": "feat: expose the read-only agents as MCP tools, recorded in the egress ledger (#1059)\n\nExposes Nimbus's built-in read-only agents as MCP tools on the existing\n`nimbus mcp-server`, so any MCP client (Claude Code, an editor\nextension) can ask \"why is this code like this\", \"who knows about this\",\n\"if I change this, what breaks\" against the local index — and every one\nof those answers is recorded in the egress ledger, so `nimbus prove`\nstays honest.\n\n`TOOL_SPECS` goes from 6 to 17: the six existing index/metrics tools,\nplus `peekWhy` (synchronous) and ten async agent briefs. Also adds\n`@nimbus-dev/mcp`, an MIT launcher package that resolves the installed\nCLI and execs it as an MCP server.\n\n## Why this needed more than a tool registration\n\nThree correctness prerequisites had to land first, because the naive\nversion is quietly wrong:\n\n- **Briefs were correlated by agent name, not session.** `briefReady`\nnotifications are broadcast to every session, so two concurrent callers\ncould receive each other's briefs. A long-lived MCP server makes that\nreachable in a way the one-shot CLI never did. `agent-brief-router.ts`\nnow matches by `sessionId`, binds one listener pair per agent name\nrather than one per invocation, and drops broadcasts nothing is waiting\nfor instead of buffering other sessions' brief content.\n- **The gateway could not tell an MCP-originated call from a CLI one.**\nA new `session.declareKind` handshake records the client kind per\nconnection, server-held after connect and immutable for the connection's\nlife. It is honesty-of-record, not authorization — anyone who can open\nthe socket can already call anything.\n- **Agent briefs are egress.** The gateway synthesises from the private\nindex and hands the result to whatever model the calling client runs.\nThat is the ledger's business.\n\n## `I29` / `D22(c)` — the second append path\n\nAn `agents.*` call from a client that declared `kind: \"mcp\"` appends one\n`egress_ledger` row **before any agent work**, fail-closed: a failed\nappend aborts with no brief emitted. A CLI-originated call appends\nnothing, because a brief rendered locally never leaves the machine.\n`D22` gains rule (c), pinning the single caller of\n`recordMcpBriefEgress` to `ipc/agents-rpc.ts` — the same shape as rule\n(a) pinning `connectors.dispatch` to `executor.ts`. Wiring, docs and\nenforcement test land together per the triple rule.\n\nThe append is gated on membership in the dispatch handler map, derived\nfrom that map rather than a second list, so a bogus `agents.<anything>`\ncannot write an `authorized` row for work that never ran — and unbounded\ncaller-supplied method strings cannot reach a hashed, append-only\ncolumn.\n\n## `\"mcp\"` is a ninth `source_type` — overriding the #1038 freeze,\ndeliberately\n\n#1038 froze `EGRESS_SOURCE_TYPES` at eight and prescribed reusing\n`session` with a reserved `method` for any further class. **That is\noverridden here by owner decision**, and the freeze note is rewritten\nrather than left contradicting the code.\n\nThe freeze weighed the marker/non-marker exclusion but not **coverage**.\n`COVERAGE_CLASSES` is by definition the set of egress-bearing source\ntypes, and `THIS_BINARY_COVERAGE` may only claim a granularity for a\nclass whose appender exists. `session`'s appenders (telemetry, updater,\nJWKS) do not exist, so `session` must keep claiming `none` — filing MCP\nbriefs there would have recorded them and disclaimed them in the same\nbreath. `mcp` therefore lands in both lists at `per-call`, in the same\ncommit as its appender. Widening is not a chain break:\n`verifyEgressChain` recomputes each row's hash from that row's own\nstored columns.\n\n`docs/ecosystem-roadmap.md` § \"Cross-cutting decisions to make once\"\nasked to close the union before the first new appender. This is that\ndecision, and it is recorded there, in the union's header, and in\n`SECURITY-INVARIANTS.md` § I29.\n\n**Accepted cost:** `parseCoverage` rejects a vector with an unknown or\nmissing key by design, so a `prove` window spanning a pre-`mcp` and\npost-`mcp` binary reports `indeterminate` on every class. That is the\nintended fail-safe direction and must not be softened.\n\n**Scope, stated because it is narrower than the class name suggests:**\n`mcp` covers `agents.*` briefs only. The six index tools hand raw rows\nto the same model with no row at all. That narrowing is now recorded in\nthe coverage SSoT, in I29, and in `nimbus prove`'s own scope label.\n\n## Fail closed on a gateway that cannot ledger\n\nIf `session.declareKind` is unsupported, the adapter registers the six\nindex tools and **withholds the eleven agent tools**, with an actionable\nerror. Serving unledgered briefs behind a stderr warning was the\nalternative — but editor-spawned MCP servers usually discard stderr, so\nthe operator would get unrecorded briefs while `prove` reported a clean\nscope. That is precisely the failure this feature exists to close. A\n*disconnect*-class failure is distinguished from an old gateway and\nkeeps its normal reconnect behaviour.\n\n## Notable\n\n- `agents.preflight` is **deliberately excluded** — it is the `I24`\nfederated-action path and triggers sandboxed execution on peers behind\nthe owner's HITL gate. Exposing a HITL-gated action to an external model\nis a separate design question.\n- `@nimbus-dev/mcp` is MIT and imports nothing from the AGPL packages.\nIts installer-directory list is now checked against\n`scripts/install/lib/paths.ts` by a test that reads that file as text —\nthe module comment previously *claimed* such a test while the only one\nasserted `length > 0`.\n- The launcher is **not published yet**; its README says so and\ndocuments running from a local checkout. Registry submission is a\nrelease activity.\n\n## Follow-ups\n\n- **#1057** — `EgressCompleteness.tier: \"authorized-actions\"` now\nmisstates coverage (its precondition was `task` being the sole\nnon-`none` class). Kept as documented debt because removing it is a\nbreaking wire change for published `@nimbus-dev/client` consumers\nincluding nimbus-vscode. Nothing reads it for a decision;\n`coverage`/`indeterminate` ship alongside as authoritative. The\ninvariants test pins the non-`none` set to exactly `[\"mcp\",\"task\"]`, so\na third class fails until this is settled.\n- `findDecisions`' gateway validator is laxer than its siblings — no\n90-day cap on `sinceMs`, no length check on `service`, where\n`catchup`/`huddle`/`impact` all have them. Mirrored exactly into zod\nrather than silently tightened (a stricter client bound would reject\ninput the gateway accepts). Worth a gateway-side decision.\n\n## Verification\n\n`bun run verify:docker --full` — the gate manifest run verbatim inside\n`oven/bun:1.3` at a normal path, full tier (build + `test:ci` + coverage\nfloor): **ALL GATES PASS**, `coverage-floor: ok (0 baselined files)`.\nRunning it in-container matters here: `audit:coverage-floor` is\nLinux-authoritative, and no coverage baseline exception was added\nanywhere on this branch.\n\n`preflight:fast` green (25 gates) · `packages/cli/src` 2157 pass ·\n`gateway/src/{egress,ipc}` 1568 pass · `mcp-launcher` 15 pass ·\n`security-invariants` 108 pass · 0 fail.\n\nBoth structural guards were red-proved rather than assumed: `D22(c)`\nfails when `recordMcpBriefEgress` is called from a third file, and the\nlauncher's drift test fails when a candidate directory diverges from the\ninstaller's.\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-06T08:27:54+03:00",
+          "tree_id": "2e5ce5e1b34e467976219e6eec193a4f6791c1ec",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/dcc7bd7d1a1bbdf04273b4769df7e0f637bbc209"
+        },
+        "date": 1785994763707,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 329.83819230000154,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 327.6434574500105,
             "unit": "ms"
           }
         ]
