@@ -6,6 +6,7 @@ import {
   validateCreateInput,
   validateSourceInput,
 } from "../briefs/brief-validate.ts";
+import type { ApiScope } from "../clips/api-scopes.ts";
 import { ClipValidationError } from "../clips/clip-ingest.ts";
 import type { PairingWindowController } from "../clips/pairing-window.ts";
 import { appendAuditEntry } from "../db/audit-chain.ts";
@@ -16,6 +17,7 @@ import { ScimError } from "../identity/scim-service.ts";
 import { DeploymentRpcError, dispatchDeploymentRpc } from "./deployment-rpc.ts";
 import { bearerToken, requireBearer } from "./http-auth.ts";
 import type { HttpWriteRateLimiter, RateLimitCheck } from "./http-rate-limit.ts";
+import { enforceClipScope } from "./http-route-auth.ts";
 
 // Canonical allowlist keys ("<METHOD> <PATH>", exact-match for deployment; the `{id}` item routes
 // are matched by the SCIM regex below, never by string templating). Plain string literals (no
@@ -180,8 +182,11 @@ export interface TeamsEventsSurface {
  */
 export interface ClipsWriteSurface {
   readonly pairing: PairingWindowController;
-  readonly verifyToken: (presented: string) => Promise<{ label: string } | null>;
-  readonly mintToken: (label: string) => Promise<string>;
+  readonly verifyToken: (
+    presented: string,
+  ) => Promise<{ label: string; scopes: readonly ApiScope[] } | null>;
+  /** Mints with the scopes the OWNER put on the pairing window — never caller-supplied. */
+  readonly mintToken: (label: string, scopes: readonly ApiScope[]) => Promise<string>;
   readonly ingest: (input: unknown) => { id: string; status: "created" | "updated" };
 }
 
@@ -193,7 +198,9 @@ export interface ClipsWriteSurface {
  */
 export interface BriefsWriteSurface {
   readonly controller: BriefRunController;
-  readonly verifyToken: (presented: string) => Promise<{ label: string } | null>;
+  readonly verifyToken: (
+    presented: string,
+  ) => Promise<{ label: string; scopes: readonly ApiScope[] } | null>;
   /** Kicks off synthesis fire-and-forget; resolves as soon as the run is marked running. */
   readonly startRun: (runId: string) => void;
   readonly save: (runId: string) => { itemId: string };
@@ -561,6 +568,34 @@ function checkRateLimit(
   });
 }
 
+/**
+ * Refuses an authenticated-but-unscoped caller with 403, or a misconfigured route with 500.
+ * Returns null only when the caller is genuinely allowed through.
+ *
+ * 403 rather than 401 for a real scope gap, deliberately: the token IS valid, so reporting 401
+ * would send a client into a re-pair loop that cannot fix anything.
+ *
+ * Takes `route.key` — the STATIC route constant — never the raw request path. `clipScopeFor`
+ * (via `enforceClipScope`) looks up the requirement by that literal key; a raw path (with the id
+ * substituted in) would miss every templated key and silently wave the request through with no
+ * scope check at all.
+ *
+ * EVERY caller of `scopeRefusal` is a clip-token-authenticated route — `runClipIngestRoute`
+ * (kind `clipIngest`) and `requireBriefAuth` (kinds `briefCreate`/`briefSource`/`briefRun`/
+ * `briefSave`) — so `enforceClipScope` returning "misconfigured" here means the table's entry for
+ * this key was removed or changed away from `kind: "clip"`, not that the route legitimately needs
+ * no scope. FAIL CLOSED (500), never treat that as "no refusal".
+ */
+function scopeRefusal(
+  routeKey: string,
+  granted: readonly ApiScope[],
+  limit: RateLimitCheck,
+): Response | null {
+  const verdict = enforceClipScope(routeKey, granted);
+  if (verdict.ok) return null;
+  return jsonResponse(verdict.body, verdict.status, rateLimitHeaders(limit));
+}
+
 async function parseBody(
   req: Request,
   ctx: WriteRouteContext,
@@ -866,6 +901,7 @@ async function runTeamsEventsRoute(
 
 async function runClipIngestRoute(
   ctx: WriteRouteContext,
+  route: ResolvedRoute,
   fingerprint: string,
   limit: RateLimitCheck,
   req: Request,
@@ -883,6 +919,19 @@ async function runClipIngestRoute(
       reason: "unauthorized",
     });
     return jsonResponse({ error: "unauthorized" }, 401, rateLimitHeaders(limit));
+  }
+  const refusal = scopeRefusal(route.key, verdict.scopes, limit);
+  if (refusal !== null) {
+    // refusal.status is either 403 (real scope gap) or 500 (HTTP_ROUTE_AUTH entry for this key
+    // is misconfigured — see scopeRefusal). Record whichever actually happened, not a hardcoded
+    // 403/insufficient_scope that would mislabel a table misconfiguration as a client error.
+    recordRejection(ctx, {
+      actionType: CLIP_REJECT_ACTION,
+      tokenFingerprint: fingerprint,
+      resultCode: refusal.status,
+      reason: refusal.status === 403 ? "insufficient_scope" : "internal_error",
+    });
+    return refusal;
   }
   try {
     const out = clips.ingest(parsed);
@@ -938,8 +987,12 @@ async function runClipPairConfirmRoute(
     });
     return jsonResponse({ error: "pairing_failed" }, 403, rateLimitHeaders(limit));
   }
-  const token = await clips.mintToken(confirmed.label);
-  return jsonResponse({ token, label: confirmed.label }, 200, rateLimitHeaders(limit));
+  const token = await clips.mintToken(confirmed.label, confirmed.scopes);
+  return jsonResponse(
+    { token, label: confirmed.label, scopes: [...confirmed.scopes] },
+    200,
+    rateLimitHeaders(limit),
+  );
 }
 
 async function requireBriefAuth(
@@ -952,14 +1005,28 @@ async function requireBriefAuth(
   const briefs = ctx.briefs as BriefsWriteSurface;
   const presented = bearerToken(req);
   const verdict = presented === undefined ? null : await briefs.verifyToken(presented);
-  if (verdict !== null) return null;
-  recordRejection(ctx, {
-    actionType: route.rejectAction,
-    tokenFingerprint: fingerprint,
-    resultCode: 401,
-    reason: "unauthorized",
-  });
-  return jsonResponse({ error: "unauthorized" }, 401, rateLimitHeaders(limit));
+  if (verdict === null) {
+    recordRejection(ctx, {
+      actionType: route.rejectAction,
+      tokenFingerprint: fingerprint,
+      resultCode: 401,
+      reason: "unauthorized",
+    });
+    return jsonResponse({ error: "unauthorized" }, 401, rateLimitHeaders(limit));
+  }
+  const refusal = scopeRefusal(route.key, verdict.scopes, limit);
+  if (refusal !== null) {
+    // See the twin comment in runClipIngestRoute: refusal.status is 403 or 500, and the recorded
+    // reason must match which one actually happened.
+    recordRejection(ctx, {
+      actionType: route.rejectAction,
+      tokenFingerprint: fingerprint,
+      resultCode: refusal.status,
+      reason: refusal.status === 403 ? "insufficient_scope" : "internal_error",
+    });
+    return refusal;
+  }
+  return null;
 }
 
 function briefValidationResponse(
@@ -1247,7 +1314,7 @@ export async function dispatchWriteRoute(req: Request, ctx: WriteRouteContext): 
     case "teamsEvents":
       return runTeamsEventsRoute(ctx, auth.fingerprint, limit, req, parsed);
     case "clipIngest":
-      return runClipIngestRoute(ctx, auth.fingerprint, limit, req, parsed);
+      return runClipIngestRoute(ctx, route, auth.fingerprint, limit, req, parsed);
     case "clipPairConfirm":
       return runClipPairConfirmRoute(ctx, auth.fingerprint, limit, parsed);
     case "briefCreate":

@@ -769,7 +769,8 @@ function clipsSurface(over: Partial<ClipsWriteSurface> = {}): ClipsWriteSurface 
   const pairing = new PairingWindowController({ nowMs: () => 1000, genCode: () => "123456" });
   return {
     pairing,
-    verifyToken: async (t) => (t === "good-token" ? { label: "chrome" } : null),
+    verifyToken: async (t) =>
+      t === "good-token" ? { label: "chrome", scopes: ["clip", "briefs"] } : null,
     mintToken: async () => "minted-token",
     ingest: () => ({ id: "nimbus:clip:abc", status: "created" }),
     ...over,
@@ -836,7 +837,7 @@ test("POST /v1/clips with invalid payload → 400 with field", async () => {
 
 test("pair/confirm with the right code mints a token (window open)", async () => {
   const surface = clipsSurface();
-  surface.pairing.open("chrome-work");
+  surface.pairing.open("chrome-work", ["clip"]);
   const req = new Request("http://127.0.0.1/v1/clips/pair/confirm", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -844,7 +845,11 @@ test("pair/confirm with the right code mints a token (window open)", async () =>
   });
   const res = await dispatchWriteRoute(req, clipCtx({ clips: surface }));
   expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({ token: "minted-token", label: "chrome-work" });
+  expect(await res.json()).toEqual({
+    token: "minted-token",
+    label: "chrome-work",
+    scopes: ["clip"],
+  });
 });
 
 test("pair/confirm fail-closed: no window open → 403, no mint", async () => {
@@ -923,7 +928,7 @@ test("POST /v1/clips → 400 without a field key when the validation error has n
 
 test("pair/confirm with a non-string code → 403", async () => {
   const surface = clipsSurface();
-  surface.pairing.open("dev");
+  surface.pairing.open("dev", ["clip"]);
   const req = new Request("http://127.0.0.1/v1/clips/pair/confirm", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -935,7 +940,7 @@ test("pair/confirm with a non-string code → 403", async () => {
 
 test("pair/confirm with no code field → 403", async () => {
   const surface = clipsSurface();
-  surface.pairing.open("dev");
+  surface.pairing.open("dev", ["clip"]);
   const req = new Request("http://127.0.0.1/v1/clips/pair/confirm", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -1138,7 +1143,7 @@ test("POST /v1/clips/pair/confirm keeps the 8 KiB cap (a pairing code is tiny)",
       return "x";
     },
   });
-  surface.pairing.open("chrome-work");
+  surface.pairing.open("chrome-work", ["clip"]);
   const req = new Request("http://127.0.0.1/v1/clips/pair/confirm", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -1168,7 +1173,9 @@ function briefsSurface(over: Partial<BriefsWriteSurface> = {}): BriefsWriteSurfa
   return {
     controller: over.controller ?? new BriefRunController({ nowMs: () => 1000 }),
     verifyToken:
-      over.verifyToken ?? (async (t: string) => (t === BRIEF_TOKEN ? { label: "chrome" } : null)),
+      over.verifyToken ??
+      (async (t: string) =>
+        t === BRIEF_TOKEN ? { label: "chrome", scopes: ["clip", "briefs"] } : null),
     startRun: over.startRun ?? (() => {}),
     save: over.save ?? (() => ({ itemId: "nimbus:research_brief:abc" })),
   };
