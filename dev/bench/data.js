@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786095144279,
+  "lastUpdate": 1786097961470,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -9587,6 +9587,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 322.64241410000324,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cb884ae8c110c80e0e7ec442242520fb67c1ca05",
+          "message": "ci(release): stop the silent-drop guard firing on every reconciled release (#1068)\n\nThe `release-please` job has gone red on **every** release-PR merge\nsince the silent-drop guard landed in #1052 — while the release itself\nshipped correctly each time. Latest: [run\n31165486901](https://github.com/nimbus-agent/Nimbus/actions/runs/31165486901)\non the merge of #1066 (v1.23.0), preceded by 31074863757 (v1.22.0) and\n31068750817 (v1.21.0).\n\n## Root cause: two steps in the same job contradict each other\n\nOn a release-PR merge the job runs three steps, and the last two\ndisagree by construction:\n\n1. `release-please-action` merges the manifest bump but never creates\nthe tag — the phantom this workflow already documents.\n`releases_created=false`.\n2. **Reconcile phantom release** recovers it: creates\n`refs/tags/v1.23.0` at the merge commit and flips PR #1066 `autorelease:\npending` → `autorelease: tagged`. This worked — the tag exists and\n[release.yml built\nit](https://github.com/nimbus-agent/Nimbus/actions/runs/31165721279).\n3. **Guard** reads `releases_created == true || open PRs labelled\n\"autorelease: pending\" > 0`. Both are false — *because step 2 removed\nthat label one step earlier*, which is exactly what recovery means. It\nthen compares against `releases/latest`, still `v1.22.0` since\nrelease.yml is mid-build, sees the four `feat`/`fix` commits that are\n**already in 1.23.0**, and fails.\n\nSo the guard fires precisely when the recovery path works. That is the\nhealthy path in this repo, and a guard that cries wolf on the healthy\npath is one people learn to ignore — which would cost us the real silent\ndrop it was built to catch (#1047 / v1.20.0).\n\n## Fix — two independent arms\n\n**1. The reconcile step publishes what it did.** It gains `id:\nreconcile` and a `reconciled` output, set `true` only on the branches\nthat end with the release *accounted for* (tag just created, or the tag\nalready pointed at that merge commit). The `continue` paths — unreadable\nmanifest, tag pointing somewhere else — leave it `false`, so a run that\nstill needs a human reaches the guard. The guard adds `reconciled ==\ntrue` as a third way to be healthy.\n\n**2. The guard baselines off the newest `vX.Y.Z` tag, not\n`releases/latest`.** The tag is what marks a version as cut; the GitHub\nRelease appears later, at the end of the tag-driven release.yml build.\nAny push to `main` landing inside that window compared against a stale\nbaseline and would fire this guard on a healthy release even with arm 1\nin place. `matching-refs/tags/v` is a prefix match, so `vscode-v*` and\n`v0.1.0-rc*` are filtered out by pattern; `sort -V` orders `v1.9.0`\nbefore `v1.20.0`; the `grep` is braced so a no-match cannot kill the\npipeline under `pipefail`.\n\nArm 1 is not made redundant by arm 2: it is the recovery step's direct\nstatement that it handled this release, and it does not depend on a tag\ncreated seconds earlier already being visible to a later API read.\n\nA release build that fails *after* its tag exists is unaffected: it goes\nred loudly in release.yml and is abandoned rather than retagged (per\nCLAUDE.md), which was never this step's job.\n\n## Verification\n\n`bun run preflight:fast` — all 29 gates pass, including\n`audit:workflow-lint` and `audit:release-please`.\n\nBoth `run:` blocks were extracted and `bash -n`-checked, then the guard\nblock was executed against the live repo in three states — including a\n**red-prove**, since a guard that cannot be shown to fail has not been\nshown to work:\n\n| case | inputs | result |\n| --- | --- | --- |\n| A — the failing run's exact state | `releases_created=false`,\n`reconciled=false` | `Since v1.23.0: 1 commit(s), 0 user-facing` →\n**exit 0** (was exit 1) |\n| B — genuine silent drop (`v1.23.0` hidden so the baseline falls back\nto `v1.22.0`) | `releases_created=false`, `reconciled=false` | still\n**exit 1**, listing all four dropped commits |\n| C — same commits, recovery ran | `releases_created=false`,\n`reconciled=true` | `Healthy: ... reconciled=true` → **exit 0** |\n\nCase B is the one that matters: the guard keeps its teeth.\n\nWorkflow-only change; no product code touched.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n- **Bug Fixes**\n- Improved release recovery when version tags are missing or\ninconsistent.\n- Prevented valid releases from being incorrectly flagged as incomplete\nafter successful tag reconciliation.\n- Enhanced handling of release validation when no comparable version tag\nexists or tag information cannot be retrieved.\n\n- **Chores**\n- Improved automated release checks for more reliable version tracking\nand recovery.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-07T10:07:46Z",
+          "tree_id": "c14ed6bd2e202fc929ce7581862d0f2e356cc7b4",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/cb884ae8c110c80e0e7ec442242520fb67c1ca05"
+        },
+        "date": 1786097959757,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 324.6969222000036,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 323.87744305001036,
             "unit": "ms"
           }
         ]
