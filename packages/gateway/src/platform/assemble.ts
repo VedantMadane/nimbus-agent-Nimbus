@@ -41,6 +41,7 @@ import {
   loadNimbusLanFromConfigDir,
   loadNimbusLlmFromPath,
   loadNimbusLlmPartialFromPath,
+  loadNimbusOwnershipFromConfigDir,
   loadNimbusPagerdutyFromConfigDir,
   loadNimbusPreflightFromConfigDir,
   loadNimbusQuorumFromConfigDir,
@@ -139,7 +140,11 @@ import {
   type SemanticSearchDeps,
 } from "../index/local-index.ts";
 import { readIndexedUserVersion } from "../index/migrations/runner.ts";
-import { loadRegisteredRoots, mergeRoots } from "../index/registered-roots-store.ts";
+import {
+  gitAwareRootPaths,
+  loadRegisteredRoots,
+  mergeRoots,
+} from "../index/registered-roots-store.ts";
 import type { StatusReaders } from "../ipc/admin-status-rpc.ts";
 import { resumePendingRemovals } from "../ipc/connector-rpc-handlers/index.ts";
 import type { EgressRpcCtx } from "../ipc/egress-rpc.ts";
@@ -157,6 +162,11 @@ import { OllamaProvider } from "../llm/ollama-provider.ts";
 import { LlmRegistry } from "../llm/registry.ts";
 import { SessionMemoryStore } from "../memory/session-memory-store.ts";
 import { buildServiceIdentityResolver } from "../metrics/service-identity.ts";
+import { runOwnershipPass } from "../ownership/ownership-pass.ts";
+import {
+  createOwnershipRefresher,
+  type OwnershipRefresher,
+} from "../ownership/ownership-refresh.ts";
 import { ensureAnchorKeypair } from "../policy/anchor-keypair.ts";
 import { partitionByAllowlist } from "../policy/connector-allowlist.ts";
 import { startPurge } from "../policy/gdpr-purge.ts";
@@ -431,6 +441,7 @@ async function createSchedulerWithMesh(opts: SchedulerWithMeshOpts): Promise<{
   connectorMesh: LazyConnectorMesh;
   glossaryRefresher: GlossaryRefresher;
   decisionsRefresher: DecisionRefresher | undefined;
+  ownershipRefresher: OwnershipRefresher | undefined;
 }> {
   const {
     paths,
@@ -521,6 +532,56 @@ async function createSchedulerWithMesh(opts: SchedulerWithMeshOpts): Promise<{
       })
     : undefined;
 
+  // Ownership graph (S1 Local Brain). Construction itself is gated on `[ownership].enabled`,
+  // mirroring decisionsRefresher above — a disabled pass leaves `ownershipRefresher` unset
+  // rather than idling. `runPass` re-reads BOTH the git-aware filesystem roots and the service
+  // configs on every invocation, never captures them: `runOwnershipPass` clears every
+  // `person --owns--> service` edge each pass and re-emits only what is reachable from
+  // `opts.roots`, so a partial/stale root set would silently erase ownership for every
+  // service the omitted roots would have bound (see that function's doc comment). Re-reading
+  // per pass also means a `[[filesystem.roots]]` or service-config edit — or a fresh
+  // `nimbus index add` — takes effect without a gateway restart.
+  //
+  // The root set MUST span BOTH sources: the `[[filesystem.roots]]` TOML blocks and the
+  // CLI-registered roots in `registered-roots.json`. `registerFilesystemRootSyncables` runs
+  // the blame indexer over the merged set, so `git_blame_line` holds rows for registered
+  // roots too; passing the TOML roots alone would leave every path under a registered root
+  // unowned AND erase, on every pass, the ownership of any service that root binds.
+  const ownershipCfg = loadNimbusOwnershipFromConfigDir(paths.configDir);
+  const ownershipRefresher = ownershipCfg.enabled
+    ? createOwnershipRefresher({
+        debounceMs: ownershipCfg.debounceMs,
+        runPass: () => {
+          const roots = gitAwareRootPaths(
+            loadNimbusFilesystemRootsFromConfigDir(paths.configDir),
+            loadRegisteredRoots(paths.configDir),
+          );
+          const serviceRepoUrns = new Map<string, readonly string[]>();
+          // M-1 (see `loadServiceConfigsOrDegrade`): the raw loader THROWS on any
+          // malformed `[metrics.dora.*]`/`[ci.service.*]` block. Unwrapped, one typo
+          // in an unrelated DORA section would abort every pass — taking file and
+          // directory ownership, which need no service config at all, down with it.
+          // Degrade to zero bindings instead: the service rollup is skipped, code
+          // ownership still lands.
+          for (const [serviceId, svc] of loadServiceConfigsOrDegrade(paths.configDir, syncLogger)) {
+            serviceRepoUrns.set(
+              serviceId,
+              svc.repos.map((u) => `${u.provider}:${u.providerId}`),
+            );
+          }
+          return runOwnershipPass(db, {
+            nowMs: Date.now(),
+            roots,
+            config: ownershipCfg,
+            serviceRepoUrns,
+          });
+        },
+        onError: (err) => {
+          syncLogger.warn({ err }, "ownership derivation pass failed");
+        },
+      })
+    : undefined;
+
   const syncScheduler = new SyncScheduler(syncContext, undefined, {
     notify: async (title, body) => {
       await notifications.show(title, body);
@@ -532,6 +593,7 @@ async function createSchedulerWithMesh(opts: SchedulerWithMeshOpts): Promise<{
       evaluateWatchersAfterSync(db, serviceId, at, (t, b) => notifications.show(t, b), watcherOpts);
       glossaryRefresher.trigger();
       decisionsRefresher?.trigger();
+      ownershipRefresher?.trigger();
     },
   });
   const tomlRoots = loadNimbusFilesystemRootsFromConfigDir(paths.configDir);
@@ -574,7 +636,13 @@ async function createSchedulerWithMesh(opts: SchedulerWithMeshOpts): Promise<{
   registerUserMcpSyncablesFromDatabase(db, policyFilteredRegistrar, connectorMesh);
   syncScheduler.start();
   evaluateWatchersStartupCatchUp(db, Date.now(), (t, b) => notifications.show(t, b), watcherOpts);
-  return { syncScheduler, connectorMesh, glossaryRefresher, decisionsRefresher };
+  return {
+    syncScheduler,
+    connectorMesh,
+    glossaryRefresher,
+    decisionsRefresher,
+    ownershipRefresher,
+  };
 }
 
 interface HttpSidecarOpts {
@@ -1991,22 +2059,30 @@ export async function assemblePlatformServices(paths: PlatformPaths): Promise<Pl
   // `maybeStartAuditShipper`).
   maybeStartAuditShipper(db, policyGate.enforced().auditShipTo, sidecarStops);
 
-  const { syncScheduler, connectorMesh, glossaryRefresher, decisionsRefresher } =
-    await createSchedulerWithMesh({
-      paths,
-      vault,
-      db,
-      syncContext,
-      localIndex,
-      notifications,
-      syncLogger,
-      isConnectorAllowed,
-      glossaryLlm: createGlossaryLlm(llmRegistry.llmRouter),
-      decisionLlm: createDecisionLlm(llmRegistry.llmRouter),
-    });
+  const {
+    syncScheduler,
+    connectorMesh,
+    glossaryRefresher,
+    decisionsRefresher,
+    ownershipRefresher,
+  } = await createSchedulerWithMesh({
+    paths,
+    vault,
+    db,
+    syncContext,
+    localIndex,
+    notifications,
+    syncLogger,
+    isConnectorAllowed,
+    glossaryLlm: createGlossaryLlm(llmRegistry.llmRouter),
+    decisionLlm: createDecisionLlm(llmRegistry.llmRouter),
+  });
   sidecarStops.push(() => glossaryRefresher.stop());
   if (decisionsRefresher !== undefined) {
     sidecarStops.push(() => decisionsRefresher.stop());
+  }
+  if (ownershipRefresher !== undefined) {
+    sidecarStops.push(() => ownershipRefresher.stop());
   }
 
   await verifyExtensionsBestEffort(db, syncLogger, connectorMesh, { vault });
