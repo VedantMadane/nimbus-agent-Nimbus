@@ -5,7 +5,7 @@
  * All file-system tests use os.tmpdir() paths, cleaned up in afterEach.
  */
 import { Database } from "bun:sqlite";
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, test } from "bun:test";
 import {
   existsSync,
   mkdirSync,
@@ -17,9 +17,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { canonicalizeUrl } from "../../util/url-canonical.ts";
+import { CURRENT_SCHEMA_VERSION } from "../local-index.ts";
 import {
   MigrationRollbackError,
   pruneOldBackups,
+  RESOLVE_KEY_BACKFILL_CHUNK,
   readIndexedUserVersion,
   runIndexedSchemaMigrations,
 } from "./runner.ts";
@@ -736,4 +739,144 @@ describe("backfillMigrationsLedger — label missing error branch", () => {
     );
     db.close();
   });
+});
+
+// ---------------------------------------------------------------------------
+// V52 — item.resolve_key backfill
+// ---------------------------------------------------------------------------
+
+test("V52 backfills resolve_key for rows indexed before the column existed", () => {
+  const db = freshDb();
+  runIndexedSchemaMigrations(db, 51);
+  // No resolve_key column at v51, so this is a genuine pre-migration row.
+  db.query(
+    `INSERT INTO item (id, service, type, external_id, title, body, body_preview,
+       body_complete, url, canonical_url, modified_at, metadata, synced_at, pinned)
+     VALUES ('github:pr-1','github','pull_request','pr-1','PR one','','',0,
+       'https://github.com/o/r/pull/1?utm_source=x',NULL,1,'{}',1,0)`,
+  ).run();
+  runIndexedSchemaMigrations(db, 52);
+  const row = db.query("SELECT resolve_key FROM item WHERE id = 'github:pr-1'").get() as {
+    resolve_key: string | null;
+  };
+  expect(row.resolve_key).toBe(canonicalizeUrl("https://github.com/o/r/pull/1?utm_source=x"));
+  expect(userVersion(db)).toBe(52);
+  db.close();
+});
+
+test("V52 leaves resolve_key NULL for a row with neither url", () => {
+  const db = freshDb();
+  runIndexedSchemaMigrations(db, 51);
+  db.query(
+    `INSERT INTO item (id, service, type, external_id, title, body, body_preview,
+       body_complete, url, canonical_url, modified_at, metadata, synced_at, pinned)
+     VALUES ('nimbus:g-1','nimbus','glossary_term','g-1','Term','','',0,
+       NULL,NULL,1,'{}',1,0)`,
+  ).run();
+  runIndexedSchemaMigrations(db, 52);
+  const row = db.query("SELECT resolve_key FROM item WHERE id = 'nimbus:g-1'").get() as {
+    resolve_key: string | null;
+  };
+  expect(row.resolve_key).toBeNull();
+  db.close();
+});
+
+test("CURRENT_SCHEMA_VERSION is 52, so V52 runs in production", () => {
+  // Without this bump the step exists but never executes: runIndexedSchemaMigrations early-returns
+  // once user_version >= targetVersion, and every production caller passes CURRENT_SCHEMA_VERSION.
+  expect(CURRENT_SCHEMA_VERSION).toBe(52);
+  const db = freshDb();
+  runIndexedSchemaMigrations(db, CURRENT_SCHEMA_VERSION);
+  expect(tableNames(db)).toContain("item");
+  const cols = db.query("PRAGMA table_info(item)").all() as Array<{ name: string }>;
+  expect(cols.map((c) => c.name)).toContain("resolve_key");
+  db.close();
+});
+
+test("V52 leaves user_version unadvanced when the backfill throws", () => {
+  const db = freshDb();
+  runIndexedSchemaMigrations(db, 51);
+  db.query(
+    `INSERT INTO item (id, service, type, external_id, title, body, body_preview, body_complete,
+       url, canonical_url, modified_at, metadata, synced_at, pinned)
+     VALUES ('github:pr-2','github','pull_request','pr-2','PR two','','',0,
+       'https://github.com/o/r/pull/2',NULL,1,'{}',1,0)`,
+  ).run();
+  // Poison the UPDATE the backfill must perform. The trigger is created BEFORE the migration runs,
+  // and it fires on the resolve_key write that V52's backfill issues.
+  db.query(
+    `CREATE TRIGGER poison_resolve_key BEFORE UPDATE OF resolve_key ON item
+     BEGIN SELECT RAISE(ABORT, 'boom'); END`,
+  ).run();
+  expect(() => runIndexedSchemaMigrations(db, 52)).toThrow();
+  // The whole step is one db.transaction, so a throw mid-backfill rolls back the DDL AND the
+  // version bump. A half-populated resolve_key at v52 would resolve some URLs and not others.
+  expect(userVersion(db)).toBe(51);
+  db.close();
+});
+
+test("V52 backfills every row across a chunk boundary (regression: OFFSET pagination skipped ~half the rows)", () => {
+  const db = freshDb();
+  runIndexedSchemaMigrations(db, 51);
+  const rowCount = RESOLVE_KEY_BACKFILL_CHUNK + 3;
+  db.transaction(() => {
+    for (let i = 0; i < rowCount; i++) {
+      db.query(
+        `INSERT INTO item (id, service, type, external_id, title, body, body_preview,
+           body_complete, url, canonical_url, modified_at, metadata, synced_at, pinned)
+         VALUES (?, 'github', 'pull_request', ?, ?, '', '', 0, ?, NULL, 1, '{}', 1, 0)`,
+      ).run(
+        `github:pr-${String(i)}`,
+        `pr-${String(i)}`,
+        `PR ${String(i)}`,
+        `https://github.com/o/r/pull/${String(i)}`,
+      );
+    }
+  })();
+  runIndexedSchemaMigrations(db, 52);
+  const remaining = db.query("SELECT COUNT(*) AS c FROM item WHERE resolve_key IS NULL").get() as {
+    c: number;
+  };
+  expect(remaining.c).toBe(0);
+  // Spot-check a row from the middle of the range. This index sits inside the FIRST chunk (chunk
+  // size is RESOLVE_KEY_BACKFILL_CHUNK), so it was never at risk from the broken OFFSET pagination —
+  // the `remaining.c === 0` assertion above is what actually catches that regression. This just
+  // confirms an arbitrary interior row got the right key.
+  const midIndex = Math.floor(rowCount / 2);
+  const midRow = db
+    .query("SELECT resolve_key FROM item WHERE id = ?")
+    .get(`github:pr-${String(midIndex)}`) as { resolve_key: string | null };
+  expect(midRow.resolve_key).toBe(
+    canonicalizeUrl(`https://github.com/o/r/pull/${String(midIndex)}`),
+  );
+  db.close();
+});
+
+test("V52 recreates item_fts_update after dropping it for the backfill", () => {
+  const db = freshDb();
+  runIndexedSchemaMigrations(db, 52);
+  const trigger = db
+    .query("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'item_fts_update'")
+    .get() as { name: string } | null;
+  expect(trigger?.name).toBe("item_fts_update");
+  db.close();
+});
+
+test("V52 backfill leaves FTS search working for a row that existed before the migration", () => {
+  const db = freshDb();
+  runIndexedSchemaMigrations(db, 51);
+  // Inserted while item_fts_insert (created at V48) is live, so item_fts is populated for this row
+  // exactly as it would be in production before the V52 backfill ever runs.
+  db.query(
+    `INSERT INTO item (id, service, type, external_id, title, body, body_preview,
+       body_complete, url, canonical_url, modified_at, metadata, synced_at, pinned)
+     VALUES ('github:pr-9','github','pull_request','pr-9','Widget PR','fixes the frobnicator','',0,
+       'https://github.com/o/r/pull/9',NULL,1,'{}',1,0)`,
+  ).run();
+  runIndexedSchemaMigrations(db, 52);
+  const hits = db
+    .query("SELECT rowid FROM item_fts WHERE item_fts MATCH 'frobnicator'")
+    .all() as Array<{ rowid: number }>;
+  expect(hits.length).toBe(1);
+  db.close();
 });

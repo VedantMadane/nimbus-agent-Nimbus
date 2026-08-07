@@ -6,10 +6,11 @@ import { CONNECTOR_REMOVE_INTENT_V15_SQL } from "../../connectors/remove-intent.
 import { computeAuditRowHash } from "../../db/audit-chain.ts";
 import { vacuumAndGzip } from "../../db/vacuum-gzip.ts";
 import { dbExec, dbRun, dbStmtRun } from "../../db/write.ts";
+import { canonicalizeUrl } from "../../util/url-canonical.ts";
 import { API_ENDPOINT_V25_SCHEMA_SQL } from "../api-endpoint-v25-sql.ts";
 import { AUDIT_CHAIN_V18_SCHEMA_SQL } from "../audit-chain-v18-sql.ts";
 import { AUDIT_SESSION_V24_SCHEMA_SQL } from "../audit-session-v24-sql.ts";
-import { BODY_STORE_V48_SQL } from "../body-store-v48-sql.ts";
+import { BODY_STORE_V48_SQL, ITEM_FTS_UPDATE_TRIGGER_SQL } from "../body-store-v48-sql.ts";
 import { CONNECTOR_DEPTH_V21_SQL } from "../connector-depth-v21-sql.ts";
 import { CONNECTOR_HEALTH_V13_SQL } from "../connector-health-v13-sql.ts";
 import { DECISIONS_V47_SQL } from "../decisions-v47-sql.ts";
@@ -52,6 +53,7 @@ import { PERSON_LINKED_V4_ALTER_SQL } from "../person-linked-v4-sql.ts";
 import { POLICY_V36_SQL } from "../policy-v36-sql.ts";
 import { PR_COMMIT_RELATION_V27_SEED_SQL } from "../pr-commit-relation-v27-sql.ts";
 import { QUERY_LATENCY_V14_SQL } from "../query-latency-v14-sql.ts";
+import { RESOLVE_KEY_V52_SQL } from "../resolve-key-v52-sql.ts";
 import { SCHEDULER_V2_MIGRATION_SQL } from "../scheduler-schema-sql.ts";
 import { INITIAL_SCHEMA_SQL } from "../schema-sql.ts";
 import { SHARE_INBOX_V43_SQL } from "../share-inbox-v43-sql.ts";
@@ -273,6 +275,82 @@ function backfillAuditChain(db: Database): void {
   }
 }
 
+/**
+ * Chunk size for the V52 backfill. Bounds MEMORY, not transaction size: the whole step runs inside
+ * one `db.transaction` (see `applySchemaStep`), so there is deliberately NO commit per chunk.
+ * Committing per chunk would leave `resolve_key` half-populated with `PRAGMA user_version` already
+ * advanced — an index that resolves some URLs and not others, invisible until a user asks why one
+ * PR resolves and another does not.
+ *
+ * Exported so the multi-chunk test in runner.test.ts cannot drift from the real value.
+ */
+export const RESOLVE_KEY_BACKFILL_CHUNK = 5_000;
+
+function backfillResolveKey(db: Database): void {
+  const select = db.prepare(
+    `SELECT id, url, canonical_url FROM item
+     WHERE resolve_key IS NULL AND (url IS NOT NULL OR canonical_url IS NOT NULL)
+     ORDER BY id ASC LIMIT ?`,
+  );
+  const update = db.prepare(`UPDATE item SET resolve_key = ? WHERE id = ?`);
+  // Both statements come from db.prepare() and MUST be finalized: bun:sqlite only auto-releases the
+  // db.query() cache, so an unfinalized handle makes a later db.close() a silent no-op (#969).
+  try {
+    for (;;) {
+      const rows = select.all(RESOLVE_KEY_BACKFILL_CHUNK) as Array<{
+        id: string;
+        url: string | null;
+        canonical_url: string | null;
+      }>;
+      if (rows.length === 0) {
+        break;
+      }
+      for (const r of rows) {
+        const raw = r.canonical_url ?? r.url;
+        // The WHERE clause already excludes both-NULL rows; this narrows the type.
+        if (raw === null) {
+          continue;
+        }
+        dbStmtRun(update, canonicalizeUrl(raw), r.id);
+      }
+      // Deliberately NO OFFSET: the WHERE clause filters on `resolve_key IS NULL`, and this loop
+      // WRITES that column, so the candidate set shrinks by exactly the rows just updated. The next
+      // unprocessed rows are therefore always back at the front of an unfiltered LIMIT-only query.
+      // An OFFSET here would compound two shrinks — the set shrinking under it AND the offset
+      // advancing on top of that — and silently skip roughly half the rows past the first chunk
+      // boundary (a real defect this migration shipped with once; see runner.test.ts's
+      // "multi-chunk" test for the failure trace).
+      if (rows.length < RESOLVE_KEY_BACKFILL_CHUNK) {
+        break;
+      }
+    }
+  } finally {
+    select.finalize();
+    update.finalize();
+  }
+}
+
+function migrateIndexedV51ToV52(db: Database, now: number): void {
+  db.transaction(() => {
+    for (const sql of RESOLVE_KEY_V52_SQL) {
+      dbExec(db, sql);
+    }
+    // The V48 `item_fts_update` trigger has no `OF <column>` list, so every UPDATE on `item` —
+    // including this backfill's `resolve_key`-only writes — fires a full FTS5 delete+reinsert of
+    // `title`/`body`. `resolve_key` is not an FTS column, so drop the trigger for the duration of
+    // the backfill and recreate it VERBATIM afterwards from `ITEM_FTS_UPDATE_TRIGGER_SQL` — the
+    // SAME string constant `body-store-v48-sql.ts` uses to create it — so the two can never drift.
+    // Both the drop and the recreate live inside this transaction: a mid-backfill throw rolls back
+    // the drop too, so a failed migration can never leave the database without its FTS update
+    // trigger.
+    dbExec(db, "DROP TRIGGER item_fts_update");
+    backfillResolveKey(db);
+    dbExec(db, ITEM_FTS_UPDATE_TRIGGER_SQL);
+    dbExec(db, "PRAGMA user_version = 52");
+    recordMigration(db, 52, "item.resolve_key + idx_item_resolve_key (resolve-by-URL v52)", now);
+  })();
+}
+
 function migrateIndexedV17ToV18(db: Database, now: number): void {
   db.transaction(() => {
     dbExec(db, AUDIT_CHAIN_V18_SCHEMA_SQL);
@@ -465,6 +543,7 @@ const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
     OWNERSHIP_RELATION_TYPES_V51_SQL,
     OWNERSHIP_PASS_STATE_V51_SQL,
   ]),
+  { fromVersion: 51, toVersion: 52, apply: migrateIndexedV51ToV52 },
 ];
 
 const BACKFILL_LABELS: readonly string[] = [

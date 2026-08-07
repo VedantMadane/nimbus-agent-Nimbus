@@ -8,6 +8,15 @@ Phase-level history before `v0.1.0` (Phases 1–4) lives in [`docs/roadmap.md` �
 
 ## Post-Phase-6 deliveries
 
+- **2026-08-07 — Resolve-by-URL** (`GET /v1/items/resolve`, `resolve` token scope). Schema **V52** adds
+  the derived `item.resolve_key` (`canonicalizeUrl(canonical_url ?? url)`) plus
+  `idx_item_resolve_key`, written at the `upsertIndexedItem` SQL chokepoint every connector's item
+  write funnels through (`deployment/annotate.ts` is a second, non-connector `item` writer that
+  derives the same key the same way) and backfilled row-wise inside the migration. Matching is a
+  bounded ladder — exact key, all query params
+  dropped, then up to three trimmed trailing path segments — where a non-unique trim answers
+  `ambiguous` with at most five candidates (over the cap: `truncated: true` and no list) rather
+  than guessing. Returns metadata only, never a body, and appends no egress row.
 - **2026-08-07 — The ownership graph is readable: `agents.ownership`, `nimbus owners`, `ownership.refresh` (schema stays V51).**
   PR B (read surface) of the S1 ownership work, completing the graph PR A wrote. A twelfth
   built-in read-only agent (`agents/ownership.ts`) resolves a requested file/directory path
