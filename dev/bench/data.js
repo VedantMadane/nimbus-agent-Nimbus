@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786070880725,
+  "lastUpdate": 1786074667588,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -9519,6 +9519,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 315.0933594500035,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "82c03d27339290d11276f65cec795c9975432647",
+          "message": "feat(gateway): ownership graph derived from already-indexed blame data (#1064)\n\nCloses the last unstarted **Spine S1 (Local Brain)** item: an ownership\ngraph derived entirely from data the index already holds. No new\nconnectors, no LLM, no network egress, no HTTP route, no new security\ninvariant.\n\n## What it builds\n\n`person → source_file`, `person → directory` and `person → service`\nedges scored by **recency-weighted git-blame line share**, plus the two\nstructural edges that make the service rollup possible: `workspace\n--tracks_remote--> repo` (from the local `git` origin remote) and `repo\n--belongs_to--> service` (from `[ci.service.<id>]` config).\n\nNew subsystem `packages/gateway/src/ownership/` (5 modules), a debounced\nsingle-flight pass on the existing post-connector-sync seam, and schema\n**V51**.\n\n## The roadmap row's premise needed correcting\n\nThe roadmap says ownership is \"derived from the existing GitHub +\nPagerDuty index\". Verified against the tree, those are the *weakest*\navailable sources:\n\n| Signal the row implies | Reality |\n| --- | --- |\n| PagerDuty services / teams / on-call | **Not indexed.**\n`pagerduty-sync.ts` fetches only `GET /incidents`; no assignee. |\n| GitHub PR reviewers | **Not indexed.** `extractPrMetadataForIndex`\nemits no reviewer field. |\n| GitHub changed-file paths | **Not indexed** — the same gap that caps\n`nimbus decisions` at 0.86 confidence. |\n| CODEOWNERS | **Not indexed anywhere.** |\n\nThe signal that *is* genuinely indexed and genuinely about ownership is\n**`git_blame_line` (V32)**, which the row never mentions. So this builds\n**code ownership as the primary graph, with service ownership as a\ntransitive rollup over it**, and does not attempt team/rotation-level\nownership — no such data exists in the index. That stays with the IDP\nconnectors demoted to S5.\n\nClosing the rollup also required a bridge that did not exist:\n`[ci.service.<id>]` keys on `github:owner/name` URNs while blame keys on\nabsolute local `repo_root` paths, and nothing mapped between them. Now\nderived from the origin remote via the same local `git` the blame sync\nalready invokes.\n\n## ⚠️ V50 is NOT a backfillable slot\n\n`CURRENT_SCHEMA_VERSION` goes 49 → **51**. The 49→50 step is a\ndeliberate **no-op** that exists only so the ladder can reach 51.\n\n**It cannot be backfilled later.** The runner applies a step only while\n`user_version === fromVersion` (`migrations/runner.ts:609`), so a\ndatabase already at V51 never re-enters 49→50. Any parallel work that\nplanned to claim V50 — including the in-flight HTTP-agents `resolve_key`\nwork — **must take a new version (V52+)**, or fresh installs and\nupgraded installs silently diverge.\n\n## Honesty limits, stated per-read rather than absorbed\n\nOwnership is **authorship-derived**: blame measures who wrote lines, not\nwho is accountable. Every limit is backed by a counter in\n`ownership_pass_state` so it is reportable rather than implied — no\ngit-aware `[[filesystem.roots]]` means legitimately empty;\n`MAX_BLAME_FILES = 400` per root per tick makes early runs partial;\nlock/generated files are excluded by default `ignore_globs` with the\nexcluded count recorded; service rollup needs both a config declaration\nand a matching remote.\n\n## Scope boundaries\n\n- **No read surface.** `ownership.*` IPC, `nimbus owners`, and the Tauri\nallowlist are deliberately **PR B**.\n- **No built-in agent** and no touch of `AGENTS_RPC_HANDLERS`.\n- **`packages/gateway/src/graph/` is not modified** — its helpers are\ncalled, not changed.\n- Untouched, for the parallel session: `ipc/agents-rpc.ts`,\n`ipc/http-*`, `egress/*`, `cli/src/commands/prove.ts`,\n`check-nimbus-invariants.ts`, and **`security-invariants.test.ts`** (no\nHTTP route added, so `WRITE_ROUTE_ALLOWLIST` stays at 12).\n\n## Verification\n\n20 static preflight gates green; `test:ci` **21,773 pass / 0 fail**;\nownership suite 78 pass; suite re-run from a second working directory\n(no CWD-relative assumptions); merges with zero conflicts.\n\n**One gate could not be run locally:** `audit:coverage-floor`.\n`bunfig.toml:16` sets `coverage = false`, which suppresses lcov even\nwith an explicit flag — the floor is Linux/CI-authoritative by design.\nCI is the authority; `repo-remote.ts` is the file to watch if it\ncomplains.\n\nEvery guard in this branch was **red-proved** — broken, observed\nfailing, reverted byte-exact — after an early round found a test that\npassed whether the feature worked or not.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-07T03:39:40Z",
+          "tree_id": "02d0e57d9401ae465f33868e7a932c6bb4c80996",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/82c03d27339290d11276f65cec795c9975432647"
+        },
+        "date": 1786074666242,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 320.8800759499965,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 317.9111483499975,
             "unit": "ms"
           }
         ]
