@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786074667588,
+  "lastUpdate": 1786095144279,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -9553,6 +9553,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 317.9111483499975,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "672901010c8d3595020d236597eab3e1854d5943",
+          "message": "chore: release main (#1066)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>1.23.0</summary>\n\n##\n[1.23.0](https://github.com/nimbus-agent/Nimbus/compare/v1.22.0...v1.23.0)\n(2026-08-07)\n\n\n### Features\n\n* **gateway:** invoke read-only agents over the HTTP API, recorded in\nthe egress ledger\n([#1063](https://github.com/nimbus-agent/Nimbus/issues/1063))\n([4b4bedb](https://github.com/nimbus-agent/Nimbus/commit/4b4bedb4e000f79d63f2cddbbda2e2d92006a51e))\n* **gateway:** ownership graph derived from already-indexed blame data\n([#1064](https://github.com/nimbus-agent/Nimbus/issues/1064))\n([82c03d2](https://github.com/nimbus-agent/Nimbus/commit/82c03d27339290d11276f65cec795c9975432647))\n* **gateway:** scope the HTTP API bearer tokens\n([#1062](https://github.com/nimbus-agent/Nimbus/issues/1062))\n([826b76a](https://github.com/nimbus-agent/Nimbus/commit/826b76a1a5352ac226bfcd3c6a88b901d6afe33a))\n\n\n### Bug Fixes\n\n* **gateway:** serve the admin console and OpenAPI doc from a compiled\nbinary ([#1058](https://github.com/nimbus-agent/Nimbus/issues/1058))\n([36abf19](https://github.com/nimbus-agent/Nimbus/commit/36abf192457984a42e2d4e74b984603d51fbb376))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-07T12:20:41+03:00",
+          "tree_id": "f4bdb9968a4dd8f86891a31022efee31d53e9aa1",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/672901010c8d3595020d236597eab3e1854d5943"
+        },
+        "date": 1786095142963,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 326.02581155000223,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 322.64241410000324,
             "unit": "ms"
           }
         ]
