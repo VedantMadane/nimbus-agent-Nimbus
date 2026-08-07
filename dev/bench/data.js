@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786107182441,
+  "lastUpdate": 1786108402251,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -9689,6 +9689,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 320.4924528000003,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0a32751f6e97af93b5fc405080df14bd7a77911d",
+          "message": "feat(gateway): resolve an indexed item by URL (V52 resolve_key) (#1070)\n\nGives the gateway a resolve-by-URL read, so a browser panel can ask \"is\nthis page already in my index?\" and get a straight answer. This is step\n3 of the four-PR sequence in\n`docs/superpowers/specs/2026-08-06-http-agents-route-and-resolve-by-url-design.md`;\nstep 4 (targeted fetch-on-miss) follows in a stacked PR rather than\nriding along, because a schema migration with a row-wise backfill and a\nnew outbound-request surface with its own security gate are different\nrisk classes.\n\n## What ships\n\n- **Schema V52** — a derived, indexed `item.resolve_key` holding\n`canonicalizeUrl(canonical_url ?? url)`, NULL when both are absent, plus\n`idx_item_resolve_key`. Backfilled row-wise inside the migration, so a\nresolve read never silently misses the pre-existing index.\n- **`GET /v1/items/resolve?url=`** — a bearer read under the `resolve`\ntoken scope, mounted ahead of the unauthenticated GET table.\n- **A bounded matching ladder** — exact key, then all query params\ndropped, then up to three trimmed trailing path segments. A non-unique\nmatch answers `ambiguous` with at most five candidates (over the cap:\n`truncated: true` and no list) rather than guessing.\n- Metadata only, never a body. That is deliberate: a body response would\nreach the `metadata_only` redaction path, which carries two unfixed\nprivacy defects, and this change has no business re-deciding that.\n\n## Corrections to the design doc, verified against source\n\nThe design was wrong in four places. All four are corrected in the spec\nin this PR, with `Corrected 2026-08-07:` markers.\n\n1. **The migration is V52, not V50.** V50 is a retired permanent no-op\nand V51 is the ownership graph (#1064). Also bumps\n`CURRENT_SCHEMA_VERSION` — without that the step exists but never runs,\nbecause `runIndexedSchemaMigrations` early-returns once `user_version >=\ntarget`.\n2. **The write site is `upsertIndexedItem`, not\n`upsertIndexedItemForSync`.** The latter is a depth-applying wrapper;\n`clips/clip-ingest.ts`, `briefs/brief-save.ts`,\n`glossary/glossary-project.ts` and `local-index.ts` all reach the writer\ndirectly. Deriving in the wrapper would have left **every web clip**\nunresolvable — the primary consumer's primary case.\n3. **Self-hosted GitLab is reachable**, via `gitlab.api_base` (not\n`base_url`). Relevant to step 4: a host map built by scanning for\n`*.base_url` silently misses it.\n4. **`canonicalizeUrl` never throws** — it returns unparseable input\nverbatim. So the route parses with `new URL()` and rejects non-`http(s)`\nschemes *before* canonicalizing; otherwise a non-URL string would match\na row whose stored key is that same string. Tested with a planted\npoisoned row.\n\n## A second `item` writer, found by whole-branch review\n\n`deployment/annotate.ts` writes `item` with its own column list and\nnever set `resolve_key`. So a deploy annotation was unresolvable, and\nresolving its `workflow_url` fell to the trim rung and could return\n**the repository** for a build URL. It now derives the key identically\nto `upsertIndexedItem`, in both the INSERT and the `ON CONFLICT DO\nUPDATE` (an INSERT-only fix would leave a stale key when a run is\nre-annotated with a corrected URL).\n\nThe docs that claimed a \"single SQL write site\" are corrected to name\nboth writers. The surviving claim — every *connector* write funnels\nthrough `upsertIndexedItem` — is true.\n\n**Known, bounded consequence:** two deployment *jobs* in one CI run\nshare a run-level `workflow_url`, so they now produce two rows with the\nsame `resolve_key` and that URL answers `ambiguous` rather than one\nitem. That is the designed response to a non-unique match, not a\nregression, but it is a resolve-quality edge specific to job-granular\nannotations.\n\n## Migration cost\n\nThe V52 backfill drops `item_fts_update` around the row-wise walk and\nrecreates it from the shared `ITEM_FTS_UPDATE_TRIGGER_SQL` constant,\ninside the same transaction. That trigger is `AFTER UPDATE ON item` with\nno `OF <column>` list, so without this every `resolve_key` write\nre-tokenized a body up to 16 KiB — roughly a million FTS operations on a\n500k-item index, for a column FTS does not index. V48 established the\npattern. Sharing one constant means the recreated trigger cannot drift\nfrom the schema's.\n\n## Egress\n\nResolve appends **no** egress-ledger row, and `THIS_BINARY_COVERAGE` is\nunchanged — no coverage class moves in this PR. The narrowing is stated\nin the `http` class comment and mirrored in `nimbus prove`'s label, so\nthe claim is recorded where it is made, not only where it is rendered.\nStep 4's targeted fetch is what raises `sync` to `per-run`.\n\n## For already-paired clients\n\n`LEGACY_SCOPES` is `[\"clip\",\"briefs\"]`, so every browser paired today\nlacks `resolve` and gets `403\n{\"error\":\"insufficient_scope\",\"required\":\"resolve\",\"granted\":[...]}` —\nstructurally distinct from `401 {\"error\":\"unauthorized\"}`, so a client\ncan tell \"re-pair for a wider scope\" from \"this token is invalid\".\n`nimbus clip pair --scopes` and `nimbus clip scopes <label> --set` are\nboth documented; `docs/cli-reference.md` previously told users `resolve`\nhad no consumer, which would have stopped them granting the scope this\nroute requires.\n\n## Deliberately not done\n\nNo OpenAPI entry. `openapi/v1.yaml` documents the public read surface\nplus the `/v1/deployments` carve-out; **all four** bearer-gated route\nfamilies (`/v1/clips`, `/v1/clips/related`, `/v1/briefs/*`,\n`/v1/agents/*`) are absent, and there is no doc-to-route drift test.\nAdding resolve alone would make it the only documented gated route and\nimply the others do not exist. Documenting that surface is a real gap\nand its own change.\n\n## Verification\n\n`preflight` green except `audit:coverage-floor`, which is\nCI-Linux-authoritative and fails on Windows against two PAL-gated files\nnot in this diff. Verified green on Linux in Docker `oven/bun:1.3` at\nthis HEAD: exit 0, `coverage-floor: ok (0 baselined files; 1166 source\nfiles scanned)`; every diffed file clears the 85% line / 80% branch\nfloors. `lint:markdown`, `audit:doc-refs` (671 refs) and lychee all\nclean over the whole branch.\n\nMigration atomicity is test-proven (a poison trigger mid-backfill leaves\n`user_version` at 51), the multi-chunk backfill test was red-proved\nagainst the earlier pagination bug it exists to catch, and the FTS\ntrigger's recreation is pinned by a `sqlite_master` assertion.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-07T13:01:33Z",
+          "tree_id": "56b7211f3e0f37aeb32df4eac5c206dccc8b4472",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/0a32751f6e97af93b5fc405080df14bd7a77911d"
+        },
+        "date": 1786108400237,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 323.8235730000022,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 324.71867525001073,
             "unit": "ms"
           }
         ]
