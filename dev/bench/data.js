@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786178233920,
+  "lastUpdate": 1786199992455,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -9791,6 +9791,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 255.21172994999506,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9f9215bfcca7ba4cdde0b66e4975881359882797",
+          "message": "fix: resolve macos-15 CI test failures and consolidate open connector PRs (#1082)\n\n### Summary\nThis PR fixes the test failures observed in the macos-15 CI runs (Unit +\nIntegration) and consolidates several open PRs containing minor test\nadditions, visual assets, and bug fixes into a single PR.\n\n### Details of Fixes:\n1. **Resolved SQLite Locking Issues (\\SQLITE_CANTOPEN\\)**:\n* Wrapped temporary database directories in \\ ealpathSync(...)\\ in both\n\\http-api-test-server.ts\\ and \\\u0007ssemble.test.ts\\ to ensure paths are\nfully resolved on all operating systems (resolving symlinked paths like\n\\/var\\ -> \\/private/var\\ on macOS).\n2. **Decoupled Vault from Host Keychain**:\n* Added dependency injection support for \\NimbusVault\\ to\n\\\u0007ssemblePlatformServices(paths, customVault?)\\.\n* Updated \\\u0007ssemble.test.ts\\ to supply an isolated \\makeInMemoryVault()\\\ninstead of letting tests fall back to the host system keychain/keyring\n(resolving unauthenticated/401 test crashes due to pre-existing\ndeveloper credentials).\n3. **Command Injection Bug Fix**:\n* Incorporated PR 1076 to resolve command/option injection during local\npackage/archive extraction by resolving \\\u0007rchivePath\\ and \\destDir\\ to\nabsolute paths before calling \\ ar\\.\n\n### Consolidations (PRs 1073, 1074, 1075, 1077, 1078, 1079, 1081):\n* Added unit test coverage for Flagsmith, Great Expectations\n(\\FORBIDDEN_RESULT_KEYS\\), Tableau, Zoom, Zotero, and Elasticsearch\nconnectors.\n* Included the missing \\onboarding-wizard.png\\ screenshot for first-run\nsetup documentation.",
+          "timestamp": "2026-08-08T14:28:17Z",
+          "tree_id": "4b2845396eadae8b5111f4d15d4de42bcf661565",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/9f9215bfcca7ba4cdde0b66e4975881359882797"
+        },
+        "date": 1786199991197,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 312.41911549999605,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 314.3860549000034,
             "unit": "ms"
           }
         ]
