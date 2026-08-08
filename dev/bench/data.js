@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786204097623,
+  "lastUpdate": 1786205141474,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -9893,6 +9893,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 350.59631105000045,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8ca39a797b5edbce0f2b42e061441d3d5fb614fe",
+          "message": "docs: 🧹 add missing screenshot for onboarding syncing step (#1088)\n\n🎯 **What:** Replaced the `TODO` comment with an actual screenshot for\nthe onboarding syncing step in `first-run-setup.mdx`.\n💡 **Why:** Adding the missing screenshot improves documentation\nreadability and provides clear visual context for the onboarding\nwizard's syncing phase.\n✅ **Verification:** Captured screenshot using Playwright, verified image\ndisplays correctly by injecting it into markdown, and confirmed build\nerrors originated from a preexisting issue in `main`.\n✨ **Result:** A more complete user guide with the required screenshot\nand resolved `TODO` tag.\n\n---\n*PR created automatically by Jules for task\n[3486823898105118336](https://jules.google.com/task/3486823898105118336)\nstarted by @asafgolombek*\n\nCo-authored-by: google-labs-jules[bot] <161369871+google-labs-jules[bot]@users.noreply.github.com>\nCo-authored-by: asafgolombek <18427644+asafgolombek@users.noreply.github.com>",
+          "timestamp": "2026-08-08T18:42:26+03:00",
+          "tree_id": "9a5c390a8f9da59856b36e266e96f33ed53348a6",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/8ca39a797b5edbce0f2b42e061441d3d5fb614fe"
+        },
+        "date": 1786205140213,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 312.6130479000018,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 311.73268060000555,
             "unit": "ms"
           }
         ]
