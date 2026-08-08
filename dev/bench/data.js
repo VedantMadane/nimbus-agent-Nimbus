@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786200732105,
+  "lastUpdate": 1786204097623,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -9859,6 +9859,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 315.1174415499998,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "965792107ebcafba10667aab9bd5c7166388dc00",
+          "message": "fix(bitbucket): 🧹 correct itemsUpserted overcount (#1086)\n\n🎯 **What:** The code health issue addressed was `itemsUpserted`\novercounting when a PR was skipped due to a missing `id` field in the\n`bitbucket-sync` connector.\n💡 **Why:** This improves metrics accuracy and resolves a known bug\ndocumented in `known-todos.md`. Correct counts provide better\noperational observability for connector syncing.\n✅ **Verification:** Verified by updating and successfully running `bun\ntest packages/gateway/test/unit/connectors/bitbucket-sync.test.ts`. 45\nof 45 tests pass.\n✨ **Result:** The `itemsUpserted` variable correctly reflects the number\nof records actually upserted into the store.\n\n---\n*PR created automatically by Jules for task\n[12064685251787481813](https://jules.google.com/task/12064685251787481813)\nstarted by @asafgolombek*\n\nCo-authored-by: google-labs-jules[bot] <161369871+google-labs-jules[bot]@users.noreply.github.com>\nCo-authored-by: asafgolombek <18427644+asafgolombek@users.noreply.github.com>",
+          "timestamp": "2026-08-08T18:36:32+03:00",
+          "tree_id": "9f0dd1900782ba8247389b80cdd1c12deae7a914",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/965792107ebcafba10667aab9bd5c7166388dc00"
+        },
+        "date": 1786204096218,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 348.32499820000123,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 350.59631105000045,
             "unit": "ms"
           }
         ]
