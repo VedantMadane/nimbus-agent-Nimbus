@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786210714294,
+  "lastUpdate": 1786211321551,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -10063,6 +10063,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 319.40198314999617,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "20b705e7a90d9b45c7b0b1571cf348e3d93e1e85",
+          "message": "chore: release main (#1123)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>1.25.2</summary>\n\n##\n[1.25.2](https://github.com/nimbus-agent/Nimbus/compare/v1.25.1...v1.25.2)\n(2026-08-08)\n\n\n### Bug Fixes\n\n* **bitbucket:** 🧹 correct itemsUpserted overcount\n([#1086](https://github.com/nimbus-agent/Nimbus/issues/1086))\n([9657921](https://github.com/nimbus-agent/Nimbus/commit/965792107ebcafba10667aab9bd5c7166388dc00))\n* **gateway:** 🔒 Prevent command injection in tar extraction\n([#1091](https://github.com/nimbus-agent/Nimbus/issues/1091))\n([575e2aa](https://github.com/nimbus-agent/Nimbus/commit/575e2aa5648d101c02f06450df4016500e3cfe50))\n* **gateway:** resolve WAL mode race in http-api-test-server\n([#1093](https://github.com/nimbus-agent/Nimbus/issues/1093))\n([1323567](https://github.com/nimbus-agent/Nimbus/commit/1323567a7a2d07bea4b39a6ba1b4a974cccc2b00))\n\n\n### Performance Improvements\n\n* **connectors:** ⚡ batch fetch message metadata in Gmail sync\n([#1099](https://github.com/nimbus-agent/Nimbus/issues/1099))\n([cf1dfe1](https://github.com/nimbus-agent/Nimbus/commit/cf1dfe1d50b61682a7a27849e4678ecd734bc078))\n* **gateway:** ⚡ batch API calls in SonarQube Sync to resolve N+1 issue\n([#1089](https://github.com/nimbus-agent/Nimbus/issues/1089))\n([892e96b](https://github.com/nimbus-agent/Nimbus/commit/892e96b62839e9bc1a94d73b206a49fa1dd3233a))\n* **jenkins:** ⚡ batch jenkins job builds sync\n([#1087](https://github.com/nimbus-agent/Nimbus/issues/1087))\n([d94d632](https://github.com/nimbus-agent/Nimbus/commit/d94d63274a0d8f4a29771816e77911363ea24c11))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-08T17:36:32Z",
+          "tree_id": "49193384631daf44d058107d90c1a1bf1ee85c10",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/20b705e7a90d9b45c7b0b1571cf348e3d93e1e85"
+        },
+        "date": 1786211319357,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 306.15316005000057,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 304.30708710000073,
             "unit": "ms"
           }
         ]
