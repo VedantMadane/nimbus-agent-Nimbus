@@ -85,10 +85,8 @@ describe("elasticsearch-sync — _cat/indices → _mapping walk", () => {
       },
       { index: "products", health: "yellow", status: "open", "docs.count": "5" },
     ]);
-    fx.fetchMock.respond("GET", mappingUrl("orders"), {
+    fx.fetchMock.respond("GET", mappingUrl("orders,products"), {
       orders: { mappings: { properties: { id: { type: "keyword" } } } },
-    });
-    fx.fetchMock.respond("GET", mappingUrl("products"), {
       products: { mappings: { properties: { sku: { type: "keyword" } } } },
     });
 
@@ -173,5 +171,25 @@ describe("elasticsearch-sync — _cat/indices → _mapping walk", () => {
     const res = await createElasticsearchSyncable(makeOptions()).sync(fx.createSyncContext(), null);
     expect(res.itemsUpserted).toBe(0);
     expect(res.cursor).toBe(PASS_1_CURSOR);
+  });
+
+  test("mapping response key mismatch leaves fields empty", async () => {
+    fx.fetchMock.respond("GET", CAT_URL, [
+      { index: "products", health: "yellow", status: "open", "docs.count": "5" },
+    ]);
+    fx.fetchMock.respond("GET", mappingUrl("products"), {
+      orders: { mappings: { properties: { id: { type: "keyword" } } } },
+    });
+
+    const res = await createElasticsearchSyncable(makeOptions()).sync(fx.createSyncContext(), null);
+    expect(res.itemsUpserted).toBe(1);
+
+    const row = fx.db
+      .query<{ metadata: string }, []>(
+        "SELECT metadata FROM item WHERE service = 'elasticsearch' AND external_id = 'products'",
+      )
+      .get();
+    const meta = JSON.parse(row!.metadata) as Record<string, unknown>;
+    expect(meta["fields"]).toEqual([]);
   });
 });
