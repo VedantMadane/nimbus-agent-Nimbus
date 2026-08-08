@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786206774414,
+  "lastUpdate": 1786207570929,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -9961,6 +9961,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 308.9301128499977,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f755fb19d2439c50d897cbc6909c2ec479266e06",
+          "message": "test(snowflake): 🧪 add edge case tests for search-filter (#1101)\n\n🎯 **What:** The testing gap addressed\nThe issue highlighted a missing test file, but `search-filter.test.ts`\nexisted. To fulfill the testing improvement, I added tests for important\nedge cases that were missing, such as handling empty item lists,\nignoring non-string field values (e.g. numbers, booleans) gracefully,\nand matching a single search query against multiple properties.\n\n📊 **Coverage:** What scenarios are now tested\n- Returns empty array when `items` is empty.\n- Successfully ignores non-string values like `null`, `123`, or `true`\non row fields.\n- Correctly matches complex multi-field queries.\n\n✨ **Result:** The improvement in test coverage\nTest suite now confidently validates the behavior of\n`filterSnowflakeTables` and its underlying helper logic on tricky\ninputs, enhancing reliability for edge cases.\n\n---\n*PR created automatically by Jules for task\n[10598767778754406266](https://jules.google.com/task/10598767778754406266)\nstarted by @asafgolombek*\n\nCo-authored-by: google-labs-jules[bot] <161369871+google-labs-jules[bot]@users.noreply.github.com>\nCo-authored-by: asafgolombek <18427644+asafgolombek@users.noreply.github.com>",
+          "timestamp": "2026-08-08T18:59:56+03:00",
+          "tree_id": "9d5fcd6623ba5b9b46b5e0d40c67dfd42ace540a",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/f755fb19d2439c50d897cbc6909c2ec479266e06"
+        },
+        "date": 1786207569604,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 333.3185447500047,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 326.86960350000084,
             "unit": "ms"
           }
         ]
