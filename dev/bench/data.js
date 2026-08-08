@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786211321551,
+  "lastUpdate": 1786212968817,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -10097,6 +10097,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 304.30708710000073,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "861cfb5940816619d6442de6da85ea8e495cb624",
+          "message": "test(mcp): 🧪 add unit tests for snowflake server.ts (#1121)\n\n🎯 **What:** Adds the missing `server.test.ts` file for the Snowflake MCP\nconnector to verify its main read-only tools and environment variable\nvalidation.\n📊 **Coverage:** Covers `snowflake_get`, `snowflake_search`, environment\nvariable verification for `SNOWFLAKE_ACCOUNT` and `SNOWFLAKE_TOKEN`, and\nAPI 500 error handling in `executeStatement`.\n✨ **Result:** Increased testing coverage and robustness for the\nSnowflake MCP connector tools and its underlying API invocation logic.\n\n---\n*PR created automatically by Jules for task\n[6910752213205173895](https://jules.google.com/task/6910752213205173895)\nstarted by @asafgolombek*\n\n---------\n\nCo-authored-by: google-labs-jules[bot] <161369871+google-labs-jules[bot]@users.noreply.github.com>\nCo-authored-by: asafgolombek <18427644+asafgolombek@users.noreply.github.com>",
+          "timestamp": "2026-08-08T21:04:42+03:00",
+          "tree_id": "7d55a2755ae3f5155cafc9a2b8023c53b9427963",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/861cfb5940816619d6442de6da85ea8e495cb624"
+        },
+        "date": 1786212967497,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 316.9437716000037,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 316.5936142999937,
             "unit": "ms"
           }
         ]
