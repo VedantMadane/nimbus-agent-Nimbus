@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786207570929,
+  "lastUpdate": 1786210029921,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -9995,6 +9995,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 326.86960350000084,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "af0af5268c8f21225c4bcbbc56cb65da2dc8ff59",
+          "message": "test/chore: combined open test and docs PRs (#1122)\n\nConsolidated PR containing changes from all open feature, test, and docs\nPRs on the repository. Auto-resolved conflicts and validated.\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n- **Documentation**\n- Added the system tray icon and context-menu image to the first-run\nsetup guide.\n\n- **Performance Improvements**\n- Improved Elasticsearch synchronization by batching mapping requests\nand reusing mapping details, reducing unnecessary network requests.\n\n- **Reliability**\n- Improved handling of malformed, missing, empty, or oversized responses\nacross Elasticsearch, CloudWatch, Flagsmith, LaunchDarkly, Tableau,\nTestFlight, Zendesk, Zoom, and Great Expectations integrations.\n\n- **Tests**\n- Expanded coverage for connector search, filtering, pagination,\nvalidation, error handling, date limits, and secure file processing.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: google-labs-jules[bot] <161369871+google-labs-jules[bot]@users.noreply.github.com>\nCo-authored-by: asafgolombek <18427644+asafgolombek@users.noreply.github.com>",
+          "timestamp": "2026-08-08T17:15:20Z",
+          "tree_id": "0281db5d6290c2a5a581ec55f5da5e5b19807599",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/af0af5268c8f21225c4bcbbc56cb65da2dc8ff59"
+        },
+        "date": 1786210028039,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 323.52480855000465,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 322.43412219999266,
             "unit": "ms"
           }
         ]
