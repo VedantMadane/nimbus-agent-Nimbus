@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786210029921,
+  "lastUpdate": 1786210714294,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -10029,6 +10029,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 322.43412219999266,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f04c82a8cc91a42a86447ff0fa16ee9374108d9a",
+          "message": "test(mcp): 🧪 add test coverage for startConnector in tableau connector (#1120)\n\n🎯 **What:** The testing gap addressed was that `startConnector` in\n`server.ts` was not covered by tests.\n📊 **Coverage:** The new scenario tested verifies that the read-only\nserver starts properly by calling `runReadOnlyMcpConnector` with the\nappropriate parameters for the tableau connector.\n✨ **Result:** Test coverage for the tableau module has been improved.\n\n---\n*PR created automatically by Jules for task\n[13869546185275677876](https://jules.google.com/task/13869546185275677876)\nstarted by @asafgolombek*\n\n---------\n\nCo-authored-by: google-labs-jules[bot] <161369871+google-labs-jules[bot]@users.noreply.github.com>\nCo-authored-by: asafgolombek <18427644+asafgolombek@users.noreply.github.com>",
+          "timestamp": "2026-08-08T20:19:25+03:00",
+          "tree_id": "4d689d6e5f31c06131429d0006957289c9a9f8b2",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/f04c82a8cc91a42a86447ff0fa16ee9374108d9a"
+        },
+        "date": 1786210712713,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 321.2290919500007,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 319.40198314999617,
             "unit": "ms"
           }
         ]
