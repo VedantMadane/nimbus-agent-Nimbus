@@ -1,0 +1,260 @@
+import { expect, test } from "bun:test";
+
+import { resolveItemByUrl } from "../index/resolve-by-url.ts";
+import {
+  createMemoryIndexDb,
+  createStubVault,
+  describeWithFetchRestore,
+  type SyncTestFetchParams,
+  silentSyncContextExtras,
+} from "./connector-sync-test-helpers.ts";
+import { createGithubSyncable } from "./github-sync.ts";
+
+function ctxWithPat(db: ReturnType<typeof createMemoryIndexDb>, pat: string | null) {
+  return {
+    db,
+    vault: createStubVault({ "github.pat": pat }),
+    ...silentSyncContextExtras(),
+  };
+}
+
+function prPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    number: 42,
+    title: "Fix the retry loop",
+    body: "Body text",
+    html_url: "https://github.com/o/r/pull/42",
+    state: "open",
+    updated_at: "2026-08-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+describeWithFetchRestore("github-sync fetchOne", () => {
+  test("indexes a PR url and makes it resolvable", async () => {
+    const db = createMemoryIndexDb();
+    const ctx = ctxWithPat(db, "pat-value");
+    globalThis.fetch = ((): Promise<Response> =>
+      Promise.resolve(
+        new Response(JSON.stringify(prPayload()), { status: 200 }),
+      )) as unknown as typeof fetch;
+
+    const syncable = createGithubSyncable({ ensureGithubMcpRunning: async () => {} });
+    const out = await syncable.fetchOne?.(ctx, "https://github.com/o/r/pull/42");
+
+    expect(out).toEqual({ status: "indexed", itemId: "github:o/r#42" });
+    const row = db.query("SELECT resolve_key FROM item WHERE id = 'github:o/r#42'").get() as {
+      resolve_key: string | null;
+    };
+    expect(row.resolve_key).toBe("https://github.com/o/r/pull/42");
+  });
+
+  test("declines a non-PR github url", async () => {
+    const db = createMemoryIndexDb();
+    const ctx = ctxWithPat(db, "pat-value");
+    const syncable = createGithubSyncable({ ensureGithubMcpRunning: async () => {} });
+
+    const out = await syncable.fetchOne?.(ctx, "https://github.com/o/r/actions/runs/1");
+
+    expect(out).toEqual({ status: "unsupported_url" });
+  });
+
+  test("reports not_found for a 404", async () => {
+    const db = createMemoryIndexDb();
+    const ctx = ctxWithPat(db, "pat-value");
+    globalThis.fetch = ((): Promise<Response> =>
+      Promise.resolve(new Response("nope", { status: 404 }))) as unknown as typeof fetch;
+
+    const syncable = createGithubSyncable({ ensureGithubMcpRunning: async () => {} });
+    const out = await syncable.fetchOne?.(ctx, "https://github.com/o/r/pull/999");
+
+    expect(out).toEqual({ status: "not_found" });
+  });
+
+  // IMPORTANT 3: a DNS/TLS/connect failure must report not_found, not throw — the caller
+  // (http-write-routes.ts) would otherwise surface an HTTP 500 + an audit row instead of the
+  // 200 {"status":"not_found"} gitlab/jenkins/jira already report for the same offline condition.
+  test("reports not_found when fetch itself throws (DNS/TLS/connect failure)", async () => {
+    const db = createMemoryIndexDb();
+    const ctx = ctxWithPat(db, "pat-value");
+    globalThis.fetch = ((): Promise<Response> => {
+      throw new TypeError("fetch failed: getaddrinfo ENOTFOUND api.github.com");
+    }) as unknown as typeof fetch;
+
+    const syncable = createGithubSyncable({ ensureGithubMcpRunning: async () => {} });
+    const out = await syncable.fetchOne?.(ctx, "https://github.com/o/r/pull/42");
+
+    expect(out).toEqual({ status: "not_found" });
+  });
+
+  test("reports not_found when the PAT is missing", async () => {
+    const db = createMemoryIndexDb();
+    const ctx = ctxWithPat(db, null);
+    const syncable = createGithubSyncable({ ensureGithubMcpRunning: async () => {} });
+
+    const out = await syncable.fetchOne?.(ctx, "https://github.com/o/r/pull/42");
+
+    expect(out).toEqual({ status: "not_found" });
+  });
+
+  // A stalled/aborted upstream request must report not_found rather than hang the caller
+  // (`POST /v1/items/fetch`) indefinitely — and the outbound request must actually carry a bounded
+  // abort signal, not merely happen to survive an unrelated rejection.
+  test("reports not_found and passes an abort signal when the request is aborted (timeout)", async () => {
+    const db = createMemoryIndexDb();
+    const ctx = ctxWithPat(db, "pat-value");
+    let capturedSignal: AbortSignal | undefined;
+    globalThis.fetch = ((_input: unknown, init?: SyncTestFetchParams[1]): Promise<Response> => {
+      capturedSignal = init?.signal ?? undefined;
+      return Promise.reject(
+        Object.assign(new Error("The operation was aborted."), { name: "AbortError" }),
+      );
+    }) as unknown as typeof fetch;
+
+    const syncable = createGithubSyncable({ ensureGithubMcpRunning: async () => {} });
+    const out = await syncable.fetchOne?.(ctx, "https://github.com/o/r/pull/42");
+
+    expect(out).toEqual({ status: "not_found" });
+    expect(capturedSignal).toBeDefined();
+  });
+
+  // Regression: the returned itemId must match the row's ACTUAL id — derived from the API
+  // response's own `number` field, not the raw regex-captured digit string from the caller's
+  // URL. A leading-zero URL is the case where they diverge ("007" vs the API's normalized `7`).
+  //
+  // `resolve_key` stays the CALLER's literal URL ("...pull/007"), never the API-normalized
+  // "...pull/7" — resolve_key must always equal whatever URL the caller actually resolved by, or
+  // a second resolve of that SAME literal URL would miss (the exact class of bug CRITICAL 3
+  // fixes). Before that fix this test asserted the normalized form, which was itself a latent
+  // instance of the bug — masked because nothing here round-tripped through resolveItemByUrl.
+  test("a leading-zero PR number resolves to the API's normalized id, not the raw capture", async () => {
+    const db = createMemoryIndexDb();
+    const ctx = ctxWithPat(db, "pat-value");
+    const callerUrl = "https://github.com/o/r/pull/007";
+    globalThis.fetch = ((): Promise<Response> =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify(prPayload({ number: 7, html_url: "https://github.com/o/r/pull/7" })),
+          {
+            status: 200,
+          },
+        ),
+      )) as unknown as typeof fetch;
+
+    const syncable = createGithubSyncable({ ensureGithubMcpRunning: async () => {} });
+    const out = await syncable.fetchOne?.(ctx, callerUrl);
+
+    expect(out).toEqual({ status: "indexed", itemId: "github:o/r#7" });
+    const row = db.query("SELECT id, resolve_key FROM item WHERE id = 'github:o/r#7'").get() as {
+      id: string;
+      resolve_key: string | null;
+    } | null;
+    expect(row).not.toBeNull();
+    expect(row?.resolve_key).toBe(callerUrl);
+    expect(resolveItemByUrl(db, callerUrl)).toMatchObject({ found: true, matchKind: "exact" });
+  });
+
+  test.each([
+    ["owner is a dot-traversal segment", "https://github.com/../r/pull/1"],
+    ["repo is a dot-traversal segment", "https://github.com/o/../pull/1"],
+  ])("declines when %s", async (_label, url) => {
+    const db = createMemoryIndexDb();
+    const ctx = ctxWithPat(db, "pat-value");
+    const syncable = createGithubSyncable({ ensureGithubMcpRunning: async () => {} });
+
+    const out = await syncable.fetchOne?.(ctx, url);
+
+    expect(out).toEqual({ status: "unsupported_url" });
+  });
+
+  test("reports not_found for a malformed (non-JSON) ok response", async () => {
+    const db = createMemoryIndexDb();
+    const ctx = ctxWithPat(db, "pat-value");
+    globalThis.fetch = ((): Promise<Response> =>
+      Promise.resolve(new Response("not json", { status: 200 }))) as unknown as typeof fetch;
+
+    const syncable = createGithubSyncable({ ensureGithubMcpRunning: async () => {} });
+    const out = await syncable.fetchOne?.(ctx, "https://github.com/o/r/pull/42");
+
+    expect(out).toEqual({ status: "not_found" });
+  });
+
+  test("reports not_found for valid JSON that is not an object", async () => {
+    const db = createMemoryIndexDb();
+    const ctx = ctxWithPat(db, "pat-value");
+    globalThis.fetch = ((): Promise<Response> =>
+      Promise.resolve(new Response("[1,2,3]", { status: 200 }))) as unknown as typeof fetch;
+
+    const syncable = createGithubSyncable({ ensureGithubMcpRunning: async () => {} });
+    const out = await syncable.fetchOne?.(ctx, "https://github.com/o/r/pull/42");
+
+    expect(out).toEqual({ status: "not_found" });
+  });
+
+  // CRITICAL 3: `html_url` is REMOTE-supplied and must never become the `resolve_key` — a repo
+  // rename (GitHub 301s and returns the NEW `html_url`) or a response that omits `html_url`
+  // entirely must not change what the caller's own URL resolves to. The existing tests above all
+  // pass only because their fixture's `html_url` happens to equal the caller URL, which is
+  // precisely why this survived: a genuinely DIVERGENT fixture is required to prove the fix.
+  test.each([
+    ["points at a renamed repo (a GitHub redirect)", "https://github.com/o/renamed-r/pull/42"],
+    ["points at a completely different host", "https://evil.example/o/r/pull/42"],
+    ["is an empty string", ""],
+  ])("ignores a response html_url that %s", async (_label, responseHtmlUrl) => {
+    const db = createMemoryIndexDb();
+    const ctx = ctxWithPat(db, "pat-value");
+    const callerUrl = "https://github.com/o/r/pull/42";
+    globalThis.fetch = ((): Promise<Response> =>
+      Promise.resolve(
+        new Response(JSON.stringify(prPayload({ html_url: responseHtmlUrl })), { status: 200 }),
+      )) as unknown as typeof fetch;
+
+    const syncable = createGithubSyncable({ ensureGithubMcpRunning: async () => {} });
+    const out = await syncable.fetchOne?.(ctx, callerUrl);
+
+    expect(out).toEqual({ status: "indexed", itemId: "github:o/r#42" });
+    const row = db.query("SELECT resolve_key, url FROM item WHERE id = 'github:o/r#42'").get() as {
+      resolve_key: string | null;
+      url: string | null;
+    } | null;
+    expect(row).not.toBeNull();
+    expect(row?.resolve_key).toBe(callerUrl);
+    expect(row?.url).toBe(callerUrl);
+  });
+
+  // Round-trip: caller URL -> fetchOne -> stored resolve_key -> resolveItemByUrl(callerUrl) must
+  // be an exact hit, even when the API response's own html_url diverges from the caller's URL.
+  test("round-trips through resolveItemByUrl even when html_url diverges", async () => {
+    const db = createMemoryIndexDb();
+    const ctx = ctxWithPat(db, "pat-value");
+    const callerUrl = "https://github.com/o/r/pull/42";
+    globalThis.fetch = ((): Promise<Response> =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify(prPayload({ html_url: "https://github.com/o/renamed-r/pull/42" })),
+          { status: 200 },
+        ),
+      )) as unknown as typeof fetch;
+
+    const syncable = createGithubSyncable({ ensureGithubMcpRunning: async () => {} });
+    const out = await syncable.fetchOne?.(ctx, callerUrl);
+    expect(out).toEqual({ status: "indexed", itemId: "github:o/r#42" });
+
+    const resolved = resolveItemByUrl(db, callerUrl);
+    expect(resolved).toMatchObject({ found: true, matchKind: "exact" });
+  });
+
+  test("reports not_found when the response body has no number field", async () => {
+    const db = createMemoryIndexDb();
+    const ctx = ctxWithPat(db, "pat-value");
+    globalThis.fetch = ((): Promise<Response> =>
+      Promise.resolve(
+        new Response(JSON.stringify({ title: "No number field" }), { status: 200 }),
+      )) as unknown as typeof fetch;
+
+    const syncable = createGithubSyncable({ ensureGithubMcpRunning: async () => {} });
+    const out = await syncable.fetchOne?.(ctx, "https://github.com/o/r/pull/42");
+
+    expect(out).toEqual({ status: "not_found" });
+  });
+});

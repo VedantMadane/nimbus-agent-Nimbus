@@ -1,9 +1,11 @@
 import type { Database } from "bun:sqlite";
 
-import { upsertIndexedItemForSync } from "../index/item-store.ts";
+import { itemPrimaryKey, upsertIndexedItemForSync } from "../index/item-store.ts";
 import { resolvePersonForSync } from "../people/linker.ts";
 import type { PersonSyncHints } from "../people/person-types.ts";
 import {
+  FETCH_ONE_TIMEOUT_MS,
+  type FetchOneResult,
   RateLimitError,
   retryAfterDateFromHeader,
   type Syncable,
@@ -181,11 +183,36 @@ function modifiedMsFromGithubTimestamps(
   return fallbackMs;
 }
 
+/**
+ * The `<repoFull>#<num>` external-id shape shared by `upsertPr` and `fetchOne`. Both MUST derive
+ * this from the same source — the API response's own `number` field — so the id `fetchOne`
+ * returns can never diverge from the id the row was actually written under (e.g. a caller URL's
+ * `/pull/007` vs. the API's normalized `number: 7`).
+ */
+function githubPrExternalId(repoFull: string, num: number): string {
+  return `${repoFull}#${String(num)}`;
+}
+
 export function upsertPr(
   ctx: SyncContext,
   repoFull: string,
   pr: Record<string, unknown>,
   now: number,
+  /**
+   * The exact, unencoded browser URL a caller is fetching-one-by, when there is one. When
+   * present, used VERBATIM for both `url` and `canonicalUrl` in place of the API's own
+   * `html_url` — mirrors `_lib/gitlab/events.ts`'s `GitlabEventUpsertFields.webUrl` exactly.
+   *
+   * MUST be sourced from the CALLER's own URL, never from anything the API response says: GitHub
+   * 301s a renamed repo and returns the NEW `html_url`, so trusting it would write a row whose
+   * `resolve_key` no longer matches the caller's URL (a permanent miss), while the periodic
+   * events sync — which has no caller URL to speak of — then indexes the SAME PR again under the
+   * new path, leaving two rows sharing one `resolve_key` (`ambiguous` forever). `html_url` can
+   * also be entirely absent from a response, which must not leave `resolve_key` NULL on an
+   * `{"status":"indexed"}` reply. The periodic sync has no caller URL, so `webUrl` stays
+   * undefined there and its rows are byte-identical to before this fix.
+   */
+  webUrl?: string,
 ): void {
   const num = numberField(pr, "number");
   if (num === undefined) {
@@ -194,19 +221,20 @@ export function upsertPr(
   const title = stringField(pr, "title") ?? `PR #${String(num)}`;
   const body = stringField(pr, "body");
   const htmlUrl = stringField(pr, "html_url");
+  const url = webUrl ?? htmlUrl ?? null;
   const modified = modifiedMsFromGithubTimestamps(pr, now);
   const user = asRecord(pr["user"]);
   const authorId = resolveGithubActorPersonId(ctx.db, user);
   const meta = extractPrMetadataForIndex(repoFull, pr, now);
-  const externalId = `${repoFull}#${String(num)}`;
+  const externalId = githubPrExternalId(repoFull, num);
   upsertIndexedItemForSync(ctx, {
     service: SERVICE_ID,
     type: "pr",
     externalId,
     title: title.length > 512 ? title.slice(0, 512) : title,
     body: body ?? "",
-    url: htmlUrl ?? null,
-    canonicalUrl: htmlUrl ?? null,
+    url,
+    canonicalUrl: url,
     modifiedAt: modified,
     authorId,
     metadata: meta,
@@ -538,6 +566,110 @@ async function syncGithubUserEvents(
   };
 }
 
+/**
+ * `https://<host>/<owner>/<repo>/pull/<n>` — the only shape targeted fetch supports.
+ *
+ * Anchored at both ends and every quantifier bounded: the caller-supplied URL reaches an API
+ * path, so a permissive pattern here is a request-forgery surface, not a convenience.
+ */
+const GITHUB_PR_URL_RE = /^https?:\/\/[^/]+\/([\w.-]{1,100})\/([\w.-]{1,100})\/pull\/(\d{1,10})$/;
+
+/** A capture that is entirely dots (`.`, `..`, `...`) is a path-traversal segment, not a name. */
+const ALL_DOTS_RE = /^\.+$/;
+
+type ParsedGithubPrUrl = { readonly owner: string; readonly repo: string; readonly num: string };
+
+/**
+ * Pure, synchronous, NETWORK-FREE parse of a GitHub PR URL. Single source of truth for "does this
+ * URL match the shape `fetchOne` supports" — reused by `fetchOnePullRequest` (below) AND by
+ * `githubFetchOneUrlIsSupported` (the targeted-fetch orchestrator's pre-check, `sync/targeted-fetch.ts`),
+ * so the two can never disagree about which URLs are supported.
+ */
+function parseGithubPrUrl(url: string): ParsedGithubPrUrl | null {
+  const m = GITHUB_PR_URL_RE.exec(url);
+  if (m === null) {
+    return null;
+  }
+  const owner = m[1] as string;
+  const repo = m[2] as string;
+  // `[\w.-]` legally captures `.`/`..`, which `pullDetailUrl`'s unencoded interpolation would let
+  // traverse the API path (e.g. `repos/../secret/pulls/1` — the WHATWG URL parser normalizes away
+  // the `repos/` prefix). Reject outright rather than sanitize: neither is a real owner or repo.
+  if (ALL_DOTS_RE.test(owner) || ALL_DOTS_RE.test(repo)) {
+    return null;
+  }
+  return { owner, repo, num: m[3] as string };
+}
+
+/**
+ * Whether `parseGithubPrUrl` accepts `url` — i.e. whether `fetchOne` would make an outbound
+ * request for it. `sync/targeted-fetch.ts` calls this BEFORE appending an egress row, so a URL
+ * shape `fetchOne` would decline (e.g. a PR's "Files changed" tab, `/pull/7/files`) never
+ * ledgers an `authorized` row for a call that provably never left the machine (I29 Critical 2).
+ */
+export function githubFetchOneUrlIsSupported(url: string): boolean {
+  return parseGithubPrUrl(url) !== null;
+}
+
+/**
+ * Fetch and index ONE GitHub PR by its web URL. See `Syncable.fetchOne` for the contract: no
+ * rate-limiter call, no egress append, no host-boundary check — those belong to the orchestrator
+ * that calls this. This function's job is parse → call → map → upsert → return.
+ */
+async function fetchOnePullRequest(ctx: SyncContext, url: string): Promise<FetchOneResult> {
+  const parsedUrl = parseGithubPrUrl(url);
+  if (parsedUrl === null) {
+    return { status: "unsupported_url" };
+  }
+  const { owner, repo, num: requestedNum } = parsedUrl;
+  const pat = await readConnectorSecret(ctx.vault, "github", "pat");
+  if (pat === null || pat === "") {
+    return { status: "not_found" };
+  }
+  const repoFull = `${owner}/${repo}`;
+  let res: Response;
+  try {
+    res = await fetch(pullDetailUrl(repoFull, Number.parseInt(requestedNum, 10)), {
+      headers: buildGithubEventHeaders(pat, null),
+      // Bounds this single-item fetch so `POST /v1/items/fetch` can never hang on a stalled
+      // upstream response (see `FETCH_ONE_TIMEOUT_MS`'s doc comment in `sync/types.ts`). Covers
+      // the body read below too — an abort mid-stream rejects `res.text()`, caught by the same
+      // handler.
+      signal: AbortSignal.timeout(FETCH_ONE_TIMEOUT_MS),
+    });
+  } catch {
+    // A DNS/TLS/connect failure can carry the request URL in its message. Swallow it entirely
+    // rather than let it propagate — mirrors gitlab-sync.ts/jenkins-sync.ts/jira-sync.ts, whose
+    // fetchOne already reports not_found (never a 500) for the same offline condition.
+    return { status: "not_found" };
+  }
+  if (!res.ok) {
+    return { status: "not_found" };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await res.text()) as unknown;
+  } catch {
+    return { status: "not_found" };
+  }
+  const pr = asRecord(parsed);
+  if (pr === undefined) {
+    return { status: "not_found" };
+  }
+  // The returned itemId MUST reflect the row `upsertPr` actually wrote, which keys off the API
+  // response's own `number` field (normalized, e.g. `007` -> `7`) — never the raw regex capture
+  // from the caller's URL, which can differ from it (leading zeros, etc.).
+  const num = numberField(pr, "number");
+  if (num === undefined) {
+    return { status: "not_found" };
+  }
+  upsertPr(ctx, repoFull, pr, Date.now(), url);
+  return {
+    status: "indexed",
+    itemId: itemPrimaryKey(SERVICE_ID, githubPrExternalId(repoFull, num)),
+  };
+}
+
 export type GithubSyncableOptions = {
   ensureGithubMcpRunning: () => Promise<void>;
 };
@@ -557,5 +689,6 @@ export function createGithubSyncable(options: GithubSyncableOptions): Syncable {
 
       return syncGithubUserEvents(ctx, cursor, pat, t0);
     },
+    fetchOne: fetchOnePullRequest,
   };
 }

@@ -3,12 +3,15 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { makeInMemoryVault } from "../../test/helpers/in-memory-vault.ts";
+import { writeConnectorSecret } from "../connectors/connector-vault.ts";
 import { THIS_BINARY_COVERAGE } from "../egress/egress-coverage.ts";
 import { appendEgressEntry } from "../egress/egress-ledger.ts";
 import { coverageForWindow } from "../egress/egress-verify.ts";
 import { CURRENT_SCHEMA_VERSION } from "../index/local-index.ts";
 import { runIndexedSchemaMigrations } from "../index/migrations/runner.ts";
-import { appendBootMarkerOrWarn, assemblePlatformServices } from "./assemble.ts";
+import type { Syncable } from "../sync/types.ts";
+import { appendBootMarkerOrWarn, assemblePlatformServices, httpOriginFor } from "./assemble.ts";
 import { processEnvSet } from "./env-access.ts";
 import type { PlatformPaths } from "./paths.ts";
 import type { PlatformServices } from "./types.ts";
@@ -82,6 +85,44 @@ describe("appendBootMarkerOrWarn", () => {
 
     expect(warnCalls).toHaveLength(0);
     expect(coverageForWindow(db, {})).toEqual(THIS_BINARY_COVERAGE);
+  });
+});
+
+// Task 11: the one `http:` exception source for `POST /v1/items/fetch`. Unit-tested directly
+// against a fake Vault — the property under test (return the parsed `.origin`, never the raw
+// secret; fail closed on anything but `http:`) is orthogonal to the full gateway boot above.
+describe("httpOriginFor", () => {
+  it("returns the LOWERCASED, no-trailing-slash origin for a self-hosted http: secret", async () => {
+    const vault = makeInMemoryVault();
+    // Uppercase host + trailing slash: the raw secret targeted-fetch.ts must NEVER see, because
+    // its comparison is against `parsed.origin` (always lowercase host, no trailing slash).
+    await writeConnectorSecret(vault, "gitlab", "api_base", "http://Internal.Example:8080/");
+    expect(await httpOriginFor(vault, "gitlab")).toBe("http://internal.example:8080");
+  });
+
+  it("returns null for an https: self-hosted secret — no exception to grant", async () => {
+    const vault = makeInMemoryVault();
+    await writeConnectorSecret(vault, "jenkins", "base_url", "https://ci.internal.example");
+    expect(await httpOriginFor(vault, "jenkins")).toBeNull();
+  });
+
+  it("returns null for an unparseable secret rather than throwing", async () => {
+    const vault = makeInMemoryVault();
+    await writeConnectorSecret(vault, "jira", "base_url", "not a url");
+    expect(await httpOriginFor(vault, "jira")).toBeNull();
+  });
+
+  it("returns null for a missing or blank secret", async () => {
+    const vault = makeInMemoryVault();
+    expect(await httpOriginFor(vault, "gitlab")).toBeNull();
+    await writeConnectorSecret(vault, "gitlab", "api_base", "   ");
+    expect(await httpOriginFor(vault, "gitlab")).toBeNull();
+  });
+
+  it("returns null immediately for github/bitbucket — no self-hosted variant", async () => {
+    const vault = makeInMemoryVault();
+    expect(await httpOriginFor(vault, "github")).toBeNull();
+    expect(await httpOriginFor(vault, "bitbucket")).toBeNull();
   });
 });
 
@@ -294,5 +335,237 @@ describe("assemblePlatformServices — in-process assembly", () => {
     services = await assemblePlatformServices(paths);
     expect(services).toBeDefined();
     expect(typeof services.ipc.stop).toBe("function");
+  }, 30000);
+
+  // Task 11 / I29: `platform/assemble.ts` is the ONLY production `new SyncScheduler(...)`, and it
+  // must pass a real (non-undefined) `appendSyncEgress` — otherwise `sync`'s coverage claim in
+  // `egress/egress-coverage.ts` (raised to `"per-run"`) is a false claim the moment a real sync
+  // runs. This is exactly the regression that happened once already (Task 10 had to revert the
+  // claim because assemble.ts omitted the option) — so it is proven against the REAL assembly
+  // path, not a fake scheduler construction, and a future refactor that drops the option again
+  // fails this test instead of silently reverting the claim to a lie.
+  it("wires a real appendSyncEgress into the production SyncScheduler — a forced sync ledgers ONE `sync` row", async () => {
+    const paths = makePaths();
+    rmSync(paths.configDir, { recursive: true, force: true });
+    mkdirSync(paths.configDir, { recursive: true });
+    services = await assemblePlatformServices(paths);
+
+    const probeServiceId = "assemble-egress-probe";
+    const fakeSyncable: Syncable = {
+      serviceId: probeServiceId,
+      defaultIntervalMs: 3_600_000,
+      initialSyncDepthDays: 1,
+      sync: async (_ctx, cursor) => ({
+        cursor,
+        itemsUpserted: 0,
+        itemsDeleted: 0,
+        hasMore: false,
+        durationMs: 1,
+      }),
+    };
+    services.syncScheduler.register(fakeSyncable);
+    await services.syncScheduler.forceSync(probeServiceId);
+
+    // Filtered by `destination = probeServiceId` rather than just `source_type = 'sync'`: this
+    // test is about proving the wiring exists for THIS probe, not about being the only sync in
+    // the process — a background scheduled sync for another registered connector would add an
+    // unrelated row with a different `destination` and must not be mistaken for this one's.
+    // (This test's own correctness does not depend on other real cloud connectors staying silent
+    // on this machine — filtering by `destination = probeServiceId` excludes any row a different
+    // connector's own run would append regardless. It is a SEPARATE claim, proven directly by the
+    // empty-Vault tests below rather than assumed here, that those other connectors actually DO
+    // stay silent: before Fix 1 in `sync/connector-configured.ts`, 13 registered syncables with an
+    // empty manifest key list were NOT silent — each made zero network calls but still ledgered an
+    // "authorized" row on every run. That gap is closed now, and the tests below assert it against
+    // both the 3 manifest-keyed probes AND all 13 previously-ungated syncables.)
+    const db = services.localIndex.getDatabase();
+    const rows = db
+      .query(
+        `SELECT destination, method, hitl_status, result_status FROM egress_ledger
+         WHERE source_type = 'sync' AND destination = ? ORDER BY id DESC`,
+      )
+      .all(probeServiceId) as Array<{
+      destination: string;
+      method: string;
+      hitl_status: string;
+      result_status: string;
+    }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual({
+      destination: probeServiceId,
+      method: "sync.run",
+      hitl_status: "not_required",
+      result_status: "authorized",
+    });
+  }, 30000);
+
+  // I29 CRITICAL 1: an EMPTY Vault (a fresh install, or a machine with zero connectors
+  // configured) must ledger ZERO `sync` egress rows when several real cloud connectors are
+  // force-synced — before this fix, each one's `sync()` short-circuited to a network-free noop
+  // while the scheduler still appended an unconditional "authorized" row per run, fabricating
+  // outbound-egress events for a machine that made zero outbound requests. Proven against a REAL
+  // assembly (real `registerConnectorMeshSyncables` registrations, real Vault-backed
+  // `isConnectorConfigured` check), not a fake scheduler.
+  it("force-syncing several cloud connectors against an EMPTY Vault ledgers ZERO sync egress rows", async () => {
+    const paths = makePaths();
+    rmSync(paths.configDir, { recursive: true, force: true });
+    mkdirSync(paths.configDir, { recursive: true });
+    services = await assemblePlatformServices(paths);
+
+    const probeServiceIds = ["github", "slack", "notion"] as const;
+    await Promise.all(probeServiceIds.map((id) => services?.syncScheduler.forceSync(id)));
+
+    const db = services.localIndex.getDatabase();
+    const rows = db
+      .query(
+        `SELECT destination FROM egress_ledger WHERE source_type = 'sync' AND destination IN (?, ?, ?)`,
+      )
+      .all(...probeServiceIds) as Array<{ destination: string }>;
+    expect(rows).toHaveLength(0);
+  }, 30000);
+
+  // I29 Critical follow-up (Fix 1): the 13 registered, non-local-only syncables whose OWN
+  // `CONNECTOR_VAULT_SECRET_KEYS` entry is an EMPTY array (`sync/connector-configured.ts`'s
+  // `DERIVED_CONFIGURED_CHECKS`) used to fall through the manifest check's "no signal, no gate"
+  // branch and were ledgered as `authorized` on EVERY run against an EMPTY Vault — proven by a
+  // real boot + instrumented `globalThis.fetch`: 0 network attempts, 15 fabricated `sync` rows
+  // before this fix. Forcing all 13 against a real, empty-Vault assembly must now ledger ZERO
+  // rows AND make ZERO `fetch` calls (the four of the 13 that go over HTTP rather than an
+  // AWS/GCP CLI spawn — `gmail`/`google_drive`/`google_photos`/`google_meet` also apply, but
+  // `github_actions`/`onedrive`/`outlook` are the ones this process can reach without native
+  // repos/mailboxes already indexed).
+  it("force-syncing all 13 empty-manifest syncables against an EMPTY Vault ledgers ZERO sync egress rows and makes ZERO fetch calls", async () => {
+    const paths = makePaths();
+    rmSync(paths.configDir, { recursive: true, force: true });
+    mkdirSync(paths.configDir, { recursive: true });
+    services = await assemblePlatformServices(paths);
+
+    const emptyManifestServiceIds = [
+      "google_drive",
+      "gmail",
+      "google_photos",
+      "google_meet",
+      "onedrive",
+      "outlook",
+      "github_actions",
+      "bigquery",
+      "athena",
+      "cloudwatch",
+      "sagemaker",
+      "cloud_logging",
+      "vertex_ai",
+    ] as const;
+
+    const originalFetch = globalThis.fetch;
+    let fetchCalls = 0;
+    globalThis.fetch = ((...args: Parameters<typeof fetch>) => {
+      fetchCalls += 1;
+      return originalFetch(...args);
+    }) as typeof fetch;
+    try {
+      // Six of these thirteen (`google_drive`/`gmail`/`google_photos`/`google_meet`/`onedrive`/
+      // `outlook`) throw a "not configured" Error straight out of their own `sync()` when
+      // unconfigured — pre-existing, unmodified connector behavior this fix does not touch — so a
+      // forced run on any of them REJECTS the `forceSync` promise. Each rejection is swallowed
+      // individually: what this test asserts is the egress ROW COUNT, not that every one of these
+      // connectors resolves cleanly against an empty Vault.
+      await Promise.all(
+        emptyManifestServiceIds.map((id) =>
+          services?.syncScheduler.forceSync(id).catch(() => undefined),
+        ),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(fetchCalls).toBe(0);
+
+    const db = services.localIndex.getDatabase();
+    const rows = db
+      .query(
+        `SELECT destination FROM egress_ledger WHERE source_type = 'sync' AND destination IN (${emptyManifestServiceIds
+          .map(() => "?")
+          .join(",")})`,
+      )
+      .all(...emptyManifestServiceIds) as Array<{ destination: string }>;
+    expect(rows).toEqual([]);
+  }, 60000);
+
+  // Fix 1, other half: gating must not silence the LEGITIMATE case — once one of these 13
+  // actually has its real signal set, the run must still ledger exactly ONE `sync` row, the same
+  // as any other configured connector. `github_actions` is picked because its own `sync()`
+  // short-circuits to a network-free noop as soon as the local index has no github repos (which
+  // this fresh DB does not), so this proves the egress-append wiring without depending on a real
+  // network call succeeding.
+  it("a newly-gated empty-manifest syncable still ledgers exactly ONE row once its real signal is set", async () => {
+    const paths = makePaths();
+    rmSync(paths.configDir, { recursive: true, force: true });
+    mkdirSync(paths.configDir, { recursive: true });
+    services = await assemblePlatformServices(paths);
+    // `github_actions` has a 60s scheduled interval and the scheduler is already ticking at this
+    // point — pausing it (a paused connector's own tick is skipped, but "forceSync on a paused
+    // connector still runs" per `scheduler.test.ts`) rules out a natural scheduled tick racing
+    // the explicit `forceSync` below and appending a SECOND row, which would make this assertion
+    // flaky for a reason that has nothing to do with what it is testing.
+    services.syncScheduler.pause("github_actions");
+
+    await writeConnectorSecret(services.vault, "github", "pat", "ghp_test_token");
+    await services.syncScheduler.forceSync("github_actions");
+
+    const db = services.localIndex.getDatabase();
+    const rows = db
+      .query(
+        `SELECT destination, method, hitl_status, result_status FROM egress_ledger
+         WHERE source_type = 'sync' AND destination = 'github_actions'`,
+      )
+      .all() as Array<{
+      destination: string;
+      method: string;
+      hitl_status: string;
+      result_status: string;
+    }>;
+    expect(rows).toEqual([
+      {
+        destination: "github_actions",
+        method: "sync.run",
+        hitl_status: "not_required",
+        result_status: "authorized",
+      },
+    ]);
+  }, 30000);
+
+  // I29 CRITICAL fix: `filesystem`/`blame`/`openapi`/`obsidian` are registered on the SAME
+  // scheduler as every cloud connector but make NO outbound network request — a syncable that
+  // performs a LOCAL mutation, not egress, must not be ledgered as egress (the `NULL_EGRESS_SINK`
+  // precedent, applied to this class). Proven against a REAL assembly with a REAL
+  // `[[filesystem.roots]]` block (the exact config shape that registers `filesystem` + `blame` on
+  // the scheduler, per `registerFilesystemRootSyncables`), not a fake scheduler: a forced sync of
+  // `filesystem` must append ZERO `sync` egress rows, never an `authorized` row for a request that
+  // provably never left the machine.
+  it("appends ZERO sync egress rows for a local-only indexer (filesystem) even on a forced sync", async () => {
+    const paths = makePaths();
+    rmSync(paths.configDir, { recursive: true, force: true });
+    mkdirSync(paths.configDir, { recursive: true });
+    const rootDir = join(tmpDir, "fs-root");
+    mkdirSync(rootDir, { recursive: true });
+    writeFileSync(
+      join(paths.configDir, "nimbus.toml"),
+      `[[filesystem.roots]]\npath = "${rootDir.replace(/\\/g, "/")}"\n`,
+    );
+
+    services = await assemblePlatformServices(paths);
+    // `registerFilesystemRootSyncables` (called synchronously inside assembly) registers both
+    // `filesystem` and `blame` for any non-empty root set — forcing either proves the exclusion;
+    // `filesystem` is forced here, `blame` is covered by the unit-level
+    // `LOCAL_ONLY_SYNC_SERVICES` tests in `egress/sync-egress.test.ts`.
+    await services.syncScheduler.forceSync("filesystem");
+
+    const db = services.localIndex.getDatabase();
+    const count = db
+      .query(
+        `SELECT COUNT(*) AS n FROM egress_ledger WHERE source_type = 'sync' AND destination = 'filesystem'`,
+      )
+      .get() as { n: number };
+    expect(count.n).toBe(0);
   }, 30000);
 });

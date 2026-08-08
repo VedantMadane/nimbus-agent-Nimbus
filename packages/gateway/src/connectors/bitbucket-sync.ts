@@ -1,7 +1,14 @@
-import { upsertIndexedItemForSync } from "../index/item-store.ts";
+import { itemPrimaryKey, upsertIndexedItemForSync } from "../index/item-store.ts";
 import { resolvePersonForSync } from "../people/linker.ts";
 import { plainTextFromHtml } from "../string/html-plain-text.ts";
-import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
+import {
+  FETCH_ONE_TIMEOUT_MS,
+  type FetchOneResult,
+  type Syncable,
+  type SyncContext,
+  type SyncResult,
+  syncNoopResult,
+} from "../sync/types.ts";
 import { readConnectorSecret } from "./connector-vault.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, numberField, stringField } from "./unknown-record.ts";
@@ -94,11 +101,33 @@ function normalizeBitbucketUserUuid(raw: string): string {
     .toLowerCase();
 }
 
+/**
+ * The `<repoFull>#<id>` external-id shape shared by `upsertFromPullRequest` and `fetchOne`. Both
+ * MUST derive this from the same source — the API response's own `id` field — so the id
+ * `fetchOne` returns can never diverge from the id the row was actually written under (e.g. a
+ * caller URL's `/pull-requests/007` vs. the API's normalized `id: 7`).
+ */
+function bitbucketPrExternalId(repoFull: string, id: number): string {
+  return `${repoFull}#${String(id)}`;
+}
+
 function upsertFromPullRequest(
   ctx: SyncContext,
   repoFull: string,
   pr: Record<string, unknown>,
   now: number,
+  /**
+   * The exact, unencoded browser URL a caller is fetching-one-by, when there is one. Used
+   * VERBATIM for both `url` and `canonicalUrl` in place of the API's own `links.html.href` —
+   * mirrors `_lib/gitlab/events.ts`'s `GitlabEventUpsertFields.webUrl` exactly.
+   *
+   * MUST be sourced from the CALLER's own URL, never from anything the API response says: the
+   * response's `links.html.href` can legitimately differ from the caller's URL after a repo
+   * rename, or be absent entirely, either of which would otherwise leave `resolve_key` wrong or
+   * NULL. The periodic sync has no caller URL, so `webUrl` stays undefined there and its rows
+   * are byte-identical to before this fix.
+   */
+  webUrl?: string,
 ): void {
   const id = numberField(pr, "id");
   if (id === undefined) {
@@ -109,7 +138,7 @@ function upsertFromPullRequest(
   const updatedOn = stringField(pr, "updated_on");
   const modified = updatedOn === undefined ? now : Date.parse(updatedOn);
   const state = stringField(pr, "state");
-  const url = htmlHref(pr);
+  const url = webUrl ?? htmlHref(pr);
   const author = asRecord(pr["author"]);
   const displayName = author === undefined ? undefined : stringField(author, "display_name");
   const uuidRaw = author === undefined ? undefined : stringField(author, "uuid");
@@ -128,7 +157,7 @@ function upsertFromPullRequest(
     state,
     author: displayName,
   };
-  const externalId = `${repoFull}#${String(id)}`;
+  const externalId = bitbucketPrExternalId(repoFull, id);
   upsertIndexedItemForSync(ctx, {
     service: SERVICE_ID,
     type: "pr",
@@ -204,6 +233,117 @@ function ingestBitbucketPullRequestPage(
   return { maxUpdated, upsertedDelta, nextPrUrl };
 }
 
+/**
+ * `https://<host>/<workspace>/<repo>/pull-requests/<n>` — the only shape targeted fetch supports.
+ *
+ * Anchored at both ends and every quantifier bounded: the caller-supplied URL reaches an API
+ * path, so a permissive pattern here is a request-forgery surface, not a convenience.
+ */
+const BITBUCKET_PR_URL_RE =
+  /^https?:\/\/[^/]+\/([\w.-]{1,100})\/([\w.-]{1,100})\/pull-requests\/(\d{1,10})$/;
+
+/** A capture that is entirely dots (`.`, `..`, `...`) is a path-traversal segment, not a name. */
+const ALL_DOTS_RE = /^\.+$/;
+
+type ParsedBitbucketPrUrl = {
+  readonly workspace: string;
+  readonly repoSlug: string;
+  readonly num: string;
+};
+
+/**
+ * Pure, synchronous, NETWORK-FREE parse of a Bitbucket PR URL. Single source of truth for "does
+ * this URL match the shape `fetchOne` supports" — reused by `fetchOnePullRequest` (below) AND by
+ * `bitbucketFetchOneUrlIsSupported` (the targeted-fetch orchestrator's pre-check,
+ * `sync/targeted-fetch.ts`), so the two can never disagree about which URLs are supported.
+ */
+function parseBitbucketPrUrl(url: string): ParsedBitbucketPrUrl | null {
+  const m = BITBUCKET_PR_URL_RE.exec(url);
+  if (m === null) {
+    return null;
+  }
+  const workspace = m[1] as string;
+  const repoSlug = m[2] as string;
+  // `[\w.-]` legally captures `.`/`..`; `encodeURIComponent` does NOT save us here — dot is
+  // unreserved, so `encodeURIComponent("..") === ".."` and the traversal survives encoding
+  // unchanged. Reject outright rather than sanitize: neither is a real workspace or repo slug.
+  if (ALL_DOTS_RE.test(workspace) || ALL_DOTS_RE.test(repoSlug)) {
+    return null;
+  }
+  return { workspace, repoSlug, num: m[3] as string };
+}
+
+/**
+ * Whether `parseBitbucketPrUrl` accepts `url` — i.e. whether `fetchOne` would make an outbound
+ * request for it. `sync/targeted-fetch.ts` calls this BEFORE appending an egress row, so a URL
+ * shape `fetchOne` would decline never ledgers an `authorized` row for a call that provably never
+ * left the machine (I29 Critical 2).
+ */
+export function bitbucketFetchOneUrlIsSupported(url: string): boolean {
+  return parseBitbucketPrUrl(url) !== null;
+}
+
+/**
+ * Fetch and index ONE Bitbucket PR by its web URL. See `Syncable.fetchOne` for the contract: no
+ * rate-limiter call, no egress append, no host-boundary check — those belong to the orchestrator
+ * that calls this. This function's job is parse → call → map → upsert → return.
+ */
+async function fetchOnePullRequest(ctx: SyncContext, url: string): Promise<FetchOneResult> {
+  const parsedUrl = parseBitbucketPrUrl(url);
+  if (parsedUrl === null) {
+    return { status: "unsupported_url" };
+  }
+  const { workspace, repoSlug, num: requestedNum } = parsedUrl;
+  const user = await readConnectorSecret(ctx.vault, "bitbucket", "username");
+  const pass = await readConnectorSecret(ctx.vault, "bitbucket", "app_password");
+  if (user === null || user === "" || pass === null || pass === "") {
+    return { status: "not_found" };
+  }
+  const repoFull = `${workspace}/${repoSlug}`;
+  const detailUrl = `${API_ROOT}/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repoSlug)}/pullrequests/${requestedNum}`;
+  let res: Response;
+  try {
+    res = await fetch(detailUrl, {
+      headers: { Authorization: basicAuthHeader(user, pass), Accept: "application/json" },
+      // Bounds this single-item fetch so `POST /v1/items/fetch` can never hang on a stalled
+      // upstream response (see `FETCH_ONE_TIMEOUT_MS`'s doc comment in `sync/types.ts`). Covers
+      // the body read below too — an abort mid-stream rejects `res.text()`, caught by the same
+      // handler.
+      signal: AbortSignal.timeout(FETCH_ONE_TIMEOUT_MS),
+    });
+  } catch {
+    // A DNS/TLS/connect failure can carry the request URL in its message. Swallow it entirely
+    // rather than let it propagate — mirrors gitlab-sync.ts/jenkins-sync.ts/jira-sync.ts, whose
+    // fetchOne already reports not_found (never a 500) for the same offline condition.
+    return { status: "not_found" };
+  }
+  if (!res.ok) {
+    return { status: "not_found" };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await res.text()) as unknown;
+  } catch {
+    return { status: "not_found" };
+  }
+  const pr = asRecord(parsed);
+  if (pr === undefined) {
+    return { status: "not_found" };
+  }
+  // The returned itemId MUST reflect the row `upsertFromPullRequest` actually wrote, which keys
+  // off the API response's own `id` field (normalized, e.g. `007` -> `7`) — never the raw regex
+  // capture from the caller's URL, which can differ from it (leading zeros, etc.).
+  const id = numberField(pr, "id");
+  if (id === undefined) {
+    return { status: "not_found" };
+  }
+  upsertFromPullRequest(ctx, repoFull, pr, Date.now(), url);
+  return {
+    status: "indexed",
+    itemId: itemPrimaryKey(SERVICE_ID, bitbucketPrExternalId(repoFull, id)),
+  };
+}
+
 export type BitbucketSyncableOptions = {
   ensureBitbucketMcpRunning: () => Promise<void>;
 };
@@ -214,6 +354,7 @@ export function createBitbucketSyncable(options: BitbucketSyncableOptions): Sync
     serviceId: SERVICE_ID,
     defaultIntervalMs: 60 * 1000,
     initialSyncDepthDays,
+    fetchOne: fetchOnePullRequest,
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();
       await options.ensureBitbucketMcpRunning();

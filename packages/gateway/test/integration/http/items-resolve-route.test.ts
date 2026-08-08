@@ -46,6 +46,94 @@ describe("GET /v1/items/resolve (integration)", () => {
     }
   });
 
+  // IMPORTANT 1: `handleItemsResolve` used to call `resolveItemByUrl(db, raw)` with NO `opts`, so
+  // `fetchable` was always the hardcoded default `false` — a client following the documented
+  // resolve-then-fetch handshake would NEVER fetch, even with the host fully configured. This
+  // pins the fix: a host `resolveFetchable` claims answers `fetchable: true`, and an unclaimed
+  // host answers `false`, even for the SAME not-found response shape.
+  test("reports fetchable: true for a host the wired predicate claims, on a not_indexed miss", async () => {
+    const { port, token, stop } = await startServerWithClipToken(["resolve"], {
+      resolveFetchable: async () => (host: string) => host === "github.com",
+    });
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/v1/items/resolve?url=${encodeURIComponent("https://github.com/o/r/pull/999")}`,
+        { headers: { authorization: `Bearer ${token}` } },
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        found: false,
+        reason: "not_indexed",
+        service: null,
+        fetchable: true,
+      });
+    } finally {
+      stop();
+    }
+  });
+
+  test("reports fetchable: false for a host the wired predicate does not claim", async () => {
+    const { port, token, stop } = await startServerWithClipToken(["resolve"], {
+      resolveFetchable: async () => (host: string) => host === "github.com",
+    });
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/v1/items/resolve?url=${encodeURIComponent("https://gitlab.com/g/p/-/merge_requests/1")}`,
+        { headers: { authorization: `Bearer ${token}` } },
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        found: false,
+        reason: "not_indexed",
+        service: null,
+        fetchable: false,
+      });
+    } finally {
+      stop();
+    }
+  });
+
+  // FIX A: `resolveFetchable()` calls `deriveFetchHostMap(vault)` in production, which reads
+  // several Vault keys. A locked keychain / transient backend error must degrade to the
+  // documented default (`fetchable: false`), not fail the whole resolve request — before this
+  // branch wired `fetchable` in, this route could not fail for a Vault reason at all.
+  test("degrades to fetchable: false (still 200) when resolveFetchable rejects", async () => {
+    const { port, token, stop } = await startServerWithClipToken(["resolve"], {
+      resolveFetchable: async () => {
+        throw new Error("vault locked: base https://acme.example.invalid");
+      },
+    });
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/v1/items/resolve?url=${encodeURIComponent("https://github.com/o/r/pull/999")}`,
+        { headers: { authorization: `Bearer ${token}` } },
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        found: false,
+        reason: "not_indexed",
+        service: null,
+        fetchable: false,
+      });
+    } finally {
+      stop();
+    }
+  });
+
+  test("defaults to fetchable: false when resolveFetchable is not wired", async () => {
+    const { port, token, stop } = await startServerWithClipToken(["resolve"]);
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/v1/items/resolve?url=${encodeURIComponent("https://github.com/o/r/pull/999")}`,
+        { headers: { authorization: `Bearer ${token}` } },
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ fetchable: false });
+    } finally {
+      stop();
+    }
+  });
+
   test("403s a legacy-scoped token", async () => {
     const { port, token, stop } = await startServerWithClipToken(["clip", "briefs"]);
     try {

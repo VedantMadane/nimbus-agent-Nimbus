@@ -18,6 +18,7 @@ import { buildItemListSql, parseRelativeSinceToWindowMs } from "../index/item-li
 import { resolveItemByUrl } from "../index/resolve-by-url.ts";
 import { ftsMatchQuery } from "../search/hybrid-internal.ts";
 import { formatPrometheus } from "../status/prometheus-format.ts";
+import type { TargetedFetchOutcome } from "../sync/targeted-fetch.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import { contentTypeFor, resolveConsoleAsset, safeAssetPath } from "./admin-console-assets.ts";
 import { buildStatus, type StatusReaders } from "./admin-status-rpc.ts";
@@ -83,6 +84,20 @@ export type ReadOnlyHttpServerOptions = {
   // auth, exactly as briefs do — agents never mint or hold their own token.
   readonly agentRuns?: AgentRunController;
   readonly agentInvoke?: AgentHttpInvoker;
+  // Targeted fetch-on-miss (Task 11). Absent => POST /v1/items/fetch 404s (surface not mounted).
+  // Built at assemble time because it needs the scheduler's syncables, its SyncContext and its
+  // rate-limiter bucket, plus a Vault-derived fetch-host boundary — the HTTP layer must not reach
+  // into connectors or the Vault itself. Reuses clipsVault for bearer auth (clipIngest precedent),
+  // under its own `fetch` scope, distinct from `resolve`'s read-only local-index lookup.
+  readonly fetchItem?: (url: string) => Promise<TargetedFetchOutcome>;
+  // IMPORTANT 1 fix: the `fetchable` predicate `GET /v1/items/resolve` passes to
+  // `resolveItemByUrl`. Absent => every resolve answers `fetchable: false` (the same default
+  // `resolveItemByUrl` itself falls back to). A CLOSURE, not a raw host map: the map must be
+  // derived FRESH on every call (never cached) — a revoked credential must stop advertising
+  // `fetchable` immediately — exactly like `fetchItem`'s own host-map derivation above. The HTTP
+  // layer never reaches into the Vault itself; assemble time builds this the same way it builds
+  // `fetchItem`'s host map.
+  readonly resolveFetchable?: () => Promise<(host: string) => boolean>;
 };
 
 export type ReadOnlyHttpServerHandle = {
@@ -598,7 +613,21 @@ async function handleItemsResolve(
   if (raw === null || raw.trim() === "") {
     return json({ error: "missing_url" }, 400);
   }
-  return json(resolveItemByUrl(db, raw));
+  // IMPORTANT 1: derived FRESH on every call (never cached), same as `fetchItem`'s own host map —
+  // a revoked credential must stop advertising `fetchable` on the very next request.
+  //
+  // IMPORTANT 2 (availability): `resolveFetchable()` calls `deriveFetchHostMap(vault)` in
+  // production, which reads several Vault keys. A locked keychain or a transient backend error
+  // must degrade this route to the documented default (`fetchable: false`) rather than fail the
+  // whole resolve answer — before `fetchable` was wired in, this route could not fail for a Vault
+  // reason at all, so a Vault outage regressing resolve availability would be new breakage. The
+  // rejection reason is deliberately NOT logged: a Vault error message can embed a base URL, which
+  // is a secret.
+  const fetchable =
+    opts.resolveFetchable === undefined
+      ? undefined
+      : await opts.resolveFetchable().catch(() => undefined);
+  return json(resolveItemByUrl(db, raw, fetchable === undefined ? undefined : { fetchable }));
 }
 
 // GET /v1/briefs/{id} — bearer-authed read of an in-memory run. Mounted in the fetch handler,
@@ -723,6 +752,16 @@ function buildClipsSeam(writeDb: Database, opts: ReadOnlyHttpServerOptions) {
   };
 }
 
+// Targeted-fetch write seam — present only when BOTH clipsVault AND fetchItem are wired.
+// verifyToken reuses the same labeled clipper token map as the web clipper / agents / briefs
+// (clipIngest precedent) — this route never mints or holds its own token.
+function buildFetchSeam(opts: ReadOnlyHttpServerOptions) {
+  const clipsVault = opts.clipsVault;
+  const fetchItem = opts.fetchItem;
+  if (clipsVault === undefined || fetchItem === undefined) return undefined;
+  return { verifyToken: (t: string) => verifyApiToken(clipsVault, t), fetchItem };
+}
+
 // Research-briefs write seam — present only when clipsVault, briefRuns, briefStartRun, AND
 // briefSave are ALL wired. verifyToken reuses the same labeled clipper token map as the web
 // clipper (clipIngest precedent) — briefs never mint or hold their own token.
@@ -780,6 +819,7 @@ async function resolveWriteRouteDeps(
   const clips = buildClipsSeam(writeDb, opts);
   const briefs = buildBriefsSeam(opts);
   const agents = buildAgentsSeam(opts);
+  const fetchSeam = buildFetchSeam(opts);
   return {
     writeDb,
     expectedToken: await resolveExpectedToken(opts),
@@ -792,6 +832,7 @@ async function resolveWriteRouteDeps(
     ...(clips === undefined ? {} : { clips }),
     ...(briefs === undefined ? {} : { briefs }),
     ...(agents === undefined ? {} : { agents }),
+    ...(fetchSeam === undefined ? {} : { fetch: fetchSeam }),
   };
 }
 
@@ -865,6 +906,7 @@ export function startReadOnlyHttpServer(
     opts.clipsVault === undefined &&
     opts.briefRuns === undefined &&
     opts.agentRuns === undefined &&
+    opts.fetchItem === undefined &&
     (opts.authorPolicy === undefined || opts.resolveAdminToken === undefined)
       ? null
       : openI13WriteHandle(dbPath);

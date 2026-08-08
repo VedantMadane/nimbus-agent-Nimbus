@@ -73,6 +73,14 @@ function singlePageFetch(
   }) as unknown as typeof fetch;
 }
 
+// Helper: returns a fetch that answers a `/rest/api/3/issue/<key>` detail request with a single
+// issue object (as opposed to `singlePageFetch`'s search-envelope shape).
+function singlePageIssueFetch(issue: Record<string, unknown>): typeof fetch {
+  return (async (): Promise<Response> => {
+    return new Response(JSON.stringify(issue), { status: 200 });
+  }) as unknown as typeof fetch;
+}
+
 describeWithFetchRestore("jira-sync", () => {
   testConnectorSyncNoop(
     "no-op when credentials missing",
@@ -801,5 +809,234 @@ describeWithFetchRestore("jira-sync", () => {
     const r = await sync.sync(ctx, null);
     expect(callCount).toBe(1);
     expect(r.itemsUpserted).toBe(50);
+  });
+});
+
+// ── fetchOne ───────────────────────────────────────────────────────────────
+
+describeWithFetchRestore("jira-sync fetchOne", () => {
+  test("jira fetchOne indexes a /browse/ issue url", async () => {
+    const { db, ctx } = credCtx();
+    globalThis.fetch = singlePageIssueFetch(makeIssue({ key: "ENG-42", id: "10042" }));
+
+    const syncable = createJiraSyncable({ ensureJiraMcpRunning: async () => {} });
+    const out = await syncable.fetchOne?.(ctx, "https://example.atlassian.net/browse/ENG-42");
+
+    expect(out).toEqual({ status: "indexed", itemId: "jira:ENG-42" });
+    const row = db.query("SELECT resolve_key FROM item WHERE id = 'jira:ENG-42'").get() as {
+      resolve_key: string | null;
+    } | null;
+    expect(row).not.toBeNull();
+    expect(row?.resolve_key).toBe("https://example.atlassian.net/browse/ENG-42");
+  });
+
+  test("jira fetchOne indexes a board deep link via selectedIssue", async () => {
+    const { ctx } = credCtx();
+    globalThis.fetch = singlePageIssueFetch(makeIssue({ key: "ENG-42", id: "10042" }));
+
+    const syncable = createJiraSyncable({ ensureJiraMcpRunning: async () => {} });
+    const url =
+      "https://example.atlassian.net/jira/software/c/projects/ENG/boards/1?selectedIssue=ENG-42";
+    const out = await syncable.fetchOne?.(ctx, url);
+
+    expect(out).toEqual({ status: "indexed", itemId: "jira:ENG-42" });
+  });
+
+  test("jira fetchOne declines a shape it does not support, rather than guessing a key", async () => {
+    const { ctx } = credCtx();
+
+    const syncable = createJiraSyncable({ ensureJiraMcpRunning: async () => {} });
+    const out = await syncable.fetchOne?.(
+      ctx,
+      "https://example.atlassian.net/projects/ENG/issues/?filter=all",
+    );
+
+    expect(out).toEqual({ status: "unsupported_url" });
+  });
+
+  test("jira fetchOne declines a selectedIssue value that is not a valid key", async () => {
+    const { ctx } = credCtx();
+
+    const syncable = createJiraSyncable({ ensureJiraMcpRunning: async () => {} });
+    const url = "https://example.atlassian.net/jira/software/c/boards/1?selectedIssue=not-a-key";
+    const out = await syncable.fetchOne?.(ctx, url);
+
+    expect(out).toEqual({ status: "unsupported_url" });
+  });
+
+  test("jira fetchOne declines a non-http(s) scheme", async () => {
+    const { ctx } = credCtx();
+
+    const syncable = createJiraSyncable({ ensureJiraMcpRunning: async () => {} });
+    const out = await syncable.fetchOne?.(ctx, "ftp://example.atlassian.net/browse/ENG-42");
+
+    expect(out).toEqual({ status: "unsupported_url" });
+  });
+
+  test("reports not_found for a 404", async () => {
+    const { ctx } = credCtx();
+    globalThis.fetch = (async (): Promise<Response> =>
+      new Response("nope", { status: 404 })) as unknown as typeof fetch;
+
+    const syncable = createJiraSyncable({ ensureJiraMcpRunning: async () => {} });
+    const out = await syncable.fetchOne?.(ctx, "https://example.atlassian.net/browse/ENG-999");
+
+    expect(out).toEqual({ status: "not_found" });
+  });
+
+  test("reports not_found when credentials are missing", async () => {
+    const db = createMemoryIndexDb();
+    const ctx = { db, vault: credVault({ "jira.email": "" }), ...silentSyncContextExtras() };
+
+    const syncable = createJiraSyncable({ ensureJiraMcpRunning: async () => {} });
+    const out = await syncable.fetchOne?.(ctx, "https://example.atlassian.net/browse/ENG-42");
+
+    expect(out).toEqual({ status: "not_found" });
+  });
+
+  test("reports not_found when fetch itself throws (DNS/TLS/connect failure)", async () => {
+    const { ctx } = credCtx();
+    globalThis.fetch = ((): Promise<Response> => {
+      throw new TypeError("fetch failed: getaddrinfo ENOTFOUND example.atlassian.net");
+    }) as unknown as typeof fetch;
+
+    const syncable = createJiraSyncable({ ensureJiraMcpRunning: async () => {} });
+    const out = await syncable.fetchOne?.(ctx, "https://example.atlassian.net/browse/ENG-42");
+
+    expect(out).toEqual({ status: "not_found" });
+  });
+
+  // A stalled/aborted upstream request must report not_found rather than hang the caller
+  // (`POST /v1/items/fetch`) indefinitely — and the outbound request must actually carry a bounded
+  // abort signal, not merely happen to survive an unrelated rejection. Recording `init?.signal`
+  // proves the timeout is WIRED, not just that some catch block happens to swallow errors.
+  test("reports not_found and passes an abort signal when the request is aborted (timeout)", async () => {
+    const { ctx } = credCtx();
+    let capturedSignal: AbortSignal | undefined;
+    globalThis.fetch = ((_input: unknown, init?: SyncTestFetchParams[1]): Promise<Response> => {
+      capturedSignal = init?.signal ?? undefined;
+      return Promise.reject(
+        Object.assign(new Error("The operation was aborted."), { name: "AbortError" }),
+      );
+    }) as unknown as typeof fetch;
+
+    const syncable = createJiraSyncable({ ensureJiraMcpRunning: async () => {} });
+    const out = await syncable.fetchOne?.(ctx, "https://example.atlassian.net/browse/ENG-42");
+
+    expect(out).toEqual({ status: "not_found" });
+    expect(capturedSignal).toBeDefined();
+  });
+
+  // Regression: the returned itemId must match the row's ACTUAL id — derived from the API
+  // response's own `key` field, never the raw regex capture from the caller's URL. A Jira issue
+  // can be MOVED between projects, changing its key; the old `/browse/` link still 200s, but with
+  // the issue's CURRENT key. This pins the KNOWN BOUND documented beside `returnedKey` in
+  // `fetchOneIssue` (jira-sync.ts): the written `resolve_key` follows the issue's CURRENT
+  // canonical URL, never the caller's stale original link — kept deliberately, not fixed.
+  test("a moved issue resolves to the API's current key, not the requested one", async () => {
+    const { db, ctx } = credCtx();
+    globalThis.fetch = singlePageIssueFetch(makeIssue({ key: "NEWPROJ-1", id: "10042" }));
+
+    const syncable = createJiraSyncable({ ensureJiraMcpRunning: async () => {} });
+    const out = await syncable.fetchOne?.(ctx, "https://example.atlassian.net/browse/ENG-42");
+
+    expect(out).toEqual({ status: "indexed", itemId: "jira:NEWPROJ-1" });
+    const row = db.query("SELECT resolve_key FROM item WHERE id = 'jira:NEWPROJ-1'").get() as {
+      resolve_key: string | null;
+    } | null;
+    expect(row?.resolve_key).toBe("https://example.atlassian.net/browse/NEWPROJ-1");
+  });
+
+  // ── base-URL vs request-URL mismatch (the loop-class bug) ──────────────────
+  //
+  // The host boundary (`sync/fetch-host-boundary.ts`) proves only that the request's HOST is
+  // claimed by Jira; it says nothing about scheme, port, or a context path. Without a check here,
+  // a caller URL whose spelling merely diverges from the configured `jira.base_url` would still
+  // dispatch, and `jiraIndexOneIssue` would write `resolve_key` under the CONFIGURED base rather
+  // than the CALLER's URL — a stored key the caller's own link can never resolve again, so the
+  // client re-fetches forever (the loop this fix closes).
+
+  test("rejects a /browse/ request when the configured base_url carries a context path the caller omitted", async () => {
+    const { db, ctx } = credCtx({ "jira.base_url": "https://example.atlassian.net/jira" });
+    // A counter, not a throw: a throwing fetch would be swallowed by fetchOneIssue's own
+    // DNS/TLS-failure handler and come back `not_found`, which would mask "was the network ever
+    // reached" behind a status this function already returns for an unrelated reason. Counting
+    // calls proves the request was rejected BEFORE dispatch, not merely that dispatch failed.
+    let fetchCalls = 0;
+    globalThis.fetch = ((): Promise<Response> => {
+      fetchCalls += 1;
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    }) as unknown as typeof fetch;
+
+    const syncable = createJiraSyncable({ ensureJiraMcpRunning: async () => {} });
+    const out = await syncable.fetchOne?.(ctx, "https://example.atlassian.net/browse/ENG-1");
+
+    expect(out).toEqual({ status: "unsupported_url" });
+    expect(fetchCalls).toBe(0);
+    const row = db.query("SELECT id FROM item WHERE id = 'jira:ENG-1'").get();
+    expect(row).toBeNull();
+  });
+
+  test("accepts and round-trips a caller URL when the configured base_url has an explicit default port", async () => {
+    const { db, ctx } = credCtx({ "jira.base_url": "https://example.atlassian.net:443" });
+    globalThis.fetch = singlePageIssueFetch(makeIssue({ key: "ENG-42", id: "10042" }));
+
+    const syncable = createJiraSyncable({ ensureJiraMcpRunning: async () => {} });
+    const callerUrl = "https://example.atlassian.net/browse/ENG-42";
+    const out = await syncable.fetchOne?.(ctx, callerUrl);
+
+    expect(out).toEqual({ status: "indexed", itemId: "jira:ENG-42" });
+    const row = db.query("SELECT resolve_key FROM item WHERE id = 'jira:ENG-42'").get() as {
+      resolve_key: string | null;
+    } | null;
+    expect(row?.resolve_key).toBe(callerUrl);
+  });
+
+  test("accepts and round-trips a caller URL when the configured base_url carries a trailing slash", async () => {
+    const { db, ctx } = credCtx({ "jira.base_url": "https://example.atlassian.net/" });
+    globalThis.fetch = singlePageIssueFetch(makeIssue({ key: "ENG-42", id: "10042" }));
+
+    const syncable = createJiraSyncable({ ensureJiraMcpRunning: async () => {} });
+    const callerUrl = "https://example.atlassian.net/browse/ENG-42";
+    const out = await syncable.fetchOne?.(ctx, callerUrl);
+
+    expect(out).toEqual({ status: "indexed", itemId: "jira:ENG-42" });
+    const row = db.query("SELECT resolve_key FROM item WHERE id = 'jira:ENG-42'").get() as {
+      resolve_key: string | null;
+    } | null;
+    expect(row?.resolve_key).toBe(callerUrl);
+  });
+
+  test("reports not_found for a malformed (non-JSON) ok response", async () => {
+    const { ctx } = credCtx();
+    globalThis.fetch = (async (): Promise<Response> =>
+      new Response("not json", { status: 200 })) as unknown as typeof fetch;
+
+    const syncable = createJiraSyncable({ ensureJiraMcpRunning: async () => {} });
+    const out = await syncable.fetchOne?.(ctx, "https://example.atlassian.net/browse/ENG-42");
+
+    expect(out).toEqual({ status: "not_found" });
+  });
+
+  test("reports not_found for valid JSON that is not an object", async () => {
+    const { ctx } = credCtx();
+    globalThis.fetch = (async (): Promise<Response> =>
+      new Response("[1,2,3]", { status: 200 })) as unknown as typeof fetch;
+
+    const syncable = createJiraSyncable({ ensureJiraMcpRunning: async () => {} });
+    const out = await syncable.fetchOne?.(ctx, "https://example.atlassian.net/browse/ENG-42");
+
+    expect(out).toEqual({ status: "not_found" });
+  });
+
+  test("reports not_found when the response body has no key field", async () => {
+    const { ctx } = credCtx();
+    globalThis.fetch = (async (): Promise<Response> =>
+      new Response(JSON.stringify({ id: "10042" }), { status: 200 })) as unknown as typeof fetch;
+
+    const syncable = createJiraSyncable({ ensureJiraMcpRunning: async () => {} });
+    const out = await syncable.fetchOne?.(ctx, "https://example.atlassian.net/browse/ENG-42");
+
+    expect(out).toEqual({ status: "not_found" });
   });
 });

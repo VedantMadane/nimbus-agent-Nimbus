@@ -8,6 +8,7 @@ import {
   transitionHealth,
 } from "../connectors/health.ts";
 import { isOnline } from "./connectivity.ts";
+import { isConnectorConfigured } from "./connector-configured.ts";
 import {
   type SchedulerStateRepository,
   type SchedulerStateRow,
@@ -109,6 +110,9 @@ export class SyncScheduler {
   private readonly onConnectorSyncSuccess:
     | ((serviceId: string, result: SyncResult, durationMs: number) => void)
     | undefined;
+  private readonly appendSyncEgress:
+    | ((row: { destination: string; sourceType: "sync"; method: string }) => void)
+    | undefined;
 
   constructor(
     syncContext: SyncContext,
@@ -121,6 +125,14 @@ export class SyncScheduler {
       isOnline?: () => Promise<boolean>;
       initialOnline?: boolean;
       schedulerStateRepository?: SchedulerStateRepository;
+      /**
+       * Appends ONE `sync` egress row per RUN, immediately before `connector.sync(...)` in
+       * `runJob`. Optional so existing tests/callers construct unchanged; when absent, this
+       * scheduler instance appends nothing — an omitted closure is that explicit "no egress from
+       * here" decision, the same shape as `NULL_EGRESS_SINK` elsewhere. Throwing aborts the run —
+       * fail-closed, no row means no sync.
+       */
+      appendSyncEgress?: (row: { destination: string; sourceType: "sync"; method: string }) => void;
     },
   ) {
     this.db = syncContext.db;
@@ -133,9 +145,33 @@ export class SyncScheduler {
     this.onConnectorSyncSuccess = options?.onConnectorSyncSuccess;
     this.connectivityProbeHost = options?.connectivityProbeHost;
     this.isOnlineFn = options?.isOnline ?? (() => isOnline(this.connectivityProbeHost));
+    this.appendSyncEgress = options?.appendSyncEgress;
     if (options?.initialOnline !== undefined) {
       this._online = options.initialOnline;
     }
+  }
+
+  /**
+   * The registered connector for `serviceId`, or `undefined` when nothing this scheduler knows
+   * about serves it (a service not wired up in this binary at all — distinct from a host simply
+   * being unclaimed, which the fetch-host boundary refuses before this lookup is ever reached).
+   *
+   * A public reader rather than a new construction: `sync/targeted-fetch.ts`'s `syncableFor` dep
+   * reads THIS scheduler's own registered connector, so a targeted fetch and a scheduled sync agree
+   * on which `Syncable` a service resolves to.
+   */
+  syncableFor(serviceId: string): Syncable | undefined {
+    return this.connectors.get(serviceId);
+  }
+
+  /**
+   * The `SyncContext` a targeted fetch's `fetchOne` should run with — the SAME shape `runJob`
+   * builds for a scheduled sync (this scheduler's own `ctx`, with `depth` resolved per service),
+   * so a targeted fetch shares depth enforcement and the rate-limiter bucket with scheduled syncs
+   * rather than constructing a parallel context that could drift from it.
+   */
+  syncContextFor(serviceId: string): SyncContext {
+    return { ...this.ctx, depth: this.getDepthForService(serviceId) };
   }
 
   register(connector: Syncable, intervalOverrideMs?: number): void {
@@ -651,6 +687,26 @@ export class SyncScheduler {
         ...this.ctx,
         depth: this.getDepthForService(job.serviceId),
       };
+      // I29 CRITICAL 1: `platform/assemble-sync-registrations.ts` registers ~90 cloud syncables
+      // with NO credential gate, and each one's `sync()` short-circuits to a network-free noop
+      // when unconfigured — so appending unconditionally here fabricated an "authorized" `sync`
+      // egress row for every registered-but-unconfigured connector's every run, on BOTH the
+      // scheduled and forced paths (`forceSync` bypasses the tick-level health/enqueue gates
+      // entirely, so the gate has to live here to cover it too). `isConnectorConfigured` answers
+      // the same question `sync/fetch-host-boundary.ts` answers for the 5 fetch-on-miss services,
+      // generalized to the full connector-secrets manifest.
+      //
+      // One `sync` egress row per RUN, appended before the connector makes any outbound call.
+      // `per-run` is the honest granularity: a sync is a paginated run, not a call. Fail-closed —
+      // a throw here aborts the run rather than syncing unrecorded (falls into the `catch` below
+      // as an ordinary sync failure, since it happens before any real work started).
+      if (await isConnectorConfigured(this.ctx.vault, job.serviceId)) {
+        this.appendSyncEgress?.({
+          destination: job.serviceId,
+          sourceType: "sync",
+          method: "sync.run",
+        });
+      }
       result = await connector.sync(runCtx, row.cursor);
     } catch (err) {
       if (err instanceof RateLimitError) {

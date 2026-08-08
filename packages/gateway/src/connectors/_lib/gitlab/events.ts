@@ -23,7 +23,7 @@ export function normalisedApiBase(raw: string | null): string {
   return stripTrailingSlashes(raw);
 }
 
-type GitlabEventUpsertFields = {
+export type GitlabEventUpsertFields = {
   ctx: SyncContext;
   pathWithNamespace: string;
   iid: number;
@@ -34,11 +34,42 @@ type GitlabEventUpsertFields = {
   webOrigin: string;
   authorUsername: string | undefined;
   authorName: string | undefined;
+  /**
+   * The exact, unencoded browser URL a caller is fetching-one-by, when there is one. When
+   * present, used VERBATIM for both `url` and `canonicalUrl` — it is already the exact URL that
+   * `GET /v1/items/resolve` canonicalizes an incoming URL to, whereas the constructed fallback
+   * below `encodeURIComponent`s the whole namespaced path (correctly, to defend the
+   * `/projects/:id` request path against injection — see `gitlab-sync.ts`'s `ALL_DOTS_RE`
+   * docstring), which makes it byte-different from the plain URL and therefore UNRESOLVABLE.
+   *
+   * MUST be sourced from the CALLER's own URL, never from anything the API response says (e.g.
+   * GitLab's `web_url` field) — a remote-supplied string can be empty, can legitimately differ
+   * from the caller's URL after a redirect (a renamed project's old path still 200s, but with the
+   * project's CURRENT `web_url`), or could be used by a compromised/misconfigured GitLab to mint
+   * a row at an arbitrary `resolve_key`. The periodic events sync has no caller URL to speak of
+   * (it discovers items, it doesn't fetch one by URL), so `webUrl` stays undefined there and
+   * behavior is unchanged.
+   */
+  webUrl?: string;
 };
+
+/**
+ * The `<pathWithNamespace>!<iid>` external-id shape shared by `upsertFromMergeRequestEvent` and
+ * `fetchOne` (`gitlab-sync.ts`). Both MUST derive this from the same source so the id `fetchOne`
+ * returns can never diverge from the id the row was actually written under.
+ */
+export function gitlabMrExternalId(pathWithNamespace: string, iid: number): string {
+  return `${pathWithNamespace}!${String(iid)}`;
+}
+
+/** The `<pathWithNamespace>#<iid>` external-id shape for GitLab issue events. */
+function gitlabIssueExternalId(pathWithNamespace: string, iid: number): string {
+  return `${pathWithNamespace}#${String(iid)}`;
+}
 
 type GitlabItemShape = {
   type: "pr" | "issue";
-  idSeparator: "!" | "#";
+  externalId: (pathWithNamespace: string, iid: number) => string;
   urlSegment: string;
 };
 
@@ -54,8 +85,9 @@ function upsertGitlabEventItem(f: GitlabEventUpsertFields, shape: GitlabItemShap
     webOrigin,
     authorUsername,
     authorName,
+    webUrl,
   } = f;
-  const externalId = `${pathWithNamespace}${shape.idSeparator}${String(iid)}`;
+  const externalId = shape.externalId(pathWithNamespace, iid);
   const encPath = encodeURIComponent(pathWithNamespace);
   const urlPath = `${shape.urlSegment}/${String(iid)}`;
   const modified = Date.parse(createdAt);
@@ -71,14 +103,16 @@ function upsertGitlabEventItem(f: GitlabEventUpsertFields, shape: GitlabItemShap
           displayName: authorName ?? authorUsername,
         })
       : null;
+  const rawUrl = `${webOrigin}/${pathWithNamespace}/-/${urlPath}`;
+  const canonicalFallback = `${webOrigin}/${encPath}/-/${urlPath}`;
   upsertIndexedItemForSync(ctx, {
     service: SERVICE_ID,
     type: shape.type,
     externalId,
     title: title.length > 512 ? title.slice(0, 512) : title,
     bodyPreview: "",
-    url: `${webOrigin}/${pathWithNamespace}/-/${urlPath}`,
-    canonicalUrl: `${webOrigin}/${encPath}/-/${urlPath}`,
+    url: webUrl ?? rawUrl,
+    canonicalUrl: webUrl ?? canonicalFallback,
     modifiedAt: Number.isFinite(modified) ? modified : now,
     authorId,
     metadata: meta,
@@ -87,12 +121,25 @@ function upsertGitlabEventItem(f: GitlabEventUpsertFields, shape: GitlabItemShap
   });
 }
 
-function upsertFromMergeRequestEvent(f: GitlabEventUpsertFields): void {
-  upsertGitlabEventItem(f, { type: "pr", idSeparator: "!", urlSegment: "merge_requests" });
+/**
+ * Exported so `gitlab-sync.ts`'s `fetchOne` can index a single merge request through the exact
+ * same write path the periodic events sync uses — same title clamp, same author resolution, same
+ * external-id derivation (`gitlabMrExternalId`).
+ */
+export function upsertFromMergeRequestEvent(f: GitlabEventUpsertFields): void {
+  upsertGitlabEventItem(f, {
+    type: "pr",
+    externalId: gitlabMrExternalId,
+    urlSegment: "merge_requests",
+  });
 }
 
 function upsertFromIssueEvent(f: GitlabEventUpsertFields): void {
-  upsertGitlabEventItem(f, { type: "issue", idSeparator: "#", urlSegment: "issues" });
+  upsertGitlabEventItem(f, {
+    type: "issue",
+    externalId: gitlabIssueExternalId,
+    urlSegment: "issues",
+  });
 }
 
 function processEvent(

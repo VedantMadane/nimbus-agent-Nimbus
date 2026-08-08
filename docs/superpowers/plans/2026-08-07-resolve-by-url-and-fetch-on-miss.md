@@ -2087,7 +2087,30 @@ export type TargetedFetchOutcome =
   | { readonly status: "no_targeted_fetch"; readonly service: string }
   | { readonly status: "not_configured" }
   | { readonly status: "rate_limited" };
+```
 
+**MANDATORY, carried forward from Task 8's review — prove the host gate runs BEFORE `fetchOne`.**
+Every one of the five `fetchOne` connectors' (github/gitlab/bitbucket/jenkins/jira) URL regexes match ANY
+host: each discards the host and fetches a CONSTRUCTED API URL, so `https://evil.example/o/r/pull/1`
+would cause github's `fetchOne` to index `o/r#1` under the user's PAT if it were ever called directly.
+That is acceptable ONLY because this orchestrator applies the host boundary first — which today is
+call-site discipline with no test behind it. Task 4 shipped a real fail-open on exactly that pattern
+(a route mounted on the wrong side of an auth boundary), so add a test asserting `fetchOne` is **never
+invoked** for a URL whose host `fetch-host-boundary.ts` did not claim for that exact service. Inject a
+`syncableFor` whose `fetchOne` sets a flag, pass an unclaimed host, and assert the flag is still false
+and the outcome is `not_configured`.
+
+**MANDATORY, carried forward from Task 7's review — pin `https:` before fetching.** The host boundary
+keys on HOST ONLY, so it deliberately cannot distinguish `http://github.com/...` from
+`https://github.com/...` — both resolve to `"github"`. If this orchestrator fetches the caller's URL
+as supplied over `http:`, the connector's PAT goes out in **cleartext** and a passive network observer
+harvests it. The parse guard below therefore rejects anything that is not `https:` **except** when the
+resolved service's own configured origin is itself `http:` (a self-hosted Jenkins on a LAN legitimately
+may be), in which case the scheme must match that origin exactly rather than being caller-chosen. Do
+not treat this as optional hardening: it is the one gap the host boundary structurally cannot close,
+and Task 7's module is correct to leave it here.
+
+```ts
 export type TargetedFetchDeps = {
   readonly hostMap: ReadonlyMap<string, FetchableService>;
   readonly syncableFor: (service: FetchableService) => Syncable | undefined;
@@ -2310,6 +2333,35 @@ git commit -m "targeted-fetch orchestrator and the per-run sync egress appender"
 ---
 
 ### Task 11: `POST /v1/items/fetch` as an I13 write
+
+**MOVED INTO THIS TASK from Task 10 — the `sync` coverage raise, because THIS is the commit where both
+appenders become reachable.** Task 10 built the seams (`scheduler.ts`'s optional `appendSyncEgress`,
+`targeted-fetch.ts`'s `appendEgress` dep) but nothing production passes them:
+`platform/assemble.ts:585` is the only `new SyncScheduler` and omits the option, and `targetedFetch`
+had no caller. Raising the class there would have made `nimbus prove` print **0 under a scope naming
+connector syncs** while recording nothing — a false zero on a named class, which is precisely the defect
+`THIS_BINARY_COVERAGE` exists to prevent. So Task 10 reverted the claim and this task does all six parts
+together:
+
+1. Wire an `egress/*`-resident `recordSyncEgress` closure into `new SyncScheduler` at
+   `platform/assemble.ts` (~10 lines; `appendEgressEntry` is synchronous, and it must stay synchronous
+   or the fail-closed property breaks). D22 confines `appendEgressEntry` to `egress/*`, so the closure
+   lives there and only the closure is injected.
+2. Wire the same for `targetedFetch`'s `appendEgress` where this task builds its deps.
+3. `egress/egress-coverage.ts`: `sync` `"none"` → `"per-run"`; docstring THREE → FOUR non-`none`
+   classes, with a `sync` paragraph naming BOTH appenders and stating why `per-run` is the honest
+   granularity (a sync is a paginated run, not a call).
+4. `security-invariants.test.ts`: re-pin to `["http","mcp","sync","task"]`.
+5. `cli/src/commands/prove.ts`: add the `sync` label — say **runs**, not calls.
+6. `egress/egress-coverage.test.ts` + `egress/egress-boot-marker.test.ts`: update the pinned vectors.
+
+Also settle or explicitly defer **#1057** (`egress/egress-verify.ts:388` — "Do not raise a third coverage
+class without settling this first"; the `EgressCompleteness.tier: "authorized-actions"` shim). This raise
+makes it the fourth. Record the decision either way; do not raise silently past it.
+
+Docs are Task 12's, but note the surfaces that go stale the moment (3) lands:
+`docs/SECURITY-INVARIANTS.md:577` + `:595`, `.claude/commands/nimbus-egress.md:89` + `:101`,
+`CLAUDE.md:60`, `GEMINI.md:60`.
 
 **Files:**
 
