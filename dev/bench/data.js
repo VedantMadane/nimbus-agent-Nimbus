@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786205141474,
+  "lastUpdate": 1786206774414,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -9927,6 +9927,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 311.73268060000555,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d94d63274a0d8f4a29771816e77911363ea24c11",
+          "message": "perf(jenkins): ⚡ batch jenkins job builds sync (#1087)\n\n💡 **What:** The iteration logic in `runJenkinsSyncAfterAuth` has been\noptimized. Instead of fetching builds for each Jenkins job sequentially\none-by-one, the code now batches jobs into chunks of 10 and fetches them\nconcurrently using `Promise.all`.\n\n🎯 **Why:** The previous approach caused a significant N+1 API call\nbottleneck when synchronizing a large number of jobs, as each fetch was\nblocked by the completion of the previous one. Batching network requests\nsubstantially speeds up the synchronization process without overwhelming\nthe Jenkins server with an unbounded number of simultaneous connections.\n\n📊 **Measured Improvement:** In a simulated benchmark involving 100 jobs\nwith a network delay of 10ms per API call, the baseline sequential\napproach took approximately `1044ms`, while the batched `Promise.all`\napproach (with chunk size 10) completed in just `110ms`—an almost 10x\nimprovement.\n\n---\n*PR created automatically by Jules for task\n[4716080031047686192](https://jules.google.com/task/4716080031047686192)\nstarted by @asafgolombek*\n\nCo-authored-by: google-labs-jules[bot] <161369871+google-labs-jules[bot]@users.noreply.github.com>\nCo-authored-by: asafgolombek <18427644+asafgolombek@users.noreply.github.com>",
+          "timestamp": "2026-08-08T18:58:24+03:00",
+          "tree_id": "92ca4a7b521e6398b0a83490835863b7160e4355",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/d94d63274a0d8f4a29771816e77911363ea24c11"
+        },
+        "date": 1786206771545,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 307.91996330000256,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 308.9301128499977,
             "unit": "ms"
           }
         ]
