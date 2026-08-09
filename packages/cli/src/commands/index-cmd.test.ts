@@ -536,6 +536,49 @@ describe("nimbus index rebody — argument parsing", () => {
       /--limit must be a positive integer/,
     );
   });
+
+  it("planned-action output includes --since when provided", async () => {
+    await runIndexCmd(["rebody", "--service", "jira", "--since", "365"]);
+    expect(out.stdout).toContain("since   = 365 days");
+  });
+
+  it("a well-formed but implausibly wide --since prints a typo warning", async () => {
+    // 36500 days IS honoured — it is well-formed, so it cannot be rejected.
+    // But it must not pass silently either: it is one keystroke away from 3650
+    // and would spend hours of API quota.
+    await runIndexCmd(["rebody", "--since", "36500"]);
+    expect(out.stdout).toContain("since   = 36500 days");
+    expect(out.stdout).toMatch(/over 10 years of history/);
+  });
+
+  it("a plausible --since prints no typo warning", async () => {
+    await runIndexCmd(["rebody", "--since", "365"]);
+    expect(out.stdout).not.toMatch(/over 10 years of history/);
+  });
+
+  it("rejects a malformed --since before any IPC call", async () => {
+    // Same reasoning as --limit: this bounds real outbound API traffic, so a
+    // typo must not silently become the connector's own 30-day window.
+    const calls: Array<{ method: string; params: unknown }> = [];
+    setFixture({
+      gatewayState: { socketPath: FAKE_SOCKET_PATH },
+      ipcClient: {
+        call: async (method: string, params: unknown) => {
+          calls.push({ method, params });
+          return { jobId: "unexpected" };
+        },
+        connect: async () => {},
+        disconnect: async () => {},
+        onNotification: () => {},
+      },
+    });
+    for (const bad of ["abc", "0", "-5", "2.5"]) {
+      await expect(runIndexCmd(["rebody", "--since", bad, "--dry-run"])).rejects.toThrow(
+        /--since must be a positive integer/,
+      );
+    }
+    expect(calls).toHaveLength(0);
+  });
 });
 
 describe("nimbus index rebody — IPC flow (--dry-run)", () => {
@@ -594,6 +637,103 @@ describe("nimbus index rebody — IPC flow (--dry-run)", () => {
     expect(out.stdout).toMatch(/pending bodies: notion 4210, slack 122/);
     expect(out.stdout).toMatch(/cannot improve: notion/);
     expect(out.stdout).toMatch(/re-walk the ENTIRE/);
+    // No pendingMeta in this payload — the metadata line must stay absent
+    // rather than print an empty or zero row.
+    expect(out.stdout).not.toMatch(/pending metadata/);
+  });
+
+  it("prints the metadata pending counts separately from the body counts", async () => {
+    // The two reasons are never summed: a caller must be able to tell whether
+    // it is bodies or connector metadata that is still missing.
+    const mock = createMockIpcClient([{ jobId: "job-rebody-meta" }]);
+    const baseClient = mock.client as unknown as {
+      call: (m: string, p: unknown) => Promise<unknown>;
+    };
+    const wrappedCall = async (m: string, p: unknown): Promise<unknown> => {
+      const r = await baseClient.call(m, p);
+      if (m === "index.rebody") {
+        setTimeout(() => {
+          mock.emit("index.rebodyDone", {
+            jobId: "job-rebody-meta",
+            durationMs: 5,
+            dryRun: true,
+            pending: { slack: 12 },
+            pendingMeta: { jira: 340, linear: 88 },
+            cannotImprove: [],
+          });
+        }, 0);
+      }
+      return r;
+    };
+    setFixture({
+      gatewayState: { socketPath: FAKE_SOCKET_PATH },
+      ipcClient: {
+        call: wrappedCall,
+        connect: async () => {},
+        disconnect: async () => {},
+        onNotification: (e: string, h: (params: unknown) => void): void => {
+          (
+            mock.client as unknown as {
+              onNotification: (e: string, h: (params: unknown) => void) => void;
+            }
+          ).onNotification(e, h);
+        },
+      },
+    });
+    await runIndexCmd(["rebody", "--dry-run"]);
+    expect(out.stdout).toMatch(/pending bodies: slack 12/);
+    expect(out.stdout).toMatch(/pending metadata: jira 340, linear 88/);
+  });
+
+  it("prints the metadata transition and the retained-window warning on a failed --since run", async () => {
+    const mock = createMockIpcClient([{ jobId: "job-rebody-real" }]);
+    const baseClient = mock.client as unknown as {
+      call: (m: string, p: unknown) => Promise<unknown>;
+    };
+    const wrappedCall = async (m: string, p: unknown): Promise<unknown> => {
+      const r = await baseClient.call(m, p);
+      if (m === "index.rebody") {
+        setTimeout(() => {
+          mock.emit("index.rebodyDone", {
+            jobId: "job-rebody-real",
+            durationMs: 5,
+            dryRun: false,
+            targeted: ["jira"],
+            succeeded: 0,
+            failed: 1,
+            failedServices: ["jira"],
+            warnings: ["jira: forceSync failed"],
+            pendingBefore: { jira: 5 },
+            pendingAfter: { jira: 5 },
+            pendingMetaBefore: { jira: 340 },
+            pendingMetaAfter: { jira: 340 },
+          });
+        }, 0);
+      }
+      return r;
+    };
+    setFixture({
+      gatewayState: { socketPath: FAKE_SOCKET_PATH },
+      ipcClient: {
+        call: wrappedCall,
+        connect: async () => {},
+        disconnect: async () => {},
+        onNotification: (e: string, h: (params: unknown) => void): void => {
+          (
+            mock.client as unknown as {
+              onNotification: (e: string, h: (params: unknown) => void) => void;
+            }
+          ).onNotification(e, h);
+        },
+      },
+    });
+    await runIndexCmd(["rebody", "--service", "jira", "--since", "365", "--yes"]);
+    expect(out.stdout).toMatch(/pending metadata \(before -> after\):/);
+    expect(out.stdout).toMatch(/jira: 340 -> 340/);
+    // Both halves of the retained-floor fact: the retry keeps the wide window,
+    // and a restart silently drops it.
+    expect(out.stderr).toMatch(/--since 365-day window is held in gateway memory/);
+    expect(out.stderr).toMatch(/restart drops it back/);
   });
 
   it("prints 'none' when nothing is pending on a dry run", async () => {
@@ -684,6 +824,52 @@ describe("nimbus index rebody — IPC flow (--dry-run)", () => {
     expect(mock.calls[0]).toEqual({
       method: "index.rebody",
       params: { dryRun: true, service: "notion", type: "page", limit: 3 },
+    });
+    // The previous assertion is exact, so this is redundant by construction —
+    // stated anyway because it is the property that matters: an unrequested
+    // history widening must never be sent.
+    expect(mock.calls[0]?.params).not.toHaveProperty("sinceDays");
+  });
+
+  it("forwards --since to the gateway as sinceDays", async () => {
+    const mock = createMockIpcClient([{ jobId: "job-rebody-since" }]);
+    const baseClient = mock.client as unknown as {
+      call: (m: string, p: unknown) => Promise<unknown>;
+    };
+    const wrappedCall = async (m: string, p: unknown): Promise<unknown> => {
+      const r = await baseClient.call(m, p);
+      if (m === "index.rebody") {
+        setTimeout(() => {
+          mock.emit("index.rebodyDone", {
+            jobId: "job-rebody-since",
+            durationMs: 1,
+            dryRun: true,
+            pending: {},
+            cannotImprove: [],
+          });
+        }, 0);
+      }
+      return r;
+    };
+    setFixture({
+      gatewayState: { socketPath: FAKE_SOCKET_PATH },
+      ipcClient: {
+        call: wrappedCall,
+        connect: async () => {},
+        disconnect: async () => {},
+        onNotification: (e: string, h: (params: unknown) => void): void => {
+          (
+            mock.client as unknown as {
+              onNotification: (e: string, h: (params: unknown) => void) => void;
+            }
+          ).onNotification(e, h);
+        },
+      },
+    });
+    await runIndexCmd(["rebody", "--service", "jira", "--since", "365", "--dry-run"]);
+    expect(mock.calls[0]).toEqual({
+      method: "index.rebody",
+      params: { dryRun: true, service: "jira", sinceDays: 365 },
     });
   });
 
