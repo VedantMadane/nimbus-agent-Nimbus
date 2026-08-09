@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786254636842,
+  "lastUpdate": 1786255343735,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -10165,6 +10165,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 327.4972741000012,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4778ad8ace48ef411beff0d613d1e6023db08f88",
+          "message": "docs(user-guide): add screenshot of HITL popup window (#1124)\n\nThis PR addresses the issue of adding a valid screenshot for the HITL\npopup window in the `hitl-and-safety.mdx` documentation.\n\n* Wrote a Playwright script to launch the local UI (`/hitl-popup`) and\ninject a mock `file.create` action.\n* Captured a screenshot showing the `file.create` action, the path\n`/Reports/Q3-summary.md`, and the Approve/Reject buttons.\n* Updated `hitl-and-safety.mdx` to import and render the screenshot\nusing Astro's `<Image />` component.\n* Verified documentation builds successfully using Astro.\n\n---\n*PR created automatically by Jules for task\n[14006654769008953233](https://jules.google.com/task/14006654769008953233)\nstarted by @asafgolombek*\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Documentation**\n* Updated the HITL and safety guide to use the site’s optimized image\ncomponent for the popup illustration.\n  * Improved image asset handling in the documentation.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\nCo-authored-by: google-labs-jules[bot] <161369871+google-labs-jules[bot]@users.noreply.github.com>\nCo-authored-by: asafgolombek <18427644+asafgolombek@users.noreply.github.com>",
+          "timestamp": "2026-08-09T08:39:49+03:00",
+          "tree_id": "e5c2cb2e4d3097fd39023c3d399983eaa1c2e064",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/4778ad8ace48ef411beff0d613d1e6023db08f88"
+        },
+        "date": 1786255341889,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 318.5453119500009,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 319.3044457000084,
             "unit": "ms"
           }
         ]
