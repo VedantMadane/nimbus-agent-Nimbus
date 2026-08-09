@@ -1840,6 +1840,97 @@ export function loadNimbusOwnershipFromConfigDir(configDir: string): NimbusOwner
 }
 
 // ---------------------------------------------------------------------------
+// [premortem] — recurring blocker theme extraction pass (Spine S1)
+// ---------------------------------------------------------------------------
+
+export type NimbusPremortemToml = {
+  /** Default ON, like [glossary]/[decisions]/[ownership]. */
+  enabled: boolean;
+  /** Post-sync debounce. Matches [decisions]. */
+  debounceMs: number;
+  /** When false the pass runs but writes zero themes; structural risks are unaffected. */
+  useLlm: boolean;
+  /** Hard ceiling on model calls per pass. */
+  maxLlmCallsPerPass: number;
+  /** Cap on the cohort PR B assembles. */
+  maxCohortSize: number;
+  /** Cap on closed epics scanned for a service set before the cohort lane stops. */
+  maxCandidateScan: number;
+};
+
+export const DEFAULT_NIMBUS_PREMORTEM_TOML: NimbusPremortemToml = {
+  enabled: true,
+  debounceMs: 60_000,
+  useLlm: true,
+  maxLlmCallsPerPass: 25,
+  maxCohortSize: 10,
+  maxCandidateScan: 200,
+};
+
+/**
+ * A malformed or non-positive bound falls back to its default rather than
+ * clamping to zero: `max_candidate_scan = 0` would yield an empty cohort that
+ * reads as "no comparable epics ever closed", which is a wrong answer rather
+ * than an empty one.
+ */
+function applyNimbusPremortemKey(
+  out: Partial<NimbusPremortemToml>,
+  key: string,
+  valRaw: string,
+): void {
+  // Bool keys MUST come before the integer branch below — same regression the
+  // [glossary] block guards against: routed through `parseIntDec`, `use_llm`
+  // is silently dropped and the section reads as if it were never set.
+  if (key === "enabled") {
+    const b = parseBool(valRaw);
+    if (b !== undefined) out.enabled = b;
+    return;
+  }
+  if (key === "use_llm") {
+    const b = parseBool(valRaw);
+    if (b !== undefined) out.useLlm = b;
+    return;
+  }
+  const n = parseIntWithMin(valRaw, 1);
+  if (n === undefined) return;
+  switch (key) {
+    case "debounce_ms":
+      out.debounceMs = n;
+      break;
+    case "max_llm_calls_per_pass":
+      out.maxLlmCallsPerPass = n;
+      break;
+    case "max_cohort_size":
+      out.maxCohortSize = n;
+      break;
+    case "max_candidate_scan":
+      out.maxCandidateScan = n;
+      break;
+    default:
+      break;
+  }
+}
+
+export function parseNimbusPremortemToml(
+  raw: string,
+  defaults: NimbusPremortemToml = DEFAULT_NIMBUS_PREMORTEM_TOML,
+): NimbusPremortemToml {
+  const out: Partial<NimbusPremortemToml> = {};
+  forEachSectionEntry(raw, "[premortem]", (key, valRaw) =>
+    applyNimbusPremortemKey(out, key, valRaw),
+  );
+  return { ...defaults, ...out };
+}
+
+export function loadNimbusPremortemFromConfigDir(configDir: string): NimbusPremortemToml {
+  return loadTomlSection(
+    join(configDir, "nimbus.toml"),
+    DEFAULT_NIMBUS_PREMORTEM_TOML,
+    parseNimbusPremortemToml,
+  );
+}
+
+// ---------------------------------------------------------------------------
 
 // The DORA / CI service-config machinery (parsing + materialization) lives in
 // `./service-config-toml.ts` and is re-exported from this module via the

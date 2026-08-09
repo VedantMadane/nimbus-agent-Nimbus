@@ -8,6 +8,51 @@ Phase-level history before `v0.1.0` (Phases 1–4) lives in [`docs/roadmap.md` �
 
 ## Post-Phase-6 deliveries
 
+- **2026-08-09 — Pre-mortem recurring-blocker-theme extraction: schema + background pass (schema
+  V53).** PR A of the S1 pre-mortem work — schema and a debounced background pass only.
+  **THERE IS NO USER-FACING COMMAND IN THIS PR**: `nimbus pre-mortem`, the `agents.premortem`
+  brief, cohort selection, and watcher creation are all a later PR. What ships here is a pass
+  (`packages/gateway/src/premortem/`) that mines recurring blocker themes per service from closed
+  epics — discover → extract (local LLM) → reconcile — off the same debounced post-connector-sync
+  seam as `glossary`/`decisions`/`ownership`, gated on `[premortem].enabled` (default on). Schema
+  **V53** adds four tables: `premortem_theme` (content-derived id = hash of service + normalized
+  label, so a document edit earlier in the text never re-hashes a later theme and orphans its
+  evidence), `premortem_theme_evidence` (composite-key, insert-or-accumulate — a re-supplied row
+  is a no-op, not a duplicate), `premortem_pass_state` (a composite `(modified_at, id)` watermark
+  checkpointed per batch, same pattern as `decision_pass_state`), and `premortem_watcher_proposal`
+  — written by the follow-up PR, not this one; the table lands now because schema precedes its
+  reader. A theme's `service` is the **affected** service an epic's work touched (`billing-api`),
+  never the connector that owns the row (`jira`) — `epic-services.ts` derives it through the
+  relationship graph, since PR B's theme lookup keys on the affected axis. Confidence is derived
+  from evidence count with a hard 0.86 ceiling (`THEME_CONFIDENCE_CEILING`), never from the model.
+  Reconciliation prunes evidence whose source item has left the index, then demotes (never
+  deletes) a theme with no live evidence left — a demoted theme is the durable record of
+  extraction budget already spent, so the next pass never re-mines it.
+  **No-model behaviour distinguishes "could not run" from "ran and found nothing."** With
+  `[premortem].use_llm = false`, no local model configured, or a transient provider failure, the
+  pass stops WITHOUT advancing its watermark for the affected batch — the batch was never actually
+  examined, so a later pass (once a working local model is available) still mines those same
+  epics. Only a model that genuinely responded, with output that was empty or unparseable, burns
+  the batch and advances the watermark — otherwise a persistently misconfigured provider would
+  loop the same batch forever. `PremortemPassResult.noModel` surfaces the first case to callers.
+  **The discover stage is Jira-only today**, and narrower still within Jira: it keys on
+  `metadata.issue_type = 'Epic'` (`theme-discover.ts`), which only `jira-sync.ts` writes;
+  `linear-sync.ts` never writes `issue_type`, and — the deeper reason — no `linear:project` items
+  are indexed at all, so there is no Linear epic-shaped row to mine. Supporting Linear needs a
+  connector change and is out of scope for this PR, even though the upstream workstream is named
+  "Jira + Linear." Within Jira, `metadata.parent_key` — which the discover→services hop keys on —
+  is populated only on **team-managed** projects; a closed epic on a classic company-managed
+  project is still discovered but resolves to zero affected services, so the pass yields nothing
+  for it.
+  One IPC method, `premortem.refresh` — no parameters. The pass RESUMES from a persisted
+  `(watermark_ms, watermark_id)` cursor rather than re-deriving its tables wholesale, so `refresh`
+  mines only epics newer than the watermark, the same as `glossary`/`decisions`. No
+  `premortem.rebuild` counterpart in this PR — not because there is nothing to rebuild FROM, but
+  because there is no reader yet (`agents.premortem` does not exist here) and no vetoes to
+  recover, so a reset verb would have nothing to visibly fix; it can land with PR B if a need
+  shows up. LAN-forbidden (I5), and deliberately **not** in Tauri's `ALLOWED_METHODS` (I7; count
+  stays 104, unchanged by this PR) — local/CLI-only, and there is no renderer-exposed read
+  counterpart yet since `agents.premortem` does not exist in this PR.
 - **2026-08-09 — Ticket depth (Jira + Linear)** — enough indexed depth on `jira:issue` and
   `linear:issue` for a consumer to select epics, tell delivered from in-flight, and measure cycle
   time. **No migration, no new item type, no new relation type**: `item.metadata` is a JSON column,

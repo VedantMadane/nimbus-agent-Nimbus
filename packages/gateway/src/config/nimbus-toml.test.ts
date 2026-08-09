@@ -26,6 +26,7 @@ import {
   DEFAULT_NIMBUS_BRIEFS_TOML,
   DEFAULT_NIMBUS_EMBEDDING_TOML,
   DEFAULT_NIMBUS_LAN_TOML,
+  DEFAULT_NIMBUS_PREMORTEM_TOML,
   DEFAULT_NIMBUS_UPDATER_TOML,
   loadNimbusAuditFromConfigDir,
   loadNimbusAuditFromPath,
@@ -44,6 +45,7 @@ import {
   loadNimbusLanFromPath,
   loadNimbusLlmFromConfigDir,
   loadNimbusPreflightFromConfigDir,
+  loadNimbusPremortemFromConfigDir,
   loadNimbusQuorumFromConfigDir,
   loadNimbusQuorumFromPath,
   loadNimbusScimFromConfigDir,
@@ -61,6 +63,7 @@ import {
   parseNimbusIdentityToml,
   parseNimbusLanToml,
   parseNimbusPagerdutyToml,
+  parseNimbusPremortemToml,
   parseNimbusScimToml,
   parseNimbusSecurityToml,
   parseNimbusShareHttpSink,
@@ -1555,6 +1558,66 @@ describe("[share.http_sink] (Slice 8)", () => {
       expect(loadNimbusShareHttpSink(dir).url).toBe("");
       writeToml(dir, '[share.http_sink]\nurl = "https://y/share"\n');
       expect(loadNimbusShareHttpSink(dir).url).toBe("https://y/share");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("[premortem] (Spine S1)", () => {
+  test("[premortem] defaults are the documented ones", () => {
+    expect(parseNimbusPremortemToml("")).toEqual({
+      enabled: true,
+      debounceMs: 60_000,
+      useLlm: true,
+      maxLlmCallsPerPass: 25,
+      maxCohortSize: 10,
+      maxCandidateScan: 200,
+    });
+  });
+
+  test("[premortem] parses overrides and ignores unknown keys", () => {
+    const parsed = parseNimbusPremortemToml(
+      "[premortem]\nenabled = false\nmax_cohort_size = 4\nmax_candidate_scan = 50\nnonsense = 99\n",
+    );
+    expect(parsed.enabled).toBe(false);
+    expect(parsed.maxCohortSize).toBe(4);
+    expect(parsed.maxCandidateScan).toBe(50);
+    // Untouched keys keep their defaults.
+    expect(parsed.useLlm).toBe(true);
+  });
+
+  test("[premortem] rejects a non-positive bound rather than silently clamping", () => {
+    // These bound real work: max_candidate_scan = 0 would silently produce an
+    // empty cohort that reads as "no comparable epics" — a wrong answer, not an
+    // empty one.
+    expect(
+      parseNimbusPremortemToml("[premortem]\nmax_candidate_scan = 0\nmax_cohort_size = -3\n")
+        .maxCandidateScan,
+    ).toBe(200);
+    expect(
+      parseNimbusPremortemToml("[premortem]\nmax_candidate_scan = 0\nmax_cohort_size = -3\n")
+        .maxCohortSize,
+    ).toBe(10);
+  });
+
+  test("[premortem] loads from configDir with overridden values", () => {
+    const dir = makeTmpDir();
+    try {
+      // Missing file → all defaults
+      expect(loadNimbusPremortemFromConfigDir(dir)).toEqual(DEFAULT_NIMBUS_PREMORTEM_TOML);
+
+      // Write a real TOML section and reload
+      writeToml(
+        dir,
+        "[premortem]\nenabled = false\nmax_cohort_size = 4\nmax_candidate_scan = 50\n",
+      );
+      const loaded = loadNimbusPremortemFromConfigDir(dir);
+      expect(loaded.enabled).toBe(false);
+      expect(loaded.maxCohortSize).toBe(4);
+      expect(loaded.maxCandidateScan).toBe(50);
+      // Untouched keys keep their defaults.
+      expect(loaded.useLlm).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
