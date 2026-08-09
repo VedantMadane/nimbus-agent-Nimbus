@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786270474482,
+  "lastUpdate": 1786281451700,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -10233,6 +10233,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 323.48620175001054,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bdbecd16438824333aa5014bcf10a3ef19225a58",
+          "message": "feat(gateway): index Jira/Linear ticket depth and recover it via rebody --since (#1128)\n\n## Summary\n\nGives the Jira and Linear connectors enough indexed depth — issue type,\nnormalized status\ncategory, created/resolved/due timestamps, parent and project — plus a\nuser-initiated history\nbackfill, so a consumer can select epics, tell delivered from in-flight,\nand measure cycle time.\n\n**No migration, no new item type, no new relation type.**\n`item.metadata` is a JSON column, so the\nnew keys need no schema change.\n\n**One shared contract, written by both mappers.** `issue_type`,\n`status`, `status_category`,\n`status_category_raw`, `created_at_ms`, `resolved_at_ms`, `due_at_ms`,\n`parent_key`, `meta_v` —\nplus `project_id` for Linear only (Linear has no Epic issue type, so a\nproject is its epic-shaped\ngrouping). Key names are identical across the two services on purpose:\n**no consumer branches on\nservice**.\n\n**`status_category` is normalized at the mapper**, in\n`connectors/ticket-depth.ts`, from\n`statusCategory.key` (Jira) / `state.type` (Linear) — never from a\ndisplay name, which is\nrenameable per instance — into `todo | in_progress | done | canceled |\nunknown`. The platform's own\nvalue is preserved as `status_category_raw`, so normalizing destroys\nnothing. An unrecognized or\nabsent value becomes `unknown`, **never `todo`**: \"not started yet\" is a\nclaim, and a wrong one\nsilently distorts every cohort built on it.\n\n**The one genuine asymmetry, pinned by a drift-tripwire test: Jira never\nyields `canceled`.** It\nfolds \"Won't Do\" into `done`, and the distinction lives only in\n`fields.resolution`, which this\nsync does not fetch. A Jira `done` reads as \"closed, outcome unknown\",\nand cancel rates are not\ncomparable across the two services. If a later PR starts fetching\n`fields.resolution`, that test is\nwhat should fail first.\n\nA missing or unparseable timestamp **omits its key entirely** — never\n`0`, `NaN` or `null` — so a\nconsumer can tell \"no due date\" from \"due at the epoch\".\n\n**Recovering that depth for already-indexed rows needed two more\npieces:**\n\n- **`rebody` now recovers indexed depth, not just bodies.** A row is\neligible when its body is\nincomplete **OR** its service's `metadata.meta_v` is below\n`REBODY_REQUIRED_META_VERSION`\n(`jira`/`linear` at 1 today; a later depth PR adds a row, not a\nmechanism). The two reasons are\ncounted and reported **separately** (`pending*` vs `pendingMeta*`),\nnever summed — `pending` has\nmeant `body_complete = 0` since V48, and silently widening it would make\nevery historical reading\n  of that number wrong.\n- **`nimbus index rebody --since <days>`**, via a new optional\n`SyncContext.historyFloorMs`. Without\nit no backfill could ever reach the closed historical tickets this work\nexists to analyze:\nclearing a watermark re-walks 30 days and stops. The floor overrides the\n**cold start only** — an\nestablished cursor is more recent by construction and always wins — and\nthe scheduler holds it\n**in memory only**, consuming it when a run completes. A restart drops a\npending backfill back to\n30 days (the safe direction); a run that failed without advancing its\nwatermark keeps it for the\nretry, and the CLI says both halves of that out loud rather than letting\nthe backfill silently\n  narrow.\n\n## Related Issue\n\nRelates to Spine S1 (Local Brain) — ticket depth for `pre-mortem`.\n\n## Type of Change\n\n- [x] New feature (non-breaking change that adds functionality)\n- [x] Test improvement\n- [x] Documentation only\n\nExisting behavior is unchanged when the new flag is absent:\n`historyFloorMs` is optional and both\nconnectors fall back to their own `initialSyncDepthDays = 30`.\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` passes with zero errors\n- [x] `bun run lint` passes (Biome — format + lint)\n- [x] All existing tests pass (`bun test`) — full `bun run test:ci`\ngreen on the final tree\n- [x] New behaviour is covered by tests\n- [x] No `any` types introduced — external payloads are `unknown`,\nnarrowed via `asRecord` /\n      `stringField`\n- [x] No credentials, tokens, or secret values appear in logs, IPC\nmessages, config, or fixtures\n- [x] Platform-specific code is behind the `PlatformServices`\nabstraction — n/a, none added\n- [x] The HITL consent gate has not been weakened, bypassed, or made\nconfigurable\n- [x] Does not touch `docs/README.md`\n\n## Coverage\n\nNeither `engine/` nor `vault/` was modified. The per-file true-coverage\nfloor (≥85% line, ≥80%\nbranch) was measured for every changed source file using the istanbul\npreloads\n(`scripts/coverage/istanbul-register.ts`) over `packages/gateway` +\n`packages/cli`:\n\n| file | line % | branch % |\n|---|---|---|\n| `cli/src/commands/help.ts` | 100.00 | 100.00 |\n| `cli/src/commands/index-cmd.ts` | 99.49 | 90.27 |\n| `gateway/src/connectors/jira-sync.ts` | 94.04 | 91.47 |\n| `gateway/src/connectors/linear-sync.ts` | 100.00 | 96.83 |\n| `gateway/src/connectors/ticket-depth.ts` | 100.00 | 100.00 |\n| `gateway/src/ipc/index-rebody-rpc.ts` | 100.00 | 97.10 |\n| `gateway/src/sync/scheduler.ts` | 93.38 | 88.89 |\n| `gateway/src/sync/types.ts` | 100.00 | 88.89 |\n\nAll clear the floor. Caveat stated plainly: this was measured on\nWindows, not the\nCI-Linux-authoritative Docker path\n(`scripts/coverage-floor/reseed-docker.sh` — Docker Desktop was\nnot running locally). It is a **scoped, under-reporting** run — it omits\n`mcp-connectors` shards and\nruns without the D-Bus/libsecret wrap that CI uses — so CI's numbers for\nthese files should be at\nor above the ones above, not below. `audit:coverage-floor` on CI remains\nauthoritative.\n\n## Testing\n\n- `bun run preflight:fast` — PASSED (all 29 gates: typecheck,\ntypecheck:tests, biome, markdown, and\n  every static audit including `audit:invariants` and `audit:any`).\n- `bun run test:ci` — green, run **unpiped** so the exit code is the\nsuite's own and not `tail`'s.\n- Two guards were **red-proven** rather than assumed:\n- `sinceDays arms the connector's cold-start floor BEFORE the forced\nrun` — inverting the call\norder in `runRebody` makes it fail. Ordering is load-bearing: the\nscheduler reads its stored\nfloor while building the run context inside `forceSync`, so setting it\nafterwards would\ntypecheck, pass a naive \"was it called\" assertion, and still send the\nrun out at 30 days.\n- `metadata survives every index depth` — making `applyDepth` drop\n`metadata` at `metadata_only`\n    makes it fail.\n\n## Notes for Reviewers\n\n- **Where the depth is written.** Evidence, not assertion: `grep -rn\n\"INSERT INTO item\\b\"\npackages/gateway/src --include=*.ts` outside tests returns five writers.\n`deployment/annotate.ts` hardcodes `type = 'deployment'`,\n`index/unified-item-v3-sql.ts` is\nreached only by the migration runner, and the two `perf/*` hits are\nfixtures — so the two mappers,\nthrough `upsertIndexedItemForSync`, are the only production writers of\nticket metadata.\n- **`IndexRebodyRpcContext.syncScheduler` widened** from\n`Pick<SyncScheduler, \"forceSync\">` to also\npick `setHistoryFloor`, as a **required** member. An optional method\ncalled with `?.` would\nsilently drop a `--since` the owner explicitly asked for; as a required\npick, a scheduler wired\n  without it is a compile error.\n- **`parent_key` on Jira is team-managed-projects only.** Classic\ncompany-managed projects express\nepic membership through a per-instance `customfield_100xx` this\nconnector deliberately does not\nchase; there `parent_key` is simply absent and epics stay identifiable\nvia `issue_type`.\n- **Deferred by intent, in no task:** resumable backfill cursors, and\nfetching `fields.resolution`\n  to give Jira a real `canceled`.",
+          "timestamp": "2026-08-09T16:09:05+03:00",
+          "tree_id": "4f823cb262f77031b1bf870aad36dc1788c0d1f9",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/bdbecd16438824333aa5014bcf10a3ef19225a58"
+        },
+        "date": 1786281449694,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 261.95979534999896,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 258.1914669999984,
             "unit": "ms"
           }
         ]
