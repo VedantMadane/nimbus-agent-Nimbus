@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786282296834,
+  "lastUpdate": 1786293487635,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -10301,6 +10301,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 253.1736616999937,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "edf3faf67a8a86234c6031418c94b1899dc683a6",
+          "message": "ci(release): require the workflow scope on WINGET_PAT and sync the winget fork explicitly (#1130)\n\n## What broke\n\nThe winget manifest for `NimbusAgent.Nimbus` has been frozen at\n**1.19.1** since 2026-08-03. Every release since (v1.20.0 → v1.26.0)\nfailed to publish: the `winget` job of `publish-package-managers.yml`\nhas failed **9 consecutive times**, always at `wingetcreate … --submit`\nwith\n\n```text\nThe forked repository could not be synced with the upstream commits. Sync your fork manually and try again.\n```\n\nThe `brew`/`scoop` job in the same workflow succeeded every time, so\nboth those channels are current at 1.26.0 — only winget lagged, which is\nwhy a red workflow read as background noise.\n\n## Root cause\n\nThe submission fork was **2326 commits behind, 0 ahead** — strictly\nbehind, so a fast-forward was always available. What blocked it was\nscope:\n\n- The first upstream commit after the fork's frozen head (`b0a5348a`,\n2026-08-03T22:19) added\n`.github/workflows/missing-dependency-assist.lock.yml`; four more\nworkflow-touching commits followed on 08-04 through 08-06.\n- GitHub refuses a token-attributed write that creates or updates files\nunder `.github/workflows/` unless the token carries the **`workflow`**\nscope. `WINGET_PAT` was provisioned — and asserted healthy — as\n`public_repo` only.\n\nSo the PAT worked until upstream first touched a workflow file, then\nfailed every release after. `wingetcreate`'s message names none of this,\nand the health check reported the PAT `ok`, because it only ever asked\nfor `public_repo`.\n\nThe fork has been synced by hand, so the current release can publish;\nthis PR is about the recurrence.\n\n## Changes\n\n- **`check-secret-health.ts`** — the `scopes` strategy takes a **list**\nand requires **all** of it (`required: readonly string[]`, `every`).\n`WINGET_PAT` now requires `[\"public_repo\", \"workflow\"]`, so a partial\ngrant reports `insufficient` instead of `ok`.\n- **`publish-package-managers.yml`** — a new `Sync the winget-pkgs fork\nwith upstream` step performs the sync explicitly, before `wingetcreate`,\nso the failure names its own cause instead of surfacing as the opaque\nwingetcreate line. Idempotent: an already-level fork is a no-op, and a\nnot-yet-existing fork is deliberately **not** an error (the first-ever\nsubmission has none). A revoked/expired PAT now also fails here, with a\nmessage saying so.\n- **`credential-registry.ts` / `docs/ci-secrets.md`** — record that both\nscopes are load-bearing, and why `workflow` is not optional.\n\n## Verification\n\n- `bun test scripts/release/check-secret-health.test.ts` — 66 pass, 0\nfail. Adds a test that a `public_repo`-only grant against the two-scope\nrequirement classifies `insufficient` — i.e. red-proving the gate that\nwas silent here.\n- `bun run preflight:fast` — PASSED (29 gates, including\n`audit:workflow-lint`, `audit:secret-inventory`, `audit:consumed-by`).\n\n## Still needs a human\n\nThe PAT itself: re-issue `WINGET_PAT` as a classic PAT with **both**\n`public_repo` and `workflow` (<https://github.com/settings/tokens>) and\nupdate the repo secret. Until then the new health check will report it\n`insufficient` — which is the point.\n\n## Detection note (not changed here)\n\n`audit:release-staleness` does cover winget, but it runs only in\n`org-drift-sweep.yml` on `cron: 0 7 * * 1`. The break started Tuesday\n08-04, one day after the last sweep, so the next scheduled detection was\nsix days out. Nine consecutive red publish runs alerted nobody in\nbetween.",
+          "timestamp": "2026-08-09T16:26:43Z",
+          "tree_id": "37b6337a60b8bf943492815824466fad7a651a88",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/edf3faf67a8a86234c6031418c94b1899dc683a6"
+        },
+        "date": 1786293486061,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 318.5506567999997,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 316.44390574999744,
             "unit": "ms"
           }
         ]
