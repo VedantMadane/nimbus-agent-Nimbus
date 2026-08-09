@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786212968817,
+  "lastUpdate": 1786254636842,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -10131,6 +10131,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 316.5936142999937,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5b27b05a1fb3f55b55578a64790255cacc585823",
+          "message": "docs(user-guide): add screenshot of onboarding welcome page (#1127)\n\nAdds the missing screenshot for the onboarding welcome page to\n`first-run-setup.mdx` using the Astro Image component.\nGenerated the actual PNG screenshot by launching the local UI on port\n1420 and capturing the `/onboarding/welcome` route with a playwright\nscript.\n\n---\n*PR created automatically by Jules for task\n[2560711239141318406](https://jules.google.com/task/2560711239141318406)\nstarted by @asafgolombek*\n\nCo-authored-by: google-labs-jules[bot] <161369871+google-labs-jules[bot]@users.noreply.github.com>\nCo-authored-by: asafgolombek <18427644+asafgolombek@users.noreply.github.com>",
+          "timestamp": "2026-08-09T08:39:27+03:00",
+          "tree_id": "3d831afaffd90cd9f586e6db546bc8df290b31b2",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/5b27b05a1fb3f55b55578a64790255cacc585823"
+        },
+        "date": 1786254635493,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 321.8665394999989,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 327.4972741000012,
             "unit": "ms"
           }
         ]
