@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786293487635,
+  "lastUpdate": 1786298093104,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -10335,6 +10335,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 316.44390574999744,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ba54754432f3fb15d61020dff948b6ec8b4fdaf2",
+          "message": "fix(ci): accept repo as satisfying public_repo on WINGET_PAT, and add a scope-check script (#1131)\n\nFollow-up to #1130, which merged while this work was in flight — the\nsecond commit landed on a branch whose PR was already closed, so it\nnever reached `main`.\n\n## The bug #1130 introduced\n\n#1130 made `check-secret-health.ts` require the literal strings\n`public_repo` **and** `workflow` on `WINGET_PAT`. That combination\n**cannot be issued**: ticking `workflow` in the classic-PAT UI pulls in\nthe whole `repo` group, so every real token reports `repo, workflow` —\nnever `public_repo, workflow`.\n\nAs merged, the weekly health run would therefore report the **only\nobtainable** token as `insufficient`. Crying wolf at a healthy\ncredential is precisely how the real finding went unnoticed for six\ndays, so this is worth fixing rather than living with.\n\n## Changes\n\n- **`check-secret-health.ts`** — a `SCOPE_IMPLIED_BY` map records that\n`repo` subsumes `public_repo`, so a `repo, workflow` token classifies\n`ok`. The implication is one-way and deliberately narrow: it is not a\nplace to record \"close enough\", and it never excuses a genuinely absent\nscope. `workflow` missing is still `insufficient`, which is the case\nthat actually broke publishing.\n- **`check-winget-pat.ps1`** (new) — a maintainer script answering \"is\nthis token usable as `WINGET_PAT`?\" *before* it becomes a repo secret.\nAuthenticates it, prints and judges the granted scopes, and compares the\nsubmission fork against upstream; `-Sync` performs the fork sync — both\nthe operation that fails without `workflow` and the manual remediation\nonce it has. Read-only otherwise. The token comes from a no-echo prompt\nor `$env:WINGET_PAT`, is never printed, and never appears in a URL.\n- **`docs/ci-secrets.md`** — records that `repo, workflow` is the\nnarrowest obtainable shape, that the check accepts it, and that the\nresidual blast radius (full control of the owner's private repos, for a\njob touching only public ones) cannot be narrowed by scope — the only\nlever is whose account owns the token. Points at the new script from the\nminting instructions.\n\n## Verification\n\n- `bun test scripts/release/check-secret-health.test.ts` — 67 pass, 0\nfail. New cases: `repo, workflow` → `ok`; `repo` alone → `insufficient`;\nand the reverse implication is *not* granted (`public_repo` does not\nstand in for a required `repo`).\n- `bun run preflight:fast` — PASSED.\n- The script was exercised on both outcomes: a live token (`repo,\nworkflow` → OK + the breadth NOTE, exit 0) and a bogus one (401 → FAIL,\nexit 1).",
+          "timestamp": "2026-08-09T20:43:36+03:00",
+          "tree_id": "d826c1c5be276941592902a8aeea8ff1a3dfe207",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/ba54754432f3fb15d61020dff948b6ec8b4fdaf2"
+        },
+        "date": 1786298091434,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 310.29215774999614,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 311.125603600005,
             "unit": "ms"
           }
         ]
