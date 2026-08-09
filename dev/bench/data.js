@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786298093104,
+  "lastUpdate": 1786300022147,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -10369,6 +10369,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 311.125603600005,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c335f35808bb0f744c7eeacab2ea6be8497eb2b5",
+          "message": "ci(release): alert when a channel publish fails, and check channel drift daily (#1133)\n\nCloses the detection gap behind the winget outage: the winget job failed\n**nine consecutive times** across v1.20.0 → v1.26.0 and alerted nobody\nfor six days.\n\n## Why nothing fired\n\nTwo independent holes, and each needs its own fix:\n\n1. **`publish-package-managers.yml` runs on `workflow_run`.** Nothing\nblocks on it, no PR turns red, and the only notification goes to the\nupstream run's actor. brew/scoop kept succeeding in the same run, so\neven the run list looked half-healthy. `release.yml` has filed a\nrelease-health issue on failure since it shipped — this workflow, one\nstep closer to users, had no such thing.\n2. **`audit:release-staleness` ran weekly**, inside\n`org-drift-sweep.yml`. The break landed on a Tuesday, one day after the\nsweep, so the next scheduled look was six days out — and that job was\n*already red* on an unrelated edge, so a new finding would have been\ninvisible anyway. A red job inside a large sweep is not a signal anyone\nreads.\n\n## Changes\n\n**Alert at the source** — `publish-package-managers.yml` gains\n`alert-on-failure` (on `failure()`) and `resolve-alert` (on\n`success()`), mirroring `release.yml`'s proven `alert-on-failure` block.\nOne issue per key rather than per tag: this failure mode recurs every\nrelease until someone fixes the cause, and nine issues for one root\ncause is noise people filter. The state hash still comments on each new\ntag, so a recurrence stays visible without a new thread.\n\n**Detect independently** — `release-staleness` moves out of the weekly\nsweep into `release-channel-drift.yml` on a **daily** cron, filing a\n`release-health` issue whose body carries the actual findings and\nclosing it when they clear. This catches what an alert on failure\ncannot: our publish going green while the channel still doesn't serve\nthe version — a winget PR that Microsoft's validation closes unmerged\nlooks exactly like success from here.\n\n**`open-health-issue.ts`** — the CLI entry point gains `HEALTH_RESOLVE`,\nexposing the already-exported `closeHealthIssue` so an alert can clear\nitself. An alert that stays red once fixed is the disease, not the cure.\nNo open issue for the key is success, not an error.\n\nPublic reads only in both workflows; `github.token` with `issues:\nwrite`, no App token and no PAT.\n\n## Verification\n\n- `bun run preflight:fast` — PASSED, including `audit:workflow-lint`,\n`audit:action-sha-pins` and `audit:consumed-by` over the new workflow.\n- `bun test scripts/release/open-health-issue.test.ts` — 6 pass, 0 fail.\n- Both new CLI paths exercised live against this repo:\n`HEALTH_RESOLVE=1` with a key owning no issue → clean no-op, exit 0;\nomitting `HEALTH_TITLE` without `HEALTH_RESOLVE` → exit 2 with the\nreason.\n- The capture step was simulated locally against the real audit: exit 1,\nfindings redirected to `findings.txt`, and the composed issue body\nrenders them in a fenced block.\n\n## Heads-up: this alert starts red, for a real reason\n\nThe audit's one current finding is pre-existing and unrelated to winget:\n\n```\n::error::sdk:nimbus-vscode: 1.10.0 < npm 1.16.0 and no bump PR open\n```\n\n`nimbus-vscode`'s lockfile resolves `@nimbus-dev/sdk` 1.10.0 while npm\n`@latest` is 1.16.0. It has been red in the weekly sweep since at least\n2026-08-03 with nobody acting — which is the strongest evidence for this\nPR's premise. Once this merges, the first daily run files an issue for\nit. That is correct behaviour, but it means the new channel is red on\nday one, and fixing it needs a PR in `nimbus-vscode`, not here.",
+          "timestamp": "2026-08-09T18:15:29Z",
+          "tree_id": "7d992877261971aade45cd85ff5a35aeb8aae620",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/c335f35808bb0f744c7eeacab2ea6be8497eb2b5"
+        },
+        "date": 1786300020020,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 316.22387935000154,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 314.8152515000023,
             "unit": "ms"
           }
         ]
