@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786255343735,
+  "lastUpdate": 1786270474482,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -10199,6 +10199,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 319.3044457000084,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "99f43c81647a021aee1f18101aaf312bb6193efc",
+          "message": "docs(user-guide): 📸 add Connectors panel screenshot (#1125)\n\nUpdates the connect-your-first-service documentation to align with the\ncurrent Connectors panel UI terminology and includes an accurate\nscreenshot of the connected Google Drive row. Replaces the previous\n`TODO: screenshot` request by accurately providing the requested image\nand making the documentation reflect the \"Enabled\" row UI instead of a\nconnector tile, ensuring clarity for users.\n\n---\n*PR created automatically by Jules for task\n[1631211466899876916](https://jules.google.com/task/1631211466899876916)\nstarted by @asafgolombek*\n\nCo-authored-by: google-labs-jules[bot] <161369871+google-labs-jules[bot]@users.noreply.github.com>\nCo-authored-by: asafgolombek <18427644+asafgolombek@users.noreply.github.com>",
+          "timestamp": "2026-08-09T13:02:57+03:00",
+          "tree_id": "d6fc77ba251385602833ec5b8acbeca730daa233",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/99f43c81647a021aee1f18101aaf312bb6193efc"
+        },
+        "date": 1786270472641,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 324.5094460000015,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 323.48620175001054,
             "unit": "ms"
           }
         ]
