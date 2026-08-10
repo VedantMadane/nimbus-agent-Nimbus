@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786331723881,
+  "lastUpdate": 1786333135886,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -10505,6 +10505,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 313.81520289999605,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "824b5b31f84f1881c755a0dc16f0cc9f85e6ad42",
+          "message": "ci(release): treat a created-or-updated release PR as a healthy run (#1136)\n\n## Summary\n\nThe release-please guard fails healthy releases. It fired on #1134 →\nv1.27.0 even though release-please had done exactly the right thing, and\nits own error advice would have made things worse.\n\n## What happened\n\nTimeline from the run, to the second:\n\n| time | event |\n|---|---|\n| 19:47:21 | #1134 squash-merged to `main` (`feat(gateway): …`) |\n| 19:47:44 | release-please runs, reports `commits: 2` |\n| 19:47:55 | release-please **creates release PR #1135**, labelled\n`autorelease: pending` |\n| 19:47:59 | the guard runs, queries `gh pr list --label \"autorelease:\npending\"`, gets **0**, fails the job |\n\nNothing was wrong. #1135 existed, carried the right label, bumped 1.26.1\n→ 1.27.0, and listed the feat commit. GitHub's PR-list index simply had\nnot caught up **four seconds** after the write.\n\n## Why the guard missed it\n\nOf the three signals it consulted, two come straight back from the\naction and one is a fresh API read:\n\n```\nreleases_created   ← action output      (false here: a PR was opened, not a release)\nreconciled         ← recovery step      (false here: nothing to recover)\npending            ← gh pr list         (0 here: the read raced the write)\n```\n\nThe one signal that would have been decisive was never consulted:\n**`prs_created`**. Per the pinned action's own README (`45996ed1` /\nv5.0.0):\n\n> `prs_created` — `true` if any pull request was created **or updated**\n\nIt is the action's own return value for the PR it just opened, so it\ncannot race with itself. And \"or updated\" matters as much as \"created\":\na `feat` merged while a release PR is already open produces an *update*,\nwhich also leaves `releases_created` false.\n\n## The fix\n\nAdd `prs_created` as a healthy signal, ordered so action-supplied\noutputs are all consulted **before** the one that re-queries the API:\n\n```\nreleases_created  →  prs_created  →  reconciled  →  pending (gh pr list)\n```\n\nThe label query stays, but last. It is still the only signal that can\nsee a release PR left open by an **earlier** run, which no output of\n*this* run reports.\n\n## The error advice was also actively dangerous\n\nOn failure the guard said:\n\n> Most likely it could not PARSE one of them… Unstick with a\n`Release-As: X.Y.Z` trailer\n\nBoth halves were wrong here. Its own log showed `commits: 2` and no\n`commit could not be parsed` line, so nothing was skipped. And following\nthat advice with #1135 already pending would have cut a **second**\nversion on top of it — and per `CLAUDE.md`, release tags are immutable,\nso that is not undoable, only superseded.\n\nThe message now tells the reader to check whether a release PR exists\n**first**, says plainly that the guard is wrong if one does, and warns\nnever to add the trailer while a release PR is pending.\n\n## Type of Change\n\n- [x] CI / tooling\n- [x] Bug fix (non-breaking change that fixes an issue)\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` passes with zero errors\n- [x] `bun run lint` passes (Biome)\n- [x] All existing tests pass\n- [x] New behaviour is covered by tests — n/a; this is a workflow-only\nchange with no test harness for GitHub Actions in this repo. Validated\nas described under Testing.\n- [x] No `any` types introduced — n/a\n- [x] No credentials, tokens, or secret values in logs, IPC, config or\nfixtures — the new `PRS_CREATED` env carries a boolean from a step\noutput\n- [x] Platform-specific code behind `PlatformServices` — n/a\n- [x] The HITL consent gate has not been weakened — untouched\n- [x] Does not touch `docs/README.md`\n\n## Testing\n\n- `bun run preflight:fast` — PASSED, all 29 gates.\n- `bun run audit:workflow-lint` — OK, 24 workflows and 181 bash bodies\nparsed, so the edited shell body is syntactically valid.\n- `bun run audit:action-sha-pins` — clean; no action reference changed.\n- YAML re-parsed independently to confirm the job structure is intact.\n- `prs_created` verified against the **pinned SHA's** own README rather\nthan assumed from a newer version — the action declares outputs\ndynamically via `core.setOutput`, so there is no `outputs:` block in\n`action.yml` to check.\n\n## Notes for Reviewers\n\n- This is deliberately additive: no existing healthy condition was\nremoved, so the change can only turn red runs green, never the reverse.\n- The ordering is the substantive part, not just style. Any future\nsignal that comes back from the action belongs **above** the `gh pr\nlist` call, for the same reason `prs_created` does.\n- Worth knowing when reading the guard: `releases_created` and\n`prs_created` are near-mutually-exclusive in practice — release-please\neither opens/updates a release PR (`prs_created`) or, when that PR\nmerges, cuts the release (`releases_created`). A guard that checks only\nthe second is blind to the entire first half of every release cycle.",
+          "timestamp": "2026-08-10T06:27:28+03:00",
+          "tree_id": "0ffb9105c9805dec1ce3e9494230b64508c5f538",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/824b5b31f84f1881c755a0dc16f0cc9f85e6ad42"
+        },
+        "date": 1786333134441,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 318.56260850000217,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 312.7772349499992,
             "unit": "ms"
           }
         ]
