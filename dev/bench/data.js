@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786464769252,
+  "lastUpdate": 1786465814930,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -10777,6 +10777,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 228.77772009999936,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "26560e97026a61addc1c42c29d4c86dc6c89c272",
+          "message": "chore: release main (#1150)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>1.29.0</summary>\n\n##\n[1.29.0](https://github.com/nimbus-agent/Nimbus/compare/v1.28.0...v1.29.0)\n(2026-08-11)\n\n\n### Features\n\n* **agents:** nimbus pre-mortem, with a service-scoped incident watcher\ncondition ([#1146](https://github.com/nimbus-agent/Nimbus/issues/1146))\n([58e93fd](https://github.com/nimbus-agent/Nimbus/commit/58e93fd3e9e245c0ad17a3c8a3c51df815afda7a))\n\n\n### Bug Fixes\n\n* **connectors:** report only what was actually verified in connector\nauth and targeted fetch\n([#1141](https://github.com/nimbus-agent/Nimbus/issues/1141))\n([902cd42](https://github.com/nimbus-agent/Nimbus/commit/902cd4291f9fb5278e56e59a9c1ecebbb293b33c))\n* **gateway:** log why the process exits instead of dying silently\n([#1140](https://github.com/nimbus-agent/Nimbus/issues/1140))\n([322ea68](https://github.com/nimbus-agent/Nimbus/commit/322ea683266d97a96aaa05e182b6208365ad5dbe))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-11T16:18:32Z",
+          "tree_id": "3b210ad90af39e2b691923f1c610b6c8f24e23ae",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/26560e97026a61addc1c42c29d4c86dc6c89c272"
+        },
+        "date": 1786465813400,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 326.1683008000018,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 336.27591515000097,
             "unit": "ms"
           }
         ]
