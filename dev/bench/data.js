@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786421465823,
+  "lastUpdate": 1786462146319,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -10641,6 +10641,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 317.7920741500078,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d031579c84629e49be3003077edcc54f0f9a12aa",
+          "message": "chore(deps): bump thiserror from 2.0.19 to 2.0.20 in /packages/ui/src-tauri in the cargo-all-minor-patch group (#1143)\n\nBumps the cargo-all-minor-patch group in /packages/ui/src-tauri with 1\nupdate: [thiserror](https://github.com/dtolnay/thiserror).\n\nUpdates `thiserror` from 2.0.19 to 2.0.20\n<details>\n<summary>Release notes</summary>\n<p><em>Sourced from <a\nhref=\"https://github.com/dtolnay/thiserror/releases\">thiserror's\nreleases</a>.</em></p>\n<blockquote>\n<h2>2.0.20</h2>\n<ul>\n<li>Suppress redundant_field_names clippy lint in generated code (<a\nhref=\"https://redirect.github.com/dtolnay/thiserror/issues/454\">#454</a>)</li>\n</ul>\n</blockquote>\n</details>\n<details>\n<summary>Commits</summary>\n<ul>\n<li><a\nhref=\"https://github.com/dtolnay/thiserror/commit/b1d5db5e039275d95bf7536a2b2192aeb4dc28bf\"><code>b1d5db5</code></a>\nRelease 2.0.20</li>\n<li><a\nhref=\"https://github.com/dtolnay/thiserror/commit/c4c3ebd337911af7bad544a9bce03a04bf465384\"><code>c4c3ebd</code></a>\nMerge pull request <a\nhref=\"https://redirect.github.com/dtolnay/thiserror/issues/454\">#454</a>\nfrom dtolnay/clippy</li>\n<li><a\nhref=\"https://github.com/dtolnay/thiserror/commit/2266152b163168df75a3b091208b86dd05485e66\"><code>2266152</code></a>\nSuppress redundant_field_names clippy lint</li>\n<li><a\nhref=\"https://github.com/dtolnay/thiserror/commit/2901cfdc9411e883c9709c5a3adcf1ab2e3651ff\"><code>2901cfd</code></a>\nRaise minimum tested compiler to rust 1.88</li>\n<li><a\nhref=\"https://github.com/dtolnay/thiserror/commit/aa9d91f75302025e0c1d4c535d84a5bfdad62508\"><code>aa9d91f</code></a>\nUpdate ui tests for version 2.0.19</li>\n<li>See full diff in <a\nhref=\"https://github.com/dtolnay/thiserror/compare/2.0.19...2.0.20\">compare\nview</a></li>\n</ul>\n</details>\n<br />\n\n\n[![Dependabot compatibility\nscore](https://dependabot-badges.githubapp.com/badges/compatibility_score?dependency-name=thiserror&package-manager=cargo&previous-version=2.0.19&new-version=2.0.20)](https://docs.github.com/en/github/managing-security-vulnerabilities/about-dependabot-security-updates#about-compatibility-scores)\n\nDependabot will resolve any conflicts with this PR as long as you don't\nalter it yourself. You can also trigger a rebase manually by commenting\n`@dependabot rebase`.\n\n[//]: # (dependabot-automerge-start)\n[//]: # (dependabot-automerge-end)\n\n---\n\n<details>\n<summary>Dependabot commands and options</summary>\n<br />\n\nYou can trigger Dependabot actions by commenting on this PR:\n- `@dependabot rebase` will rebase this PR\n- `@dependabot recreate` will recreate this PR, overwriting any edits\nthat have been made to it\n- `@dependabot show <dependency name> ignore conditions` will show all\nof the ignore conditions of the specified dependency\n- `@dependabot ignore <dependency name> major version` will close this\ngroup update PR and stop Dependabot creating any more for the specific\ndependency's major version (unless you unignore this specific\ndependency's major version or upgrade to it yourself)\n- `@dependabot ignore <dependency name> minor version` will close this\ngroup update PR and stop Dependabot creating any more for the specific\ndependency's minor version (unless you unignore this specific\ndependency's minor version or upgrade to it yourself)\n- `@dependabot ignore <dependency name>` will close this group update PR\nand stop Dependabot creating any more for the specific dependency\n(unless you unignore this specific dependency or upgrade to it yourself)\n- `@dependabot unignore <dependency name>` will remove all of the ignore\nconditions of the specified dependency\n- `@dependabot unignore <dependency name> <ignore condition>` will\nremove the ignore condition of the specified dependency and ignore\nconditions\n\n\n</details>\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-11T18:17:32+03:00",
+          "tree_id": "f4293a629053d0267ae3132427d6ac590c843314",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/d031579c84629e49be3003077edcc54f0f9a12aa"
+        },
+        "date": 1786462144011,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 320.62822754999763,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 318.93566179999726,
             "unit": "ms"
           }
         ]
