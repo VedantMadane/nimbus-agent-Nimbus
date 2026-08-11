@@ -18,7 +18,7 @@
     "linkify-it": "5.0.2",
     "hono": "4.12.34",
     "@hono/node-server": "2.0.12",
-    "@mastra/core": "1.56.0",
+    "@mastra/core": "1.57.0",
     "@mastra/mcp": "1.15.1",
     "undici": "7.29.0",
     "ip-address": "10.3.1",
@@ -259,7 +259,7 @@
     "@modelcontextprotocol/sdk": "1.30.0",
     "@nimbus-dev/client": "^0.15.1",
     "@nimbus-dev/sdk": "^1.16.0",
-    "astro": "^7.1.6",
+    "astro": "^7.2.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -283,7 +283,7 @@
     "istanbul-reports": "3.2.0",
     "js-yaml": "^4.3.1",
     "jscpd": "^5.0.14",
-    "knip": "^6.31.0",
+    "knip": "^6.32.0",
     "markdownlint-cli2": "^0.23.2",
     "tweetnacl": "^1.0.3",
     "typescript": "^7.0.2",
