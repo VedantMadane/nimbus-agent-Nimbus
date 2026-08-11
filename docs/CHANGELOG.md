@@ -8,6 +8,81 @@ Phase-level history before `v0.1.0` (Phases 1–4) lives in [`docs/roadmap.md` �
 
 ## Post-Phase-6 deliveries
 
+- **2026-08-11 — `nimbus pre-mortem`: the thirteenth built-in agent (PR B of the S1 pre-mortem
+  work).** Reads the schema + background pass PR A shipped 2026-08-09 (V53) and adds the missing
+  reader: `agents.premortem`, `nimbus pre-mortem <epic-ref> [--service <name>]… [--json]
+  [--refresh] [--repropose]`. Four SEQUENTIAL lanes, not `AgentCoordinator`-parallel, since each
+  depends on the previous one's output: resolve the epic to its affected services, build an
+  IDF-weighted service-overlap cohort of comparable closed epics, compute five structural risks
+  over that cohort, and read recurring blocker themes from the V53 pass.
+  **Jira-only, and narrower still: team-managed-Jira-only.** Affected-service derivation walks
+  `parent_key`-linked children, and `jira-sync.ts` only populates `parent_key` on team-managed
+  projects — a company-managed epic resolves to zero derived services, reported as a named gap.
+  No `linear:project` items are indexed at all, so a `linear:` reference is reported as an
+  unsupported-tracker gap, never silently ignored.
+  **The one built-in agent that is not purely read-only.** `proposeWatchers`
+  (`premortem/watcher-proposals.ts`) writes exactly two things per affected service that resolves
+  to a configured deployment-service id: a `watcher` row always inserted with `enabled = 0`
+  (paused), and its `premortem_watcher_proposal` tombstone — both in one transaction, so a watcher
+  row can never exist without its tombstone. A service that resolves to nothing gets neither row. This is
+  **not** an I2/HITL matter: I2 governs `HITL_REQUIRED_BACKING` action types that leave the
+  machine via `engine/executor.ts`'s `gate()`, and a local SQLite insert never reaches that gate —
+  the same shape as `glossary`/`decisions`/`ownership`'s own local writes, and the egress
+  ledger's. The safety property is `enabled = 0`: `automation/watcher-store.ts`'s
+  `listEnabledWatchers` filters strictly on `enabled === 1`, so a paused row is structurally inert
+  until a human arms it through the existing watcher-arming path — `nimbus pre-mortem` never arms
+  anything itself. `--repropose` deletes only the target epic's tombstones before proposing, so a
+  deliberately-deleted watcher is re-created (paused) rather than staying `suppressed`; never a
+  global clear.
+  **A proposal is scoped by AFFECTED SERVICE, and the watcher engine learned that axis in this
+  same change.** The condition carries `filter.affectedService` — the `[metrics.dora.<id>]` /
+  `[ci.service.<id>]` id the repo resolves to — which `automation/watcher-engine.ts` matches
+  against the incident's `graph_entity.metadata.affectedService` (written by
+  `graph/graph-populator.ts`'s `syncTimelineEventGraph`) through an EXISTS subquery with bound
+  parameters. The pre-existing `filter.service` axis matches the `item.service` COLUMN, which for
+  an incident is always the connector id `pagerduty`, so it could only ever scope a watcher to a
+  whole connector; a proposal written on that axis was inert even once armed. The new filter is
+  declared per condition kind (`affectedServiceEntityType`) and FAILS CLOSED: a kind with no
+  timeline entity (`alert_fired`) matches nothing rather than silently widening, and
+  `watcher.create` rejects it up front. **A repo with no configured deployment-service mapping
+  gets no watcher at all**, named in the brief — falling back to the repo path is what produced
+  the inert proposal. Proposals also no longer depend on the cohort: they are a function of the
+  target's own services, so a first-of-its-kind epic still gets them.
+  **No deploy-failure watcher is proposed.** Deploy-failure is a watcher CONDITION KIND, not one
+  of the five risks above — the fifth risk is abandonment, and no deploy-failure risk is computed.
+  The engine now supports the same scoping for `deploy_failed`,
+  so the old `item.service`-is-the-provider-slug reason no longer applies; what still does is that
+  `deployment/annotate.ts` — the only writer of the `metadata.conclusion` that condition matches —
+  inserts its `item` row directly and creates no `deployment` graph entity, so such a watcher
+  matches nothing until `nimbus index regraph` runs.
+  **Review drag cannot currently be measured for ANY repo**: no connector indexes a pull
+  request's *opened* timestamp (only `merged_at`), so the brief states this and reports a named
+  gap rather than a fabricated figure. The measured path is real and activates the moment a
+  connector records that field. The cohort/baseline queries match
+  `COALESCE(metadata.repo, metadata.project)`, so a GitLab merge request (which carries only
+  `project`) is counted in the population the cohort was selected from — previously the brief
+  built a GitLab cohort and then reported "no pull requests were found" for it.
+  **A missing epic creation date is reported as a missing date**, not as a brand-new epic: the
+  cycle-time risk no longer substitutes `now`, so the brief no longer implies youth it never
+  measured.
+  **Incident coupling** translates a cohort repo to a DORA `[ci.service.<id>]` config id via the
+  injected `ServiceIdentityResolver`, denominates its rate on `measured` — cohort members actually
+  queried (a resolvable service AND a usable window) — never on the full cohort, and states the
+  skipped count when they differ; it reports `null`, never a fabricated `0`, when nothing could be
+  checked.
+  **Confidence tops out at 0.86**, matching `glossary`/`decisions`: no connector indexes ticket
+  comments, so a blocker argued out entirely in a Jira comment thread is invisible to theme
+  extraction.
+  `agents.premortem` is **excluded from both the HTTP agent surface**
+  (`POST /v1/agents/{agent}`) **and the MCP tool surface**, matching `agents.preflight` —
+  `HTTP_EXCLUDED_AGENT_METHODS` in `ipc/agents-rpc.ts` — because an external caller reaching a
+  write with no HITL gate is the same shape of concern preflight is excluded for. It **is** on
+  Tauri's `ALLOWED_METHODS` (I7; count 104 → 105), since the renderer sits behind the I7 XSS
+  threat model rather than "arbitrary network caller"; `premortem.refresh` (unchanged from PR A)
+  is not Tauri-exposed. The completion notification is `premortem.briefReady` (error:
+  `premortem.briefError`), per the standard `<agentName>.briefReady` contract — `agents.premortem`
+  is the RPC method, not the notification. No new invariant, no new migration — schema was V53
+  already.
 - **2026-08-10 — Targeted fetch names the cause of a miss (no schema change).** `FetchOneResult`'s
   `not_found` arm now carries a REQUIRED `reason: "no_credential" | "unauthorized" | "absent" |
   "unreachable" | "upstream_error"`, wired at every miss site across all five `fetchOne`

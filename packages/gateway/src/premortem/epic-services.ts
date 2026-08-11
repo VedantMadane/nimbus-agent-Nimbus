@@ -38,6 +38,17 @@ export function affectedServicesForEpic(
   epicItemId: string,
   epicKey: string,
 ): string[] {
+  // `$.repo` HERE is the GRAPH ENTITY's metadata, NOT the PR item's, and the two are not the
+  // same shape. `graph-populator.ts` writes the PR entity as
+  // `metadata: { repo: repoPathFromMetadata(row.metadata) }`, and `repoPathFromMetadata` is
+  // `repo ?? project` — so a GitLab merge request, whose ITEM carries only `metadata.project`
+  // (`connectors/_lib/gitlab/events.ts`), is already stored under the entity's `repo` key.
+  // That coalescing is what makes this query provider-neutral.
+  //
+  // Do NOT "fix" this to `COALESCE(..., '$.project')`: nothing writes a `project` key onto a
+  // graph entity, so it would be a no-op that falsely implies one exists. The identical-looking
+  // expression against ITEM metadata DOES need the coalesce, and `agents/premortem.ts`'s
+  // `PR_REPO_SQL` carries it — one expression, two sources, only one of them pre-coalesced.
   const rows = db
     .query(
       `SELECT DISTINCT json_extract(pr.metadata, '$.repo') AS service
@@ -46,9 +57,11 @@ export function affectedServicesForEpic(
                                        AND child_ent.external_id = child.id
          JOIN graph_relation res       ON res.to_id = child_ent.id AND res.type = 'resolves'
          JOIN graph_entity   pr        ON pr.id     = res.from_id
-        WHERE json_extract(child.metadata, '$.parent_key') = ?
+        WHERE json_valid(child.metadata)
+          AND json_extract(child.metadata, '$.parent_key') = ?
           AND child.id <> ?
           AND child.service = (SELECT service FROM item WHERE id = ?)
+          AND json_valid(pr.metadata)
           AND json_extract(pr.metadata, '$.repo') IS NOT NULL
         ORDER BY service ASC`,
     )
@@ -88,11 +101,15 @@ export function affectedServicesForEpics(
     return result;
   }
   const placeholders = epicItemIds.map(() => "?").join(", ");
+  // Same `$.repo`-on-the-GRAPH-ENTITY rule as the single-epic query above: already
+  // `repo ?? project` via `graph-populator.ts`'s `repoPathFromMetadata`, so no COALESCE belongs
+  // here, and one against ITEM metadata would be a different (and necessary) expression.
   const rows = db
     .query(
       `SELECT epic.id AS epicItemId, json_extract(pr.metadata, '$.repo') AS service
          FROM item epic
-         JOIN item child             ON json_extract(child.metadata, '$.parent_key') = epic.external_id
+         JOIN item child             ON json_valid(child.metadata)
+                                      AND json_extract(child.metadata, '$.parent_key') = epic.external_id
                                       AND child.service = epic.service
                                       AND child.id <> epic.id
          JOIN graph_entity   child_ent ON child_ent.type = 'issue'
@@ -100,6 +117,7 @@ export function affectedServicesForEpics(
          JOIN graph_relation res       ON res.to_id = child_ent.id AND res.type = 'resolves'
          JOIN graph_entity   pr        ON pr.id     = res.from_id
         WHERE epic.id IN (${placeholders})
+          AND json_valid(pr.metadata)
           AND json_extract(pr.metadata, '$.repo') IS NOT NULL
         ORDER BY epic.id ASC, service ASC`,
     )

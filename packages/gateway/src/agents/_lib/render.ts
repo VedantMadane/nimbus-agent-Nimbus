@@ -1,4 +1,6 @@
 import type { DecisionEvidence } from "../../decisions/decision-types.ts";
+import type { Risk } from "../../premortem/risks.ts";
+import type { WatcherProposal } from "../../premortem/watcher-proposals.ts";
 import type { DecisionsBrief, DecisionsEntry } from "./decisions-types.ts";
 import type {
   CatchupBrief,
@@ -19,6 +21,7 @@ import type {
 } from "./findings.ts";
 import type { GlossaryBrief, GlossaryEntry } from "./glossary-types.ts";
 import type { OwnershipBrief, OwnershipTargetView } from "./ownership-types.ts";
+import type { PremortemBrief } from "./premortem-types.ts";
 import type { WhyBrief, WhyLane } from "./why-types.ts";
 
 function renderGaps(gaps: GapNote[]): string {
@@ -476,4 +479,72 @@ export function renderDecisions(brief: DecisionsBrief): string {
   const gaps = renderGaps(brief.gaps);
   const footer = renderLatency(brief.latencyMs);
   return [header, "", body, gaps, footer].filter((s) => s !== "").join("\n");
+}
+
+function renderPremortemRisk(r: Risk): string {
+  const kindLabel = r.kind.replaceAll("_", " ");
+  const suffix = r.expectationOnly ? " (expectation)" : "";
+  return `- **${kindLabel}**${suffix}: ${r.summary}`;
+}
+
+/**
+ * `w.watcherId` is the real, stable id `insertWatcherIfAbsent` wrote (or
+ * would have written) — the ONLY handle a reader can act on, so it must be
+ * printed, not just the service name. A `suppressed` proposal points at
+ * `--repropose` (the sole path back from a deliberate deletion,
+ * `clearProposalTombstones`); a live one points at `nimbus watch resume`
+ * (the watcher is created PAUSED, by design).
+ */
+function renderPremortemWatcher(w: WatcherProposal, epicRef: string): string {
+  if (w.state === "suppressed") {
+    return (
+      `- ${w.service} — suppressed (id \`${w.watcherId}\`); this watcher was deliberately ` +
+      `deleted on a previous run. Re-create it with \`nimbus pre-mortem ${epicRef} --repropose\`.`
+    );
+  }
+  const stateLabel = w.state === "created" ? "created" : "already present";
+  return (
+    `- ${w.service} — ${stateLabel} (id \`${w.watcherId}\`, paused). ` +
+    `Enable it with \`nimbus watch resume ${w.watcherId}\`.`
+  );
+}
+
+export function renderPremortem(brief: PremortemBrief): string {
+  const header = `# Pre-mortem: ${brief.query.epicRef}`;
+  const sections: string[] = [];
+
+  if (brief.epic !== null) {
+    sections.push(`_${brief.epic.key} — ${brief.epic.title}_`);
+  }
+
+  if (brief.services.length > 0) {
+    sections.push(`\n## Services\n\n${brief.services.map((s) => `- ${s}`).join("\n")}`);
+  }
+
+  if (brief.cohort.members.length > 0) {
+    const rows = brief.cohort.members.map((m) => `- ${m.key} — ${m.title}`);
+    sections.push(
+      `\n## Comparable epics (${String(brief.cohort.members.length)})\n\n${rows.join("\n")}`,
+    );
+  }
+
+  if (brief.risks.length > 0) {
+    sections.push(`\n## Risks\n\n${brief.risks.map(renderPremortemRisk).join("\n")}`);
+  }
+
+  if (brief.themes.length > 0) {
+    const rows = brief.themes.map(
+      (t) => `- ${t.label} (${t.service}, confidence ${t.confidence.toFixed(2)})`,
+    );
+    sections.push(`\n## Recurring themes\n\n${rows.join("\n")}`);
+  }
+
+  if (brief.watchers.length > 0) {
+    const rows = brief.watchers.map((w) => renderPremortemWatcher(w, brief.query.epicRef));
+    sections.push(`\n## Watcher proposals\n\n${rows.join("\n")}`);
+  }
+
+  const gaps = renderGaps(brief.gaps);
+  const footer = renderLatency(brief.latencyMs);
+  return [header, "", ...sections, gaps, footer].filter((s) => s !== "").join("\n");
 }

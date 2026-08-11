@@ -1,6 +1,8 @@
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
-import { upsertGraphEntity } from "../graph/relationship-graph.ts";
+import { deterministicGraphEntityId, upsertGraphEntity } from "../graph/relationship-graph.ts";
+import { itemPrimaryKey } from "../index/item-key.ts";
+import { upsertIndexedItem } from "../index/item-store.ts";
 import { runIndexedSchemaMigrations } from "../index/migrations/runner.ts";
 import { affectedServicesForEpic, affectedServicesForEpics } from "./epic-services.ts";
 
@@ -197,5 +199,159 @@ test("affectedServicesForEpics: honors service scoping the same way the single-e
 
   const result = affectedServicesForEpics(db, ["jira:PROJ-1"]);
   expect(result.get("jira:PROJ-1")).toEqual(["acme/billing-api"]);
+  db.close();
+});
+
+test("a same-service, non-JSON metadata row elsewhere in item does not break affectedServicesForEpic (child-side json_valid guard)", () => {
+  const db = freshDb();
+  addItem(db, "jira:PROJ-1", "PROJ-1", { meta_v: 1, issue_type: "Epic" });
+  addItem(db, "jira:PROJ-2", "PROJ-2", { meta_v: 1, parent_key: "PROJ-1" });
+  const issueEnt = addEntity(db, "jira:PROJ-2", "issue");
+  const prEnt = addEntity(db, "github:pr:7", "pr", "acme/billing-api");
+  addRelation(db, prEnt, issueEnt, "resolves");
+
+  // The bad row must be WIRED INTO THE GRAPH (its own issue entity + a
+  // resolving PR) so it actually survives this query's INNER JOINs into
+  // `graph_entity`/`graph_relation` and reaches the WHERE clause's
+  // `json_extract(child.metadata, ...)`. An `item` row with no matching
+  // `graph_entity` never gets that far in THIS query shape (the child-side
+  // json_extract lives in the WHERE, not the JOIN, unlike the batch form
+  // below) -- it is eliminated by the join itself before its metadata is
+  // ever read, so an unwired row could never prove this guard does
+  // anything.
+  db.run(
+    `INSERT INTO item (id, service, type, external_id, title, metadata, modified_at, synced_at, pinned)
+     VALUES (?, ?, 'issue', ?, 'T', ?, 1, 1, 0)`,
+    ["jira:BAD-1", "jira", "BAD-1", "not json"],
+  );
+  const badIssueEnt = addEntity(db, "jira:BAD-1", "issue");
+  const badPrEnt = addEntity(db, "github:pr:bad", "pr", "acme/bad-service");
+  addRelation(db, badPrEnt, badIssueEnt, "resolves");
+
+  expect(affectedServicesForEpic(db, "jira:PROJ-1", "PROJ-1")).toEqual(["acme/billing-api"]);
+  db.close();
+});
+
+test("a same-service, non-JSON metadata row elsewhere in item does not break affectedServicesForEpics (child-side json_valid guard, batch form)", () => {
+  const db = freshDb();
+  addItem(db, "jira:PROJ-1", "PROJ-1", { meta_v: 1, issue_type: "Epic" });
+  addItem(db, "jira:PROJ-2", "PROJ-2", { meta_v: 1, parent_key: "PROJ-1" });
+  const issueEnt = addEntity(db, "jira:PROJ-2", "issue");
+  const prEnt = addEntity(db, "github:pr:7", "pr", "acme/billing-api");
+  addRelation(db, prEnt, issueEnt, "resolves");
+
+  db.run(
+    `INSERT INTO item (id, service, type, external_id, title, metadata, modified_at, synced_at, pinned)
+     VALUES (?, ?, 'issue', ?, 'T', ?, 1, 1, 0)`,
+    ["jira:BAD-1", "jira", "BAD-1", "not json"],
+  );
+
+  const result = affectedServicesForEpics(db, ["jira:PROJ-1"]);
+  expect(result.get("jira:PROJ-1")).toEqual(["acme/billing-api"]);
+  db.close();
+});
+
+test("a PR entity with non-JSON metadata does not break affectedServicesForEpic (pr-side json_valid guard)", () => {
+  // `upsertGraphEntity` always JSON.stringifies (or writes NULL), so this
+  // never happens through the real write path -- it simulates corrupted
+  // data, defensively guarded the same way the child-side hop is.
+  const db = freshDb();
+  addItem(db, "jira:PROJ-1", "PROJ-1", { meta_v: 1, issue_type: "Epic" });
+
+  addItem(db, "jira:PROJ-2", "PROJ-2", { meta_v: 1, parent_key: "PROJ-1" });
+  const issueEnt = addEntity(db, "jira:PROJ-2", "issue");
+  const prEnt = addEntity(db, "github:pr:7", "pr", "acme/billing-api");
+  addRelation(db, prEnt, issueEnt, "resolves");
+
+  addItem(db, "jira:PROJ-3", "PROJ-3", { meta_v: 1, parent_key: "PROJ-1" });
+  const issueEnt2 = addEntity(db, "jira:PROJ-3", "issue");
+  const badPrId = "bad-pr-entity-id";
+  db.run(
+    `INSERT INTO graph_entity (id, type, external_id, label, service, metadata) VALUES (?, 'pr', ?, ?, ?, ?)`,
+    [badPrId, "github:pr:8", "github:pr:8", "github", "not json"],
+  );
+  addRelation(db, badPrId, issueEnt2, "resolves");
+
+  expect(affectedServicesForEpic(db, "jira:PROJ-1", "PROJ-1")).toEqual(["acme/billing-api"]);
+  db.close();
+});
+
+test("a PR entity with non-JSON metadata does not break affectedServicesForEpics (pr-side json_valid guard, batch form)", () => {
+  const db = freshDb();
+  addItem(db, "jira:PROJ-1", "PROJ-1", { meta_v: 1, issue_type: "Epic" });
+
+  addItem(db, "jira:PROJ-2", "PROJ-2", { meta_v: 1, parent_key: "PROJ-1" });
+  const issueEnt = addEntity(db, "jira:PROJ-2", "issue");
+  const prEnt = addEntity(db, "github:pr:7", "pr", "acme/billing-api");
+  addRelation(db, prEnt, issueEnt, "resolves");
+
+  addItem(db, "jira:PROJ-3", "PROJ-3", { meta_v: 1, parent_key: "PROJ-1" });
+  const issueEnt2 = addEntity(db, "jira:PROJ-3", "issue");
+  const badPrId = "bad-pr-entity-id-batch";
+  db.run(
+    `INSERT INTO graph_entity (id, type, external_id, label, service, metadata) VALUES (?, 'pr', ?, ?, ?, ?)`,
+    [badPrId, "github:pr:8b", "github:pr:8b", "github", "not json"],
+  );
+  addRelation(db, badPrId, issueEnt2, "resolves");
+
+  const result = affectedServicesForEpics(db, ["jira:PROJ-1"]);
+  expect(result.get("jira:PROJ-1")).toEqual(["acme/billing-api"]);
+  db.close();
+});
+
+/**
+ * DRIFT GUARD — the queries above silently depend on the graph populator coalescing
+ * `repo ?? project` (`graph-populator.ts`'s `repoPathFromMetadata`) before it writes the PR
+ * entity's `metadata.repo`. A GitLab merge-request ITEM carries `metadata.project` and no `repo`
+ * at all, so if that coalescing ever went away, `affectedServicesForEpic` would return zero
+ * services for every GitLab epic and pre-mortem would degrade to a "no affected service could be
+ * derived" gap — a silent capability loss with nothing failing.
+ *
+ * Deliberately written through the REAL population path (`upsertIndexedItem`, which runs
+ * `syncGraphFromIndexedItem`) rather than `addEntity`: a hand-minted entity would carry whatever
+ * `repo` the test chose to pass, which is exactly the guarantee under test.
+ */
+test("a GitLab MR (metadata.project, NO metadata.repo) still yields its project as the service", () => {
+  const db = freshDb();
+  addItem(db, "jira:PROJ-GL", "PROJ-GL", { meta_v: 1, issue_type: "Epic" });
+
+  upsertIndexedItem(db, {
+    service: "jira",
+    type: "issue",
+    externalId: "PROJ-GL-C1",
+    title: "PROJ-GL-C1",
+    metadata: { parent_key: "PROJ-GL" },
+    modifiedAt: 1,
+    syncedAt: 1,
+  });
+  upsertIndexedItem(db, {
+    service: "gitlab",
+    type: "pr",
+    externalId: "acme/gitlab-svc!7",
+    title: "acme/gitlab-svc!7",
+    // The GitLab shape verbatim (`connectors/_lib/gitlab/events.ts`): no `repo` key exists.
+    metadata: { iid: 7, project: "acme/gitlab-svc", action: "open" },
+    modifiedAt: 1,
+    syncedAt: 1,
+  });
+  const mrItemId = itemPrimaryKey("gitlab", "acme/gitlab-svc!7");
+  const childItemId = itemPrimaryKey("jira", "PROJ-GL-C1");
+  // Pin the premise rather than assuming it: the ITEM really has no `repo` key.
+  const mrMeta = db.query(`SELECT metadata FROM item WHERE id = ?`).get(mrItemId) as {
+    metadata: string;
+  };
+  expect(JSON.parse(mrMeta.metadata)).not.toHaveProperty("repo");
+
+  addRelation(
+    db,
+    deterministicGraphEntityId("pr", mrItemId),
+    deterministicGraphEntityId("issue", childItemId),
+    "resolves",
+  );
+
+  expect(affectedServicesForEpic(db, "jira:PROJ-GL", "PROJ-GL")).toEqual(["acme/gitlab-svc"]);
+  expect(affectedServicesForEpics(db, ["jira:PROJ-GL"]).get("jira:PROJ-GL")).toEqual([
+    "acme/gitlab-svc",
+  ]);
   db.close();
 });
