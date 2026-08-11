@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786463559000,
+  "lastUpdate": 1786464769252,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -10743,6 +10743,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 328.42570619999935,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "58e93fd3e9e245c0ad17a3c8a3c51df815afda7a",
+          "message": "feat(agents): nimbus pre-mortem, with a service-scoped incident watcher condition (#1146)\n\n## Why\n\n`nimbus pre-mortem <epic-ref>` — the thirteenth built-in agent, and the\nlast of Spine S1's implicit-knowledge triad. PR A (#1134, v1.27.0)\nshipped schema **V53** and a background pass that mines closed epics\ninto `premortem_theme`, but no agent and no command: the substrate\nconsumed the epic backlog and wrote rows nothing could read. This makes\nit reachable.\n\nGiven a Jira epic, the brief answers *what has gone wrong before on work\nlike this* — from the machine's own history, with every figure traceable\nto indexed rows.\n\n## What it does\n\nFour read lanes, then one write:\n\n1. **Resolve** the epic to its affected services (children → `resolves`\n→ PRs → repo), or take `--service` (repeatable) when a brand-new epic\nhas no children yet.\n2. **Cohort** — closed epics ranked by **IDF-weighted service overlap**,\nso an overlap on a rare service outranks one on `shared-utils`. Overlap\nis a gate applied *before* scoring: without it, \"shares only a\nubiquitous service\" and \"shares nothing\" both score 0 and an unrelated\nepic enters by recency.\n3. **Five structural risks** — cycle time, size overrun, review drag,\nincident coupling, abandonment.\n4. **Themes** — recurring blockers from V53, no model call.\n\nThen it proposes **paused** `incident_opened` watchers, one per affected\nservice, which the user arms with `nimbus watch resume <id>`.\n\n`nimbus pre-mortem <epic-ref> [--service <name>]… [--json] [--refresh]\n[--repropose]`\n\n## The engine change this required\n\nProposed watchers set `filter.service` to a PR repo path\n(`acme/billing-api`), but the watcher engine matched `item.service` —\nthe *connector id*, always `pagerduty` for incidents. Every watcher\nwould have been created, armed by the user, and **never fired**: the\nsame failure #1138 shipped to fix, and the same reasoning this feature\nalready used to justify *not* proposing deploy watchers.\n\nRather than ship a caveat, the engine gained a new filter dimension.\n**`filter.affectedService`** matches\n`graph_entity.metadata.affectedService` — the DORA config service id\nthat `graph-populator.ts` already writes for incident and deployment\nentities — via a `json_valid`-guarded `EXISTS` subquery. pre-mortem\ntranslates repo → config id through the same `resolveServiceId` path the\nincident-coupling query already used; that asymmetry, one path\ntranslating and the other not, was the bug.\n\nVerified end to end through the production write path: matching service\n**fires**, unresolvable **doesn't**, a different service **doesn't**,\nthe pre-fix repo-path shape **doesn't** (original bug reproduced), and\n`filter.service: \"pagerduty\"` still **does** (existing behaviour\npreserved).\n\n**Behaviour change:** a repo with no `[ci.service.<id>]` binding now\ngets **no** watcher where it previously got an inert one, and the brief\nnames that reason.\n\n## Honesty, which is most of the work here\n\nTen defects where the code stated a cause that was not the real cause,\nor a measurement over a population it had not measured. Each is now\neither correct or a named gap:\n\n- incident coupling printed a **fabricated `0%`** as measured fact,\nbecause config-service-ids and repo names never intersect — now\ntranslated, denominated on the members actually measured, with the\nskipped count stated\n- \"No pull requests were found\" when PRs existed and only a timestamp\nwas missing — and again for GitLab, whose MRs carry `metadata.project`\nand no `repo`\n- an epic-not-found error blaming absence when the cause was a renamed\nor localized `issue_type`\n- a remediation naming `nimbus premortem --refresh`, a command that does\nnot exist\n- \"truncated body\" as one of at least three causes of `body_complete =\n0`\n- a missing `created_at_ms` reported as \"this epic is brand new\"\n\nStanding limits, stated in every brief rather than discovered later:\n**Jira-only** (no `linear:project` items are indexed) and\n**team-managed-Jira-only** for `parent_key`; **review drag cannot be\nmeasured for any repo** — no connector indexes a pull request's opened\ntimestamp, so the join is live but dormant; **no deploy-failure watcher\nis proposed**, because `deployment/annotate.ts` creates no `deployment`\ngraph entity for the new filter to match; and a **confidence ceiling\nbelow 1.0**, because no connector indexes ticket comments.\n\n## Surface and security\n\n`agents.premortem` is on the Tauri allowlist (**I7**, 104 → 105) but\ndeliberately **excluded from HTTP and MCP**, matching\n`agents.preflight`: this is the first agent that writes rows, and\n`--repropose` deletes tombstones recording a user's deliberate \"no\". The\nexclusion is structural on both surfaces — the route 404s *and* `GET\n/v1/agents` never advertises it — pinned by a live request/response\ntest. `premortem.refresh` stays off the renderer. Unreachable over LAN\nby construction.\n\nNot an **I2**/HITL matter: I2 governs action types that leave the\nmachine via `engine/executor.ts`, and a local SQLite insert never enters\nthat gate — as `glossary`, `decisions`, `ownership` and the egress\nledger already do. The safety property is `enabled = 0`;\n`listEnabledWatchers` filters on `enabled === 1`, so a paused row cannot\nfire whoever inserted it. The Agent Shape Invariant is amended with\nthose exact bounds.\n\nTwo `json_extract` sites in already-merged PR A code\n(`epic-services.ts`) were guarded en route: unguarded, a single non-JSON\n`metadata` row anywhere in `item` raises `malformed JSON` and kills the\nwhole brief.\n\n## Testing\n\nSix tasks, each reviewed; five fix rounds across the branch; a\nwhole-branch review that found the two most serious defects after six\nclean per-task reviews. Every guard is red-proved — mutated, watched\nfail, restored — because six tests on this branch initially passed\nidentically against broken code, including one where the entire brief\nrenderer could be replaced with `return \"MUTANT\"` with 404 tests still\ngreen.\n\n511 tests in the core suites, 1655 across `ipc`, 172 e2e. Full\n`preflight` green except `audit:coverage-floor`, which fails only on\n`platform/linux.ts`, `ipc/server/socket-listeners.ts` and two\n`mcp-connectors/*/search-filter.ts` — none in this diff; `exclusions.ts`\ndocuments `platform/linux.ts` as the *active* arm on a Linux runner,\nwhich is why that gate is CI-Linux-authoritative. Touched files measure\n97.69/95.83 (`premortem.ts`), 95.71/95.59 (`watcher-engine.ts`), with\nseveral at 100/100 against the 85/80 floor.\n\n## Follow-up, not fixed here\n\n`automation/graph-predicate.ts` resolves entity ids from\n`item.external_id` while every populator writes `item.id`, so\ngraph-predicate watchers likely match nothing in production.\nPre-existing, unchanged by this diff, and the third instance of\n\"configured, armed, and inert\" in this subsystem. Worth its own PR.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n* **New Features**\n  * Added the `nimbus pre-mortem` command for Jira epic risk analysis.\n* Reports comparable epic history, structural risks, recurring blocker\nthemes, and data-quality gaps.\n* Supports JSON output, service overrides, refresh, and watcher\nreproposals.\n* Proposes paused incident watchers for mapped services; watchers are\nnever enabled automatically.\n* Available through the CLI and desktop app; not available through HTTP\nor MCP.\n\n* **Documentation**\n* Added comprehensive usage, architecture, changelog, roadmap, and\nworkflow documentation.\n\n* **Bug Fixes**\n* Improved handling of invalid metadata and unsupported or unmapped\nservice filters.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-11T19:03:53+03:00",
+          "tree_id": "33f93ffdc140c7de2e0ceecb349e42971a5647f8",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/58e93fd3e9e245c0ad17a3c8a3c51df815afda7a"
+        },
+        "date": 1786464767616,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 237.41069070000265,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 228.77772009999936,
             "unit": "ms"
           }
         ]
