@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786472059581,
+  "lastUpdate": 1786472795222,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -10845,6 +10845,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 318.7596750999925,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0e3b18336d1e1cb79080d09b660f20ca785c57ca",
+          "message": "fix(clips): embed web clips locally and stop advertising discarded text (#1151)\n\nCloses #1006. Closes #1005.\n\nTwo defects that had to be fixed together, because the fix each issue\nrecommends regresses the other.\n\n## #1006 — clip text was reaching OpenAI\n\n`nimbus:web_clip` was in `PROSE_HEAVY_TYPES`, which\n`RoutingEmbeddingPipeline` reads to send an item to the 1536-dim OpenAI\nembedder whenever `openai.api_key` is set. Both web-clipper store\nlistings say the opposite: the Chrome listing puts clips \"into your\nprivate, local-first Nimbus index\", and it and the AMO privacy policy\nboth say there are \"no remote servers, no telemetry, and no cloud\".\nThose sentences describe the *extension*, which does only talk to\nloopback — so each was narrowly true while the system as a whole was\nnot.\n\n`nimbus:web_clip` is removed from `PROSE_HEAVY_TYPES`. Clips now embed\non-device via MiniLM-384 whether or not a key is configured. Retrieval\nquality on long articles is the deliberate price; the public claim is\nnot negotiable.\n\n**This was live, not theoretical.** #1006 hedged that clips were never\nembedded at all, so the egress \"may not actually be occurring yet\". That\nis stale — `scheduleEmbedding` is wired through\n`platform/assemble.ts:2391` → `clips/clip-ingest.ts:111`, so clip text\nwas genuinely going out.\n\n## The coupling — why this is one PR\n\n`bodyCapForItemType` derived the 16 KiB body cap **from\n`PROSE_HEAVY_TYPES`**. So #1006's recommended fix, taken literally,\nwould have silently cut the clip body cap from 16,384 back to 512 and\nre-opened #1005 — a privacy fix regressing a data fix, with no test\nbetween them to say so.\n\nStorage shape and embedding destination are now separate questions:\n\n- `embedding/routing.ts` keeps `PROSE_HEAVY_TYPES` (may this type embed\nremotely?) and gains `LOCAL_ONLY_PROSE_TYPES` (prose-shaped, but pinned\nlocal).\n- `index/body-caps.ts` owns `LONG_BODY_TYPES` — the explicit union — and\n`bodyCapForItemType` reads that.\n\nThe two source sets **must stay disjoint**: absence from\n`PROSE_HEAVY_TYPES` is the whole of the privacy enforcement, so a key\npresent in both would read as \"pinned local\" while routing remotely.\n`routing.test.ts` pins the disjointness, stated as what cannot hold\nrather than as an allow-list.\n\nBoth regression directions were red-proved before being committed:\n\n| injected regression | result |\n|---|---|\n| `web_clip` back in `PROSE_HEAVY_TYPES` (in both sets) | 5 tests fail,\nincl. the disjointness guard |\n| `web_clip` in neither set (the #1005 cap regression) | 2 tests fail,\nincl. `document-body-full` |\n\n`body-caps.test.ts` asserts the cap and the routing **in one test**,\nbecause each passes alone in exactly the case where the coupling is\nbroken.\n\n## #1005 — `wordCount` described text the index had thrown away\n\nMost of #1005 was already fixed by V48/V49 after it was filed:\n`clip-ingest.ts` passes the declared-full `body:` arm, not\n`bodyPreview:`, so clips get 16 KiB and an honest `body_complete`. What\nremained is the honesty defect the issue leads with — `wordCount` was\ncomputed on the submitted text, so a 34,000-character article stored at\n16 KiB advertised the full count, and no field let a caller detect the\nloss.\n\n- `wordCount` now measures the **stored** body — what a search can\nactually return.\n- An over-cap clip additionally carries `sourceWordCount` + `truncated:\ntrue`. A clip that fits carries neither, so the common shape is\nunchanged.\n- Both surface through `clip.list`; `nimbus clip list` footnotes the\ncount of partial clips rather than widening its fixed-width table.\n- A legacy row carrying neither key reads as **not** truncated — which\nis what absence meant when it was written. `truncated` is derived from\n`sourceWordCount`'s presence, not from a sibling flag, so a pre-existing\nrow cannot read as \"unknown\".\n- The counts reuse the store's own `bodyCapForItemType` + `clampBody`\nrather than reimplementing them, so they cannot drift from the storage\nrule; the clamp runs only on the rare over-cap clip.\n\n## Migration\n\nClips already embedded through OpenAI keep their 1536-dim vectors.\n`index.reembed` is model-targeted and `pipeline.embedItem` deletes only\nthe chunks for the model it is writing, so re-embedding locally would\n**add** MiniLM vectors beside the OpenAI ones rather than replace them —\nand `vectorSearchChunksDual` concatenates both tables without deduping\nby item. To move an existing clip fully local: `nimbus clip delete\n<id|url>` then re-clip. `embedding_chunk.item_id` is `ON DELETE\nCASCADE`, so that drops every model's chunks and the `AFTER DELETE`\ntriggers clear both vec tables.\n\n**Text already sent to OpenAI cannot be recalled.** This stops future\negress; it does not undo past egress.\n\nNo schema change, no migration, no new invariant.\n\n## Verification\n\n- `bun run preflight:fast` — PASSED (all 29 gates)\n- `bun test packages/gateway/src/{embedding,index,clips,search}` — 859\npass, 0 fail\n- `bun test packages/gateway/src/ipc\npackages/gateway/src/security-invariants.test.ts` — 1788 pass, 0 fail\n- `bun test packages/cli/src/commands/clip.test.ts\npackages/gateway/test/unit` — 2178 pass, 0 fail\n\n## Follow-up not taken here\n\n`nimbus:research_brief` and `nimbus:glossary_term` are also\nlocally-generated `nimbus:` content still routed remotely. They carry no\nequivalent public claim, so changing them is out of scope for these two\nissues — worth a separate decision.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-11T18:16:51Z",
+          "tree_id": "f3541092a8608e903116569bf294ef2699d218c0",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/0e3b18336d1e1cb79080d09b660f20ca785c57ca"
+        },
+        "date": 1786472793570,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 305.3615842999974,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 304.8216004499991,
             "unit": "ms"
           }
         ]
