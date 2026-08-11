@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786472795222,
+  "lastUpdate": 1786476185394,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -10879,6 +10879,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 304.8216004499991,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7b530dcc15930a208d63af43ad3af9dd46f44d07",
+          "message": "refactor(egress)!: remove the EgressCompleteness.tier compat shim (#1156)\n\nCloses #1057. Part 3 of 3, and the only one that could not land until\nthe other two were published.\n\n## What is removed\n\n- `tier` from `EgressCompleteness` and from `proveWindow`'s emitted\nliteral (`egress/egress-verify.ts`)\n- its assertion in `egress-verify.test.ts`\n- the tolerant optional `tier?: string` on the CLI's `ProveCompleteness`\n— documented as never read for a decision, and it was not\n- the **\"Outstanding debt this change creates\"** paragraph in\n`docs/SECURITY-INVARIANTS.md` § I29\n- the matching **\"Related debt\"** sentence in the `nimbus-egress` skill\n\nPer the repo rule, retiring a defence means deleting the row, never\nleaving drift — so the debt prose goes with the field, not after it.\n\n## Why it had to go rather than be corrected\n\n`tier: \"authorized-actions\"` was honest under exactly one precondition:\nthat `THIS_BINARY_COVERAGE` had a single non-`none` class (`task` at\n`per-call`), so \"authorized gated-connector actions, one row per call\"\nwas the whole of what the binary observed. That precondition failed\nthree separate times — `mcp`, then `http`, then `sync` — each time\ndeferred by name rather than silently, which is why the field carried a\n~40-line doc comment explaining its own overdueness.\n\nA single scalar cannot describe four classes at two granularities. It\nmisstated coverage in precisely the way the pre-vector scalar did — the\ndefect the `coverage` / `indeterminate` shape was introduced to fix.\n\n## Why this is the last commit and not the first\n\nRemoving the field is a **breaking wire change**.\n`@nimbus-dev/client@0.15.x`'s `validateEgressCompleteness` hard-throws\nwhen `tier` is absent, so a gateway that dropped it first would have\nbroken every published-client consumer, nimbus-vscode included.\n\n| step | where | state |\n|---|---|---|\n| 1 | nimbus-client#58 → **0.16.0** on npm | ✅ merged + published |\n| 2 | nimbus-vscode#89 → `^0.16.0` | ✅ open, green |\n| 3 | **this PR** | — |\n\nStep 2 was not a version bump alone: nimbus-vscode *read* the field and\nrendered it into its proof artifact as \"Completeness tier:\nauthorized-actions — every gateway-authorized outbound action in the\nwindow\". That is a totality claim which was never true for a class at\n`none`, in a document users hand to auditors, so it was replaced with a\nper-class table that marks unobserved classes explicitly.\n\n## Verification\n\n- `bun run preflight:fast` — PASSED (all 29 gates)\n- `bun test packages/gateway/src/egress\npackages/cli/src/commands/prove.test.ts\npackages/gateway/src/security-invariants.test.ts\npackages/gateway/src/ipc` — **1,905 pass, 17 skip, 0 fail**\n- `bun run typecheck` — 0 errors\n- `grep -rn \"tier\" packages/gateway/src/egress\npackages/cli/src/commands/prove.ts` — no matches\n\n## Scope note\n\n**I29 is untouched.** `tier` was never part of what the invariant\nenforces — `coverage` / `outboundEgressEvents` / `indeterminate` were\nalways the authoritative claim and are unchanged. No schema change, no\nmigration, no invariant renumbering. The `!` in the title marks the wire\nchange for release-please, not a change to any security property.\n\n## On the version number\n\nThe client shipped as **0.16.0**, not the 1.0.0 #1057 anticipated. The\n`Release-As: 1.0.0` trailer was placed in the PR description, per this\nrepo's convention that the squash commit is built from `PR_TITLE` +\n`PR_BODY` — but the satellite repos squash the **local** commit message\ninstead, so the trailer never reached `main` and release-please's\nconfigured `bump-minor-pre-major` applied. My error, and it changes\nnothing practically: `^0.15.x` does not resolve to `0.16.0`, so the\nbreaking change reaches no consumer without an explicit bump.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-11T19:13:36Z",
+          "tree_id": "c6f0e1db9283beffe8a7acbe8a2d2c8778aa5400",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/7b530dcc15930a208d63af43ad3af9dd46f44d07"
+        },
+        "date": 1786476183144,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 288.46333634999644,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 288.633252299999,
             "unit": "ms"
           }
         ]
