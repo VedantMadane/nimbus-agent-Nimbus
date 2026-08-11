@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786476185394,
+  "lastUpdate": 1786477486033,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -10913,6 +10913,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 288.633252299999,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9a0c30a128a887065c4197670b8c8e81e8311a60",
+          "message": "chore: release main (#1157)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>2.0.0</summary>\n\n##\n[2.0.0](https://github.com/nimbus-agent/Nimbus/compare/v1.29.0...v2.0.0)\n(2026-08-11)\n\n\n### ⚠ BREAKING CHANGES\n\n* **egress:** remove the EgressCompleteness.tier compat shim\n([#1156](https://github.com/nimbus-agent/Nimbus/issues/1156))\n\n### Bug Fixes\n\n* **clips:** embed web clips locally and stop advertising discarded text\n([#1151](https://github.com/nimbus-agent/Nimbus/issues/1151))\n([0e3b183](https://github.com/nimbus-agent/Nimbus/commit/0e3b18336d1e1cb79080d09b660f20ca785c57ca))\n* **quality:** close two ReDoS regexes and clear 25 SonarCloud findings\n([#1152](https://github.com/nimbus-agent/Nimbus/issues/1152))\n([1f89379](https://github.com/nimbus-agent/Nimbus/commit/1f893798d6466c8a860fcda2141f5832acdda9c2))\n\n\n### Code Refactoring\n\n* **egress:** remove the EgressCompleteness.tier compat shim\n([#1156](https://github.com/nimbus-agent/Nimbus/issues/1156))\n([7b530dc](https://github.com/nimbus-agent/Nimbus/commit/7b530dcc15930a208d63af43ad3af9dd46f44d07))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-11T19:32:36Z",
+          "tree_id": "db6d91bfa6ac1043acb22ab2c5644bbc7ca3a27c",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/9a0c30a128a887065c4197670b8c8e81e8311a60"
+        },
+        "date": 1786477483773,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 338.49494090000223,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 333.8219168500094,
             "unit": "ms"
           }
         ]
