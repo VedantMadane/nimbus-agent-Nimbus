@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786551253196,
+  "lastUpdate": 1786553840828,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -11151,6 +11151,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 324.0589292999997,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3689401c7098644c466ac5f429279c9c73fd8983",
+          "message": "refactor(ownership): rebuild runOwnershipPass as map-then-fold (#1163)\n\nCloses the last of my own Sonar findings — and this time by changing the\nshape, not by lifting another helper out.\n\n## Why two previous attempts didn't work\n\n| attempt | result |\n|---|---|\n| #1155 — extract `accumulateOwnerWeights` + `bindRootRemote` | 55 →\n**44** |\n| #1161 — extract `emitPathOwnership` | 44 → **split across two\nfunctions, both still over 15** |\n\nEach time I pulled out the parts that were easy to *name*. That never\nmoved the score much, and it took a third look to see why: **the\ncomplexity was never in any one branch.** `runOwnershipPass` carried\n**eight mutable accumulators** —\n\n```ts\nlet rootsCovered, rootsWithRemote, filesCovered, filesExcluded,\n    ownersEmitted, entitiesReaped;\nconst servicesSeen, serviceWeights, ownerLabelsAcrossRoots;\n```\n\n— and merged into them *inside* the loop. So every helper I extracted\nstill had to hand its results back for in-place merging, and the loop\nbody stayed a junction of everything. Extraction cannot fix that; only\nchanging what a root *produces* can.\n\n## The redesign\n\n**A root now produces a value instead of mutating the caller.**\n\n```ts\ntype RootOutcome = {\n  covered, hasRemote, boundServiceId,\n  filesCovered, filesExcluded, ownersEmitted, entitiesReaped,\n  rootTotals, ownerLabels,\n};\n\nprocessRoot(db, root, deps) -> RootOutcome     // all per-root work, one unit\nfoldRootOutcomes(outcomes)   -> PassTotals     // pure, no db\nemitServiceRollup(db, totals, cfg, nowMs)      // the cross-root half\npersistPassState(db, nowMs, summary)\n```\n\nThe loop becomes a `map`, the accounting becomes a fold, and neither\nhalf branches on the other's state:\n\n```ts\nconst outcomes = opts.roots.map((root) => processRoot(db, root, {...}));\nconst folded = foldRootOutcomes(outcomes);\nclearServiceOwnershipEdges(db);\nfolded.ownersEmitted += emitServiceRollup(db, folded, cfg, opts.nowMs);\n```\n\n`emitPathOwnership` also split along its real seam — `emitFileOwnership`\nand `emitDirectoryOwnership`, over a shared `emitOwnersFor` — with an\n`EmitCtx` bundle so they take two parameters instead of seven.\n\n## Invariants preserved deliberately, not incidentally\n\n- **Everything stays inside the one `db.transaction`**, and\n`processRoot` is strictly synchronous — a transaction callback cannot\n`await`, which is why `resolveRepoRemote` remains prefetched outside.\nThe doc comment on `processRoot` says so, because that is the constraint\na future edit is most likely to break.\n- **Ordering is unchanged.** `reapOrphansForRoot` still runs last per\nroot (object-literal evaluation order puts it after both emitters).\n`clearServiceOwnershipEdges` still runs after all roots and before the\nrollup.\n- **Fold semantics match the old in-loop merge.** `serviceWeights` is\nnumeric summation — order-independent. `ownerLabelsAcrossRoots` is\nlast-write-wins over `opts.roots` order, which the `map` preserves\nexactly.\n- **`upsertGraphEntity` vs `ensureGraphEntity` is untouched.** The\nauthoritative writer of a node upserts (carrying metadata); a purely\nstructural reference create-if-absents, because an upsert from a call\nsite with no metadata would NULL what the authoritative writer just\nwrote. Both emitters keep the original comments explaining which is\nwhich and why.\n- **Only a BOUND root contributes to the rollup** — now an explicit\n`continue` in the fold with the reason stated, rather than an implicit\nconsequence of where the code sat in the loop.\n\n## Verification\n\nThis is a behaviour-preserving redesign, so the existing suite is the\nreal test — and `ownership-pass.test.ts` is unusually good at this: 37\ntests already pin multi-root passes, the service rollup, person-label\npreservation across the rollup, the no-remote path, and file-scope\nisolation between roots.\n\n- `bun test packages/gateway/src/ownership\npackages/gateway/src/agents/ownership.test.ts\npackages/gateway/src/ipc/ownership-rpc.test.ts` — **132 pass, 0 fail**\n- `bun test packages/gateway/src` — **10,923 pass, 30 skip, 0 fail**\n- `bun run preflight:fast` — PASSED (all 29 gates)\n- `bun run typecheck` — 0 errors\n\nNo test needed changing, which is the outcome you want from a refactor\nof this kind.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Refactor**\n* Improved ownership processing for clearer and more consistent results\nacross files, directories, and services.\n* Preserved ownership metadata and structural relationships during\nprocessing.\n* Consolidated ownership outcomes before generating service-level\nsummaries.\n* **Bug Fixes**\n* Improved persistence of ownership summaries after processing\ncompletes.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-12T19:45:13+03:00",
+          "tree_id": "2303a1a20e114bb6fc33290a0103f4a2cbc6ff84",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/3689401c7098644c466ac5f429279c9c73fd8983"
+        },
+        "date": 1786553838409,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 324.26375750000045,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 322.067049649997,
             "unit": "ms"
           }
         ]
