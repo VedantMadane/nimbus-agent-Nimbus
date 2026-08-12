@@ -159,6 +159,211 @@ describe("runWhy", () => {
         (g) => g.category === "missing_relation_emit" && g.detail.includes("reviewed"),
       ),
     ).toBe(true);
+
+    // C-1: the zero-edge `reviewed` gap note must not claim the populator
+    // fails to emit `reviewed` (it does, since `syncReviewGraph` shipped),
+    // and must not tell the user to run a `nimbus index backfill` command
+    // that does not exist anywhere in the shipped CLI.
+    const reviewedGap = brief.gaps.find(
+      (g) => g.category === "missing_relation_emit" && g.detail.includes("reviewed"),
+    );
+    expect(reviewedGap).toBeDefined();
+    expect(reviewedGap?.detail).not.toMatch(/not yet emitted by the graph populator/);
+    for (const g of brief.gaps) {
+      expect(g.detail).not.toMatch(/index backfill/);
+      expect(g.remediation ?? "").not.toMatch(/index backfill/);
+    }
+  });
+
+  test("the pull_request lane names reviewers when reviewed edges exist", async () => {
+    const db = freshDb();
+    seedWhyFixture(db, { commit: true, issue: true, pr: true, blame: { lineNo: 12 } });
+    const now = Date.now();
+    db.run("INSERT INTO person (id, display_name) VALUES (?, ?)", ["person:reviewer", "Reviewer"]);
+
+    upsertIndexedItem(db, {
+      service: "github",
+      type: "review",
+      externalId: "acme/app#412#review-500",
+      title: "Review on acme/app#412",
+      bodyPreview: "",
+      modifiedAt: now,
+      syncedAt: now,
+      authorId: "person:reviewer",
+      metadata: { repo: "acme/app", pr_number: 412 },
+    });
+
+    const brief = await runWhy({ ref: refAt(12) }, ctxFor(db));
+    const prFinding = brief.findings.find((f) => f.lane === "pull_request");
+
+    expect(prFinding?.detail).toContain("Reviewed by");
+    expect(brief.gaps.some((g) => g.detail.includes("`reviewed`"))).toBe(false);
+  });
+
+  test("I-5: a reviewer list beyond the display limit names the cut instead of silently truncating", async () => {
+    const db = freshDb();
+    seedWhyFixture(db, { commit: true, issue: true, pr: true, blame: { lineNo: 12 } });
+    const now = Date.now();
+
+    // 6 reviewers — one past the 5-reviewer display limit.
+    for (let i = 1; i <= 6; i++) {
+      const personId = `person:reviewer-${String(i)}`;
+      db.run("INSERT INTO person (id, display_name) VALUES (?, ?)", [personId, `R${String(i)}`]);
+      upsertIndexedItem(db, {
+        service: "github",
+        type: "review",
+        externalId: `acme/app#412#review-${String(500 + i)}`,
+        title: "Review on acme/app#412",
+        bodyPreview: "",
+        modifiedAt: now,
+        syncedAt: now,
+        authorId: personId,
+        metadata: { repo: "acme/app", pr_number: 412 },
+      });
+    }
+
+    const brief = await runWhy({ ref: refAt(12) }, ctxFor(db));
+    const prFinding = brief.findings.find((f) => f.lane === "pull_request");
+
+    expect(prFinding?.detail).toContain("Reviewed by");
+    // The cut is named, not silent: exactly 5 reviewers are listed by name,
+    // and the overflow count (1) is stated explicitly.
+    expect(prFinding?.detail).toContain("R1, R2, R3, R4, R5, and 1 more");
+  });
+
+  test("pull_request lane: a reviewed edge that exists but doesn't resolve still yields a gap note, not silence", async () => {
+    const db = freshDb();
+    seedWhyFixture(db, { pr: true, blame: { lineNo: 42 } });
+
+    // A `reviewed` edge exists in the graph, but it targets a `pr`
+    // graph_entity with NO backing `item` row — the partial-join failure the
+    // old `detectMissingRelationEmit`-only probe couldn't see. It does not
+    // reference this PR at all, so the reviewer query for THIS PR also finds
+    // nothing: exactly the "silently empty AND no gap note" regression.
+    db.run(
+      "INSERT INTO graph_entity (id, type, external_id, label, service) VALUES (?, ?, ?, ?, ?)",
+      [
+        "ge:person:orphan-reviewer",
+        "person",
+        "person:orphan-reviewer",
+        "Orphan Reviewer",
+        "github",
+      ],
+    );
+    db.run(
+      "INSERT INTO graph_entity (id, type, external_id, label, service) VALUES (?, ?, ?, ?, ?)",
+      ["ge:pr:orphan", "pr", "github:pr:orphan", "Orphan PR", "github"],
+    );
+    db.run("INSERT INTO graph_relation (from_id, to_id, type, created_at) VALUES (?, ?, ?, ?)", [
+      "ge:person:orphan-reviewer",
+      "ge:pr:orphan",
+      "reviewed",
+      Date.now(),
+    ]);
+
+    const brief = await runWhy({ ref: refAt(42) }, ctxFor(db));
+
+    const prFinding = brief.findings.find((f) => f.lane === "pull_request");
+    expect(prFinding?.detail).not.toContain("Reviewed by");
+
+    const reviewedGap = brief.gaps.find(
+      (g) => g.category === "missing_relation_emit" && g.detail.includes("reviewed"),
+    );
+    expect(reviewedGap).toBeDefined();
+    // Distinct from the "no `reviewed` edges at all" gap's detail — proves
+    // this is the resolution-aware branch, not the pre-existing zero-edges
+    // check (which a bare "edges exist / don't exist" probe would also pass
+    // for the zero-edges case, proving nothing about state (b)).
+    expect(reviewedGap?.detail).toContain("none resolve");
+  });
+
+  test("pull_request lane: a per-PR reviewed edge that doesn't resolve still yields a gap note even when a DIFFERENT PR's reviewed edge resolves cleanly", async () => {
+    const db = freshDb();
+    const t = Date.now();
+
+    // PR A — from the shared fixture, healthy: a `reviewed` edge that
+    // resolves cleanly (real person row + real reviewer graph_entity).
+    seedWhyFixture(db, { pr: true, blame: { lineNo: 42 } });
+    db.run("INSERT INTO person (id, display_name) VALUES (?, ?)", [
+      "person:reviewer-a",
+      "Reviewer A",
+    ]);
+    upsertIndexedItem(db, {
+      service: "github",
+      type: "review",
+      externalId: "acme/app#412#review-1",
+      title: "Review on acme/app#412",
+      bodyPreview: "",
+      modifiedAt: t,
+      syncedAt: t,
+      authorId: "person:reviewer-a",
+      metadata: { repo: "acme/app", pr_number: 412 },
+    });
+
+    // PR B — a second, REAL pr item constructed the same way the fixture
+    // builds PR A (not a hand-rolled graph_entity row), merged via a
+    // distinct commit SHA and blamed at a distinct line so this `why`
+    // invocation resolves to PR B, not PR A.
+    const SHA_B = "b2c3d4e5f60718293a4b5c6d7e8f9012345678a1";
+    upsertIndexedItem(db, {
+      service: "github",
+      type: "pr",
+      externalId: "acme/app#413",
+      title: "Second PR",
+      bodyPreview: "",
+      url: "https://github.com/acme/app/pull/413",
+      modifiedAt: t,
+      syncedAt: t,
+      metadata: {
+        number: 413,
+        repo: "acme/app",
+        state: "merged",
+        draft: false,
+        merged: true,
+        merge_commit_sha: SHA_B,
+      },
+    });
+    upsertBlameLines(db, ROOT, "src/retry.ts", [
+      {
+        lineNo: 99,
+        commitSha: SHA_B,
+        authorName: "bob",
+        authorEmail: "bob@example.com",
+        authorTimeMs: 1_700_000_000_000,
+      },
+    ]);
+
+    // PR B's `reviewed` edge is broken: its `from_id` resolves to a real
+    // graph_entity row (satisfying the FK), but NOT one of type `person` —
+    // "no matching person graph_entity" — so it can never resolve through
+    // the join the reviewer query (and the probe) both use.
+    const prBRow = db
+      .query("SELECT id FROM graph_entity WHERE type = 'pr' AND external_id = ?")
+      .get("github:acme/app#413") as { id: string };
+    db.run(
+      "INSERT INTO graph_entity (id, type, external_id, label, service) VALUES (?, ?, ?, ?, ?)",
+      ["ge:not-a-person", "ghost", "ghost:not-a-person", "Not A Person", "github"],
+    );
+    db.run("INSERT INTO graph_relation (from_id, to_id, type, created_at) VALUES (?, ?, ?, ?)", [
+      "ge:not-a-person",
+      prBRow.id,
+      "reviewed",
+      t,
+    ]);
+
+    const brief = await runWhy({ ref: refAt(99) }, ctxFor(db));
+
+    const prFinding = brief.findings.find((f) => f.lane === "pull_request");
+    expect(prFinding?.title).toContain("413");
+    expect(prFinding?.detail).not.toContain("Reviewed by");
+
+    // The bug this test guards against: an UNSCOPED probe finds PR A's
+    // healthy `reviewed` edge and reports "all clear" globally, silencing
+    // the gap note for PR B even though PR B's own reviewers never resolve.
+    const reviewedGap = brief.gaps.find(
+      (g) => g.category === "missing_relation_emit" && g.detail.includes("reviewed"),
+    );
+    expect(reviewedGap).toBeDefined();
   });
 
   test("ticket lane: pr → resolves → issue, endpoint-scoped", async () => {

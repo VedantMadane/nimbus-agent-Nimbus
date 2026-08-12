@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
 import { upsertIndexedItem } from "../index/item-store.ts";
 import { LocalIndex } from "../index/local-index.ts";
-import { emitExpertBrief, rankExpertFindings, runExpert } from "./expert.ts";
+import { emitExpertBrief, rankExpertFindings, runExpert, subPrReviewed } from "./expert.ts";
 
 describe("rankExpertFindings", () => {
   test("merges evidence from multiple streams by personId, summing weights", () => {
@@ -229,6 +229,145 @@ describe("runExpert gap-note coverage", () => {
     const brief = await runExpert({ topicOrFile: "noop" }, ctx);
     const cats = brief.gaps.map((g) => g.category);
     expect(cats).toContain("missing_relation_emit");
+
+    // C-1: the zero-edge `reviewed` gap note must not claim the populator
+    // fails to emit `reviewed` (it does, since `syncReviewGraph` shipped),
+    // and must not tell the user to run a `nimbus index backfill` command
+    // that does not exist anywhere in the shipped CLI.
+    const reviewedGap = brief.gaps.find(
+      (g) => g.category === "missing_relation_emit" && g.detail.includes("reviewed"),
+    );
+    expect(reviewedGap).toBeDefined();
+    expect(reviewedGap?.detail).not.toMatch(/not yet emitted by the graph populator/);
+    for (const g of brief.gaps) {
+      expect(g.detail).not.toMatch(/index backfill/);
+      expect(g.remediation ?? "").not.toMatch(/index backfill/);
+    }
+  });
+});
+
+describe("subPrReviewed", () => {
+  test("subPrReviewed surfaces a reviewer as pr_reviewed evidence", async () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    const now = Date.now();
+    db.run("INSERT INTO person (id, display_name) VALUES (?, ?)", ["person:author", "Author"]);
+    db.run("INSERT INTO person (id, display_name) VALUES (?, ?)", ["person:reviewer", "Reviewer"]);
+
+    upsertIndexedItem(db, {
+      service: "github",
+      type: "pr",
+      externalId: "acme/app#1",
+      title: "Add rate limiter",
+      bodyPreview: "",
+      modifiedAt: now,
+      syncedAt: now,
+      authorId: "person:author",
+      metadata: { repo: "acme/app", number: 1 },
+    });
+    upsertIndexedItem(db, {
+      service: "github",
+      type: "review",
+      externalId: "acme/app#1#review-500",
+      title: "Review on acme/app#1",
+      bodyPreview: "",
+      modifiedAt: now,
+      syncedAt: now,
+      authorId: "person:reviewer",
+      metadata: { repo: "acme/app", pr_number: 1 },
+    });
+
+    const result = await subPrReviewed(db, "rate limiter");
+
+    expect(result.gap).toBeUndefined();
+    expect(result.stream?.personId).toBe("person:reviewer");
+    expect(result.stream?.displayName).toBe("Reviewer");
+    expect(result.stream?.evidence).toHaveLength(1);
+    expect(result.stream?.evidence[0]?.type).toBe("pr_reviewed");
+    expect(result.stream?.evidence[0]?.itemId).toBe("github:acme/app#1");
+    db.close();
+  });
+
+  test("subPrReviewed still reports the gap when no reviewed edges exist", async () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    const result = await subPrReviewed(db, "anything");
+    expect(result.gap?.category).toBe("missing_relation_emit");
+    expect(result.stream).toBeUndefined();
+    db.close();
+  });
+
+  test("subPrReviewed reports a distinct gap when a reviewed edge exists but its PR does not resolve to an indexed item", async () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    const now = Date.now();
+    db.run("INSERT INTO person (id, display_name) VALUES (?, ?)", ["person:reviewer", "Reviewer"]);
+    db.run(
+      "INSERT INTO graph_entity (id, type, external_id, label, service) VALUES (?, ?, ?, ?, ?)",
+      ["ge:person:reviewer", "person", "person:reviewer", "Reviewer", "github"],
+    );
+    // PR graph_entity with NO backing `item` row — this is the partial-join
+    // failure the old `detectMissingRelationEmit`-only probe couldn't see.
+    db.run(
+      "INSERT INTO graph_entity (id, type, external_id, label, service) VALUES (?, ?, ?, ?, ?)",
+      ["ge:pr:orphan", "pr", "github:pr:orphan", "Orphan PR", "github"],
+    );
+    db.run("INSERT INTO graph_relation (from_id, to_id, type, created_at) VALUES (?, ?, ?, ?)", [
+      "ge:person:reviewer",
+      "ge:pr:orphan",
+      "reviewed",
+      now,
+    ]);
+
+    const result = await subPrReviewed(db, "anything");
+
+    expect(result.stream).toBeUndefined();
+    expect(result.gap?.category).toBe("missing_relation_emit");
+    // Distinct from the "no edges at all" gap's detail — proves this is the
+    // resolution-aware branch, not the pre-existing zero-edges check.
+    expect(result.gap?.detail).toContain("none resolve");
+    db.close();
+  });
+
+  test("subPrReviewed emits no gap note when a reviewed edge resolves but the topic just has no match (M-10)", async () => {
+    // A fully resolvable `reviewed` edge exists (real person + real indexed PR),
+    // but the free-text query below matches nothing in it. This must return
+    // `null` from `detectUnresolvedReviewedRelation` — a topic with no match is
+    // not a data gap — never a false "missing_relation_emit" gap note.
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    const now = Date.now();
+    db.run("INSERT INTO person (id, display_name) VALUES (?, ?)", ["person:author", "Author"]);
+    db.run("INSERT INTO person (id, display_name) VALUES (?, ?)", ["person:reviewer", "Reviewer"]);
+
+    upsertIndexedItem(db, {
+      service: "github",
+      type: "pr",
+      externalId: "acme/app#1",
+      title: "Add rate limiter",
+      bodyPreview: "",
+      modifiedAt: now,
+      syncedAt: now,
+      authorId: "person:author",
+      metadata: { repo: "acme/app", number: 1 },
+    });
+    upsertIndexedItem(db, {
+      service: "github",
+      type: "review",
+      externalId: "acme/app#1#review-500",
+      title: "Review on acme/app#1",
+      bodyPreview: "",
+      modifiedAt: now,
+      syncedAt: now,
+      authorId: "person:reviewer",
+      metadata: { repo: "acme/app", pr_number: 1 },
+    });
+
+    const result = await subPrReviewed(db, "no-such-topic-anywhere");
+
+    expect(result.stream).toBeUndefined();
+    expect(result.gap).toBeUndefined();
+    db.close();
   });
 });
 
@@ -406,10 +545,20 @@ describe("runExpert — subPrReviewed / subIncidentResolved suppressed gaps", ()
   test("existing reviewed + resolves relations and an incident entity produce no gap for those", async () => {
     const db = makePopulatedDb();
     const now = Date.now();
-    // Populate graph with 'reviewed' relation so subPrReviewed returns {}
+    // Populate graph with a 'reviewed' relation whose endpoints genuinely
+    // resolve through the join chain `subPrReviewed` reads — a real `item`
+    // row backing the `pr` graph_entity (id matches its external_id) and a
+    // real `person` row backing the `person` graph_entity (id matches its
+    // external_id) — so `subPrReviewed`'s resolution-aware probe finds a
+    // resolvable edge and stays quiet.
+    db.run(
+      "INSERT INTO item (id, service, type, external_id, title, modified_at, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      ["github:pr:1", "github", "pr", "pr:1", "auth overhaul", now, now],
+    );
+    db.run("INSERT INTO person (id, display_name) VALUES (?, ?)", ["person:1", "Person"]);
     db.run(
       "INSERT INTO graph_entity (id, type, external_id, label, service) VALUES (?, ?, ?, ?, ?)",
-      ["ge:pr:1", "pr", "pr:1", "PR", "github"],
+      ["ge:pr:1", "pr", "github:pr:1", "PR", "github"],
     );
     db.run(
       "INSERT INTO graph_entity (id, type, external_id, label, service) VALUES (?, ?, ?, ?, ?)",

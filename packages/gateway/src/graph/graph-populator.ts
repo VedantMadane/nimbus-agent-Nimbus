@@ -72,12 +72,25 @@ function repoPathFromMetadata(meta: Record<string, unknown>): string | undefined
  * The blanket clear below must not touch them: the entity being cleared is
  * only one endpoint, and the other side is authoritative for the edge.
  * Each emitting sync function clears its own outgoing edges of these types
- * via `clearOutgoingRelationsOfType` immediately before re-emitting them.
+ * via `clearOutgoingRelationsOfType` immediately before re-emitting them —
+ * WITH ONE DELIBERATE EXCEPTION: `reviewed`. Do NOT "fix" `syncReviewGraph`
+ * to call `clearOutgoingRelationsOfType(db, personEntityId, "reviewed")`
+ * before emitting. A `reviewed` edge's outgoing side is the PERSON, and one
+ * reviewer reviews many PRs — clearing that person's outgoing `reviewed`
+ * edges before re-emitting would delete every OTHER PR they reviewed, each
+ * time any one of their reviews is re-populated (e.g. `nimbus index regraph`
+ * would collapse a reviewer's entire history down to whichever review was
+ * populated last). `syncReviewGraph` relies on `upsertGraphRelation`'s
+ * `ON CONFLICT (from_id, to_id, type)` idempotency instead, and disclosed
+ * staleness (a deleted upstream review leaves a stale edge) rather than a
+ * clear that would silently destroy unrelated data. See `syncReviewGraph`'s
+ * own doc comment for the full rationale.
  */
 const CROSS_ITEM_RELATION_TYPES: readonly string[] = Object.freeze([
   "resolves",
   "mentions",
   "correlates_with",
+  "reviewed",
 ]);
 
 function clearRelationsTouchingEntity(db: Database, entityId: string): void {
@@ -280,6 +293,48 @@ function syncPrGraph(db: Database, row: IndexedItemGraphInput, now: number): voi
   for (const issueId of findIssueEntityIds(db, row.service, repoFull, refs)) {
     upsertGraphRelation(db, prEntityId, issueId, "resolves", now);
   }
+}
+
+/**
+ * A `review` item is one reviewer acting on one PR, so it maps to exactly one
+ * `person --reviewed--> pr` edge. Nothing is cleared here: the edge is
+ * idempotent under `upsertGraphRelation`'s `ON CONFLICT (from_id, to_id, type)`,
+ * and it is listed in CROSS_ITEM_RELATION_TYPES precisely so that no entity's
+ * re-population retires it. The consequence — a review deleted upstream leaves
+ * a stale edge — is disclosed rather than mechanised (spec 5.F).
+ *
+ * `ensureGraphEntity` (not `upsertGraphEntity`) for the PR side: a review can be
+ * populated before its PR during a `regraph` replay, and clobbering the PR's
+ * label with a synthesised one would corrupt every reader that displays it.
+ */
+function syncReviewGraph(db: Database, row: IndexedItemGraphInput, now: number): void {
+  if (row.authorId === null || row.authorId === "") {
+    return;
+  }
+  const repoFull = stringField(row.metadata, "repo");
+  const prNumber = row.metadata["pr_number"];
+  // `stringField` already returns `undefined` for an empty/whitespace-only value — an
+  // `=== ""` disjunct here would be dead code (M-3).
+  if (repoFull === undefined || typeof prNumber !== "number") {
+    return;
+  }
+
+  const prItemId = `${row.service}:${repoFull}#${String(prNumber)}`;
+  const prEntityId = ensureGraphEntity(db, {
+    type: "pr",
+    externalId: prItemId,
+    label: `${repoFull}#${String(prNumber)}`,
+    service: row.service,
+  });
+
+  const label = personDisplayName(db, row.authorId) ?? row.authorId;
+  const personEntityId = upsertGraphEntity(db, {
+    type: "person",
+    externalId: row.authorId,
+    label,
+    service: row.service,
+  });
+  upsertGraphRelation(db, personEntityId, prEntityId, "reviewed", now);
 }
 
 function syncIssueGraph(db: Database, row: IndexedItemGraphInput, now: number): void {
@@ -779,6 +834,10 @@ export function syncGraphFromIndexedItem(
 
   if (row.type === "pr") {
     syncPrGraph(db, row, now);
+    return;
+  }
+  if (row.type === "review") {
+    syncReviewGraph(db, row, now);
     return;
   }
   if (row.type === "issue") {

@@ -277,14 +277,120 @@ async function subPrAuthored(db: Database, input: string): Promise<SubAgentResul
   return winner === undefined ? {} : { stream: winner };
 }
 
-async function subPrReviewed(db: Database, _input: string): Promise<SubAgentResult> {
-  const gap = detectMissingRelationEmit(
-    db,
-    "reviewed",
-    "Tracked as a graph-populator follow-up; not gated on a specific Phase 5 wave.",
-  );
-  if (gap !== null) return { gap };
-  return {};
+/**
+ * Resolution-aware probe for the `reviewed` lane.
+ *
+ * `detectMissingRelationEmit` only checks that *some* `graph_relation` row of
+ * type `reviewed` exists — it does not require that row to resolve through
+ * the person/pr/item join chain `subPrReviewed`'s real query needs. Without
+ * this check, a `reviewed` edge whose `pr` graph_entity has no backing `item`
+ * row (or whose `person` graph_entity has no backing `person` row) makes the
+ * real query return 0 rows AND makes `detectMissingRelationEmit` report "all
+ * clear" — the exact "silently empty instead of explaining itself"
+ * regression `subIncidentResolved`'s neighbouring comment (see below) already
+ * warns about, here triggered by partial-join failure rather than by zero
+ * edges.
+ *
+ * Returns:
+ *   - the "no `reviewed` edges at all" gap if none exist,
+ *   - a distinct "edges exist but none resolve" gap if edges exist but the
+ *     join chain never completes for any of them (a real indexing gap),
+ *   - `null` if at least one edge resolves — the real query's zero-row
+ *     result is then just "no match for this search topic", not a data gap.
+ */
+function detectUnresolvedReviewedRelation(db: Database): GapNote | null {
+  const missingEmit = detectMissingRelationEmit(db, "reviewed");
+  if (missingEmit !== null) {
+    // `detectMissingRelationEmit`'s hard-coded detail ("not yet emitted by
+    // the graph populator") is false for `reviewed` — `syncReviewGraph` does
+    // emit it. Override with an honest, scoped detail/remediation instead of
+    // changing the shared helper's detail for every other relation type.
+    return {
+      category: missingEmit.category,
+      detail: "No `reviewed` edges yet — the GitHub connector has not indexed PR reviews.",
+      remediation: "Sync the GitHub connector so PR reviews are indexed.",
+    };
+  }
+
+  const resolvedRow = db
+    .query(
+      `SELECT 1 AS n
+         FROM graph_relation gr
+         JOIN graph_entity  pe  ON pe.id = gr.from_id AND pe.type = 'person'
+         JOIN person        p   ON p.id = pe.external_id
+         JOIN graph_entity  pre ON pre.id = gr.to_id AND pre.type = 'pr'
+         JOIN item          i   ON i.id = pre.external_id
+        WHERE gr.type = 'reviewed'
+        LIMIT 1`,
+    )
+    .get() as { n?: number } | null;
+  if (resolvedRow !== null) return null;
+
+  return {
+    category: "missing_relation_emit",
+    detail:
+      "`reviewed` edges exist in the graph but none resolve to an indexed PR and reviewer — the referenced PRs or reviewers are not (yet) indexed.",
+    remediation: "Sync the GitHub connector so the reviewed PRs and their authors are indexed.",
+  };
+}
+
+export async function subPrReviewed(db: Database, input: string): Promise<SubAgentResult> {
+  const rows = db
+    .query(
+      `SELECT
+         p.id                           AS person_id,
+         COALESCE(p.display_name, p.id) AS display_name,
+         i.id                           AS item_id,
+         i.title                        AS title,
+         i.modified_at                  AS modified_at,
+         i.service                      AS service_id
+       FROM graph_relation gr
+       JOIN graph_entity  pe ON pe.id = gr.from_id AND pe.type = 'person'
+       JOIN person        p  ON p.id = pe.external_id
+       JOIN graph_entity  pre ON pre.id = gr.to_id AND pre.type = 'pr'
+       JOIN item          i  ON i.id = pre.external_id
+       WHERE gr.type = 'reviewed'
+         AND (i.title LIKE '%' || ? || '%' OR i.body_preview LIKE '%' || ? || '%')
+       ORDER BY i.modified_at DESC
+       LIMIT 50`,
+    )
+    .all(input, input) as Array<{
+    person_id: string;
+    display_name: string;
+    item_id: string;
+    title: string;
+    modified_at: number;
+    service_id: string;
+  }>;
+
+  if (rows.length === 0) {
+    const gap = detectUnresolvedReviewedRelation(db);
+    return gap === null ? {} : { gap };
+  }
+
+  const merged = new Map<string, ExpertEvidenceStream>();
+  for (const r of rows) {
+    const ev: Evidence = {
+      itemId: r.item_id,
+      type: "pr_reviewed",
+      serviceId: r.service_id,
+      title: r.title.slice(0, 512),
+      modifiedAt: r.modified_at,
+      weight: 0.6,
+    };
+    const existing = merged.get(r.person_id);
+    if (existing === undefined) {
+      merged.set(r.person_id, {
+        personId: r.person_id,
+        displayName: r.display_name,
+        evidence: [ev],
+      });
+    } else {
+      existing.evidence.push(ev);
+    }
+  }
+  const winner = [...merged.values()].sort((a, b) => b.evidence.length - a.evidence.length)[0];
+  return winner === undefined ? {} : { stream: winner };
 }
 
 async function subIncidentResolved(db: Database, _input: string): Promise<SubAgentResult> {

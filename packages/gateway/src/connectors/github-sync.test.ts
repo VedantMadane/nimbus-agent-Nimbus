@@ -1,14 +1,26 @@
 import { expect, test } from "bun:test";
 
 import { resolveItemByUrl } from "../index/resolve-by-url.ts";
+import { RateLimitError } from "../sync/types.ts";
 import {
   createMemoryIndexDb,
   createStubVault,
   describeWithFetchRestore,
+  EMPTY_NIMBUS_VAULT,
+  expectServiceItemCount,
   type SyncTestFetchParams,
   silentSyncContextExtras,
+  syncTestContext,
+  urlFromFetchInput,
 } from "./connector-sync-test-helpers.ts";
-import { createGithubSyncable } from "./github-sync.ts";
+import {
+  createGithubSyncable,
+  extractPrMetadataForIndex,
+  processEvent,
+  selectPrEnrichCandidates,
+  throwGithubRateLimitErrorIfApplicable,
+  upsertPr,
+} from "./github-sync.ts";
 
 function ctxWithPat(db: ReturnType<typeof createMemoryIndexDb>, pat: string | null) {
   return {
@@ -269,4 +281,340 @@ describeWithFetchRestore("github-sync fetchOne", () => {
 
     expect(out).toEqual({ status: "not_found", reason: "upstream_error" });
   });
+});
+
+describeWithFetchRestore("github-sync events sync (I-3)", () => {
+  test("PR detail enrichment still runs on a 304 (unchanged) events tick", async () => {
+    const db = createMemoryIndexDb();
+    const ctx = ctxWithPat(db, "pat-value");
+    const now = Date.now();
+
+    // A previously-indexed PR missing stats — a live enrichment candidate.
+    upsertPr(
+      ctx,
+      "acme/app",
+      {
+        number: 1,
+        title: "Add rate limiter",
+        body: "",
+        html_url: "https://github.com/acme/app/pull/1",
+        user: { login: "author" },
+        state: "open",
+      },
+      now,
+    );
+    expect(selectPrEnrichCandidates(db, 10).map((c) => c.externalId)).toContain("acme/app#1");
+
+    let pullDetailCalled = false;
+    globalThis.fetch = ((input: SyncTestFetchParams[0]) => {
+      const url = urlFromFetchInput(input);
+      if (url === "https://api.github.com/user") {
+        return Promise.resolve(new Response(JSON.stringify({ login: "octocat" }), { status: 200 }));
+      }
+      if (url.startsWith("https://api.github.com/users/octocat/events")) {
+        // The events feed itself is UNCHANGED — this is the 304 path under test.
+        return Promise.resolve(new Response(null, { status: 304 }));
+      }
+      if (url === "https://api.github.com/repos/acme/app/pulls/1") {
+        pullDetailCalled = true;
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              number: 1,
+              title: "Add rate limiter",
+              additions: 10,
+              deletions: 2,
+              changed_files: 1,
+              commits: 1,
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      throw new Error(`unexpected fetch in I-3 test: ${url}`);
+    }) as unknown as typeof fetch;
+
+    const syncable = createGithubSyncable({ ensureGithubMcpRunning: async () => {} });
+    const result = await syncable.sync(ctx, null);
+
+    // The 304 path's own cursor/return semantics are preserved exactly.
+    expect(result.itemsUpserted).toBe(0);
+    expect(result.itemsDeleted).toBe(0);
+    expect(result.hasMore).toBe(false);
+    expect(result.cursor).not.toBeNull();
+
+    // But enrichment newly ran on this quiet tick.
+    expect(pullDetailCalled).toBe(true);
+    expect(selectPrEnrichCandidates(db, 10).map((c) => c.externalId)).not.toContain("acme/app#1");
+    db.close();
+  });
+});
+
+function reviewEvent(): Record<string, unknown> {
+  return {
+    type: "PullRequestReviewEvent",
+    repo: { full_name: "acme/app" },
+    payload: {
+      action: "created",
+      review: {
+        id: 500,
+        state: "approved",
+        body: "LGTM",
+        html_url: "https://github.com/acme/app/pull/1#pullrequestreview-500",
+        submitted_at: "2026-08-11T10:00:00Z",
+        user: { login: "reviewer" },
+      },
+      pull_request: {
+        number: 1,
+        title: "Add rate limiter",
+        body: "",
+        html_url: "https://github.com/acme/app/pull/1",
+        user: { login: "author" },
+        state: "open",
+      },
+    },
+  };
+}
+
+test("a PullRequestReviewEvent indexes both the review and its PR", () => {
+  const db = createMemoryIndexDb();
+  const ctx = syncTestContext(db, EMPTY_NIMBUS_VAULT);
+  const now = Date.now();
+
+  expect(processEvent(ctx, reviewEvent(), now)).toBe(true);
+
+  const review = db
+    .query("SELECT id, author_id, metadata FROM item WHERE service = 'github' AND type = 'review'")
+    .get() as { id: string; author_id: string | null; metadata: string };
+  expect(review.id).toBe("github:acme/app#1#review-500");
+  expect(review.author_id).not.toBeNull();
+  expect(JSON.parse(review.metadata)).toMatchObject({
+    repo: "acme/app",
+    pr_number: 1,
+    review_id: 500,
+  });
+
+  const pr = db.query("SELECT title FROM item WHERE id = 'github:acme/app#1'").get() as {
+    title: string;
+  };
+  expect(pr.title).toBe("Add rate limiter");
+  db.close();
+});
+
+test("the reviewer resolves to a different person than the PR author", () => {
+  const db = createMemoryIndexDb();
+  const ctx = syncTestContext(db, EMPTY_NIMBUS_VAULT);
+  const now = Date.now();
+  processEvent(ctx, reviewEvent(), now);
+
+  const prAuthor = db.query("SELECT author_id FROM item WHERE id = 'github:acme/app#1'").get() as {
+    author_id: string;
+  };
+  const reviewer = db
+    .query("SELECT author_id FROM item WHERE id = 'github:acme/app#1#review-500'")
+    .get() as { author_id: string };
+
+  expect(reviewer.author_id).not.toBe(prAuthor.author_id);
+  db.close();
+});
+
+test("a review event missing its pull_request is skipped without throwing", () => {
+  const db = createMemoryIndexDb();
+  const ctx = syncTestContext(db, EMPTY_NIMBUS_VAULT);
+  const ev = {
+    type: "PullRequestReviewEvent",
+    repo: { full_name: "acme/app" },
+    payload: { action: "created", review: { id: 500, user: { login: "reviewer" } } },
+  };
+
+  expect(() => processEvent(ctx, ev, Date.now())).not.toThrow();
+  expectServiceItemCount(db, "github", 0);
+  db.close();
+});
+
+test("a review missing a usable id writes the PR but skips the review, and processEvent reports false", () => {
+  const db = createMemoryIndexDb();
+  const ctx = syncTestContext(db, EMPTY_NIMBUS_VAULT);
+  const ev = {
+    type: "PullRequestReviewEvent",
+    repo: { full_name: "acme/app" },
+    payload: {
+      action: "created",
+      review: { user: { login: "reviewer" } },
+      pull_request: { number: 1, title: "x", user: { login: "a" } },
+    },
+  };
+
+  expect(() => processEvent(ctx, ev, Date.now())).not.toThrow();
+  expect(processEvent(ctx, ev, Date.now())).toBe(false);
+
+  const pr = db.query("SELECT title FROM item WHERE id = 'github:acme/app#1'").get() as {
+    title: string;
+  } | null;
+  expect(pr).not.toBeNull();
+  const review = db.query("SELECT id FROM item WHERE service = 'github' AND type = 'review'").get();
+  expect(review).toBeNull();
+  db.close();
+});
+
+test("a review id sent as a string (not a number) writes the PR but skips the review", () => {
+  const db = createMemoryIndexDb();
+  const ctx = syncTestContext(db, EMPTY_NIMBUS_VAULT);
+  const ev = {
+    type: "PullRequestReviewEvent",
+    repo: { full_name: "acme/app" },
+    payload: {
+      action: "created",
+      review: { id: "500", user: { login: "reviewer" } },
+      pull_request: { number: 1, title: "x", user: { login: "a" } },
+    },
+  };
+
+  expect(processEvent(ctx, ev, Date.now())).toBe(false);
+
+  const pr = db.query("SELECT title FROM item WHERE id = 'github:acme/app#1'").get() as {
+    title: string;
+  } | null;
+  expect(pr).not.toBeNull();
+  const review = db.query("SELECT id FROM item WHERE service = 'github' AND type = 'review'").get();
+  expect(review).toBeNull();
+  db.close();
+});
+
+test("a review event whose pull_request has no usable number is skipped without throwing", () => {
+  const db = createMemoryIndexDb();
+  const ctx = syncTestContext(db, EMPTY_NIMBUS_VAULT);
+  const ev = {
+    type: "PullRequestReviewEvent",
+    repo: { full_name: "acme/app" },
+    payload: {
+      action: "created",
+      review: { id: 500, user: { login: "reviewer" } },
+      pull_request: { title: "x", user: { login: "a" } },
+    },
+  };
+
+  expect(() => processEvent(ctx, ev, Date.now())).not.toThrow();
+  expect(processEvent(ctx, ev, Date.now())).toBe(false);
+  expectServiceItemCount(db, "github", 0);
+  db.close();
+});
+
+test("PR stats are captured from a pull-detail payload", () => {
+  const meta = extractPrMetadataForIndex("acme/app", {
+    number: 1,
+    title: "Add rate limiter",
+    state: "open",
+    user: { login: "author" },
+    additions: 120,
+    deletions: 30,
+    changed_files: 7,
+    commits: 3,
+  });
+
+  expect(meta["additions"]).toBe(120);
+  expect(meta["deletions"]).toBe(30);
+  expect(meta["changed_files"]).toBe(7);
+  expect(meta["commits"]).toBe(3);
+});
+
+test("PR stats are absent, not null, when the payload omits them", () => {
+  const meta = extractPrMetadataForIndex("acme/app", {
+    number: 1,
+    title: "Add rate limiter",
+    state: "open",
+    user: { login: "author" },
+  });
+
+  expect("additions" in meta).toBe(false);
+  expect("deletions" in meta).toBe(false);
+  expect("changed_files" in meta).toBe(false);
+  expect("commits" in meta).toBe(false);
+});
+
+test("I-2: an events-path upsert after enrichment preserves stats and does not re-queue the PR", () => {
+  const db = createMemoryIndexDb();
+  const ctx = syncTestContext(db, EMPTY_NIMBUS_VAULT);
+  const now = Date.now();
+
+  // Simulate `enrichPrDetail`'s single-PR response: real title + full stats.
+  upsertPr(
+    ctx,
+    "acme/app",
+    {
+      number: 1,
+      title: "Add rate limiter",
+      body: "",
+      html_url: "https://github.com/acme/app/pull/1",
+      user: { login: "author" },
+      state: "open",
+      additions: 120,
+      deletions: 30,
+      changed_files: 7,
+      commits: 3,
+    },
+    now,
+  );
+
+  expect(selectPrEnrichCandidates(db, 10).map((c) => c.externalId)).not.toContain("acme/app#1");
+
+  // A later PullRequestEvent for the same PR — real event payloads never carry stats.
+  expect(
+    processEvent(
+      ctx,
+      {
+        type: "PullRequestEvent",
+        repo: { full_name: "acme/app" },
+        payload: {
+          action: "labeled",
+          pull_request: {
+            number: 1,
+            title: "Add rate limiter",
+            body: "",
+            html_url: "https://github.com/acme/app/pull/1",
+            user: { login: "author" },
+            state: "open",
+          },
+        },
+      },
+      now + 60_000,
+    ),
+  ).toBe(true);
+
+  const row = db.query("SELECT metadata FROM item WHERE id = 'github:acme/app#1'").get() as {
+    metadata: string;
+  };
+  const meta = JSON.parse(row.metadata) as Record<string, unknown>;
+  expect(meta["additions"]).toBe(120);
+  expect(meta["deletions"]).toBe(30);
+  expect(meta["changed_files"]).toBe(7);
+  expect(meta["commits"]).toBe(3);
+
+  // Stats survived the events-path upsert, so the PR must not re-qualify for enrichment.
+  expect(selectPrEnrichCandidates(db, 10).map((c) => c.externalId)).not.toContain("acme/app#1");
+  db.close();
+});
+
+test("a 403 with retry-after is rate limiting even when remaining is non-zero", () => {
+  const db = createMemoryIndexDb();
+  const ctx = syncTestContext(db, EMPTY_NIMBUS_VAULT);
+  const res = new Response("secondary rate limit", {
+    status: 403,
+    headers: { "retry-after": "60", "x-ratelimit-remaining": "4999" },
+  });
+
+  expect(() => throwGithubRateLimitErrorIfApplicable(ctx, res, "events")).toThrow(RateLimitError);
+  db.close();
+});
+
+test("a 403 with no retry-after and remaining left is not rate limiting", () => {
+  const db = createMemoryIndexDb();
+  const ctx = syncTestContext(db, EMPTY_NIMBUS_VAULT);
+  const res = new Response("forbidden", {
+    status: 403,
+    headers: { "x-ratelimit-remaining": "4999" },
+  });
+
+  expect(() => throwGithubRateLimitErrorIfApplicable(ctx, res, "events")).not.toThrow();
+  db.close();
 });

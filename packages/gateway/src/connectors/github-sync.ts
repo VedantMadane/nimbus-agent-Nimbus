@@ -93,6 +93,12 @@ export function extractPrMetadataForIndex(
     out["mergeable_state"] = mergeableState;
     out["mergeable_state_fetched_at_ms"] = nowMs;
   }
+  for (const key of ["additions", "deletions", "changed_files", "commits"] as const) {
+    const v = numberField(pr, key);
+    if (v !== undefined) {
+      out[key] = v;
+    }
+  }
   if (merged) {
     const mergedAtIso = stringField(pr, "merged_at");
     if (mergedAtIso !== undefined) {
@@ -110,7 +116,7 @@ export function extractPrMetadataForIndex(
 }
 
 function eventsUrlFor(login: string): string {
-  return `https://api.github.com/users/${encodeURIComponent(login)}/events?per_page=100`;
+  return `https://api.github.com/users/${encodeURIComponent(login)}/events?per_page=${String(GITHUB_EVENTS_PAGE_SIZE)}`;
 }
 
 type GithubSyncCursorV1 = { etag: string | null; login: string | null };
@@ -194,6 +200,76 @@ function githubPrExternalId(repoFull: string, num: number): string {
   return `${repoFull}#${String(num)}`;
 }
 
+const PR_STAT_KEYS = ["additions", "deletions", "changed_files", "commits"] as const;
+
+/**
+ * I-2: `extractPrMetadataForIndex` only sets the four size-stat keys when the incoming payload
+ * carries them — true only of the single-PR / pull-detail response, never of the events feed's
+ * `PullRequestEvent`/`PullRequestReviewEvent` payloads. `upsertIndexedItem` writes metadata with
+ * `metadata = excluded.metadata`, which REPLACES the row's metadata wholesale, so any later
+ * events-path upsert for a PR that `enrichPrDetail` already filled in would otherwise silently
+ * erase its stats — and `selectPrEnrichCandidates` would then re-queue that PR forever, since
+ * `modified_at` also just advanced, pushing it to the front of the `modified_at DESC` candidate
+ * list. Merge the four keys forward from the currently-indexed row whenever the incoming payload
+ * omits them.
+ *
+ * Accepted tradeoff: once merged forward, stats can go stale (an event bumps `modified_at`
+ * without new commit/diff counts) until the next detail fetch refreshes them. That is strictly
+ * better than losing the stats outright and re-enriching the same PR on every tick.
+ *
+ * Scope, deliberately: this merges forward the four `PR_STAT_KEYS` only. `mergeable`,
+ * `mergeable_state`, and `mergeable_state_fetched_at_ms` are subject to the same wholesale
+ * `metadata = excluded.metadata` replacement and are NOT merged forward here — left as-is
+ * because no re-queue loop results: `shouldRefreshMergeableState` currently has no production
+ * caller, so nothing re-derives or re-fetches `mergeable_state` off the back of a cleared value.
+ * Not an oversight; revisit together if `shouldRefreshMergeableState` ever gets wired up.
+ *
+ * Open question (unverified): `extractPrMetadataForIndex`'s own docstring and
+ * `selectPrEnrichCandidates`'s docstring both assert the GitHub events feed omits `title` on
+ * `PullRequestEvent` payloads. If that holds, an events-path `upsertPr` call for an
+ * already-enriched PR falls back to the id-only `PR #<num>` title (see `upsertPr`), which is a
+ * plain field on the `item` row, not something this function merges forward. `title LIKE
+ * 'PR #%'` would then re-match, and `selectPrEnrichCandidates`'s exact-fallback arm re-queues
+ * the row regardless of stats — so this stats merge-forward would close only one of the
+ * selector's two arms, not both. This could not be confirmed from GitHub's published docs and
+ * needs verification against the live API before anyone treats it as fixed either way.
+ */
+function mergeForwardPrStats(
+  db: Database,
+  meta: Record<string, unknown>,
+  externalId: string,
+): Record<string, unknown> {
+  const missing = PR_STAT_KEYS.filter((k) => meta[k] === undefined);
+  if (missing.length === 0) {
+    return meta;
+  }
+  const id = itemPrimaryKey(SERVICE_ID, externalId);
+  const row = db.query("SELECT metadata FROM item WHERE id = ?").get(id) as {
+    metadata: string | null;
+  } | null;
+  if (row === null || row.metadata === null) {
+    return meta;
+  }
+  let existing: unknown;
+  try {
+    existing = JSON.parse(row.metadata) as unknown;
+  } catch {
+    return meta;
+  }
+  const existingRec = asRecord(existing);
+  if (existingRec === undefined) {
+    return meta;
+  }
+  const merged = { ...meta };
+  for (const k of missing) {
+    const v = existingRec[k];
+    if (v !== undefined) {
+      merged[k] = v;
+    }
+  }
+  return merged;
+}
+
 export function upsertPr(
   ctx: SyncContext,
   repoFull: string,
@@ -226,8 +302,12 @@ export function upsertPr(
   const modified = modifiedMsFromGithubTimestamps(pr, now);
   const user = asRecord(pr["user"]);
   const authorId = resolveGithubActorPersonId(ctx.db, user);
-  const meta = extractPrMetadataForIndex(repoFull, pr, now);
   const externalId = githubPrExternalId(repoFull, num);
+  const meta = mergeForwardPrStats(
+    ctx.db,
+    extractPrMetadataForIndex(repoFull, pr, now),
+    externalId,
+  );
   upsertIndexedItemForSync(ctx, {
     service: SERVICE_ID,
     type: "pr",
@@ -242,6 +322,61 @@ export function upsertPr(
     pinned: false,
     syncedAt: now,
   });
+}
+
+function githubReviewExternalId(repoFull: string, prNum: number, reviewId: number): string {
+  return `${repoFull}#${String(prNum)}#review-${String(reviewId)}`;
+}
+
+/**
+ * A review is indexed as its own item rather than as PR metadata: the item
+ * upsert replaces `metadata` wholesale (`index/item-store.ts`), so a later
+ * `PullRequestEvent` for the same PR would silently erase reviewer data stored
+ * there. Separate rows cannot clobber one another.
+ *
+ * The events feed is the authenticated user's own activity, so `author_id` here
+ * is always the local user — this indexes "PRs I reviewed", never "who reviewed
+ * my PRs".
+ */
+function upsertReview(
+  ctx: SyncContext,
+  repoFull: string,
+  review: Record<string, unknown>,
+  prNum: number,
+  now: number,
+): boolean {
+  const reviewId = numberField(review, "id");
+  if (reviewId === undefined) {
+    return false;
+  }
+  const user = asRecord(review["user"]);
+  const authorId = resolveGithubActorPersonId(ctx.db, user);
+  const state = stringField(review, "state");
+  const body = stringField(review, "body");
+  const submitted = stringField(review, "submitted_at");
+  const modified = submitted === undefined ? now : Date.parse(submitted);
+  const htmlUrl = stringField(review, "html_url");
+
+  upsertIndexedItemForSync(ctx, {
+    service: SERVICE_ID,
+    type: "review",
+    externalId: githubReviewExternalId(repoFull, prNum, reviewId),
+    title: `Review on ${repoFull}#${String(prNum)}`,
+    body: body ?? "",
+    url: htmlUrl ?? null,
+    canonicalUrl: htmlUrl ?? null,
+    modifiedAt: Number.isFinite(modified) ? modified : now,
+    authorId,
+    metadata: {
+      repo: repoFull,
+      pr_number: prNum,
+      review_id: reviewId,
+      state: state ?? null,
+    },
+    pinned: false,
+    syncedAt: now,
+  });
+  return true;
 }
 
 function upsertFromIssue(
@@ -298,6 +433,28 @@ function processPullRequestPayload(
   return true;
 }
 
+function processPullRequestReviewPayload(
+  ctx: SyncContext,
+  fullName: string,
+  payload: Record<string, unknown>,
+  now: number,
+): boolean {
+  const review = asRecord(payload["review"]);
+  const pr = asRecord(payload["pull_request"]);
+  if (review === undefined || pr === undefined) {
+    return false;
+  }
+  const num = numberField(pr, "number");
+  if (num === undefined) {
+    return false;
+  }
+  // Index the PR too, so the `reviewed` edge targets a titled item rather than a
+  // stub: 14 call sites inner-join `item` on `graph_entity.external_id`, and an
+  // item-less entity is invisible to all of them.
+  upsertPr(ctx, fullName, pr, now);
+  return upsertReview(ctx, fullName, review, num, now);
+}
+
 function processIssuesPayload(
   ctx: SyncContext,
   fullName: string,
@@ -315,7 +472,7 @@ function processIssuesPayload(
   return true;
 }
 
-function processEvent(ctx: SyncContext, ev: Record<string, unknown>, now: number): boolean {
+export function processEvent(ctx: SyncContext, ev: Record<string, unknown>, now: number): boolean {
   const repo = asRecord(ev["repo"]);
   if (repo === undefined) {
     return false;
@@ -331,6 +488,9 @@ function processEvent(ctx: SyncContext, ev: Record<string, unknown>, now: number
   }
   if (type === "PullRequestEvent") {
     return processPullRequestPayload(ctx, fullName, payload, now);
+  }
+  if (type === "PullRequestReviewEvent") {
+    return processPullRequestReviewPayload(ctx, fullName, payload, now);
   }
   if (type === "IssuesEvent") {
     return processIssuesPayload(ctx, fullName, payload, now);
@@ -363,15 +523,20 @@ function parseGithubEventsPayload(text: string): unknown[] {
   return parsed;
 }
 
-function throwGithubRateLimitErrorIfApplicable(
+export function throwGithubRateLimitErrorIfApplicable(
   ctx: SyncContext,
   res: Response,
   label: string,
 ): void {
   if (res.status === 403) {
     const remaining = res.headers.get("x-ratelimit-remaining");
-    if (remaining === "0" || remaining === null) {
-      const retryAt = retryAfterDateFromHeader(res.headers.get("retry-after"), 60);
+    const retryAfter = res.headers.get("retry-after");
+    // GitHub returns 403 OR 429 for secondary (abuse) limits, and documents
+    // `retry-after` as an independent signal: a secondary limit can arrive with
+    // primary quota still available. Keying only on `remaining === 0` misses
+    // every one of those and retries straight into the limit.
+    if (remaining === "0" || remaining === null || retryAfter !== null) {
+      const retryAt = retryAfterDateFromHeader(retryAfter, 60);
       const ms = Math.max(1000, retryAt.getTime() - Date.now());
       ctx.rateLimiter.penalise("github", ms);
       throw new RateLimitError(retryAt, `GitHub ${label}: rate limited (403)`);
@@ -394,14 +559,81 @@ interface FallbackPrCandidate {
 
 const MAX_ENRICH_PER_TICK = 10;
 
-function selectFallbackPrCandidates(db: Database, limit: number): FallbackPrCandidate[] {
+/**
+ * Single source of truth for the events feed's `per_page`, shared by `eventsUrlFor` (the request)
+ * and `syncGithubUserEvents` (the full-page saturation check) so the two can never drift.
+ */
+const GITHUB_EVENTS_PAGE_SIZE = 100;
+
+/**
+ * True when `metadata` (a JSON blob) already carries a non-null `additions` field.
+ * Unparseable JSON returns `false` — mirrors the SQL's `NOT json_valid(metadata)` arm:
+ * a row that cannot be proven to have stats must remain a candidate, never be skipped.
+ */
+function metadataHasStats(metadata: string): boolean {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(metadata) as unknown;
+  } catch {
+    return false;
+  }
+  const rec = asRecord(parsed);
+  if (rec === undefined) {
+    return false;
+  }
+  const additions = rec["additions"];
+  return additions !== undefined && additions !== null;
+}
+
+/**
+ * Candidates for a pull-detail re-fetch. Two independent reasons:
+ *   1. the title is still the id-only `PR #<n>` fallback (the events feed omits
+ *      `title` on `PullRequestEvent` payloads), or
+ *   2. size statistics are missing — `additions`/`deletions`/`changed_files`/
+ *      `commits` exist only on the single-PR response, never on events or the
+ *      list endpoint.
+ *
+ * The SQL `WHERE` deliberately over-selects: its `title LIKE 'PR #%'` arm also
+ * matches a REAL title that merely starts with that text (e.g. `"PR #142 fix
+ * bug"`), and `upsertPr` writes GitHub's real title back unchanged, so such a
+ * row would otherwise re-qualify forever — permanently occupying a slot in the
+ * `MAX_ENRICH_PER_TICK`-capped, `modified_at DESC`-ordered result and starving
+ * rows that genuinely still need enrichment. The JS loop below narrows each
+ * over-selected row to the exact two reasons: keep it only if the title is the
+ * EXACT `PR #<num>` fallback, or its stats are still missing. Since the SQL
+ * already guarantees every row matched one of the two arms, a row that is not
+ * the exact fallback and already has stats can only have matched via the LIKE
+ * over-select, so skipping it is safe and sufficient.
+ *
+ * `json_extract` is used (via `metadataHasStats`) rather than a LIKE over the
+ * raw metadata blob so a PR body mentioning "additions" cannot mask a
+ * genuinely missing field. `OR` does NOT short-circuit SQLite's evaluation
+ * order in a way that is guaranteed by contract. Measured behaviour (bun 1.3.14 /
+ * SQLite 3.53.0): the bare `OR` form DOES short-circuit per row in WHERE-clause
+ * context and does not throw; the same expression in a SELECT-list value context
+ * DOES throw. Rather than depend on that context distinction, the `json_extract`
+ * arm is wrapped in a
+ * `CASE WHEN json_valid(metadata) THEN … ELSE 1 END` guard, mirrored by
+ * `metadataHasStats`'s parse-failure fallback: a row whose metadata cannot be
+ * parsed must remain a CANDIDATE (the `ELSE 1`), because malformed JSON must
+ * never be treated as "has stats" — that would incorrectly skip a row that
+ * cannot be proven enriched.
+ */
+export function selectPrEnrichCandidates(db: Database, limit: number): FallbackPrCandidate[] {
   const rows = db
     .query(
-      `SELECT external_id, title FROM item
-         WHERE service = 'github' AND type = 'pr' AND title LIKE 'PR #%'
+      `SELECT external_id, title, metadata FROM item
+         WHERE service = 'github' AND type = 'pr'
+           AND (
+             title LIKE 'PR #%'
+             OR CASE
+                  WHEN json_valid(metadata) THEN json_extract(metadata, '$.additions') IS NULL
+                  ELSE 1
+                END
+           )
          ORDER BY modified_at DESC LIMIT ?`,
     )
-    .all(limit * 3) as { external_id: string; title: string }[]; // over-select; JS filter is exact
+    .all(limit * 3) as { external_id: string; title: string; metadata: string }[]; // over-select; JS narrows below
   const out: FallbackPrCandidate[] = [];
   for (const r of rows) {
     const hash = r.external_id.lastIndexOf("#");
@@ -409,7 +641,8 @@ function selectFallbackPrCandidates(db: Database, limit: number): FallbackPrCand
     const repoFull = r.external_id.slice(0, hash);
     const num = Number.parseInt(r.external_id.slice(hash + 1), 10);
     if (!Number.isFinite(num)) continue;
-    if (r.title !== `PR #${String(num)}`) continue; // exact fallback only
+    const isExactFallback = r.title === `PR #${String(num)}`;
+    if (!isExactFallback && metadataHasStats(r.metadata)) continue; // only matched via the LIKE over-select
     out.push({ externalId: r.external_id, repoFull, num });
     if (out.length >= limit) break;
   }
@@ -417,18 +650,20 @@ function selectFallbackPrCandidates(db: Database, limit: number): FallbackPrCand
 }
 
 /**
- * Re-fetches pull-request detail for any indexed `pr` row still carrying the
- * id-only `PR #<num>` fallback title (the GitHub events feed omits `title`
- * on `PullRequestEvent` payloads). Processes up to `MAX_ENRICH_PER_TICK`
- * rows, newest-first, sequentially through the shared rate limiter.
+ * Re-fetches pull-request detail for any indexed `pr` row that either still
+ * carries the id-only `PR #<num>` fallback title (the GitHub events feed omits
+ * `title` on `PullRequestEvent` payloads) or is missing size statistics
+ * (`additions`/`deletions`/`changed_files`/`commits`, which exist only on the
+ * single-PR response). Processes up to `MAX_ENRICH_PER_TICK` rows, newest-first,
+ * sequentially through the shared rate limiter.
  */
-export async function enrichFallbackPrTitles(
+export async function enrichPrDetail(
   ctx: SyncContext,
   pat: string,
   now: number,
   fetchImpl: typeof fetch = fetch,
 ): Promise<number> {
-  const candidates = selectFallbackPrCandidates(ctx.db, MAX_ENRICH_PER_TICK);
+  const candidates = selectPrEnrichCandidates(ctx.db, MAX_ENRICH_PER_TICK);
   let enriched = 0;
   for (const c of candidates) {
     await ctx.rateLimiter.acquire("github");
@@ -455,7 +690,37 @@ export async function enrichFallbackPrTitles(
     upsertPr(ctx, c.repoFull, pr, now);
     enriched += 1;
   }
+  const remaining = selectPrEnrichCandidates(ctx.db, MAX_ENRICH_PER_TICK + 1).length;
+  if (remaining > MAX_ENRICH_PER_TICK) {
+    ctx.logger.info(
+      { service: SERVICE_ID, enriched, remainingAtLeast: MAX_ENRICH_PER_TICK },
+      "PR detail enrichment has more candidates queued for the next tick",
+    );
+  }
   return enriched;
+}
+
+/**
+ * I-3: shared by both the changed-events path and the 304 (unchanged) path, so a quiet tick still
+ * drains the enrichment backlog. `selectPrEnrichCandidates` is `modified_at DESC`-ordered and
+ * `MAX_ENRICH_PER_TICK`-capped; before this helper existed, `syncGithubUserEvents` only reached
+ * `enrichPrDetail` when the events feed itself changed, so on a low-activity account most ticks
+ * returned 304 and the backlog drained at roughly zero.
+ */
+async function runPrDetailEnrichmentBestEffort(
+  ctx: SyncContext,
+  pat: string,
+  now: number,
+): Promise<void> {
+  try {
+    await enrichPrDetail(ctx, pat, now);
+  } catch (err) {
+    if (err instanceof RateLimitError) throw err; // honor backoff
+    ctx.logger.warn(
+      { service: SERVICE_ID, err: String(err) },
+      "PR detail enrichment pass failed (non-fatal)",
+    );
+  }
 }
 
 async function fetchAuthenticatedLogin(ctx: SyncContext, pat: string): Promise<string> {
@@ -513,6 +778,10 @@ async function syncGithubUserEvents(
   bytesTransferred += text.length;
 
   if (res.status === 304) {
+    // I-3: the events feed did not change, but the enrichment backlog is independent of it —
+    // run it here too so a quiet account still drains. The cursor/return shape below is
+    // otherwise byte-identical to before this fix.
+    await runPrDetailEnrichmentBestEffort(ctx, pat, Date.now());
     return {
       ...syncNoopResult(cursor, t0),
       cursor: encodeCursor({ etag, login }),
@@ -543,16 +812,18 @@ async function syncGithubUserEvents(
     }
   }
 
-  // Best-effort title enrichment for fallback-titled PRs (existing rows + this tick's title-less events).
-  try {
-    await enrichFallbackPrTitles(ctx, pat, now);
-  } catch (err) {
-    if (err instanceof RateLimitError) throw err; // honor backoff
+  // One request per tick at per_page=100 (no pagination): a full page means the
+  // window may have overflowed between syncs, and anything older is unreachable
+  // from the events feed. Loss is silent by construction, so record it.
+  if (parsed.length >= GITHUB_EVENTS_PAGE_SIZE) {
     ctx.logger.warn(
-      { service: SERVICE_ID, err: String(err) },
-      "PR title enrichment pass failed (non-fatal)",
+      { service: SERVICE_ID, events: parsed.length },
+      "github events page was full; older events in this window may have been missed",
     );
   }
+
+  // Best-effort detail enrichment for fallback-titled or stats-missing PRs (existing rows + this tick's events).
+  await runPrDetailEnrichmentBestEffort(ctx, pat, now);
 
   const newEtag = res.headers.get("etag");
   const nextCursor = encodeCursor({ etag: newEtag, login });

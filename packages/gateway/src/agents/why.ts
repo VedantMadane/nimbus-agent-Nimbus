@@ -280,6 +280,70 @@ async function subAuthorship(db: Database, lane: LaneInput): Promise<SubAgentRes
 // Lane 2: pull_request
 // ---------------------------------------------------------------------------
 
+/**
+ * Resolution-aware probe for the `reviewed` lane — mirrors the shape of
+ * `expert.ts`'s `detectUnresolvedReviewedRelation`, but scoped to a single
+ * PR: unlike `expert.ts`'s `subPrReviewed` (a free-text topic search across
+ * *all* PRs, where "does anything resolve anywhere" is the right question),
+ * `why.ts`'s `subPullRequest` lane is already scoped to one resolved
+ * `pr.entityId` — its `reviewerRows` query filters `WHERE r.to_id = ?` bound
+ * to that PR. A probe that asks "does ANY `reviewed` edge ANYWHERE resolve"
+ * would report "all clear" as soon as a *different* PR's edge resolves,
+ * silencing a real per-PR failure (a `reviewed` edge on *this* PR with a
+ * dangling `from_id` or no matching `person` graph_entity) the moment the
+ * graph holds more than one PR's review data. So this probe binds
+ * `prEntityId` into the resolution check too, matching `reviewerRows`.
+ *
+ * `detectMissingRelationEmit` only checks that *some* `graph_relation` row of
+ * type `reviewed` exists — it does not require that row to resolve through
+ * the person/pr join chain this lane's reviewer query needs. Without this
+ * check, a `reviewed` edge on this PR whose `person` graph_entity doesn't
+ * exist makes the reviewer query return 0 rows AND makes
+ * `detectMissingRelationEmit` report "all clear" — silently empty instead of
+ * explaining itself.
+ *
+ * Returns:
+ *   - the "no `reviewed` edges at all" gap if none exist anywhere,
+ *   - a distinct "edges exist but none resolve on this PR" gap if edges
+ *     exist elsewhere but the join chain never completes for this PR's
+ *     `pr.entityId` specifically (a real indexing gap for this PR),
+ *   - `null` if at least one edge resolves on this PR — the real query
+ *     already surfaced the reviewer in that case.
+ */
+function detectUnresolvedReviewedRelation(db: Database, prEntityId: string): GapNote | null {
+  const missingEmit = detectMissingRelationEmit(db, "reviewed");
+  if (missingEmit !== null) {
+    // `detectMissingRelationEmit`'s hard-coded detail ("not yet emitted by
+    // the graph populator") is false for `reviewed` — `syncReviewGraph` does
+    // emit it. Override with an honest, scoped detail/remediation instead of
+    // changing the shared helper's detail for every other relation type.
+    return {
+      category: missingEmit.category,
+      detail: "No `reviewed` edges yet — the GitHub connector has not indexed PR reviews.",
+      remediation: "Sync the GitHub connector so PR reviews are indexed.",
+    };
+  }
+
+  const resolvedRow = db
+    .query(
+      `SELECT 1 AS n
+         FROM graph_relation gr
+         JOIN graph_entity  pe  ON pe.id = gr.from_id AND pe.type = 'person'
+        WHERE gr.type = 'reviewed' AND gr.to_id = ?
+        LIMIT 1`,
+    )
+    .get(prEntityId) as { n?: number } | null;
+  if (resolvedRow !== null) return null;
+
+  return {
+    category: "missing_relation_emit",
+    detail:
+      "`reviewed` edges exist in the graph but none resolve to a reviewer for this PR — its reviewers are not (yet) indexed.",
+    remediation:
+      "Sync the GitHub connector so this PR's reviewed events and their authors are indexed.",
+  };
+}
+
 async function subPullRequest(db: Database, lane: LaneInput): Promise<SubAgentResult> {
   const sha = lane.blame?.commitSha;
   const pr = sha === undefined ? null : findPrForSha(db, sha);
@@ -302,23 +366,54 @@ async function subPullRequest(db: Database, lane: LaneInput): Promise<SubAgentRe
     )
     .get(pr.entityId) as { label: string } | null;
 
+  const REVIEWER_DISPLAY_LIMIT = 5;
+  const reviewerRows = db
+    .query(
+      `SELECT DISTINCT pe.label AS label
+         FROM graph_relation r
+         JOIN graph_entity pe ON pe.id = r.from_id AND pe.type = 'person'
+        WHERE r.to_id = ? AND r.type = 'reviewed'
+        ORDER BY label
+        LIMIT ?`,
+    )
+    .all(pr.entityId, REVIEWER_DISPLAY_LIMIT) as Array<{ label: string }>;
+  const reviewerCountRow = db
+    .query(
+      `SELECT COUNT(DISTINCT pe.label) AS n
+         FROM graph_relation r
+         JOIN graph_entity pe ON pe.id = r.from_id AND pe.type = 'person'
+        WHERE r.to_id = ? AND r.type = 'reviewed'`,
+    )
+    .get(pr.entityId) as { n: number } | null;
+  const reviewerTotal = reviewerCountRow?.n ?? reviewerRows.length;
+  const reviewerOverflow = reviewerTotal - reviewerRows.length;
+
+  const openedBy =
+    authorRow !== null ? `Opened by ${authorRow.label}` : "PR author not resolved in the graph.";
+  // A total truncated silently is a lie by omission — name the cut, don't
+  // hide it. Discloses the overflow inline as ", and N more", the same
+  // truncation-disclosure format `packages/cli/src/commands/glossary.ts` uses
+  // when rendering a truncated list (the `decisions` agent instead discloses
+  // truncation via a separate gap note).
+  const reviewerList =
+    reviewerRows.map((r) => r.label).join(", ") +
+    (reviewerOverflow > 0 ? `, and ${String(reviewerOverflow)} more` : "");
+  const detail = reviewerRows.length === 0 ? openedBy : `${openedBy} · Reviewed by ${reviewerList}`;
+
   const finding: WhyFinding = {
     lane: "pull_request",
     title: `#${pr.number ?? "?"} ${pr.title}`,
-    detail:
-      authorRow !== null ? `Opened by ${authorRow.label}` : "PR author not resolved in the graph.",
+    detail,
     url: pr.url,
     occurredAt: pr.modifiedAt,
     entityId: pr.entityId,
   };
 
-  // Reviewers: never promised — no populator emits `reviewed` (a Phase 5+
-  // follow-up, not gated on a specific wave), so this note is permanent.
-  const reviewedGap = detectMissingRelationEmit(
-    db,
-    "reviewed",
-    "Tracked as a graph-populator follow-up; not gated on a specific Phase 5 wave.",
-  );
+  // Reviewers come from `review` items indexed off the GitHub events feed.
+  // The gap note now means "no reviews indexed yet anywhere" or "this PR's
+  // reviewed edges don't resolve to an indexed reviewer" — never
+  // "unimplemented".
+  const reviewedGap = detectUnresolvedReviewedRelation(db, pr.entityId);
   return reviewedGap !== null ? { findings: [finding], gap: reviewedGap } : { findings: [finding] };
 }
 
