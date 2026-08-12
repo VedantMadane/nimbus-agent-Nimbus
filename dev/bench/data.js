@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786553840828,
+  "lastUpdate": 1786558055673,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -11185,6 +11185,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 322.067049649997,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "36dc12c171ce6f44cbbdb6c4a6ff1167b5484996",
+          "message": "docs(release): VSCE_PAT regeneration runbook + record why OIDC is blocked (#1164)\n\nFollow-up to #1031. Two changes, both about making the *next* person's\nhour shorter than mine was.\n\n## What I did NOT add, and why\n\nI set out to add a live `vsce verify-pat` probe, because the Nimbus-side\nregistry row for `VSCE_PAT` is `kind: inventory` — a calendar comparison\nagainst a hand-typed `hardDeadline`, not a real check.\n\n**It already exists.**\n`nimbus-vscode/.github/workflows/secret-health.yml` line 52 live-probes\nthe token weekly via the shared `probe-publish-token` action (`tool:\nvsce`, `namespace: nimbus-agent`). The Nimbus registry row is the\n*calendar* half; the live probe is the *other repo's* half, and both\nalready run. I checked before building and dropped the item.\n\n## 1. A regeneration runbook (`docs/credential-hygiene.md`)\n\nFive steps. Two are easy to get wrong and are called out:\n\n- **Step 2** — `VSCE_PAT` is an **environment** secret on `release`, not\na repository secret. Pasting it at repo level leaves the publish job\nreading the old value, and nothing complains until a release fails.\n- **Step 5** — update `hardDeadline` in `credential-registry.ts` to the\nnew expiry. This is the one with teeth: the date is hand-maintained, so\na stale past date makes the weekly job cry wolf, and *deleting* the\nfield instead makes it go silent straight through the next real expiry.\n\nAlso scoped the consequence honestly, because I'd been overstating it:\nan expired `VSCE_PAT` fails **only the extension publish job**. It is\nnot a merge gate and does not touch the Nimbus gateway release path.\n\n## 2. Recorded why the OIDC path is blocked\n\n`@vscode/vsce@3.9.2` supports `vsce publish --azure-credential`, which\nauthenticates as an Entra service principal and would remove this\ncredential entirely. I set it up end to end today. It does not work\nhere:\n\n- Entra app registration + GitHub OIDC federated credential\n(`repo:nimbus-agent/nimbus-vscode:environment:release`) — created fine.\n- Granting the SP rights on the `nimbus-agent` Marketplace publisher —\n**`TF14045: The identity could not be found`**.\n- Root cause: the backing ADO org (`asafgolombek`) is **MSA-backed**.\n*Organization settings → Microsoft Entra* still offers \"Connect\ndirectory\", so it has never been connected to one. A service principal\nexists only inside an Entra directory, so ADO cannot resolve it at all.\nStructural mismatch, not a permissions or spelling problem.\n\nAll Azure objects were deleted afterwards; nothing is left in the\ntenant.\n\nThe registry note previously read *\"no Entra/OIDC migration is needed\"*\n— true about the global-PAT decommission, but it reads like the option\nwas assessed and rejected. It wasn't; it's blocked. The note now says\nso, names the error, and carries an explicit **do not connect the org to\na directory** warning: that remaps sign-in for every existing user of\nthe org, which is enormous blast radius to avoid one token renewal.\n\n`OVSX_PAT` has no OIDC path either (eclipse-openvsx/openvsx#1534), so\nrotation stays the only mitigation for the Open VSX half regardless.\nRevisit when Marketplace Trusted Publishing ships\n(microsoft/vsmarketplace#1422, still open).\n\n## Verification\n\n- `bun run preflight:fast` — PASSED (all 29 gates)\n- `bun test scripts/release/credential-registry.test.ts\nscripts/release/check-secret-health.test.ts` — 78 pass, 0 fail\n- `bun run lint:markdown` — 0 issues across 129 files\n\n## Still yours\n\nThe token itself. `VSCE_PAT` expires **2026-09-20**; the runbook makes\nit a ~3-minute verified paste. ADO PATs cannot be created\nnon-interactively, and with the org MSA-backed there is no automation\npath around that today.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Documentation**\n* Added a runbook for regenerating, securely storing, revoking, and\nverifying the VSCE publishing token.\n* Documented the limitations of the attempted Azure DevOps OIDC\nmigration and the planned Trusted Publishing alternative.\n* Recorded credential rotation deadlines and noted that the OVSX\npublishing token still requires rotation.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-12T17:55:11Z",
+          "tree_id": "6e1a2ee363eace4eea91465888fe30f143f7a962",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/36dc12c171ce6f44cbbdb6c4a6ff1167b5484996"
+        },
+        "date": 1786558053847,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 329.6564531499971,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 336.67968125000186,
             "unit": "ms"
           }
         ]
