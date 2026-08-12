@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786506802926,
+  "lastUpdate": 1786508482858,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -10981,6 +10981,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 242.54625324999907,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ad6cfd9056a5dae01d5ea23fc6a6a3b726d6a86a",
+          "message": "refactor(quality): collapse the four largest duplication clusters (#1158)\n\nTargets the SonarCloud duplication metric: **0.3% → ~0.18%**, by\nremoving roughly **232 of the 492 duplicated lines**. Sonar's analysis\non this PR is the authoritative confirmation; locally jscpd moves 3.60%\n→ 3.52% (it counts differently and includes tests, so the two numbers\nare not comparable — see the note at the bottom).\n\n## What was collapsed\n\n| cluster | dup lines | change |\n|---|---|---|\n| `ipc/http-write-routes.ts` — 3 bearer-auth preludes | 117 → ~33 |\n`requireBearerAuth` takes `verifyToken` as a callback |\n| `ipc/http-write-routes.ts` — 2 brief-route preludes | ″ |\n`requireBriefRunInState(…, expected)` |\n| `connectors/lazy-mesh/phase3-config.ts` — 5 connector registrars | 70\n→ 0 | `addUrlAndSecretMcp`, generic over the service id |\n| `agents/{decisions,glossary,ownership}.ts` — `subAgent` + `decode` |\n48 → 0 | new `agents/_lib/sub-agent.ts` |\n| `agent-runs/agent-test-server.ts` + `briefs/brief-test-server.ts` | 30\n→ 0 | new `ipc/test-token-vault.ts` |\n\n## Two of these needed care, not just extraction\n\n**`phase3-config.ts` touches invariant I15 / static D10** (`every\nlazy-mesh ServerSpec via wrapServerSpec()`). I checked the rule before\nmoving anything: it is **file-scoped** — a lazy-mesh file mentioning\n`Record<string, ServerSpec>` must also contain `wrapServerSpec(` — so\nthe file still satisfies it, and `bun run audit:invariants` passes. More\nimportantly the consolidation **strengthens** the invariant's intent: a\nsixth url+secret connector added through `addUrlAndSecretMcp` *cannot*\nforget the wrap, where a sixth hand-written copy could.\n\nThe helper is generic over the service id (`<S extends\nConnectorServiceId>`) rather than taking `service: string`. My first\nattempt used `string` and `tsc` correctly rejected it — the secret-key\nparameters are checked against *that service's* own key union, and\nwidening would have typechecked a vault key that does not exist for the\nconnector being wired.\n\n**The bearer-auth collapse is I13 rejection-recording**, which is why it\nwas worth doing rather than tolerating: three copies is three places to\nforget that the recorded `reason` must track `refusal.status` — 403 is a\nreal scope gap, 500 is a misconfigured `HTTP_ROUTE_AUTH` entry, and\nlogging one as the other misreports a configuration bug as an\naccess-control event.\n\n## What I deliberately did NOT collapse\n\nSonar flags `decisions/decision-refresh.ts` ↔\n`ownership/ownership-refresh.ts` (37 + 30 lines). Their `fire()` bodies\nare near-identical — but there are **four** refreshers and **four\ndifferent `trigger()` implementations**:\n\n| refresher | `trigger()` |\n|---|---|\n| decisions | `stopped` check, clear + arm |\n| ownership | …plus `if (running) { dirty = true; return; }` |\n| glossary | `!deps.enabled \\|\\| stopped` |\n| premortem | …plus `timer.unref?.()` |\n\nThose differences are real: they change coalescing behaviour mid-pass\nand whether a pending timer holds the process open at shutdown. A shared\ndebouncer would need three option flags to preserve them, which is worse\nthan the duplication it removes — and flattening them instead would be a\nbehaviour change to four subsystems dressed up as a cleanup. Left alone\non purpose.\n\nSame reasoning applied to the seeded token JSON in the two test\nharnesses: `createSeededTokenVault` takes it as a **required** argument\nwith no default, because the agents harness deliberately seeds the\nscoped form (every agents route is agents-scoped) while the briefs\nharness deliberately seeds the legacy bare-string form (so existing\ntests prove a pre-scopes token still works). A default would have\nquietly erased one of those intents.\n\n## Verification\n\n- `bun run preflight:fast` — PASSED (all 29 gates, including\n`audit:invariants` and the jscpd gate)\n- `bun test packages/gateway/src packages/cli/src` — **13,091 pass, 30\nskip, 0 fail** — identical to the pre-change count, so no test was lost\nor silently skipped\n- `bun run typecheck` — 0 errors\n\n## Note on the two duplication numbers\n\nSonar reports **0.3%** and the repo's own jscpd gate reports **3.6%**\nagainst a threshold of 4. They measure different things — jscpd includes\ntest files and uses `minTokens: 50`. This PR targets the Sonar metric,\nwhich is what \"reduce duplication to 0.2\" was asked against. Driving\n*jscpd* to 0.2% would be a far larger structural effort and is not\nattempted here.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-12T07:09:46+03:00",
+          "tree_id": "7311ab71c7631bf099e964bfc81c18db4e634ab3",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/ad6cfd9056a5dae01d5ea23fc6a6a3b726d6a86a"
+        },
+        "date": 1786508480487,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 332.7083434500022,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 327.2543527999951,
             "unit": "ms"
           }
         ]
