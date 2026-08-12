@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786548591153,
+  "lastUpdate": 1786549781235,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -11083,6 +11083,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 333.76923380000517,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "40068b5983b9f87a3a997676f3402e8f8b3e5fbd",
+          "message": "refactor(quality): clear the six remaining Sonar findings and close a coverage measurement gap (#1161)\n\n## First: a correction\n\nWhen #1155 merged I said the Sonar board was at zero. It was not — it\nwas at **six**, and **two of those were files I had refactored but not\nbrought far enough**:\n\n| file | before my #1155 | after #1155 | limit |\n|---|---|---|---|\n| `ownership/ownership-pass.ts` | 55 | **44** | 15 |\n| `premortem/premortem-pass.ts` | 45 | **18** | 15 |\n\nI extracted the parts that were easy to name and stopped at \"much\nbetter\" instead of checking against the threshold. This PR finishes\nboth.\n\n## The six\n\n| file | score | fix |\n|---|---|---|\n| `ownership/ownership-pass.ts` | 44 | `emitPathOwnership` — the file +\ndirectory emit loops, which were always the bulk of the score |\n| `agents/premortem.ts` | 30 | `buildWatcherProposals` |\n| `automation/watcher-engine.ts` | 19 | `resolveWatcherScope` — the\nfilter guard chain |\n| `premortem/premortem-pass.ts` | 18 | `processBatch` — and it removed a\ndead `if (opts.llm !== undefined)` the loop's own earlier guard had\nalready made unreachable |\n| `ipc/agents-rpc.ts` | 17 | `requireEpicRef` + `readServiceOverrides` |\n| `agents/_lib/render.ts` | S4624 | nested template literal hoisted to a\nnamed local |\n\nBehaviour is unchanged throughout, and several extractions record a rule\nthat was previously only implicit:\n\n- **`resolveWatcherScope` fails closed on every arm.** In particular an\n`affectedService` on a condition kind with no timeline entity returns\n`null` rather than being ignored — ignoring it would silently *widen*\nthe watcher to every item of its type, the exact opposite of the\nnarrowing the operator asked for.\n- **`emitPathOwnership` preserves the `upsertGraphEntity` /\n`ensureGraphEntity` split exactly.** The authoritative writer of a node\nupserts (carrying metadata); a purely structural reference\ncreate-if-absents, because an upsert from a call site with no metadata\nto pass would NULL what the authoritative writer just wrote.\n- **`readServiceOverrides` rejects rather than filters.** A caller who\nnames five services and gets three silently dropped would read the\nresulting brief as covering all five. The count cap is checked before\nthe per-entry walk so a caller cannot make the gateway iterate an\narbitrarily long array to discover it was too long.\n\n## A coverage measurement gap, not a testing gap\n\n`packages/mcp-launcher/src/resolve-binary.ts` was reported at **0%\ncoverage** — while `resolve-binary.test.ts` sat next to it, passing. The\ncause: `scripts/coverage-floor/build-lcov.sh` collects from\n`packages/gateway`, `packages/cli` and `packages/mcp-connectors/*` only,\nbut `sonar.sources=packages` scans the whole tree. Nothing ever ran\nthose tests under the istanbul preload.\n\nAdding `packages/mcp-launcher` to the collection loop is the honest fix\n— the tests already existed and pass. Its `src/index.ts` is a shebang\nbin entry point (top-level `spawn`, `process.exit` handlers) with no\nseam to test without executing the launcher, so it joins\n`packages/cli/src/index.ts` in the coverage exclusions — mirrored in\nboth `sonar-project.properties` and\n`scripts/coverage-floor/exclusions.ts`, with `audit:exclusion-parity`\nconfirming (43 patterns).\n\n`mcp-connectors/shared/atlassian-json-fetch.ts` was genuinely untested —\nit gets 11 real tests, including that a caller's `Accept` override wins\nover the default, that `http://` is not silently rewritten to\n`https://`, and that a non-2xx returns `ok:false` rather than throwing\n(Atlassian puts the useful diagnostic in the error body).\n\n## Verification\n\n- `bun run preflight:fast` — PASSED (all 29 gates)\n- `bun test packages/gateway/src packages/cli/src` — **13,137 pass, 30\nskip, 0 fail**\n- `bun test packages/mcp-connectors/shared packages/mcp-launcher` — 203\npass, 0 fail\n- `bun run typecheck` — 0 errors\n\n## Coverage: what this does and does not do\n\nDuplication landed: **0.1%**, under the 0.2% target.\n\nCoverage is **94.49%** and needs **396** more covered lines+conditions\nto reach 95%. This PR contributes roughly 40 of them (recovering\n`resolve-binary.ts`, adding `atlassian-json-fetch.ts`, dropping the\nlauncher entry point from the denominator). **It does not get to 95%** —\nthat needs a dedicated pass over the genuinely under-tested files,\nchiefly `ipc/server/dispatchers.ts` (175 uncovered),\n`ui/src/ipc/client.ts` (73), `ipc/connector-rpc-handlers/auth.ts` (60),\n`sync/scheduler.ts` (48), `perf/bench-cli.ts` (43) and\n`ipc/server/server.ts` (33). Saying so explicitly rather than implying\nthe target is met.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-12T18:37:56+03:00",
+          "tree_id": "eeaf8f9368b87875996be76f096362a2874241c0",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/40068b5983b9f87a3a997676f3402e8f8b3e5fbd"
+        },
+        "date": 1786549779025,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 330.19197689999675,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 330.5721713000006,
             "unit": "ms"
           }
         ]
