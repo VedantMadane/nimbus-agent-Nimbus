@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786477486033,
+  "lastUpdate": 1786506802926,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -10947,6 +10947,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 333.8219168500094,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "45de52f8569167da4bc9322a5c4322bcce73400a",
+          "message": "refactor(quality): clear all 11 remaining Sonar cognitive-complexity findings (#1155)\n\nThe last of the Sonar board: all **11 `typescript:S3776`**\ncognitive-complexity findings, which #1152 deliberately left out because\nthey change control flow rather than being mechanical cleanups.\n\nWith this, the board is **zero** — 36 issues at the start of this sweep,\n25 in #1152, 11 here.\n\n## What changed, and why each extraction is the honest cut\n\n| file | was | extraction |\n|---|---|---|\n| `ownership/ownership-pass.ts` | **55** | `accumulateOwnerWeights` +\n`bindRootRemote` — the caller is now the per-root sequence it always\nwas: clear → aggregate → accumulate → bind → emit |\n| `premortem/premortem-pass.ts` | **45** | `writeThemeRows` — the\ntriple-nested service fan-out was the only deeply branchy region in an\notherwise linear batch loop |\n| `ipc/server/dispatchers.ts` | 17 | 18 hand-written `const x = await\ntry…(); if (x !== skipped) return x;` pairs → one ordered table + a loop\n|\n| `ipc/index-rebody-rpc.ts` | 20 | `readOptionalNonEmptyString` /\n`readOptionalPositiveInt` / `readOptionalBoolean` |\n| `ipc/index-rebody-rpc.ts` | 17 | `resyncOneService` — the loop is now\nsuccess/failure tallying |\n| `ipc/http-server.ts` | 17 | `tryBearerAuthedGet` — the four\nbearer-authed GET routes as one unit |\n| `connectors/jira-sync.ts` | 17 | `putIfNonEmpty` / `putIfDefined` /\n`nestedStringField` |\n| `connectors/elasticsearch-sync.ts` | 17 | `selectIndexableRows` +\n`fetchIndexMappings`, matching its own numbered comments |\n| `premortem/theme-llm-adapter.ts` | 17 | `collectValidThemes` — all\nseven model-output rejection rules under one name |\n| `cli/commands/clip.ts` | 20 | `parsePairArgs` / `parseScopesArgs` /\n`parseListArgs` + a `flagValue` reader |\n| `platform/assemble.ts` | 17 | `pushStops` — three repeated `if (x !==\nundefined) push(() => x.stop())` |\n\nBehaviour is unchanged throughout. Several extractions carry a comment\nrecording a rule that was previously only implicit in the shape of the\ncode:\n\n- **`readOptional*` return `undefined` for absent and THROW for\nmalformed.** That asymmetry is this endpoint's whole validation policy:\nunlike `index.reembed`'s `limit` (a local CPU bound, safe to drop),\nevery field here bounds real outbound API traffic — a silently-ignored\n`limit: \"3\"` would target *every* pending service, and a mistyped\n`dryRun` becoming a real run is the worst version of this failure.\n- **`resyncOneService` counts a missing scheduler as SUCCESS.** The\nwatermark was still cleared — the durable half — and the next scheduled\ntick does the re-walk. Reporting failure would tell an operator\nsomething broke when nothing did.\n- **`tryBearerAuthedGet` returns `null`, not 404.** It means \"not mine\",\nnot \"not found\" — these routes must be matched *before* `handleGet`'s\nunauthenticated table, or they'd be served with no token check at all.\n- **`putIfNonEmpty` vs `putIfDefined` is not cosmetic.** An empty string\nis Jira saying \"present and blank\" and must not be indexed as data; a\nnumeric `0` from `msFromIso` is a real epoch timestamp and must be kept.\n- **`PHASE4_PLATFORM_DISPATCHERS` order is the contract.** Every entry\nowns a disjoint namespace today, so order is not currently load-bearing\n— but nothing enforces that, so a reorder is a behaviour change, not\nformatting.\n\n## Verification\n\n- `bun run preflight:fast` — PASSED (all 29 gates)\n- `bun test packages/gateway/src packages/cli/src` — **13,091 pass, 30\nskip, 0 fail** (46,856 assertions, 905 files)\n- `bun run typecheck` — 0 errors\n\n## Note on process\n\nAn intermediate commit here (`67bbb217`) was pushed while `bun run lint`\nwas red — a formatting-only failure, fixed immediately in `89b1631c`,\nbut it should not have been pushed in that state. Flagging it rather\nthan quietly squashing it.\n\n## Still open from the original sweep\n\nNeither is in this PR: duplication 0.3% → ≤0.2%, and coverage 94.5% →\n≥95%.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Refactor**\n* Improved CLI argument handling while preserving existing validation\nand command behavior.\n* Streamlined synchronization, metadata processing, ownership,\npremortem, and platform shutdown workflows.\n* Centralized authenticated request routing and platform command\ndispatching.\n* Improved handling of incomplete search mappings so affected indices\ncan continue processing.\n* Preserved re-sync, theme extraction, and service processing behavior,\nincluding validation and failure handling.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-12T06:44:46+03:00",
+          "tree_id": "ff08faeb49aacace2570c8dc5e1f7c166f9f6555",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/45de52f8569167da4bc9322a5c4322bcce73400a"
+        },
+        "date": 1786506800862,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 241.10127005000467,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 242.54625324999907,
             "unit": "ms"
           }
         ]
