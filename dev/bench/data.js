@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786549781235,
+  "lastUpdate": 1786551253196,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -11117,6 +11117,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 330.5721713000006,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "935aec8874365ed06992e7751d3f22c3ff128076",
+          "message": "test(ipc): cover the dispatcher error-remap seam in dispatchers.ts (#1162)\n\nEleven tests over `dispatchers.ts`'s error-translation seam. **This is a\nfirst slice of the coverage work, not the 95% target** — the honest\nnumbers are at the bottom.\n\n## What it covers\n\nEvery `tryDispatch*Rpc` wrapper ends the same way:\n\n```ts\n} catch (e) {\n  if (e instanceof XRpcError) throw new RpcMethodError(e.rpcCode, e.message);\n  throw e;\n}\n```\n\nThis is the seam between a subsystem's own error type and the JSON-RPC\nenvelope the client sees. It matters beyond coverage: if a wrapper\nforgot the `instanceof` arm, a validation error would surface as\n`-32603` internal-error instead of `-32602` invalid-params, and the\ncaller could not tell \"you sent the wrong thing\" from \"the gateway\nbroke\" — the second reading sends someone hunting a gateway bug that\ndoes not exist.\n\nTwo tables, both provoking the REAL error through the real inner\ndispatcher (no `mock.module`, matching `dispatchers-coverage.test.ts`'s\nstated rules):\n\n- **domain-error arm** — five dispatchers with params their own\nvalidators reject\n- **rethrow arm** — the same dispatchers with a\n`localIndex.getDatabase()` that throws a plain `Error`, asserting the\nerror arrives by **identity** (`toBe`), since a remap would have\nproduced a new object and lost the original stack\n\n## A correction I made mid-way, worth recording\n\nMy first version asserted `-32602` for every case and I claimed it\ncovered the remap seam. Two problems, both caught by measuring rather\nthan trusting the green suite:\n\n1. `filesystem.ensureRoot` actually remaps a `-32603`. The expected code\nis now **per case**, so a change to which code a subsystem raises\nsurfaces here instead of being absorbed by a blanket expectation.\n2. More importantly: after the first version, `dispatchers.ts` went from\n**79 → 78** uncovered lines. The tests passed while covering almost\nnothing — the `instanceof` arm was *already* covered by existing suites,\nand the genuinely uncovered lines were the `throw e` rethrow arms. The\nfile's header comment claimed a coverage story that was not true. The\nsecond table targets what is actually uncovered, and the comment now\nsays only what holds.\n\nAlso worth flagging: my edit script's third `replace` silently no-opped\nagainst a block the formatter had already reformatted, leaving a\nfive-column table read by a four-column signature — `expectedCode` came\nthrough as `undefined` and five tests failed. I assert on every scripted\nreplacement now.\n\n## Measured effect\n\nInstrumented run over `packages/gateway/src/ipc`, before and after:\n\n| | before | after |\n|---|---|---|\n| `dispatchers.ts` uncovered lines | 79 | **75** |\n| `dispatchers.ts` uncovered branches | 94 | **91** |\n\n**≈7 covered lines+conditions.** Project coverage needs **396** to reach\n95%, so this is a small fraction of it.\n\n## Verification\n\n- `bun run preflight:fast` — PASSED (all 29 gates)\n- `bun test packages/gateway/src/ipc` — 1,701 tests, 17 skip, 0 fail\n- `bun run typecheck` — 0 errors\n\n## What still stands between here and 95%\n\n`dispatchers.ts` keeps 75 uncovered lines / 91 branches, concentrated in\nthe `return phase4RpcSkipped` tails and the ~20 dispatchers this PR did\nnot reach. Beyond it: `ui/src/ipc/client.ts` (73),\n`ipc/connector-rpc-handlers/auth.ts` (60), `sync/scheduler.ts` (48),\n`perf/bench-cli.ts` (43), `perf/derive-latest-json.ts` (40),\n`ipc/server/server.ts` (33).\n\nReaching 95% is a sustained pass over those files, not an increment on\nthis one. Landing this slice separately keeps it reviewable and keeps\nthe claim honest.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-12T16:02:34Z",
+          "tree_id": "57237cc6088d7871f9d3ee491cfb249ba2c311fd",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/935aec8874365ed06992e7751d3f22c3ff128076"
+        },
+        "date": 1786551251119,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 321.1354800000008,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 324.0589292999997,
             "unit": "ms"
           }
         ]
