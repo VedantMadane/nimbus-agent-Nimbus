@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import type { IPCClient } from "../ipc-client/index.ts";
 import type { CliPlatformPaths } from "../paths.ts";
+import { type FixKeyringDeps, runFixKeyringCommand } from "./doctor-fix-keyring.ts";
 
 const LINUX_SECRET_TOOL_HINT =
   "secret-tool not found. Install libsecret-tools (Debian/Ubuntu) or libsecret (Fedora/Arch) to use the OS vault on Linux.";
@@ -77,8 +78,67 @@ const NO_PROVIDER_PATTERN = /not provided by|ServiceUnknown/i;
 const OBJECT_PATH_PATTERN = /(?:^|\s)(?:object path|o)\s+"([^"]*)"/m;
 const BOOL_PATTERN = /(?:^|\s)(?:boolean|b)\s+(true|false)\b/m;
 
-const VAULT_UNLOCK_HINT =
-  "On a headless machine start Nimbus inside a session, e.g. dbus-run-session -- bash -c 'echo \"\" | gnome-keyring-daemon --unlock --components=secrets; nimbus start'.";
+// ---------------------------------------------------------------------------
+// Per-state remedies (issue #1168, Controller Ruling 16)
+//
+// The 55-trials-0-failures result belongs to the POLLING-AUGMENTED sequence
+// inside doctor-fix-keyring.ts's buildFixScript() — the one that polls
+// ownership of org.freedesktop.secrets before touching Secret Service.
+// DBUS_SESSION_WRAPPER / SESSION_REQUIRED_HINT below is the PLAIN,
+// non-polling sequence handed to users across four states, and per Task 8's
+// own record it still loses the D-Bus name-ownership race roughly
+// 1-in-40-to-50 on a from-scratch box (no login.keyring yet) — the race is
+// closed only where the poll runs. Running `nimbus doctor --fix-keyring`
+// first removes that residual risk for the from-scratch case, since it
+// creates the keyring deterministically. Nothing here claims the plain
+// wrapper is broken — Ruling 16 confirmed it genuinely works, no
+// gcr-prompter escalation, no "cannot open display" — only that it carries
+// this specific, measured residual risk before a keyring exists.
+//
+// Each failing state has a different cause, so each gets only the remedy
+// that actually addresses it:
+//   - not-installed: `--fix-keyring` does not apply — secret-tool itself is
+//     missing, so nothing in the fixer can run either.
+//   - no-session-bus: `--fix-keyring` does not apply — it spawns its own
+//     ephemeral D-Bus session via dbus-run-session, but that session does
+//     not persist for the next `nimbus start`, so it cannot fix an ambient
+//     "no session bus" condition.
+//   - no-collection: exactly what `--fix-keyring` fixes (deterministically,
+//     closing the D-Bus name-ownership race and enforcing 0700/0600).
+//   - locked: a locked collection implies keyring material already exists on
+//     disk — `existingKeyringPath` (doctor-fix-keyring.ts) refuses on an
+//     exact `login.keyring`, another `*.keyring` file, or a `default`-alias
+//     pointer, not just `login.keyring` by name, so `--fix-keyring` refuses
+//     this state every time. The session wrapper is the only route.
+//   - no-secret-service: applicability genuinely DEPENDS on on-disk state
+//     this probe cannot see — the state is derived purely from a live D-Bus
+//     name-ownership query (stateFromDiagnostic() below), which says nothing
+//     about what is on disk. If no Secret Service provider is installed at
+//     all, `--fix-keyring` cannot help either — its own precheck names
+//     gnome-keyring-daemon and reports it missing. If a provider is
+//     installed but has never created a collection, `--fix-keyring` would
+//     apply — but even then it only prepares on-disk state inside its own
+//     ephemeral session; it does not start a provider on the CURRENT
+//     session, so the wrapper is still the unconditional next step either
+//     way. The printed hint stays wrapper-only: recommending `--fix-keyring`
+//     here would frequently be wrong (refuses whenever keyring material
+//     already exists) without ever being sufficient by itself.
+//   - Every state that needs the wrapper is also told it is not a one-time
+//     fix: a fresh D-Bus session that skips its own --unlock fails every
+//     `nimbus start`, even after `--fix-keyring` has run once.
+// ---------------------------------------------------------------------------
+
+const DBUS_SESSION_WRAPPER =
+  "dbus-run-session -- bash -c 'echo \"\" | gnome-keyring-daemon --unlock --components=secrets; nimbus start'";
+
+const SESSION_REQUIRED_HINT =
+  `Nimbus needs a D-Bus session with an unlocked keyring for every \`nimbus start\` on headless ` +
+  `Linux — not only the first time: ${DBUS_SESSION_WRAPPER}`;
+
+const FIX_KEYRING_HINT =
+  "Run: nimbus doctor --fix-keyring — it creates and unlocks a fresh default keyring collection " +
+  "deterministically (closing a rare D-Bus name-ownership race) and verifies it with a live " +
+  "secret-tool round-trip.";
 
 const VAULT_REPORT: Readonly<Record<DoctorVaultState, { mark: string; text: string }>> = {
   "not-applicable": { mark: "[ok]", text: "OS-native store — no Linux Secret Service check." },
@@ -86,23 +146,23 @@ const VAULT_REPORT: Readonly<Record<DoctorVaultState, { mark: string; text: stri
   "not-installed": { mark: "[fail]", text: LINUX_SECRET_TOOL_HINT },
   "no-session-bus": {
     mark: "[fail]",
-    text: `secret-tool is installed but there is no D-Bus session bus, so the OS keyring is unreachable and every Vault operation fails. ${VAULT_UNLOCK_HINT}`,
+    text: `secret-tool is installed but there is no D-Bus session bus, so the OS keyring is unreachable and every Vault operation fails. ${SESSION_REQUIRED_HINT}`,
   },
   "no-secret-service": {
     mark: "[fail]",
-    text: `a D-Bus session bus is present but no Secret Service provider owns ${SECRETS_NAME} — install and run gnome-keyring, KWallet, or KeePassXC with Secret Service enabled. ${VAULT_UNLOCK_HINT}`,
+    text: `a D-Bus session bus is present but no Secret Service provider owns ${SECRETS_NAME} — install and run gnome-keyring, KWallet, or KeePassXC with Secret Service enabled inside that session. ${SESSION_REQUIRED_HINT}`,
   },
   "no-collection": {
     mark: "[fail]",
-    text: `a Secret Service provider is running over D-Bus but exposes no default keyring collection, so every Vault write fails. ${VAULT_UNLOCK_HINT}`,
+    text: `a Secret Service provider is running over D-Bus but exposes no default keyring collection, so every Vault write fails. ${FIX_KEYRING_HINT}`,
   },
   locked: {
     mark: "[fail]",
-    text: `the default Secret Service keyring collection is locked over D-Bus, so every Vault write fails. ${VAULT_UNLOCK_HINT}`,
+    text: `the default Secret Service keyring collection is locked over D-Bus, so every Vault write fails. nimbus doctor --fix-keyring will not help here — it refuses to touch an existing keyring. ${SESSION_REQUIRED_HINT}`,
   },
   unverified: {
     mark: "[warn]",
-    text: `a Secret Service provider answered but its keyring state could not be verified — install busctl (systemd) or dbus-send (dbus) for a complete check. ${VAULT_UNLOCK_HINT}`,
+    text: `a Secret Service provider answered but its keyring state could not be verified — install busctl (systemd) or dbus-send (dbus) for a complete check. ${SESSION_REQUIRED_HINT}`,
   },
 };
 
@@ -257,13 +317,17 @@ export function doctorVaultLine(
  * `keepStdout: false` leaves stdout unpiped entirely — used for the secret-tool
  * lookup so a matched secret has nowhere to go.
  */
-function spawnCapture(cmd: readonly string[], keepStdout: boolean): DoctorVaultRun {
+function spawnCapture(
+  cmd: readonly string[],
+  keepStdout: boolean,
+  timeoutMs: number = VAULT_PROBE_TIMEOUT_MS,
+): DoctorVaultRun {
   try {
     const p = Bun.spawnSync({
       cmd: [...cmd],
       stdout: keepStdout ? "pipe" : "ignore",
       stderr: "pipe",
-      timeout: VAULT_PROBE_TIMEOUT_MS,
+      timeout: timeoutMs,
     });
     // stdout is undefined whenever it was not piped, so this is "" by construction.
     return {
@@ -276,12 +340,18 @@ function spawnCapture(cmd: readonly string[], keepStdout: boolean): DoctorVaultR
   }
 }
 
-function createDoctorVaultExec(): DoctorVaultExec {
+/**
+ * `timeoutMs` defaults to the short probe timeout used for the read-only
+ * Vault health check. `--fix-keyring` (`doctor-fix-keyring.ts`) passes a much
+ * longer budget: it spawns a whole `dbus-run-session` + `gnome-keyring-daemon`
+ * round trip, not a single D-Bus property read.
+ */
+export function createDoctorVaultExec(timeoutMs: number = VAULT_PROBE_TIMEOUT_MS): DoctorVaultExec {
   return {
     findSecretTool: () => Bun.which("secret-tool"),
-    lookupStderr: (exe, args) => spawnCapture([exe, ...args], false).stderr,
+    lookupStderr: (exe, args) => spawnCapture([exe, ...args], false, timeoutMs).stderr,
     hasBinary: (name) => Bun.which(name) !== null,
-    runQuery: (cmd) => spawnCapture(cmd, true),
+    runQuery: (cmd) => spawnCapture(cmd, true, timeoutMs),
   };
 }
 
@@ -314,6 +384,8 @@ export interface DoctorCoreDeps {
   readonly isProcessAlive: (pid: number) => boolean;
   readonly gatewayStatePath: (paths: CliPlatformPaths) => string;
   readonly makeClient: (socketPath: string) => IPCClient;
+  /** DI seam for `--fix-keyring` (headless Linux Secret Service fix, #1168) — see doctor-fix-keyring.ts. */
+  readonly fixKeyringDeps: FixKeyringDeps;
 }
 
 export function worstHealthSeverity(rows: ConnectorHealthRow[]): "ok" | "warn" | "fail" {
@@ -437,7 +509,20 @@ async function doctorRunGatewayRpcs(client: IPCClient): Promise<number> {
   return exit;
 }
 
-export async function runDoctor(_args: string[], deps: DoctorCoreDeps): Promise<void> {
+export async function runDoctor(args: string[], deps: DoctorCoreDeps): Promise<void> {
+  // Strictly opt-in: a plain `nimbus doctor` never touches `fixKeyringDeps` and
+  // stays read-only. Only an explicit `--fix-keyring` runs the fixer, and it
+  // replaces the normal diagnostic sweep rather than running alongside it.
+  if (args.includes("--fix-keyring")) {
+    const dryRun = args.includes("--dry-run");
+    const result = runFixKeyringCommand(platform(), deps.fixKeyringDeps, { dryRun });
+    for (const line of result.lines) {
+      console.log(line);
+    }
+    process.exitCode = result.exit;
+    return;
+  }
+
   const paths = deps.getCliPlatformPaths();
   let exit = 0;
   exit = Math.max(exit, doctorPrintBunCheck());

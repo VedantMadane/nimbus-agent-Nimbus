@@ -1,35 +1,116 @@
 import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
-import {
-  clampSyncTitle,
-  syncPassCursorHttpEmpty,
-  syncPassCursorParseEmpty,
-  syncPassCursorSuccess,
-} from "../sync/pass-cursor-sync-result.ts";
+import { clampSyncTitle } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { readConnectorSecret } from "./connector-vault.ts";
-import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
+import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
+import type { SentryIssuePassResult } from "./sentry-issue-sync.ts";
+import { syncSentryIssuePass } from "./sentry-issue-sync.ts";
 import { asRecord, stringField } from "./unknown-record.ts";
 
 const SERVICE_ID = "sentry";
-const CURSOR_PREFIX = "nimbus-sentry1:";
+const CURSOR_PREFIX = "nimbus-sentry2:";
 
-type SentryCursorV1 = { pass: number };
+/**
+ * `resume` / `pendingMax` are present only while a page-budget-truncated
+ * walk is in flight; a completed walk clears both (see `buildNextCursor`).
+ */
+type SentryCursorV2 = { lastSeenMs: number; resume?: string; pendingMax?: number };
 
-function encodeCursor(c: SentryCursorV1): string {
+function encodeCursor(c: SentryCursorV2): string {
   return encodeNimbusJsonCursor(CURSOR_PREFIX, c);
 }
 
-function pass1Cursor(): string {
-  return encodeCursor({ pass: 1 });
+/**
+ * `null` on a prefix miss — which is what makes a persisted legacy
+ * `nimbus-sentry1:` cursor (payload `{pass}`) a cold start rather than a
+ * special-cased legacy branch: it simply fails to decode.
+ */
+function decodeCursor(raw: string | null): SentryCursorV2 | null {
+  if (raw === null || raw === "") {
+    return null;
+  }
+  const parsed = decodeNimbusJsonCursorPayload(raw, CURSOR_PREFIX);
+  if (parsed === undefined) {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+  const rec = parsed as Record<string, unknown>;
+  const lastSeenMs = rec["lastSeenMs"];
+  if (typeof lastSeenMs !== "number" || !Number.isFinite(lastSeenMs)) {
+    return null;
+  }
+  const resumeRaw = rec["resume"];
+  const resume = typeof resumeRaw === "string" && resumeRaw !== "" ? resumeRaw : undefined;
+  const pendingMaxRaw = rec["pendingMax"];
+  const pendingMax =
+    typeof pendingMaxRaw === "number" && Number.isFinite(pendingMaxRaw) ? pendingMaxRaw : undefined;
+  return {
+    lastSeenMs,
+    ...(resume !== undefined ? { resume } : {}),
+    ...(pendingMax !== undefined ? { pendingMax } : {}),
+  };
+}
+
+/**
+ * Composes the next persisted cursor from the projects+issues pass outcome.
+ *
+ * - A FAILED issue pass echoes the incoming cursor VERBATIM, including
+ *   `null`. Never synthesize `{lastSeenMs: 0}` here: a cold start (`cursor`
+ *   already null) that fails must STAY a cold start, or the next attempt
+ *   silently loses `historyFloorMs` forever (Important B).
+ * - A BUDGET-TRUNCATED walk (`issues.resumeUrl !== null`) leaves `lastSeenMs`
+ *   exactly as it already was — nothing is "caught up" yet — and carries the
+ *   resume point + running max forward so the unread tail is reachable next
+ *   run instead of being permanently stranded (the Critical fix).
+ * - A COMPLETE walk advances to the highest of: any carried-over
+ *   `pendingMax`, this walk's own running max, and the previously
+ *   established `lastSeenMs` — never regressing below any of the three —
+ *   and clears `resume`/`pendingMax`.
+ */
+function buildNextCursor(
+  cursor: string | null,
+  prev: SentryCursorV2 | null,
+  issues: SentryIssuePassResult,
+): string | null {
+  if (!issues.ok) {
+    return cursor;
+  }
+  if (issues.resumeUrl !== null) {
+    // No `?? prev?.pendingMax` fallback here: on a REJECTED resume,
+    // sentry-issue-sync.ts's `syncSentryIssuePass` deliberately resets its
+    // own `runningMaxMs` to `null` before starting a fresh walk — "the
+    // abandoned resume's pendingMax doesn't correspond to anything reachable
+    // from page 1" (see that reset's comment). Falling back to the STALE
+    // `prev?.pendingMax` here would silently reintroduce exactly the value
+    // that reset was meant to discard, if that fresh walk itself then gets
+    // budget-truncated before establishing any new max. In every OTHER
+    // (non-rejected) truncation, `issues.runningMaxMs` already reflects
+    // `prev?.pendingMax` — it was seeded from `input.pendingMax` at the
+    // pass's start — so dropping this fallback changes nothing there.
+    return encodeCursor({
+      lastSeenMs: prev?.lastSeenMs ?? 0,
+      resume: issues.resumeUrl,
+      pendingMax: issues.runningMaxMs ?? 0,
+    });
+  }
+  const candidates = [prev?.pendingMax, issues.runningMaxMs, prev?.lastSeenMs].filter(
+    (v): v is number => typeof v === "number" && Number.isFinite(v),
+  );
+  const lastSeenMs = candidates.length > 0 ? Math.max(...candidates) : 0;
+  return encodeCursor({ lastSeenMs });
 }
 
 export type SentrySyncableOptions = {
   ensureSentryMcpRunning: () => Promise<void>;
+  maxPagesPerSync?: number;
 };
 
 export function createSentrySyncable(options: SentrySyncableOptions): Syncable {
-  const initialSyncDepthDays = 1;
+  const initialSyncDepthDays = 30;
+  const maxPagesPerSync = Math.max(1, Math.min(100, options.maxPagesPerSync ?? 20));
   return {
     serviceId: SERVICE_ID,
     defaultIntervalMs: 120 * 1000,
@@ -37,6 +118,14 @@ export function createSentrySyncable(options: SentrySyncableOptions): Syncable {
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();
       await options.ensureSentryMcpRunning();
+      /**
+       * `sentry.auth_token` must carry the **`event:read`** scope. The org-wide issues
+       * endpoint rejects a `project:read`-only token with 403 while the projects list
+       * below still succeeds — so a mis-scoped install syncs projects, indexes zero
+       * issues, and looks configured. A project-scoped token cannot reach the endpoint
+       * at all, and an Organization Auth Token is not a substitute: it exists for
+       * source-map upload in CI and its scope cannot be changed after creation.
+       */
       const token = (await readConnectorSecret(ctx.vault, "sentry", "auth_token"))?.trim() ?? "";
       const org = (await readConnectorSecret(ctx.vault, "sentry", "org_slug"))?.trim() ?? "";
       if (token === "" || org === "") {
@@ -59,17 +148,41 @@ export function createSentrySyncable(options: SentrySyncableOptions): Syncable {
           { serviceId: SERVICE_ID, status: res.status },
           "sentry sync: projects failed",
         );
-        return syncPassCursorHttpEmpty(t0, text.length, cursor, pass1Cursor());
+        // The projects request itself failed: nothing is trustworthy enough to
+        // window an issue pass against, so the issue pass does not run this
+        // tick. Keep the incoming cursor untouched, or a cold-start marker if
+        // there was none.
+        return {
+          cursor: cursor ?? encodeCursor({ lastSeenMs: 0 }),
+          itemsUpserted: 0,
+          itemsDeleted: 0,
+          hasMore: false,
+          durationMs: Math.round(performance.now() - t0),
+          bytesTransferred: text.length,
+        };
       }
       let root: unknown;
       try {
         root = JSON.parse(text) as unknown;
       } catch {
-        return syncPassCursorParseEmpty(t0, text.length, pass1Cursor());
+        // Same reasoning as the !res.ok arm above: an unparseable projects
+        // body means the issue pass is skipped too, AND — like that arm —
+        // a cursor the caller already trusted must not be destroyed by a
+        // failure in the OTHER pass. Echo it (or a cold-start marker if
+        // there was none), never synthesize a fresh {lastSeenMs: 0} over an
+        // established one.
+        return {
+          cursor: cursor ?? encodeCursor({ lastSeenMs: 0 }),
+          itemsUpserted: 0,
+          itemsDeleted: 0,
+          hasMore: false,
+          durationMs: Math.round(performance.now() - t0),
+          bytesTransferred: text.length,
+        };
       }
       const list = Array.isArray(root) ? root : [];
       const now = Date.now();
-      let upserted = 0;
+      let projectsUpserted = 0;
       for (const item of list) {
         const row = asRecord(item);
         if (row === undefined) {
@@ -96,10 +209,72 @@ export function createSentrySyncable(options: SentrySyncableOptions): Syncable {
           pinned: false,
           syncedAt: now,
         });
-        upserted += 1;
+        projectsUpserted += 1;
       }
+      const projectBytes = text.length;
 
-      return syncPassCursorSuccess(t0, text.length, pass1Cursor(), upserted);
+      const prev = decodeCursor(cursor);
+      // Honors `SyncContext.historyFloorMs` (opt-in, see `sync/types.ts`) on a COLD
+      // START only; an established cursor is more recent by construction and wins.
+      const coldFloorMs =
+        ctx.historyFloorMs !== undefined && Number.isFinite(ctx.historyFloorMs)
+          ? ctx.historyFloorMs
+          : now - initialSyncDepthDays * 86_400_000;
+      const windowFloorMs = now - initialSyncDepthDays * 86_400_000;
+      // An established cursor derives the window from ITSELF, not a fixed
+      // 30-day floor: skip-not-stop (the Critical fix) means every row at or
+      // below the cursor is still fetched, parsed and mapped even though none
+      // of them get indexed, so a caught-up connector that kept asking for
+      // the full 30 days would re-walk the entire window every tick for zero
+      // upserts. `Math.max` (not min) picks the NEWER of the two bounds: a
+      // recent cursor shrinks the request to a small delta so the walk
+      // terminates naturally, while an ancient cursor is still capped at the
+      // 30-day window rather than left unbounded. A RESUMED walk is
+      // unaffected — it starts from `resumeUrl`, which already carries its
+      // own params, and never rebuilds this URL unless the resume is
+      // rejected, in which case rebuilding with the shrunken window is
+      // exactly what's wanted.
+      //
+      // Keyed on `prev.lastSeenMs === 0`, not only `prev === null`: a
+      // BUDGET-TRUNCATED walk during a COLD start persists exactly
+      // `{lastSeenMs: 0, resume, pendingMax}` (see `buildNextCursor`'s
+      // truncated arm — `prev?.lastSeenMs ?? 0` is `0` while `prev` is still
+      // `null` on that first pass). If the cold-start test read `prev ===
+      // null` alone, the very next tick would see a non-null `prev` and fall
+      // through to `windowFloorMs` — silently losing a caller-supplied
+      // `ctx.historyFloorMs` narrower/wider than the fixed 30-day window the
+      // moment a rejected resume forces a fresh `firstPageUrl` rebuild.
+      // `lastSeenMs` only ever becomes non-zero once a walk actually
+      // COMPLETES (a real `modifiedAt` was observed), so this stays cold for
+      // as long as the backfill genuinely still is.
+      const sinceMs =
+        prev === null || prev.lastSeenMs === 0
+          ? coldFloorMs
+          : Math.max(prev.lastSeenMs, windowFloorMs);
+
+      const issues = await syncSentryIssuePass({
+        ctx,
+        apiRoot,
+        org,
+        token,
+        sinceMs,
+        cursorLastSeenMs: prev?.lastSeenMs ?? null,
+        now,
+        maxPages: maxPagesPerSync,
+        resumeUrl: prev?.resume ?? null,
+        pendingMax: prev?.pendingMax ?? null,
+      });
+
+      const nextCursor = buildNextCursor(cursor, prev, issues);
+
+      return {
+        cursor: nextCursor,
+        itemsUpserted: projectsUpserted + issues.upserted,
+        itemsDeleted: 0,
+        hasMore: issues.hasMore,
+        durationMs: Math.round(performance.now() - t0),
+        bytesTransferred: projectBytes + issues.bytes,
+      };
     },
   };
 }
