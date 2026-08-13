@@ -36,26 +36,50 @@ Three things, in one query:
 
 ## Quickstart
 
-**1. Install** (per-user, no admin/sudo required):
+**1. Install.** No admin on macOS and Windows; the Linux `.deb` uses `sudo`.
 
 <details open>
-<summary><b>macOS / Linux</b></summary>
+<summary><b>macOS</b></summary>
 
 ```bash
-# Linux only — credentials live in the OS keystore, and the Gateway will not
-# start without it:  sudo apt install libsecret-tools   (Debian/Ubuntu)
-#                    sudo dnf install libsecret         (Fedora/RHEL)
-# macOS only — the keychain must be UNLOCKED. Nimbus never shows an
-# authorization dialog (a background service could not answer one), so on a
-# locked keychain it fails immediately and tells you what to run. Over SSH or
-# in CI, give it its own keychain:  security create-keychain -p "" nimbus.keychain
-#                                   security default-keychain -s nimbus.keychain
-#                                   security unlock-keychain  -p "" nimbus.keychain
-curl -fsSL https://github.com/nimbus-agent/Nimbus/releases/latest/download/install.sh -o /tmp/nimbus-install.sh
-# inspect it first if you like:  less /tmp/nimbus-install.sh
-bash /tmp/nimbus-install.sh
+# The keychain must be UNLOCKED. Nimbus never shows an authorization dialog (a
+# background service could not answer one), so on a locked keychain it fails
+# immediately and tells you what to run. Over SSH or in CI, give it its own
+# keychain:  security create-keychain -p "" nimbus.keychain
+#            security default-keychain -s nimbus.keychain
+#            security unlock-keychain  -p "" nimbus.keychain
+
+# Apple silicon — for Intel, swap arm64 → x64.
+curl -fsSL https://github.com/nimbus-agent/Nimbus/releases/latest/download/nimbus-headless-macos-arm64.tar.gz -o /tmp/nimbus.tar.gz
+mkdir -p /tmp/nimbus && tar -xzf /tmp/nimbus.tar.gz -C /tmp/nimbus
+# inspect it first if you like:  less /tmp/nimbus/install.sh
+/tmp/nimbus/install.sh
 nimbus --version
 ```
+
+</details>
+
+<details>
+<summary><b>Linux</b></summary>
+
+```bash
+# Credentials live in the OS keystore, and the Gateway will not start without it:
+sudo apt install libsecret-tools   # Debian/Ubuntu
+# sudo dnf install libsecret       # Fedora/RHEL
+
+curl -fsSL https://github.com/nimbus-agent/Nimbus/releases/latest/download/nimbus_amd64.deb -o /tmp/nimbus.deb
+# apt, not `dpkg -i` — the package depends on bubblewrap and libcap2-bin,
+# and dpkg will not install those for you.
+sudo apt install /tmp/nimbus.deb
+nimbus --version
+```
+
+Prefer no `sudo`? The [AppImage](https://nimbus-agent.dev/user-guide/install/#appimage-linux-alternative) is a portable single file.
+
+**Headless box** — server, container, SSH session or WSL? `libsecret` also needs
+a D-Bus session and an unlocked keyring, which those machines usually lack. Run
+`nimbus doctor`; it names which piece is missing. Full recipe:
+[Headless Linux](https://nimbus-agent.dev/user-guide/install/#headless-linux-no-desktop-session).
 
 </details>
 
@@ -63,7 +87,11 @@ nimbus --version
 <summary><b>Windows (PowerShell, no admin)</b></summary>
 
 ```powershell
-irm https://github.com/nimbus-agent/Nimbus/releases/latest/download/install.ps1 | Invoke-Expression
+$url = "https://github.com/nimbus-agent/Nimbus/releases/latest/download/nimbus-headless-windows-x64.zip"
+Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\nimbus.zip"
+Expand-Archive -Path "$env:TEMP\nimbus.zip" -DestinationPath "$env:TEMP\nimbus" -Force
+# inspect it first if you like:  notepad "$env:TEMP\nimbus\install.ps1"
+& "$env:TEMP\nimbus\install.ps1"
 # open a new PowerShell window:
 nimbus --version
 ```
@@ -119,7 +147,7 @@ nimbus ask "what PRs did I open in the last 7 days?"
 ## How it works
 
 ```text
-90+ cloud services ─▶ first-party MCP connectors ─▶ local SQLite index (+ embeddings)
+~90 cloud services ─▶ first-party MCP connectors ─▶ local SQLite index (+ embeddings)
                                                           │
                               your question ─▶ engine ─▶ HITL consent gate ─▶ action
                                                           │
