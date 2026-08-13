@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786600831688,
+  "lastUpdate": 1786602530190,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -11253,6 +11253,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 318.9591112499969,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5779488c77871113aeaecb7c9fa33c2b82ab540b",
+          "message": "feat(ipc): tag agent.chunk with a client-supplied streamId and add workflow.cancel (#1165)\n\n## Summary\n\nLets a caller correlate and cancel a running workflow.\n\n`workflow.run` resolves only when the run *finishes*, so a server-minted\nstream id could never reach the client in time to filter chunks against\nor to cancel with. The client therefore supplies the id:\n\n- **`agent.chunk` echoes an optional client-supplied `streamId`** — on\nboth `workflow.run` and `agent.invoke`. Untagged chunks made two\nconcurrent streams on one connection indistinguishable.\n- **`workflow.cancel`** — a new RPC taking `{ streamId }`, returning `{\ncancelled: boolean }` where `false` means no live run of *yours* held\nthat id.\n- **Cancellation lands at the next step boundary.** The in-flight step\nalways runs to completion; the signal is deliberately not threaded into\n`executeWorkflowStep` or the LLM calls inside it. A run whose current\nstep is a long model call will not stop early — documented as a\nlimitation, not papered over.\n- **A cancelled run finalises with status `\"cancelled\"`** via the\nexisting `finalizeRun`, and that terminal status now travels in the run\nresult (`\"preview\" | \"done\" | \"error\" | \"cancelled\"`) — an IPC caller\ncannot read the `workflow_run` table, so a run cancelled after one step\nwas otherwise indistinguishable from a one-step run that completed.\n\n**Runs are registered under a per-client key**, `clientId + NUL +\nstreamId`, in the *existing* `ServerCtx.streamRegistry`. The registry is\ncreated once per server (`server.ts:68`) and shared by every session,\nwhile the id is now chosen by the caller — a bare key would let one\nclient abort another client's run, and let one client's cleanup\nunregister another's entry. Reusing an id already live for the *same*\nclient is rejected `-32602`.\n\nEvery wire change is additive: omitting `streamId` reproduces today's\nbehaviour byte-for-byte, and older clients ignore the extra params\nfield. A regression test pins that.\n\n## Related Issue\n\nRelates to the roadmap's \"run / monitor / cancel workflows\" row. Spec:\n`nimbus-vscode` →\n`docs/superpowers/specs/2026-08-12-workflow-surface-design.md`, Part 2.\n\n## Type of Change\n\n- [x] New feature (non-breaking change that adds functionality)\n- [x] Documentation only (`docs/architecture.md`)\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` passes with zero errors\n- [x] `bun run lint` passes (Biome — format + lint)\n- [x] All existing tests pass (`bun test`)\n- [x] New behaviour is covered by tests\n- [x] No `any` types introduced — `unknown` is used for external data\n- [x] No credentials, tokens, or secret values appear in logs, IPC\nmessages, config, or test fixtures\n- [x] Platform-specific code is behind the `PlatformServices`\nabstraction (no OS checks in business logic)\n- [x] The HITL consent gate has not been weakened, bypassed, or made\nconfigurable\n\n## Testing\n\n```\nbun test packages/gateway/src/ipc packages/gateway/src/automation --timeout 30000\n  1833 pass, 17 skip, 0 fail\n\nbun run lint            → exit 0 (3345 files, no fixes applied)\nbun run typecheck:no-docs → exit 0\n```\n\nCoverage was checked with `bun run test:coverage:workflow` and `bun run\naudit:coverage-floor`. The floor run on a Windows dev box reports\npre-existing violations in `ipc/server/socket-listeners.ts` and\n`platform/linux.ts` — neither file is touched by this branch, and both\nare artefacts of the unix-socket tests that skip off Linux. CI\n(ubuntu-24.04) is the authority here.\n\nBehavioural coverage added:\n\n- `agent.chunk` carries `streamId` when supplied; params are\nbyte-identical when it is not; a whitespace-only id is treated as\nabsent.\n- An aborted run stops at the next step boundary and finalises\n`cancelled`; aborted-before-the-first-step records zero steps but still\nwrites the row; an unaborted signal changes nothing.\n- `workflow.cancel` against a live id, an unknown id, and another\nclient's id with the same `streamId`; rejects\nmissing/non-string/empty/NUL-bearing ids.\n- Registration under the composite key, unregistration in `finally`\nincluding when the run throws, two clients sharing one `streamId`\nwithout colliding, and same-client reuse rejected.\n\n## Notes for Reviewers\n\nTwo review waves already landed on this branch (`7be4d05c`, `3776c93b`).\nThe security-relevant one is worth flagging: **`engine.cancelStream`\npassed the raw client `streamId` straight to `registry.cancel()` with no\nNUL guard**, even though it shares the registry that now stores\ncomposite `clientId\\0streamId` workflow keys. Since a `clientId` is not\nsecret (`triggeredBy` defaults to it and `workflow.listRuns` returns\nit), a client could forge `victimClientId\\0victimStreamId` and abort\nanother client's run through that unscoped method.\n`assertStreamIdHasNoNulByte` now guards all three parse sites.\n\nDeliberate calls worth a second opinion:\n\n- **`workflow.cancel` is a distinct method, not an overload of\n`engine.cancelStream`.** The published client documents that no workflow\ncancel exists, so a distinctly named RPC makes the capability\ndiscoverable and keeps ask-stream semantics unpolluted. The composite\nkey also means `engine.cancelStream` cannot reach a workflow run even\ngiven its raw id.\n- **The boundary check sits at the top of the step loop, not before the\nDB insert.** Checking earlier would drop the `workflow_run` row for a\nrun cancelled before its first step, so a requested-then-cancelled run\nwould vanish from history rather than appearing as `cancelled`. It would\nalso skip `finalizeRun`'s audit event and run pruning.\n- **`workflow-invoke.ts` stays type-only.** It is exact-path-excluded\nfrom the coverage floor, and a type-only file emits no `SF:` lcov record\n— runtime logic there would silently bypass the floor.\n\nThis PR ships **no user-visible value on its own**. It unblocks\n`nimbus-client` typing the family (spec Part 3), which in turn unblocks\nthe extension's run surface (Part 4).\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n- **New Features**\n- Added optional stream IDs to correlate concurrent workflow and agent\nactivity.\n  - Added workflow cancellation through the IPC interface.\n- Workflow results now report `preview`, `done`, `error`, or `cancelled`\nstatus.\n- **Bug Fixes**\n- Cancellation is scoped correctly and cannot affect another client’s\nworkflow.\n  - Invalid, duplicate, or unsafe stream IDs are rejected.\n- In-progress steps finish before cancellation takes effect, preventing\npartial interruption.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-13T09:17:08+03:00",
+          "tree_id": "296c76e53b3743523532df0111038d9a214b63f6",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/5779488c77871113aeaecb7c9fa33c2b82ab540b"
+        },
+        "date": 1786602528637,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 351.6857729499992,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 392.0566759499896,
             "unit": "ms"
           }
         ]
