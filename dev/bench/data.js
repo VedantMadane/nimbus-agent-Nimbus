@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786647350141,
+  "lastUpdate": 1786655539224,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -11423,6 +11423,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 254.8774605999919,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2a13fdbb1e69a3845ac7b3d5b8d5129598ba19a2",
+          "message": "ci(install): run the PowerShell 5.1 smoke leg against real binaries (#1174)\n\n## What\n\nSwitches the Windows PowerShell 5.1 leg in\n`.github/workflows/install-smoke.yml` from stub binaries (a tiny\n`Add-Type -OutputType ConsoleApplication` placeholder) to the same real\nstaged ~50-80 MB `nimbus`/`nimbus-gateway` binaries the PS7 remote leg\nin the same job already packs and serves.\n\n## Why this needed an AV exclusion\n\nDownloading the real archive over `127.0.0.1` under Windows PowerShell\n5.1's legacy `Invoke-WebRequest` (WinINet-backed, unlike PS7's\nHttpClient) on GitHub-hosted `windows-2022` runners was previously\nmeasured transferring at ~0.95 MB/s and landing\nplausible-size-but-wrong-content bytes — deterministic across retries\n(3/3 identical), never reproducing off CI, never on the PS7 leg. The\nworking (never formally proven by an isolated A/B) diagnosis was\nreal-time antivirus inline-scanning interfering with the legacy WinINet\nstack's writes to disk. **The user explicitly authorised adding a\nWindows Defender exclusion to this CI-only job to unblock real-binary\ncoverage** — this had previously been refused as a change to shared CI\ninfrastructure not owned by this change.\n\nNote: `install.ps1` separately gained `$ProgressPreference =\n\"SilentlyContinue\"` for a real, separately-measured ~182x throughput fix\n(5.1's per-chunk console progress rendering). It's possible that fix\nalone already removed whatever triggered the corruption — that was never\ntested in isolation, so a future reader who sees this leg green for a\nlong stretch should weigh removing the exclusion before assuming it's\nstill load-bearing. The full rationale is in the workflow file's comment\nblock above the leg.\n\n## The exclusion — scope\n\n- **One directory only**: a dedicated per-run temp folder,\n`$env:RUNNER_TEMP\\ps51-dl-tmp` — not a drive, not `$env:RUNNER_TEMP`\nitself, not process-wide or extension-wide.\n- `install.ps1`'s own download temp dir (`Get-NimbusRelease`'s `$work`,\nbuilt from `[System.IO.Path]::GetTempPath()`) is redirected into exactly\nthat folder for one step only, via `$env:TMP`/`$env:TEMP` set inside\nthat step's own PowerShell process (no `$GITHUB_ENV` write, so no later\nstep inherits it).\n- **Added immediately before the download step, removed immediately\nafter**, in an `if: always()` step, so the runner is never left with a\nlingering exclusion even if the install step fails.\n- Applies only inside this CI job on GitHub-hosted `windows-2022`\nrunners — nothing under `scripts/install/` references Defender or\n`Add-MpPreference`; it never touches a developer machine or a user's\ninstall.\n\n## Verification\n\n- `bun run audit:workflow-lint` — OK.\n- `bun run preflight:fast` — PASSED.\n- **GREEN run** (real binaries + exclusion):\nhttps://github.com/nimbus-agent/Nimbus/actions/runs/31730405489 — all\nthree OS legs passed. The PS5.1 leg's log shows a real\n`Downloading`/`OK: sha256 verified` cycle, binaries resolved from inside\nthe excluded `ps51-dl-tmp` directory, and `nimbus --version` printing\nthe real `2.2.0` (not the old stub's `nimbus-stub 0.0.0-test`) — the\nwhole download+verify+install completed in ~4.6s, no sign of the\nprevious throughput collapse.\n- **RED-PROVE**: temporarily added a step that corrupted the\nalready-served `SHA256SUMS` right before the PS5.1 install step\n(reverted before merge, commit `b37ab5d5` → revert `57af0842`).\nConfirmed the leg **fails** exactly as expected:\nhttps://github.com/nimbus-agent/Nimbus/actions/runs/31730823450 (`sha256\nchecksum mismatch for nimbus-headless-windows-x64.zip - refusing to\ninstall.`) — and that the exclusion-removal step still runs and succeeds\neven when the guarded install step fails.\n- **GREEN-after-revert**:\nhttps://github.com/nimbus-agent/Nimbus/actions/runs/31731226217 —\nconfirms the reverted state (byte-identical to the real change; `git\ndiff` against the pre-corruption commit is empty) is green again.\n\n## Scope\n\nOnly the Windows PowerShell 5.1 leg is touched. Unix legs and the PS7\nleg are untouched.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n* Improved Windows installation smoke testing by validating the actual\nstaged release archive.\n* Reduced false failures caused by Windows Defender scanning temporary\ndownload files.\n  * Ensured temporary security exclusions are removed after testing.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-14T00:00:36+03:00",
+          "tree_id": "29bd0a6da74843c10bead262380d16900f4dcbe7",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/2a13fdbb1e69a3845ac7b3d5b8d5129598ba19a2"
+        },
+        "date": 1786655537076,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 336.117802650002,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 335.67810604999613,
             "unit": "ms"
           }
         ]
