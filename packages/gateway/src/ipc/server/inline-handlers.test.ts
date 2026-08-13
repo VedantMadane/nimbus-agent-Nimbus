@@ -10,6 +10,8 @@ import { createMockVault } from "../../vault/mock.ts";
 import { ConsentCoordinatorImpl } from "../consent.ts";
 import { createStreamRegistry } from "../engine-ask-stream.ts";
 import type { ClientSession } from "../session.ts";
+import { createWorkflowCancelHandler, workflowRegistryKey } from "../workflow-cancel.ts";
+import type { WorkflowRunContext } from "../workflow-invoke.ts";
 import type { ServerCtx } from "./context.ts";
 import {
   dispatchAgentInvoke,
@@ -272,6 +274,69 @@ describe("dispatchAgentInvoke", () => {
     expect(captured?.["sessionId"]).toBeUndefined();
     expect(captured?.["agent"]).toBeUndefined();
   });
+
+  test("agent.chunk carries streamId when the caller supplies one", async () => {
+    let captured: Record<string, unknown> | undefined;
+    const handler = async (payload: unknown): Promise<{ reply: string }> => {
+      captured = payload as Record<string, unknown>;
+      return { reply: "ok" };
+    };
+    const ctx = makeCtx({ agentInvokeHandler: handler });
+    const { session, notifications } = makeSession();
+    await dispatchAgentInvoke(ctx, session, "client-1", {
+      input: "hi",
+      stream: true,
+      streamId: "sid-1",
+    });
+    const sendChunk = captured?.["sendChunk"] as (t: string) => void;
+    sendChunk("chunk-1");
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]).toEqual({
+      jsonrpc: "2.0",
+      method: "agent.chunk",
+      params: { streamId: "sid-1", text: "chunk-1" },
+    });
+  });
+
+  test("agent.chunk params are unchanged when no streamId is supplied", async () => {
+    let captured: Record<string, unknown> | undefined;
+    const handler = async (payload: unknown): Promise<{ reply: string }> => {
+      captured = payload as Record<string, unknown>;
+      return { reply: "ok" };
+    };
+    const ctx = makeCtx({ agentInvokeHandler: handler });
+    const { session, notifications } = makeSession();
+    await dispatchAgentInvoke(ctx, session, "client-1", { input: "hi", stream: true });
+    const sendChunk = captured?.["sendChunk"] as (t: string) => void;
+    sendChunk("chunk-1");
+    expect(notifications[0]).toEqual({
+      jsonrpc: "2.0",
+      method: "agent.chunk",
+      params: { text: "chunk-1" },
+    });
+  });
+
+  test("whitespace-only streamId is treated as absent", async () => {
+    let captured: Record<string, unknown> | undefined;
+    const handler = async (payload: unknown): Promise<{ reply: string }> => {
+      captured = payload as Record<string, unknown>;
+      return { reply: "ok" };
+    };
+    const ctx = makeCtx({ agentInvokeHandler: handler });
+    const { session, notifications } = makeSession();
+    await dispatchAgentInvoke(ctx, session, "client-1", {
+      input: "hi",
+      stream: true,
+      streamId: "   ",
+    });
+    const sendChunk = captured?.["sendChunk"] as (t: string) => void;
+    sendChunk("c");
+    expect(notifications[0]).toEqual({
+      jsonrpc: "2.0",
+      method: "agent.chunk",
+      params: { text: "c" },
+    });
+  });
 });
 
 describe("dispatchWorkflowRunRpc", () => {
@@ -345,6 +410,198 @@ describe("dispatchWorkflowRunRpc", () => {
       paramsOverride: null,
     });
     expect(r).toBeDefined();
+  });
+
+  test("workflow chunks carry the supplied streamId", async () => {
+    let captured: WorkflowRunContext | undefined;
+    const ctx = makeCtx({
+      localIndex: makeIndex(),
+      workflowRunHandler: async (c: unknown) => {
+        captured = c as WorkflowRunContext;
+        return { runId: "r1", status: "done", dryRun: false, stepResults: [] };
+      },
+    });
+    const { session, notifications } = makeSession();
+    await dispatchWorkflowRunRpc(ctx, "client-1", session, {
+      name: "nightly",
+      stream: true,
+      streamId: "wf-sid-1",
+    });
+    captured?.sendChunk("step output");
+    expect(notifications[0]).toEqual({
+      jsonrpc: "2.0",
+      method: "agent.chunk",
+      params: { streamId: "wf-sid-1", text: "step output" },
+    });
+  });
+
+  test("registers the run under a per-client key and unregisters when it finishes", async () => {
+    let seenDuringRun = false;
+    let captured: WorkflowRunContext | undefined;
+    const key = workflowRegistryKey("client-1", "wf-sid-2");
+    const ctx = makeCtx({
+      localIndex: makeIndex(),
+      workflowRunHandler: async (c: unknown) => {
+        captured = c as WorkflowRunContext;
+        seenDuringRun = ctx.streamRegistry.has(key);
+        return { runId: "r1", status: "done", dryRun: false, stepResults: [] };
+      },
+    });
+    const { session } = makeSession();
+
+    await dispatchWorkflowRunRpc(ctx, "client-1", session, {
+      name: "nightly",
+      streamId: "wf-sid-2",
+    });
+
+    expect(seenDuringRun).toBe(true);
+    expect(captured?.signal).toBeDefined();
+    expect(ctx.streamRegistry.has(key)).toBe(false);
+    // The bare id is never a registry key.
+    expect(ctx.streamRegistry.has("wf-sid-2")).toBe(false);
+  });
+
+  test("two clients may use the same streamId without colliding", async () => {
+    const release: Array<() => void> = [];
+    const ctx = makeCtx({
+      localIndex: makeIndex(),
+      workflowRunHandler: async () =>
+        await new Promise((resolve) => {
+          release.push(() =>
+            resolve({ runId: "r", status: "done", dryRun: false, stepResults: [] }),
+          );
+        }),
+    });
+    const { session } = makeSession();
+
+    const a = dispatchWorkflowRunRpc(ctx, "client-a", session, { name: "n", streamId: "same" });
+    const b = dispatchWorkflowRunRpc(ctx, "client-b", session, { name: "n", streamId: "same" });
+
+    expect(ctx.streamRegistry.has(workflowRegistryKey("client-a", "same"))).toBe(true);
+    expect(ctx.streamRegistry.has(workflowRegistryKey("client-b", "same"))).toBe(true);
+
+    for (const r of release) r();
+    await Promise.all([a, b]);
+    expect(ctx.streamRegistry.size()).toBe(0);
+  });
+
+  test("the same client reusing a live streamId is rejected", async () => {
+    const ctx = makeCtx({
+      localIndex: makeIndex(),
+      workflowRunHandler: async () => await new Promise(() => {}),
+    });
+    const { session } = makeSession();
+
+    void dispatchWorkflowRunRpc(ctx, "client-1", session, { name: "n", streamId: "dupe" });
+
+    await expect(
+      dispatchWorkflowRunRpc(ctx, "client-1", session, { name: "n", streamId: "dupe" }),
+    ).rejects.toThrow(RpcMethodError);
+  });
+
+  test("unregisters even when the run throws", async () => {
+    const ctx = makeCtx({
+      localIndex: makeIndex(),
+      workflowRunHandler: async () => {
+        throw new Error("boom");
+      },
+    });
+    const { session } = makeSession();
+
+    await expect(
+      dispatchWorkflowRunRpc(ctx, "client-1", session, { name: "n", streamId: "wf-sid-3" }),
+    ).rejects.toThrow("boom");
+    expect(ctx.streamRegistry.has(workflowRegistryKey("client-1", "wf-sid-3"))).toBe(false);
+  });
+
+  test("a run without a streamId registers nothing", async () => {
+    const ctx = makeCtx({
+      localIndex: makeIndex(),
+      workflowRunHandler: async () => ({ runId: "r1", dryRun: false, stepResults: [] }),
+    });
+    const { session } = makeSession();
+    await dispatchWorkflowRunRpc(ctx, "client-1", session, { name: "nightly" });
+    expect(ctx.streamRegistry.size()).toBe(0);
+  });
+
+  test("rejects a streamId containing the registry's separator byte", async () => {
+    const handler = async (): Promise<unknown> => ({ runId: "r1", dryRun: false, stepResults: [] });
+    const ctx = makeCtx({ localIndex: makeIndex(), workflowRunHandler: handler });
+    const { session } = makeSession();
+    await expect(
+      dispatchWorkflowRunRpc(ctx, "client-1", session, { name: "n", streamId: "bad\u0000id" }),
+    ).rejects.toThrow(RpcMethodError);
+    expect(ctx.streamRegistry.size()).toBe(0);
+  });
+
+  // Reproduces the sequence: cancel a live run (registry.cancel deletes the
+  // entry immediately, but the run itself keeps executing until its next
+  // step boundary), reuse the same streamId while the cancelled run is still
+  // winding down, then let the first run's `finally` fire. A plain
+  // `unregister` there would delete the SECOND run's live entry, leaving it
+  // silently uncancellable forever.
+  test("cancel-then-reuse: a stale finally does not evict the successor's live entry", async () => {
+    const releases: Array<() => void> = [];
+    const ctx = makeCtx({
+      localIndex: makeIndex(),
+      workflowRunHandler: async () =>
+        await new Promise((resolve) => {
+          releases.push(() =>
+            resolve({ runId: "r", status: "cancelled", dryRun: false, stepResults: [] }),
+          );
+        }),
+    });
+    const { session } = makeSession();
+    const key = workflowRegistryKey("client-1", "x");
+    const cancelHandler = createWorkflowCancelHandler(ctx.streamRegistry);
+
+    // First run registers under `key`.
+    const first = dispatchWorkflowRunRpc(ctx, "client-1", session, { name: "n", streamId: "x" });
+    expect(ctx.streamRegistry.has(key)).toBe(true);
+
+    // Cancel it: the entry is deleted immediately, even though the run
+    // itself (the unresolved promise above) is still winding down.
+    expect(cancelHandler("client-1", { streamId: "x" })).toEqual({ cancelled: true });
+    expect(ctx.streamRegistry.has(key)).toBe(false);
+
+    // Reuse the same id: the duplicate-check sees nothing live, so it
+    // registers a NEW controller under the same key.
+    const second = dispatchWorkflowRunRpc(ctx, "client-1", session, { name: "n", streamId: "x" });
+    expect(ctx.streamRegistry.has(key)).toBe(true);
+
+    // Let the FIRST run reach its boundary now. Its `finally` must not evict
+    // the second run's live entry.
+    releases[0]?.();
+    await first;
+    expect(ctx.streamRegistry.has(key)).toBe(true);
+
+    // The second run must still be cancellable.
+    expect(cancelHandler("client-1", { streamId: "x" })).toEqual({ cancelled: true });
+
+    releases[1]?.();
+    await second;
+    expect(ctx.streamRegistry.has(key)).toBe(false);
+  });
+
+  // workflow.run's streamId parse (parseOptionalString) trims. If
+  // workflow.cancel's parse didn't agree, a run registered with surrounding
+  // whitespace could never be cancelled: it would register under the
+  // trimmed key but look up under the untrimmed one and silently answer
+  // `{ cancelled: false }` forever.
+  test("a streamId with surrounding whitespace can be registered and then cancelled", async () => {
+    const ctx = makeCtx({
+      localIndex: makeIndex(),
+      workflowRunHandler: async () => await new Promise(() => {}),
+    });
+    const { session } = makeSession();
+    const key = workflowRegistryKey("client-1", "abc");
+
+    void dispatchWorkflowRunRpc(ctx, "client-1", session, { name: "n", streamId: "  abc  " });
+    expect(ctx.streamRegistry.has(key)).toBe(true);
+
+    const cancelHandler = createWorkflowCancelHandler(ctx.streamRegistry);
+    expect(cancelHandler("client-1", { streamId: "  abc  " })).toEqual({ cancelled: true });
+    expect(ctx.streamRegistry.has(key)).toBe(false);
   });
 });
 

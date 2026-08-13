@@ -17,6 +17,7 @@ import type { IndexSearchQuery } from "../../index/local-index.ts";
 import type { AgentInvokeContext } from "../agent-invoke.ts";
 import { type AgentInvokeContextLike, createAskStreamHandler } from "../engine-ask-stream.ts";
 import type { ClientSession } from "../session.ts";
+import { assertStreamIdHasNoNulByte, workflowRegistryKey } from "../workflow-cancel.ts";
 import type { WorkflowRunContext } from "../workflow-invoke.ts";
 import type { ServerCtx } from "./context.ts";
 import { RpcMethodError } from "./rpc-error.ts";
@@ -41,14 +42,21 @@ function parseOptionalString(
   return raw.trim();
 }
 
-function sendAgentChunkIfStreaming(session: ClientSession, stream: boolean, text: string): void {
+function sendAgentChunkIfStreaming(
+  session: ClientSession,
+  stream: boolean,
+  text: string,
+  streamId?: string,
+): void {
   if (!stream) {
     return;
   }
   session.writeNotification({
     jsonrpc: "2.0",
     method: "agent.chunk",
-    params: { text },
+    // Additive by design: without a streamId the params are byte-identical to
+    // what every shipped client already parses.
+    params: streamId === undefined ? { text } : { streamId, text },
   });
 }
 
@@ -69,6 +77,7 @@ export async function dispatchAgentInvoke(
   const agentRaw = rec?.["agent"];
   const agent =
     typeof agentRaw === "string" && agentRaw.trim() !== "" ? agentRaw.trim() : undefined;
+  const streamId = parseOptionalString(rec, "streamId");
   const handler = ctx.getAgentInvokeHandler();
   if (handler === undefined) {
     return {
@@ -87,7 +96,7 @@ export async function dispatchAgentInvoke(
         input,
         stream,
         sendChunk: (text: string) => {
-          sendAgentChunkIfStreaming(session, stream, text);
+          sendAgentChunkIfStreaming(session, stream, text, streamId);
         },
       };
       if (sessionId !== undefined) {
@@ -124,7 +133,8 @@ function buildWorkflowRunContext(
   clientId: string,
   session: ClientSession,
   params: unknown,
-): { ctx: WorkflowRunContext; sessionId: string | undefined } {
+  signal: AbortSignal,
+): { ctx: WorkflowRunContext; sessionId: string | undefined; streamId: string | undefined } {
   const rec = asRecord(params);
   const workflowName = requireNonEmptyRpcString(rec, "name");
   const triggeredBy = parseOptionalString(rec, "triggeredBy") ?? clientId;
@@ -133,6 +143,10 @@ function buildWorkflowRunContext(
   const sessionId = parseOptionalString(rec, "sessionId");
   const agent = parseOptionalString(rec, "agent");
   const paramsOverride = parseWorkflowRunParamsOverride(rec);
+  const streamId = parseOptionalString(rec, "streamId");
+  if (streamId !== undefined) {
+    assertStreamIdHasNoNulByte(streamId, "workflow.run");
+  }
 
   const ctx: WorkflowRunContext = {
     clientId,
@@ -141,13 +155,15 @@ function buildWorkflowRunContext(
     dryRun,
     stream,
     sendChunk: (text: string) => {
-      sendAgentChunkIfStreaming(session, stream, text);
+      sendAgentChunkIfStreaming(session, stream, text, streamId);
     },
+    signal,
   };
   if (sessionId !== undefined) ctx.sessionId = sessionId;
   if (agent !== undefined) ctx.agent = agent;
   if (paramsOverride !== undefined) ctx.paramsOverride = paramsOverride;
-  return { ctx, sessionId };
+  if (streamId !== undefined) ctx.streamId = streamId;
+  return { ctx, sessionId, streamId };
 }
 
 export async function dispatchWorkflowRunRpc(
@@ -163,7 +179,27 @@ export async function dispatchWorkflowRunRpc(
   if (handler === undefined) {
     throw new RpcMethodError(-32603, "Workflow runner is not configured");
   }
-  const { ctx: workflowCtx, sessionId } = buildWorkflowRunContext(clientId, session, params);
+  const ac = new AbortController();
+  const {
+    ctx: workflowCtx,
+    sessionId,
+    streamId,
+  } = buildWorkflowRunContext(clientId, session, params, ac.signal);
+
+  // The id is supplied by the CLIENT: workflow.run resolves only when the run
+  // ends, so a server-minted id could never reach the caller in time to cancel.
+  // That makes the key composite — a bare id is shared across every session on
+  // this registry, so one client could otherwise abort another's run.
+  const registryKey = streamId === undefined ? undefined : workflowRegistryKey(clientId, streamId);
+  if (registryKey !== undefined) {
+    if (ctx.streamRegistry.has(registryKey)) {
+      throw new RpcMethodError(
+        -32602,
+        "workflow.run: streamId is already in use by a running workflow for this client",
+      );
+    }
+    ctx.streamRegistry.register(registryKey, ac);
+  }
 
   try {
     const requestStore: AgentRequestContext = {};
@@ -176,6 +212,13 @@ export async function dispatchWorkflowRunRpc(
       throw new RpcMethodError(-32000, e.message);
     }
     throw e;
+  } finally {
+    if (registryKey !== undefined) {
+      // Compare-and-delete: if this streamId was cancelled and reused while
+      // this run was winding down, a plain unregister here would evict the
+      // reuse's live entry instead of this run's (already-deleted) one.
+      ctx.streamRegistry.unregisterIf(registryKey, ac);
+    }
   }
 }
 

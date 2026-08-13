@@ -11,10 +11,15 @@ export type WorkflowRunContext = {
   sessionId?: string;
   agent?: string;
   paramsOverride?: Readonly<Record<string, Record<string, unknown>>>;
+  /** Client-supplied correlation id, echoed on every agent.chunk for this run. */
+  streamId?: string;
+  /** Aborted by workflow.cancel; honoured at the next step boundary. */
+  signal?: AbortSignal;
 };
 
 export type WorkflowRunHandler = (ctx: WorkflowRunContext) => Promise<{
   runId: string;
+  status: string;
   dryRun: boolean;
   stepResults: Array<{ label?: string; status: string; output?: string; error?: string }>;
 }>;
