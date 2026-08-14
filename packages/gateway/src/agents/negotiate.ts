@@ -5,12 +5,18 @@ import { AgentCoordinator, type SubTask, type SubTaskResult } from "../engine/co
 import { normalizeEmail } from "../people/person-store.ts";
 import { emitBriefWithSynthesis } from "./_lib/emit-brief.ts";
 import type { GapNote } from "./_lib/findings.ts";
-import { detectEmptyIndex } from "./_lib/gap-notes.ts";
+import {
+  detectEmptyIndex,
+  detectMissingConnector,
+  detectMissingRelationToEntityType,
+  remediationForEntityType,
+} from "./_lib/gap-notes.ts";
 import type {
   NegotiateAuthoredPrs,
   NegotiateBrief,
   NegotiateDecisions,
   NegotiateEvidenceRef,
+  NegotiateIncidents,
   NegotiateInput,
   NegotiateOwnership,
   NegotiateReviewedPrs,
@@ -51,7 +57,6 @@ export type NegotiateContext = {
 const PERSONAL_DOCS_CONFIG_KEY = "[negotiate] personal_sources";
 
 const UNAVAILABLE_EVIDENCE: readonly string[] = Object.freeze([
-  "incidents resolved",
   "on-call shifts",
   "deploys triggered",
 ]);
@@ -510,6 +515,67 @@ function laneDecisions(db: Database, personId: string, sinceMs: number): Negotia
   };
 }
 
+/**
+ * A graph read: `person --resolves--> incident` and `person --assigned-->
+ * incident`, joined back to `item` for the window cutoff — the same shape as
+ * `laneTickets`. `COUNT(DISTINCT ie.id)` because one incident can carry both
+ * edge types for the same person and must not count twice within a lane.
+ */
+function laneIncidents(db: Database, personId: string, sinceMs: number): NegotiateIncidents {
+  const cutoff = Date.now() - sinceMs;
+  const countEdge = (relationType: string): number =>
+    (
+      db
+        .query(
+          `SELECT COUNT(DISTINCT ie.id) AS n
+             FROM graph_relation r
+             JOIN graph_entity pe ON pe.id = r.from_id AND pe.type = 'person'
+             JOIN graph_entity ie ON ie.id = r.to_id   AND ie.type = 'incident'
+             JOIN item i          ON i.id = ie.external_id
+            WHERE r.type = ? AND pe.external_id = ? AND i.modified_at >= ?`,
+        )
+        .get(relationType, personId, cutoff) as { n: number }
+    ).n;
+
+  const unattributable = (
+    db
+      .query(
+        `SELECT COUNT(*) AS n
+           FROM item i
+          WHERE i.type = 'incident'
+            AND i.modified_at >= ?
+            AND NOT EXISTS (
+                  SELECT 1
+                    FROM graph_entity ie
+                    JOIN graph_relation r ON r.to_id = ie.id AND r.type IN ('assigned', 'resolves')
+                   WHERE ie.type = 'incident' AND ie.external_id = i.id
+                )`,
+      )
+      .get(cutoff) as { n: number }
+  ).n;
+
+  const resolved = countEdge("resolves");
+  const refs = evidenceRefsFor(
+    db,
+    `SELECT i.title AS title, COALESCE(i.canonical_url, i.url) AS url
+       FROM graph_relation r
+       JOIN graph_entity pe ON pe.id = r.from_id AND pe.type = 'person'
+       JOIN graph_entity ie ON ie.id = r.to_id   AND ie.type = 'incident'
+       JOIN item i          ON i.id = ie.external_id
+      WHERE r.type = 'resolves' AND pe.external_id = ? AND i.modified_at >= ?
+      ORDER BY i.modified_at DESC, i.id ASC
+      LIMIT ?`,
+    [personId, cutoff, NEGOTIATE_EVIDENCE_LIMIT],
+  );
+
+  return {
+    resolved,
+    assigned: countEdge("assigned"),
+    unattributable,
+    evidence: { refs, total: resolved },
+  };
+}
+
 const DOC_TYPES = ["page", "document"] as const;
 const NOTE_TYPES = ["obsidian_note"] as const;
 const MESSAGE_TYPES = ["message"] as const;
@@ -818,7 +884,43 @@ export async function runNegotiate(
   // is "not attempted", the same "could not be computed" meaning as a lane that threw.
   if (subject.personId !== null) {
     const personId = subject.personId;
-    laneNames.push("authoredPrs", "reviewedPrs", "tickets", "ownership", "decisions", "writing");
+    // The incidents lane's four-zero honesty contract (spec § 5.8): a structural zero
+    // caused by "no PagerDuty connector" or "connector present, no incident edges yet"
+    // must never render identically to a real `unattributable` measurement. Gated the
+    // same as the lane itself — an unresolved subject already carries its own
+    // `missing_user_identity` gap and must not also emit connector noise. Ordered more
+    // fundamental cause first: no connector before no edges, since a missing connector
+    // implies missing edges too and naming both would be redundant.
+    const missingPagerdutyConnector = detectMissingConnector(ctx.db, "pagerduty");
+    if (missingPagerdutyConnector !== null) {
+      gaps.push(missingPagerdutyConnector);
+    } else {
+      // The remediation is REQUIRED here, not optional polish. Without it this
+      // note falls back to `detectMissingRelationToEntityType`'s shared default
+      // detail, which says the edges are "not yet emitted by the graph
+      // populator" — false since `syncIncidentPersonEdges` shipped. The real
+      // cause is missing PagerDuty actor data, which is exactly what
+      // `remediationForEntityType("incident")` explains, and it is the same
+      // string `expert.ts`'s `subIncidentResolved` passes for this identical
+      // condition. Omitting it gave the recovery steps in one brief and not the
+      // other, for the same underlying state.
+      const missingIncidentEdges = detectMissingRelationToEntityType(
+        ctx.db,
+        "resolves",
+        "incident",
+        remediationForEntityType("incident"),
+      );
+      if (missingIncidentEdges !== null) gaps.push(missingIncidentEdges);
+    }
+    laneNames.push(
+      "authoredPrs",
+      "reviewedPrs",
+      "tickets",
+      "ownership",
+      "decisions",
+      "writing",
+      "incidents",
+    );
     tasks.push(
       laneTask(() => laneAuthoredPrs(ctx.db, personId, sinceMs)),
       laneTask(() => laneReviewedPrs(ctx.db, personId, sinceMs)),
@@ -826,6 +928,7 @@ export async function runNegotiate(
       laneTask(() => laneOwnership(ctx.db, personId)),
       laneTask(() => laneDecisions(ctx.db, personId, sinceMs)),
       laneTask(() => laneWriting(ctx.db, personId, sinceMs, ctx.personalSources)),
+      laneTask(() => laneIncidents(ctx.db, personId, sinceMs)),
     );
   }
   const coordinator = new AgentCoordinator({
@@ -843,6 +946,7 @@ export async function runNegotiate(
   let ownership: NegotiateOwnership | null = null;
   let decisions: NegotiateDecisions | null = null;
   let writing: NegotiateWriting | null = null;
+  let incidents: NegotiateIncidents | null = null;
   for (const r of results) {
     if (r.status !== "done" || r.text === undefined) continue;
     const laneName = laneNames[r.taskIndex];
@@ -854,6 +958,7 @@ export async function runNegotiate(
       else if (laneName === "ownership") ownership = decoded as NegotiateOwnership;
       else if (laneName === "decisions") decisions = decoded as NegotiateDecisions;
       else if (laneName === "writing") writing = decoded as NegotiateWriting;
+      else if (laneName === "incidents") incidents = decoded as NegotiateIncidents;
     } catch {
       gaps.push(laneFailureGap(laneName ?? `#${String(r.taskIndex)}`, r));
     }
@@ -871,6 +976,7 @@ export async function runNegotiate(
     unavailableEvidence: UNAVAILABLE_EVIDENCE,
     authoredPrs,
     reviewedPrs,
+    incidents,
     tickets,
     ownership,
     decisions,

@@ -102,6 +102,7 @@ export type NegotiateBrief = {
    */
   readonly authoredPrs: NegotiateAuthoredPrs | null;
   readonly reviewedPrs: NegotiateReviewedPrs | null;
+  readonly incidents: NegotiateIncidents | null;
   readonly tickets: NegotiateTickets | null;
   readonly ownership: NegotiateOwnership | null;
   readonly decisions: NegotiateDecisions | null;
@@ -206,4 +207,25 @@ export type NegotiateOwnership = {
    * name/email would produce a wrong attribution, which is worse than an acknowledged gap).
    */
   readonly unmappedIdentitiesInIndex: number;
+};
+
+/**
+ * Incident work attributed to the subject (spec § 5.7).
+ *
+ * `unattributable` is a fact about the INDEX, not about this person: in-window
+ * incidents carrying no person edge at all. It is counted rather than dropped
+ * so a small `resolved` count cannot be read as "they did nothing" — but the
+ * count names no cause: it is dominated by populations the code cannot tell
+ * apart (chiefly auto-resolved incidents with no human actor, deliberately not
+ * a loss — see `extractPagerdutyActors`), so asserting a specific cause (an
+ * unexpanded actor payload, a token without user-read scope) would itself be a
+ * false claim in the common case. The same rule `NegotiateDecisions.unattributable`
+ * follows.
+ */
+export type NegotiateIncidents = {
+  readonly resolved: number;
+  readonly assigned: number;
+  readonly unattributable: number;
+  /** Incidents the subject RESOLVED, newest first — never drawn from `unattributable`. */
+  readonly evidence: NegotiateEvidence;
 };

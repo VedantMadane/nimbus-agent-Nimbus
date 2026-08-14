@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
+import { ProviderRateLimiter } from "../sync/rate-limiter.ts";
 import type { SyncResult } from "../sync/types.ts";
 import {
   createMemoryIndexDb,
@@ -12,7 +13,12 @@ import {
   testConnectorSyncNoop,
   urlFromFetchInput,
 } from "./connector-sync-test-helpers.ts";
-import { createPagerdutySyncable, syncPagerdutyIncidentItems } from "./pagerduty-sync.ts";
+import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
+import {
+  createPagerdutySyncable,
+  MAX_USER_LOOKUPS_PER_SYNC,
+  syncPagerdutyIncidentItems,
+} from "./pagerduty-sync.ts";
 
 type IncidentMetadata = {
   status: string | null;
@@ -21,6 +27,10 @@ type IncidentMetadata = {
   pagerduty_service_id?: string;
   severity?: string;
   urgency?: string;
+  assignee_emails?: string[];
+  resolved_by_email?: string | null;
+  unattributed_actors?: number;
+  meta_v?: number;
 };
 
 function readIncidentMetadata(db: Database, externalId: string): IncidentMetadata {
@@ -72,6 +82,44 @@ function stubPagerdutyPages(pages: readonly PdPageResponse[]): { calls: string[]
     });
   }) as typeof fetch;
   return { calls };
+}
+
+/**
+ * Serves the incident list once, then answers /users/{id} lookups from `users`.
+ * An id absent from `users` gets the given status, so a 403/404 can be aimed at
+ * exactly one actor.
+ */
+function stubPagerdutyWithUsers(
+  incidents: unknown[],
+  users: Record<string, { email?: string; status?: number }>,
+): { userCalls: string[] } {
+  const userCalls: string[] = [];
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    const url = urlFromFetchInput(input);
+    if (url.startsWith("https://api.pagerduty.com/incidents")) {
+      return new Response(JSON.stringify({ incidents, more: false }), { status: 200 });
+    }
+    if (url.startsWith("https://api.pagerduty.com/users/")) {
+      userCalls.push(url);
+      const id = url.slice("https://api.pagerduty.com/users/".length);
+      const u = users[id];
+      if (u?.status !== undefined) return new Response("{}", { status: u.status });
+      return new Response(JSON.stringify({ user: { id, email: u?.email } }), { status: 200 });
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  }) as typeof fetch;
+  return { userCalls };
+}
+
+function resolvedIncident(id: string, resolverId: string): unknown {
+  return {
+    id,
+    title: `Incident ${id}`,
+    status: "resolved",
+    updated_at: isoHoursAgo(1),
+    created_at: isoHoursAgo(2),
+    last_status_change_by: { id: resolverId, type: "user_reference" },
+  };
 }
 
 async function runOneSync(incidents: unknown[]): Promise<Database> {
@@ -818,6 +866,7 @@ describeWithFetchRestore("pagerduty-sync", () => {
       [null, "string-item", 42, true, undefined],
       since,
       Date.now(),
+      new Map(),
     );
     expect(upserted).toBe(0);
     expectServiceItemCount(db, "pagerduty", 0);
@@ -836,6 +885,7 @@ describeWithFetchRestore("pagerduty-sync", () => {
       ],
       since,
       Date.now(),
+      new Map(),
     );
     // Only the item with VALID_ID should be upserted
     expect(upserted).toBe(1);
@@ -860,6 +910,7 @@ describeWithFetchRestore("pagerduty-sync", () => {
       ],
       recentSince,
       Date.now(),
+      new Map(),
     );
     // maxUpdated must not go backwards (must stay at recentSince)
     expect(maxUpdated).toBe(recentSince);
@@ -1040,5 +1091,253 @@ describeWithFetchRestore("pagerduty-sync", () => {
     const result = await sync.sync(ctx, null);
     expect(result.itemsUpserted).toBe(0);
     expect(result.cursor).toBeNull();
+  });
+
+  test("requests expanded actors so assignee emails cost no extra requests", async () => {
+    const { calls } = stubPagerdutyPages([{ incidents: [], more: false }]);
+    const db = createMemoryIndexDb();
+    const syncable = createPagerdutySyncable({ ensurePagerdutyMcpRunning: async () => {} });
+    await syncable.sync(syncTestContext(db, createStubVault({ "pagerduty.api_token": "t" })), null);
+
+    const url = calls[0] ?? "";
+    expect(url).toContain("include%5B%5D=assignees");
+    expect(url).toContain("include%5B%5D=acknowledgers");
+    expect(url).toContain("include%5B%5D=users");
+  });
+
+  // ── attribution metadata ──────────────────────────────────────────────
+
+  test("writes assignee, resolver and meta_v into incident metadata", async () => {
+    stubPagerdutyIncidents([
+      {
+        id: "PD-1",
+        title: "Checkout 500s",
+        status: "resolved",
+        updated_at: isoHoursAgo(1),
+        created_at: isoHoursAgo(2),
+        assignments: [{ assignee: { id: "PUSER1", email: "jane@example.com" } }],
+        last_status_change_by: { id: "PUSER1", type: "user_reference" },
+      },
+    ]);
+    const db = createMemoryIndexDb();
+    const syncable = createPagerdutySyncable({ ensurePagerdutyMcpRunning: async () => {} });
+    await syncable.sync(syncTestContext(db, createStubVault({ "pagerduty.api_token": "t" })), null);
+
+    const meta = readIncidentMetadata(db, "PD-1");
+    expect(meta.assignee_emails).toEqual(["jane@example.com"]);
+    expect(meta.resolved_by_email).toBe("jane@example.com");
+    expect(meta.unattributed_actors).toBe(0);
+    expect(meta.meta_v).toBe(1);
+  });
+
+  // `?? null` rather than a conditional key, so "nobody resolved this" is
+  // recorded rather than being indistinguishable from "this connector version
+  // did not capture resolution" — the same rule Spec A applied to assignedTo.
+  test("records an absent resolver as null, not as a missing key", async () => {
+    stubPagerdutyIncidents([
+      {
+        id: "PD-2",
+        title: "Still burning",
+        status: "triggered",
+        updated_at: isoHoursAgo(1),
+        created_at: isoHoursAgo(2),
+      },
+    ]);
+    const db = createMemoryIndexDb();
+    const syncable = createPagerdutySyncable({ ensurePagerdutyMcpRunning: async () => {} });
+    await syncable.sync(syncTestContext(db, createStubVault({ "pagerduty.api_token": "t" })), null);
+
+    const meta = readIncidentMetadata(db, "PD-2");
+    expect(meta.resolved_by_email).toBeNull();
+    expect(meta.assignee_emails).toEqual([]);
+  });
+
+  test("the item still carries no author", async () => {
+    stubPagerdutyIncidents([
+      {
+        id: "PD-3",
+        title: "Paged",
+        status: "resolved",
+        updated_at: isoHoursAgo(1),
+        created_at: isoHoursAgo(2),
+        assignments: [{ assignee: { id: "PUSER1", email: "jane@example.com" } }],
+      },
+    ]);
+    const db = createMemoryIndexDb();
+    const syncable = createPagerdutySyncable({ ensurePagerdutyMcpRunning: async () => {} });
+    await syncable.sync(syncTestContext(db, createStubVault({ "pagerduty.api_token": "t" })), null);
+
+    const row = db
+      .query("SELECT author_id FROM item WHERE service = 'pagerduty' AND external_id = 'PD-3'")
+      .get() as { author_id: string | null };
+    expect(row.author_id).toBeNull();
+  });
+
+  // ── bounded /users/{id} fallback ────────────────────────────────────────
+
+  test("resolves an unexpanded resolver through one /users lookup", async () => {
+    const { userCalls } = stubPagerdutyWithUsers([resolvedIncident("PD-1", "PUSER9")], {
+      PUSER9: { email: "jane@example.com" },
+    });
+    const db = createMemoryIndexDb();
+    const syncable = createPagerdutySyncable({ ensurePagerdutyMcpRunning: async () => {} });
+    await syncable.sync(syncTestContext(db, createStubVault({ "pagerduty.api_token": "t" })), null);
+
+    expect(userCalls).toHaveLength(1);
+    expect(readIncidentMetadata(db, "PD-1").resolved_by_email).toBe("jane@example.com");
+  });
+
+  test("looks a repeated actor up only once per run", async () => {
+    const { userCalls } = stubPagerdutyWithUsers(
+      [resolvedIncident("PD-1", "PUSER9"), resolvedIncident("PD-2", "PUSER9")],
+      { PUSER9: { email: "jane@example.com" } },
+    );
+    const db = createMemoryIndexDb();
+    const syncable = createPagerdutySyncable({ ensurePagerdutyMcpRunning: async () => {} });
+    await syncable.sync(syncTestContext(db, createStubVault({ "pagerduty.api_token": "t" })), null);
+    expect(userCalls).toHaveLength(1);
+  });
+
+  // The failure that matters: a token scoped before this feature 403s on EVERY
+  // lookup. Losing the whole incident index over that is far worse than an
+  // unattributed incident. Red-prove it — an implementation that lets the
+  // rejection propagate still passes a test that only asserts "no edge".
+  test("a 403 on one actor leaves the sync succeeding and every incident indexed", async () => {
+    stubPagerdutyWithUsers(
+      [resolvedIncident("PD-1", "PUSER9"), resolvedIncident("PD-2", "PUSER8")],
+      {
+        PUSER9: { status: 403 },
+        PUSER8: { email: "bob@example.com" },
+      },
+    );
+    const db = createMemoryIndexDb();
+    const syncable = createPagerdutySyncable({ ensurePagerdutyMcpRunning: async () => {} });
+    const result: SyncResult = await syncable.sync(
+      syncTestContext(db, createStubVault({ "pagerduty.api_token": "t" })),
+      null,
+    );
+
+    expect(result.itemsUpserted).toBe(2);
+    expectServiceItemCount(db, "pagerduty", 2);
+    expect(readIncidentMetadata(db, "PD-1").resolved_by_email).toBeNull();
+    expect(readIncidentMetadata(db, "PD-1").unattributed_actors).toBe(1);
+    expect(readIncidentMetadata(db, "PD-2").resolved_by_email).toBe("bob@example.com");
+  });
+
+  // A 200 with a body that is empty, non-JSON, or missing `user` must degrade to
+  // an unattributed incident, never throw. `JSON.parse` sits INSIDE the try for
+  // exactly this reason, and `asRecord` returns undefined for null, a primitive,
+  // or an array — so no level of the traversal can explode.
+  test.each([
+    ["an empty body", ""],
+    ["non-JSON", "<html>502</html>"],
+    ["JSON with no user block", '{"meta":{}}'],
+    ["a JSON array", "[]"],
+    ["a JSON null", "null"],
+    ["a user with no email", '{"user":{"id":"PUSER9"}}'],
+  ])("survives a 200 carrying %s", async (_label, body) => {
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+      const url = urlFromFetchInput(input);
+      if (url.startsWith("https://api.pagerduty.com/incidents")) {
+        return new Response(
+          JSON.stringify({ incidents: [resolvedIncident("PD-1", "PUSER9")], more: false }),
+          { status: 200 },
+        );
+      }
+      return new Response(body, { status: 200 });
+    }) as typeof fetch;
+
+    const db = createMemoryIndexDb();
+    const syncable = createPagerdutySyncable({ ensurePagerdutyMcpRunning: async () => {} });
+    const result: SyncResult = await syncable.sync(
+      syncTestContext(db, createStubVault({ "pagerduty.api_token": "t" })),
+      null,
+    );
+
+    expect(result.itemsUpserted).toBe(1);
+    expect(readIncidentMetadata(db, "PD-1").resolved_by_email).toBeNull();
+    expect(readIncidentMetadata(db, "PD-1").unattributed_actors).toBe(1);
+  });
+
+  // MAX_USER_LOOKUPS_PER_SYNC + 1 (the list request) acquires exceed the real
+  // pagerduty bucket's burst (10 @ 60/min), so the real limiter would sleep for
+  // real wall-clock seconds between acquires — same fast-limiter override
+  // `zoom-sync.test.ts:294` uses to keep a many-request cap test fast. Rate
+  // limiting itself is still exercised: `ctx.rateLimiter.acquire` is still
+  // called once per lookup, just against generous quota instead of the real one.
+  test("stops at the lookup cap and counts the rest", async () => {
+    const incidents = Array.from({ length: MAX_USER_LOOKUPS_PER_SYNC + 5 }, (_, i) =>
+      resolvedIncident(`PD-${String(i)}`, `PUSER${String(i)}`),
+    );
+    // Every id BELOW the cap resolves to a real email; ids beyond it are never
+    // requested. Serving no email at all (the earlier form of this test) made a
+    // capped incident and an uncapped one indistinguishable — both came back
+    // unattributed — so the assertions below could not tell "skipped and
+    // counted" from "skipped and silently dropped", which is the whole point of
+    // the cap contract.
+    const users = Object.fromEntries(
+      Array.from({ length: MAX_USER_LOOKUPS_PER_SYNC }, (_, i) => [
+        `PUSER${String(i)}`,
+        { email: `u${String(i)}@example.com` },
+      ]),
+    );
+    const { userCalls } = stubPagerdutyWithUsers(incidents, users);
+    const db = createMemoryIndexDb();
+    const syncable = createPagerdutySyncable({ ensurePagerdutyMcpRunning: async () => {} });
+    const fastLimiter = new ProviderRateLimiter({
+      pagerduty: { requestsPerMinute: 6000, burstSize: 100 },
+    });
+    const ctx = {
+      db,
+      vault: createStubVault({ "pagerduty.api_token": "t" }),
+      ...silentSyncContextExtras(),
+      rateLimiter: fastLimiter,
+    };
+    await syncable.sync(ctx, null);
+    expect(userCalls).toHaveLength(MAX_USER_LOOKUPS_PER_SYNC);
+    expectServiceItemCount(db, "pagerduty", MAX_USER_LOOKUPS_PER_SYNC + 5);
+
+    // Below the cap: resolved, and nothing counted as lost.
+    const underCap = readIncidentMetadata(db, "PD-0");
+    expect(underCap.resolved_by_email).toBe("u0@example.com");
+    expect(underCap.unattributed_actors).toBe(0);
+
+    // Beyond the cap: skipped, and COUNTED. This is the assertion the test name
+    // promises — it fails if the overflow is silently truncated instead.
+    const overCap = readIncidentMetadata(db, `PD-${String(MAX_USER_LOOKUPS_PER_SYNC + 4)}`);
+    expect(overCap.resolved_by_email).toBeNull();
+    expect(overCap.unattributed_actors).toBe(1);
+  });
+
+  // ── historyFloorMs opt-in ────────────────────────────────────────────────
+
+  test("a cold start honours historyFloorMs", async () => {
+    const { calls } = stubPagerdutyPages([{ incidents: [], more: false }]);
+    const db = createMemoryIndexDb();
+    const floorMs = Date.now() - 200 * 86_400_000;
+    const ctx = {
+      ...syncTestContext(db, createStubVault({ "pagerduty.api_token": "t" })),
+      historyFloorMs: floorMs,
+    };
+    const syncable = createPagerdutySyncable({ ensurePagerdutyMcpRunning: async () => {} });
+    await syncable.sync(ctx, null);
+
+    const since = new URL(calls[0] ?? "").searchParams.get("since") ?? "";
+    expect(Date.parse(since)).toBeCloseTo(floorMs, -4);
+  });
+
+  test("an established cursor beats historyFloorMs", async () => {
+    const cursorIso = isoHoursAgo(2);
+    const { calls } = stubPagerdutyPages([{ incidents: [], more: false }]);
+    const db = createMemoryIndexDb();
+    const ctx = {
+      ...syncTestContext(db, createStubVault({ "pagerduty.api_token": "t" })),
+      historyFloorMs: Date.now() - 200 * 86_400_000,
+    };
+    const syncable = createPagerdutySyncable({ ensurePagerdutyMcpRunning: async () => {} });
+    const cursor = encodeNimbusJsonCursor("nimbus-pd1:", { lastUpdated: cursorIso });
+    await syncable.sync(ctx, cursor);
+
+    expect(new URL(calls[0] ?? "").searchParams.get("since")).toBe(cursorIso);
   });
 });

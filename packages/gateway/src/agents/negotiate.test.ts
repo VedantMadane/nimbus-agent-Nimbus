@@ -47,6 +47,43 @@ function seedReview(db: Database, num: number, reviewerId: string, state: string
   });
 }
 
+/**
+ * Writes a pagerduty incident and lets the REAL populator build the edges —
+ * `upsertIndexedItem` calls `syncGraphFromIndexedItem` synchronously. Seeding
+ * graph rows by hand would test the lane against a graph shape the populator
+ * never produces.
+ */
+function seedIncident(
+  db: Database,
+  id: string,
+  actors: { assignees?: string[]; resolvedBy?: string | null; modifiedAt?: number },
+): void {
+  upsertIndexedItem(db, {
+    service: "pagerduty",
+    type: "incident",
+    externalId: id,
+    title: `Incident ${id}`,
+    bodyPreview: "",
+    modifiedAt: actors.modifiedAt ?? Date.now(),
+    syncedAt: Date.now(),
+    metadata: {
+      service: "checkout",
+      assignee_emails: actors.assignees ?? [],
+      resolved_by_email: actors.resolvedBy ?? null,
+    },
+  });
+}
+
+/** `resolvePersonForSync` matches on canonical_email, so it must be set. */
+function seedMe(db: Database): string {
+  db.run("INSERT INTO person (id, display_name, canonical_email) VALUES (?, ?, ?)", [
+    "person:me",
+    "Me",
+    "jane@example.com",
+  ]);
+  return "person:me";
+}
+
 function freshDb(): Database {
   const db = new Database(":memory:");
   LocalIndex.ensureSchema(db);
@@ -105,11 +142,7 @@ test("the brief always names the evidence that does not exist", async () => {
   );
   const brief = await runNegotiate({ mePersonIdOverride: "person:me" }, ctxFor(db));
 
-  expect(brief.unavailableEvidence).toEqual([
-    "incidents resolved",
-    "on-call shifts",
-    "deploys triggered",
-  ]);
+  expect(brief.unavailableEvidence).toEqual(["on-call shifts", "deploys triggered"]);
   db.close();
 });
 
@@ -135,7 +168,7 @@ test("renders deterministically with no LLM configured", async () => {
   // build+synthesize+notify chain runs. Give that chain a macrotask tick, matching the
   // pattern in premortem.test.ts's "emitPremortemBrief notifies ..." tests.
   await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(captured?.brief ?? "").toContain("incidents resolved");
+  expect(captured?.brief ?? "").toContain("on-call shifts");
   db.close();
 });
 
@@ -1171,11 +1204,15 @@ test("the decisions section addresses the named subject, not 'you'", async () =>
   db.close();
 });
 
-// The defensive arm: `resolveSubject`'s explicit path always sets a non-null `personId`, so a
-// null id with `isOther` is unreachable through `runNegotiate` — but if it ever became
-// reachable it must NOT silently revert to addressing the reader as the subject.
-test("an other subject with no id at all still reads as a third party", () => {
-  const brief: NegotiateBrief = {
+/**
+ * A minimal `NegotiateBrief` literal for tests that exercise `renderNegotiate` directly rather
+ * than through `runNegotiate` — e.g. a `null` lane, which no real run produces without forcing
+ * a failure. `db` is accepted (unused) to match the idiom every other test in this file follows
+ * of threading a fresh db through, so a future variant that DOES need to read the db can be
+ * added without changing every call site's shape.
+ */
+function emptyNegotiateBriefForRender(_db: Database): NegotiateBrief {
+  return {
     kind: "negotiate",
     agentVersion: 1,
     generatedAt: 0,
@@ -1192,16 +1229,26 @@ test("an other subject with no id at all still reads as a third party", () => {
     unavailableEvidence: [],
     authoredPrs: null,
     reviewedPrs: null,
+    incidents: null,
     tickets: null,
     ownership: null,
     decisions: { authored: 0, unattributable: 0, evidence: { refs: [], total: 0 } },
     writing: null,
   };
+}
+
+// The defensive arm: `resolveSubject`'s explicit path always sets a non-null `personId`, so a
+// null id with `isOther` is unreachable through `runNegotiate` — but if it ever became
+// reachable it must NOT silently revert to addressing the reader as the subject.
+test("an other subject with no id at all still reads as a third party", () => {
+  const db = freshDb();
+  const brief = emptyNegotiateBriefForRender(db);
 
   const markdown = renderNegotiate(brief);
   expect(markdown).toContain("decision(s) attributed to the subject");
   expect(markdown).toContain("not necessarily theirs");
   expect(markdown).toContain("unknown person");
+  db.close();
 });
 
 test("an unnamed other subject falls back to the id, never to 'you'", async () => {
@@ -1300,5 +1347,192 @@ test("the stats-unavailable note still fires when an unenriched PR exists", asyn
   const brief = await runNegotiate({ mePersonIdOverride: "person:me" }, ctxFor(db));
 
   expect(renderNegotiate(brief)).toContain("no enriched PR in this window");
+  db.close();
+});
+
+test("counts incidents resolved and assigned to the subject", async () => {
+  const db = freshDb();
+  seedMe(db);
+  seedIncident(db, "PD-1", { assignees: ["jane@example.com"], resolvedBy: "jane@example.com" });
+  seedIncident(db, "PD-2", { assignees: ["jane@example.com"] });
+
+  const brief = await runNegotiate({ mePersonIdOverride: "person:me" }, ctxFor(db));
+  expect(brief.incidents?.resolved).toBe(1);
+  expect(brief.incidents?.assigned).toBe(2);
+  db.close();
+});
+
+test("counts in-window incidents nobody could be attributed to", async () => {
+  const db = freshDb();
+  seedMe(db);
+  seedIncident(db, "PD-1", { assignees: ["jane@example.com"] });
+  seedIncident(db, "PD-2", {});
+
+  const brief = await runNegotiate({ mePersonIdOverride: "person:me" }, ctxFor(db));
+  expect(brief.incidents?.unattributable).toBe(1);
+  db.close();
+});
+
+test("excludes incidents outside the window", async () => {
+  const db = freshDb();
+  seedMe(db);
+  seedIncident(db, "PD-OLD", {
+    assignees: ["jane@example.com"],
+    resolvedBy: "jane@example.com",
+    modifiedAt: Date.now() - 200 * 86_400_000,
+  });
+
+  const brief = await runNegotiate(
+    { sinceMs: 90 * 24 * 60 * 60 * 1000, mePersonIdOverride: "person:me" },
+    ctxFor(db),
+  );
+  expect(brief.incidents?.resolved).toBe(0);
+  db.close();
+});
+
+test("a re-synced incident counts once, not twice", async () => {
+  const db = freshDb();
+  seedMe(db);
+  seedIncident(db, "PD-1", { assignees: ["jane@example.com"], resolvedBy: "jane@example.com" });
+  seedIncident(db, "PD-1", { assignees: ["jane@example.com"], resolvedBy: "jane@example.com" });
+
+  const brief = await runNegotiate({ mePersonIdOverride: "person:me" }, ctxFor(db));
+  expect(brief.incidents?.resolved).toBe(1);
+  db.close();
+});
+
+test("renders incident counts and cites the incidents resolved", async () => {
+  const db = freshDb();
+  seedMe(db);
+  seedIncident(db, "PD-1", { assignees: ["jane@example.com"], resolvedBy: "jane@example.com" });
+  seedIncident(db, "PD-2", { assignees: ["jane@example.com"] });
+
+  const brief = await runNegotiate({ mePersonIdOverride: "person:me" }, ctxFor(db));
+  const markdown = renderNegotiate(brief);
+  expect(markdown).toContain("## Incidents");
+  expect(markdown).toContain("1 resolved, 2 assigned");
+  expect(markdown).toContain("Incident PD-1");
+  db.close();
+});
+
+// Zero unattributable must print nothing rather than "0 attributed to nobody",
+// which reads as a warning about a problem that does not exist.
+test("omits the unattributable line when it is zero", async () => {
+  const db = freshDb();
+  seedMe(db);
+  seedIncident(db, "PD-1", { assignees: ["jane@example.com"] });
+
+  const markdown = renderNegotiate(
+    await runNegotiate({ mePersonIdOverride: "person:me" }, ctxFor(db)),
+  );
+  expect(markdown).not.toContain("attributed to nobody");
+  db.close();
+});
+
+// A null lane means "could not be computed" and must never render as 0 — the
+// same rule every other negotiate lane follows. Driven from a brief literal
+// because no real run produces a null lane without forcing a failure.
+test("a null incidents lane renders as could-not-be-computed, never as zero", () => {
+  const db = freshDb();
+  seedMe(db);
+  const base = {
+    ...emptyNegotiateBriefForRender(db),
+    incidents: null,
+  } satisfies NegotiateBrief;
+  const markdown = renderNegotiate(base);
+  expect(markdown).toContain("## Incidents");
+  expect(markdown).toContain("_could not be computed_");
+  expect(markdown).not.toContain("0 resolved");
+  db.close();
+});
+
+// UNATTRIBUTABLE DISCRIMINATOR. `unattributable` is documented as counting in-window incidents
+// with NO person edge AT ALL — not incidents merely lacking an edge to the SUBJECT. Every other
+// fixture in this file seeds either an incident tied to the subject or one with no
+// assignee/resolver at all, so both readings ("no edge to anyone" vs. "no edge to the subject")
+// happen to agree. Here the incident carries a real person edge — just to a DIFFERENT person —
+// so a wrong implementation that filtered `unattributable` on "no edge to the subject" would
+// report 1, while the correct "no person edge at all" reading reports 0.
+test("an incident assigned to someone other than the subject is not unattributable", async () => {
+  const db = freshDb();
+  seedMe(db);
+  db.run("INSERT INTO person (id, display_name, canonical_email) VALUES (?, ?, ?)", [
+    "person:other",
+    "Other Person",
+    "other@example.com",
+  ]);
+  seedIncident(db, "PD-1", { assignees: ["other@example.com"] });
+
+  const brief = await runNegotiate({ mePersonIdOverride: "person:me" }, ctxFor(db));
+  expect(brief.incidents?.assigned).toBe(0);
+  expect(brief.incidents?.resolved).toBe(0);
+  expect(brief.incidents?.unattributable).toBe(0);
+  db.close();
+});
+
+// THE FOUR-ZERO HONESTY CONTRACT (spec § 5.8). An index with no PagerDuty data must never
+// render the same bare "0 resolved, 0 assigned" as a real measurement — each of the four
+// distinct causes gets its own disclosure, or (for the fourth) none at all because it is a
+// genuine count.
+
+test("no PagerDuty connector at all raises a missing_connector gap naming pagerduty", async () => {
+  const db = freshDb();
+  seedMe(db);
+
+  const brief = await runNegotiate({ mePersonIdOverride: "person:me" }, ctxFor(db));
+
+  const gap = brief.gaps.find(
+    (g) => g.category === "missing_connector" && g.detail.includes("pagerduty"),
+  );
+  expect(gap).toBeDefined();
+  expect(brief.gaps.some((g) => g.category === "missing_relation_emit")).toBe(false);
+  db.close();
+});
+
+test("connector present but no incident edges raises missing_relation_emit, not missing_connector", async () => {
+  const db = freshDb();
+  seedMe(db);
+  db.run("INSERT INTO sync_state (connector_id) VALUES ('pagerduty')");
+
+  const brief = await runNegotiate({ mePersonIdOverride: "person:me" }, ctxFor(db));
+
+  expect(
+    brief.gaps.some((g) => g.category === "missing_connector" && g.detail.includes("pagerduty")),
+  ).toBe(false);
+  const gap = brief.gaps.find((g) => g.category === "missing_relation_emit");
+  expect(gap).toBeDefined();
+  expect(gap?.detail).toContain("resolves");
+  expect(gap?.detail).toContain("incident");
+  db.close();
+});
+
+test("incidents measured but attributed to nobody is a real count, not a gap", async () => {
+  const db = freshDb();
+  seedMe(db);
+  db.run("INSERT INTO sync_state (connector_id) VALUES ('pagerduty')");
+  // A `resolves` edge must exist elsewhere in the index so `detectMissingRelationToEntityType`
+  // self-suppresses — this test is specifically about the `unattributable` MEASUREMENT, not
+  // about the "no edges emitted yet" gap covered by the previous test.
+  seedIncident(db, "PD-1", { assignees: ["jane@example.com"], resolvedBy: "jane@example.com" });
+  seedIncident(db, "PD-2", {});
+
+  const brief = await runNegotiate({ mePersonIdOverride: "person:me" }, ctxFor(db));
+
+  expect(brief.incidents?.unattributable).toBeGreaterThan(0);
+  expect(brief.gaps.some((g) => g.category === "missing_connector")).toBe(false);
+  expect(brief.gaps.some((g) => g.category === "missing_relation_emit")).toBe(false);
+  db.close();
+});
+
+test("healthy incident attribution raises neither gap note", async () => {
+  const db = freshDb();
+  seedMe(db);
+  db.run("INSERT INTO sync_state (connector_id) VALUES ('pagerduty')");
+  seedIncident(db, "PD-1", { assignees: ["jane@example.com"], resolvedBy: "jane@example.com" });
+
+  const brief = await runNegotiate({ mePersonIdOverride: "person:me" }, ctxFor(db));
+
+  expect(brief.gaps.some((g) => g.category === "missing_connector")).toBe(false);
+  expect(brief.gaps.some((g) => g.category === "missing_relation_emit")).toBe(false);
   db.close();
 });

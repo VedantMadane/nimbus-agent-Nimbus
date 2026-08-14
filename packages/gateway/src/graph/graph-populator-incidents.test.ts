@@ -508,7 +508,7 @@ test("a PagerDuty incident (pagerduty_service_id) and a Vercel deployment (repo)
     priority: { name: "P1" },
     urgency: "high",
   };
-  syncPagerdutyIncidentItems(ctx, [incidentRaw], "1970-01-01T00:00:00Z", t + HOUR);
+  syncPagerdutyIncidentItems(ctx, [incidentRaw], "1970-01-01T00:00:00Z", t + HOUR, new Map());
 
   // Real `mapVercelDeploymentToItem`-shaped raw deployment payload: the
   // git-integrated `meta` block carries the owning GitHub repo, never a
@@ -556,7 +556,7 @@ test("without resolveServiceId wired, the same PagerDuty/Vercel pair emits no co
     priority: { name: "P1" },
     urgency: "high",
   };
-  syncPagerdutyIncidentItems(ctx, [incidentRaw], "1970-01-01T00:00:00Z", t + HOUR);
+  syncPagerdutyIncidentItems(ctx, [incidentRaw], "1970-01-01T00:00:00Z", t + HOUR, new Map());
 
   const deploymentRaw = {
     uid: "dpl_123",
@@ -626,7 +626,7 @@ test("I-1: a Vercel preview deployment does not correlate, but a production depl
     priority: { name: "P1" },
     urgency: "high",
   };
-  syncPagerdutyIncidentItems(ctx, [incidentRaw], "1970-01-01T00:00:00Z", t + HOUR);
+  syncPagerdutyIncidentItems(ctx, [incidentRaw], "1970-01-01T00:00:00Z", t + HOUR, new Map());
 
   const previewRaw = {
     uid: "dpl_preview",
@@ -804,4 +804,211 @@ test("F1: a deployment resolveServiceId can't claim (unknown) still falls back t
       to: "incident:pagerduty:PD-unknown-binding",
     },
   ]);
+});
+
+// ---------------------------------------------------------------------------
+// Person attribution: `person --assigned--> incident` and
+// `person --resolves--> incident` from the actor emails the PagerDuty
+// connector stores on the incident's metadata (spec § 5.4).
+// ---------------------------------------------------------------------------
+
+function edgesTo(db: Database, relation: string): Array<{ from_ext: string; to_ext: string }> {
+  return db
+    .query(
+      `SELECT pe.external_id AS from_ext, ie.external_id AS to_ext
+         FROM graph_relation r
+         JOIN graph_entity pe ON pe.id = r.from_id
+         JOIN graph_entity ie ON ie.id = r.to_id
+        WHERE r.type = ?
+        ORDER BY pe.external_id`,
+    )
+    .all(relation) as Array<{ from_ext: string; to_ext: string }>;
+}
+
+function indexIncident(db: Database, id: string, metadata: Record<string, unknown>): void {
+  upsertIndexedItem(db, {
+    service: "pagerduty",
+    type: "incident",
+    externalId: id,
+    title: `Incident ${id}`,
+    bodyPreview: "",
+    modifiedAt: Date.now(),
+    syncedAt: Date.now(),
+    metadata,
+  });
+}
+
+test("an assigned incident gets a person --assigned--> incident edge", () => {
+  const db = freshDb();
+  indexIncident(db, "PD-1", {
+    service: "checkout",
+    assignee_emails: ["jane@example.com"],
+    resolved_by_email: null,
+  });
+
+  const edges = edgesTo(db, "assigned");
+  expect(edges).toHaveLength(1);
+  expect(edges[0]?.to_ext).toBe("pagerduty:PD-1");
+
+  // The person side's external_id MUST be the person.id — catchup.ts:324
+  // matches `pe.external_id = ?` against a person id, so any other encoding
+  // silently breaks a reader that is already written.
+  const person = db
+    .query("SELECT id FROM person WHERE canonical_email = 'jane@example.com'")
+    .get() as { id: string };
+  expect(edges[0]?.from_ext).toBe(person.id);
+});
+
+test("a resolved incident gets a person --resolves--> incident edge", () => {
+  const db = freshDb();
+  indexIncident(db, "PD-2", {
+    service: "checkout",
+    assignee_emails: [],
+    resolved_by_email: "jane@example.com",
+  });
+  expect(edgesTo(db, "resolves")).toHaveLength(1);
+});
+
+// The bail-out this guards is about deploy<->incident correlation, which needs
+// a service. Attribution does not. Emitting after the bail silently drops
+// attribution for every incident with no bound service.
+test("attribution survives an incident with no affected service", () => {
+  const db = freshDb();
+  indexIncident(db, "PD-3", { assignee_emails: ["jane@example.com"], resolved_by_email: null });
+  expect(edgesTo(db, "assigned")).toHaveLength(1);
+});
+
+// RED-PROVE BOTH: delete each clear in turn and confirm the matching assertion
+// fails. `assigned` retires via the generic clearRelationsTouchingEntity;
+// `resolves` is in CROSS_ITEM_RELATION_TYPES and needs the explicit incoming
+// clear. A test that only asserts the NEW edge exists passes with both clears
+// deleted.
+test("re-syncing with different actors retires the previous edges", () => {
+  const db = freshDb();
+  indexIncident(db, "PD-4", {
+    service: "checkout",
+    assignee_emails: ["jane@example.com"],
+    resolved_by_email: "jane@example.com",
+  });
+  expect(edgesTo(db, "assigned")).toHaveLength(1);
+
+  indexIncident(db, "PD-4", {
+    service: "checkout",
+    assignee_emails: ["bob@example.com"],
+    resolved_by_email: "bob@example.com",
+  });
+
+  const assigned = edgesTo(db, "assigned");
+  expect(assigned).toHaveLength(1);
+  const bob = db.query("SELECT id FROM person WHERE canonical_email = 'bob@example.com'").get() as {
+    id: string;
+  };
+  expect(assigned[0]?.from_ext).toBe(bob.id);
+
+  const resolves = edgesTo(db, "resolves");
+  expect(resolves).toHaveLength(1);
+  expect(resolves[0]?.from_ext).toBe(bob.id);
+});
+
+// The other direction of the same clear: an incident RE-OPENED upstream stops
+// being resolved, so the connector writes `resolved_by_email: null` and the
+// edge must disappear. Without the explicit incoming clear it survives forever,
+// and the brief keeps crediting a resolution that was undone. The `assigned`
+// edge correctly survives — they are still on the hook.
+test("re-opening a resolved incident retires only the resolves edge", () => {
+  const db = freshDb();
+  indexIncident(db, "PD-7", {
+    service: "checkout",
+    assignee_emails: ["jane@example.com"],
+    resolved_by_email: "jane@example.com",
+  });
+  expect(edgesTo(db, "resolves")).toHaveLength(1);
+
+  indexIncident(db, "PD-7", {
+    service: "checkout",
+    assignee_emails: ["jane@example.com"],
+    resolved_by_email: null,
+  });
+  expect(edgesTo(db, "resolves")).toHaveLength(0);
+  expect(edgesTo(db, "assigned")).toHaveLength(1);
+});
+
+test("a malformed email creates neither an edge nor a person row", () => {
+  const db = freshDb();
+  indexIncident(db, "PD-5", {
+    service: "checkout",
+    assignee_emails: ["unknown", ""],
+    resolved_by_email: "Jane Doe",
+  });
+  expect(edgesTo(db, "assigned")).toHaveLength(0);
+  expect(edgesTo(db, "resolves")).toHaveLength(0);
+  // Assert on the person TABLE, not just edge absence: the failure this guard
+  // prevents is a junk row that outlives the sync.
+  const n = db.query("SELECT COUNT(*) AS n FROM person").get() as { n: number };
+  expect(n.n).toBe(0);
+});
+
+// `clearIncomingRelationsOfType` retires the incident's OWN incoming
+// `resolves` edges (person --resolves--> incident) so a re-sync must not
+// touch a `pr --resolves--> issue` edge that has nothing to do with this
+// incident. This is only proven by having a REAL such edge present — a
+// prior version of this test never indexed a pr/issue at all, so it passed
+// even with an unscoped `DELETE FROM graph_relation WHERE type = 'resolves'`.
+function prResolvesIssue(db: Database): boolean {
+  return (
+    db
+      .query(
+        `SELECT 1
+           FROM graph_relation r
+           JOIN graph_entity f ON f.id = r.from_id
+           JOIN graph_entity t ON t.id = r.to_id
+          WHERE r.type = 'resolves' AND f.external_id = ? AND t.external_id = ?`,
+      )
+      .get("github:acme/app#1", "github:acme/app#4") !== null
+  );
+}
+
+test("a pr --resolves--> issue edge is untouched by an incident re-sync", () => {
+  const db = freshDb();
+  const now = Date.now();
+
+  // A genuine pr --resolves--> issue edge, from the existing PR-body-ref
+  // populator (see graph-populator-resolves.test.ts) — not the incident code
+  // under test here.
+  upsertIndexedItem(db, {
+    service: "github",
+    type: "issue",
+    externalId: "acme/app#4",
+    title: "Login broken",
+    bodyPreview: "",
+    modifiedAt: now,
+    syncedAt: now,
+    metadata: { repo: "acme/app" },
+  });
+  upsertIndexedItem(db, {
+    service: "github",
+    type: "pr",
+    externalId: "acme/app#1",
+    title: "Fix login",
+    bodyPreview: "closes #4",
+    modifiedAt: now,
+    syncedAt: now,
+    metadata: { repo: "acme/app" },
+  });
+  expect(prResolvesIssue(db)).toBe(true);
+
+  // Re-sync an unrelated incident, resolved, which is exactly the path that
+  // calls clearIncomingRelationsOfType(db, incidentEntityId, "resolves").
+  indexIncident(db, "PD-6", {
+    service: "checkout",
+    assignee_emails: [],
+    resolved_by_email: "jane@example.com",
+  });
+  indexIncident(db, "PD-6", {
+    service: "checkout",
+    assignee_emails: [],
+    resolved_by_email: "jane@example.com",
+  });
+
+  expect(prResolvesIssue(db)).toBe(true);
 });
