@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786728757218,
+  "lastUpdate": 1786734353757,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -11831,6 +11831,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 321.15175175,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8e9e3dc92e46cbc3d146b35f25d8a308e1b5859f",
+          "message": "ci(release): reconcile the manifest with the last published tag, and gate the drift (#1188)\n\nNo release has been cut since **#1183**, and every push to `main` since\nhas\nfailed the `release-please` job. `main` currently declares itself\n**1.12.0**\nwhile the newest published release is **v2.4.1**.\n\n## What happened\n\n1. **#1183 merged and no `v2.5.0` tag was ever created.** It is the one\nrecent\nrelease PR that ended with *no* `autorelease:` label at all — every\nhealthy\none carries `autorelease: tagged`. Its own run went **green**, because\nrelease-please had opened the next release PR, and `prs_created=true`\nalone\n   reads as healthy.\n2. **release-please lost its anchor.** The manifest now said `2.5.0`,\nand no\n`v2.5.0` tag existed to match it, so the next run re-walked the entire\nhistory — `commits: 915` in its log — and regenerated the changelog from\n   scratch.\n3. **That walk re-read a `Release-As: 1.12.0` trailer** from `7b530dcc`\n(2026-08-11, long before `v2.4.1`), which is only in range at all\nbecause\n   the anchor was lost. So **#1184 wrote the manifest *backwards*** to\n   `1.12.0`, took `package.json` and `GATEWAY_VERSION` down with it, and\n   appended 192 lines of duplicate history to `CHANGELOG.md`.\n4. **#1183 had already overwritten the real `v2.4.1` changelog entry**,\n   rewriting its heading into `2.5.0`. `main`'s changelog reads\n`1.12.0 → 2.5.0 → 2.4.0`: the version actually published has no entry.\n5. Since then the reconcile step computes `tag=v1.12.0` from #1184's\nmerge\ncommit, finds `v1.12.0` **already exists pointing at a different tree**\n   (released 2026-07-30), and correctly refuses to relabel — reporting\n`unaccounted=1`, which is checked before anything else and fails the\njob.\n\nThere are **zero user-facing commits after `v2.4.1`** (`a8f76942`) —\nonly\n`chore`/`ci`/`docs`. So #1183's 2.5.0 proposal was itself a product of\nthe\nlost-anchor walk, not of real work needing a release.\n\n## The repair\n\nNo tag is created, moved or deleted — `v2.5.0` was never cut, so nothing\nis\nlost by simply not cutting it, and the next genuine `feat`/`fix` will\ntake it.\n\n- `.release-please-manifest.json`, `package.json`, `GATEWAY_VERSION` →\n**2.4.1**,\n  matching the newest tag actually published.\n- `CHANGELOG.md` restored to its `a8f76942` state: both fabricated\nsections\nremoved and **the real `v2.4.1` entry restored**. The legitimate\nhistorical\n  `1.12.0` entry (`compare/v1.11.0...v1.12.0`, 2026-07-30) is untouched.\n\n## The gate that was missing\n\n`audit:release-please` only compared the manifest to `package.json`.\n#1184\nrewrote *both* to 1.12.0, so they agreed with each other and the gate\nstayed\ngreen while the repo was 13 releases behind. It now also enforces,\ndriven by\n`.release-please-config.json` rather than re-hardcoding it:\n\n- **The manifest may not fall BEHIND the highest version its own\nchangelog\ndocuments.** Needs no network and no tags, so it holds in any checkout.\n  Versions compare numerically, so `10.0.0` is not \"older\" than `9.9.9`.\nBeing *ahead* stays legal — that is the normal window between a release\nPR\n  merging and its tag existing.\n- **Every `extra-files` line carrying `x-release-please-version` must\nspell the\nmanifest version**, so a missed extra-file cannot ship a gateway\nreporting a\n  version it is not.\n\n## Verification\n\n- Red-proved against the **real** broken tree reconstructed from\n`main@7cc73758`:\nrejected with `manifest version 1.12.0 is BEHIND 2.5.0`. The repaired\ntree passes.\n- That red-prove caught a false positive in the first draft of the gate\n— it had\nflagged `version.ts`'s own header comment, which mentions the annotation\nin\nprose. Only annotated lines that actually carry a version count now, and\na\n  regression test pins it.\n- The 10 new tests were run against the **old** gate: 5 fail, so they\ndetect the\n  regression rather than merely passing.\n- `bun test scripts/structure-audit/` — 565 pass, 0 fail.\n- `bun run preflight:fast` — all 29 gates pass.\n\n## One manual step this PR cannot do\n\nMerged PR **#1184** still carries `autorelease: pending`, and\n`unaccounted > 0`\nis checked before any commit comparison — so `main` stays red until that\nlabel\nis removed. The workflow's own error says a tag pointing at the wrong\ntree\n\"must be resolved by hand\". Removing the label (rather than adding\n`autorelease: tagged`) is the honest state: no tag was created for it,\nwhich is\nexactly where #1183 already sits.\n\n## Follow-up worth considering, not done here\n\nA run that fails to create its release but *does* open the next release\nPR\nreports `prs_created=true` and reads as healthy — that is precisely how\n#1183's\nphantom passed green and started this. Left alone deliberately: it is a\nchange\nto the guard's own logic and deserves its own PR.",
+          "timestamp": "2026-08-14T18:54:09Z",
+          "tree_id": "8090a31944d1dcda1dad5a2263b0b9293bad11f2",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/8e9e3dc92e46cbc3d146b35f25d8a308e1b5859f"
+        },
+        "date": 1786734351218,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 330.92237749999583,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 319.73157474999715,
             "unit": "ms"
           }
         ]
