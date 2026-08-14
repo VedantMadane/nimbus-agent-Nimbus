@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786701290459,
+  "lastUpdate": 1786701991319,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -11661,6 +11661,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 314.1808793000011,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a8f76942802fd4ce773137a2542b5d41eef7aca3",
+          "message": "chore: release main (#1181)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>2.4.1</summary>\n\n##\n[2.4.1](https://github.com/nimbus-agent/Nimbus/compare/v2.4.0...v2.4.1)\n(2026-08-14)\n\n\n### Bug Fixes\n\n* **install:** stop Windows PowerShell 5.1 native stderr from aborting\ngpg signature verification\n([#1179](https://github.com/nimbus-agent/Nimbus/issues/1179))\n([6c991ea](https://github.com/nimbus-agent/Nimbus/commit/6c991eabf4cb110a4ddaf0ca844da62bfd437e7d))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-14T12:44:08+03:00",
+          "tree_id": "34f3ce7e73acc618eaaffa5c26c335377704ca00",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/a8f76942802fd4ce773137a2542b5d41eef7aca3"
+        },
+        "date": 1786701989477,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 328.13875625000145,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 332.80892265000364,
             "unit": "ms"
           }
         ]
