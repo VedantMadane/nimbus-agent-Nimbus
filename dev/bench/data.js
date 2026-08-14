@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786701991319,
+  "lastUpdate": 1786722918276,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -11695,6 +11695,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 332.80892265000364,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cee0a10a649f1c1f324426e722daeb52d062730b",
+          "message": "chore: release main (#1183)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>2.5.0</summary>\n\n##\n[2.5.0](https://github.com/nimbus-agent/Nimbus/compare/v2.4.0...v2.5.0)\n(2026-08-14)\n\n\n### Features\n\n* **agents:** attribute Sentry error issues to people\n([#1182](https://github.com/nimbus-agent/Nimbus/issues/1182))\n([ffa54b3](https://github.com/nimbus-agent/Nimbus/commit/ffa54b3eafdbf2370b39e850e0a3ee0209894a7d))\n\n\n### Bug Fixes\n\n* **install:** stop Windows PowerShell 5.1 native stderr from aborting\ngpg signature verification\n([#1179](https://github.com/nimbus-agent/Nimbus/issues/1179))\n([6c991ea](https://github.com/nimbus-agent/Nimbus/commit/6c991eabf4cb110a4ddaf0ca844da62bfd437e7d))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-14T18:46:44+03:00",
+          "tree_id": "f988e05a84a11f67dc8ad3eec82126caa7abb502",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/cee0a10a649f1c1f324426e722daeb52d062730b"
+        },
+        "date": 1786722916761,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 211.71917845000243,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 223.76053145000006,
             "unit": "ms"
           }
         ]
