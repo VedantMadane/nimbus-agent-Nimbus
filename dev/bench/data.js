@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786694190742,
+  "lastUpdate": 1786700097956,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -11593,6 +11593,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 320.070633849992,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6c991eabf4cb110a4ddaf0ca844da62bfd437e7d",
+          "message": "fix(install): stop Windows PowerShell 5.1 native stderr from aborting gpg signature verification (#1179)\n\n## Root cause\n\n`released-install-smoke` → **`windows-2022 documented one-liner`** has\nnever once passed. Since #1175 fixed the earlier keyring bug, the `pwsh`\nstep passes and the **Windows PowerShell 5.1** step — reached for the\nfirst time in run `31767719056` — fails at `install.ps1:231`:\n\n```\ngpg.exe : gpg: error running '/usr/bin/gpg-agent': exit status 2\n+     & gpg --homedir $sigHomeName --quiet --import $keyPath *>$null\n    + FullyQualifiedErrorId : NativeCommandError\n```\n\nThe cause is **PowerShell behaviour, not gpg behaviour**, and it is two\nlayers:\n\n1. **Why gpg writes to stderr.** gpg 2.x autostarts a `gpg-agent`, and\nthe MSYS-compiled agent Git for Windows ships binds POSIX `AF_UNIX`\nsockets under the homedir, where `sun_path` caps a path at ~107 chars.\nOn a `windows-2022` runner the homedir resolves to\n`/c/Users/runneradmin/AppData/Local/Temp/nimbus-<36-char-guid>/gnupg-sig`,\nso `S.gpg-agent` lands at **105** (fits) but `S.gpg-agent.extra` at\n**111** (does not). The agent aborts with exit 2; gpg reports it\nopaquely.\n\n2. **Why only 5.1 dies.** Windows PowerShell 5.1 wraps *any* stderr\noutput from a native command in a terminating `NativeCommandError` while\n`$ErrorActionPreference = \"Stop\"` (set globally at `install.ps1:24`) —\nand **`*>$null` does not prevent it**, because the record is raised by\nthe native-command wrapper, not carried in the redirected stream.\nPowerShell 7 does no such conversion.\n\n**Layer 1 alone is harmless.** Measured on the runner: *both* shells hit\nthe too-long socket, and in both the subsequent keyring operation still\nsucceeds — importing a public key and verifying a detached signature\ntouch no secret key. Only 5.1's stderr→terminating-error conversion\nturns it fatal. That is the entire reason five legs are green and one is\nred, on the same runner, in the same job, seconds apart.\n\n## Evidence\n\nDiagnostics were added to the job temporarily, dispatched from this\nbranch, then stripped (this PR contains none of them).\n\n- Run `31780941563`, **cold runner** (zero `gpg-agent` processes, zero\nleftover work dirs) — the agent's own message, which `*>$null` had been\nhiding:\n  ```\n  gpg-agent[1639]: listening on socket '.../gnupg-sig/S.gpg-agent'\ngpg-agent[1639]: socket name '.../gnupg-sig/S.gpg-agent.extra' is too\nlong\n  -> exit=2\n  ```\n- Same run, the published `install.ps1` re-executed with the `*>$null`\npatched out in memory — same failure on the **true code path**.\n- Run `31781383717`, `pwsh` control arm: **identical** `GetTempPath()`,\nidentical 105/111-char socket paths, identical `is too long` / exit 2 —\nyet its one-liner prints `OK: GPG signature verified`. This is what\nisolates the cause to the shell's error handling rather than the path.\n- Local red/green of the mechanism: with `EAP=Stop` the statement after\nthe import is never reached (`NativeCommandError`); with `EAP=Continue`\nit is reached with exit 0.\n\n**Eliminated with evidence, not reasoning:** lingering `gpg-agent` from\nthe earlier step (fails cold, and again after `gpgconf --kill all`);\nstep ordering; a different `gpg` winning on PATH (both shells resolve\n`C:\\Program Files\\Git\\usr\\bin\\gpg.exe`); `harden-runner` blocking the\nspawn (the agent *runs*, creates its directories, binds its first\nsocket, and self-aborts on its own length check); `GetTempPath()`\ndiffering between shells (it does not — I asserted this in an earlier\ndraft and the pwsh control disproved it).\n\n## The fix\n\nRelax `$ErrorActionPreference` to `Continue` around **exactly** the gpg\ncalls, then restore it. This costs nothing: the trust decision is made\n*only* by parsing `--status-fd` output for `VALIDSIG` in\n`Resolve-SignatureVerdict`, never by whether those calls threw. A gpg\nthat genuinely fails still yields no `VALIDSIG` and is rejected on\nexactly the same path as before.\n\n`--no-autostart` is **secondary and is not what unbreaks this** — on its\nown it merely swapped one stderr line for a quieter one and still\naborted 5.1 (run `31781383717`). It is kept because it stops gpg\nspawning an agent that cannot bind its sockets, leaving no orphaned\nagent process on a user's machine. Verified against the real published\nv2.3.1 `SHA256SUMS`/`.asc` with every agent killed first: import exit 0,\n`VALIDSIG` present, primary fingerprint matching the pinned key, zero\nagents after.\n\n## A fail-open found on the way\n\nThe same conversion also reached `Test-NimbusSignature`'s runnability\nprobe, `& gpg --version`, inside a `try/catch` whose catch prints\n`SIGNATURE NOT CHECKED` and returns `$true`. So under 5.1 a gpg that\nmerely **warned** on stderr while exiting 0 silently downgraded the\nwhole publisher-authenticity check and let the install proceed. Same\none-line fix; the probe now keys on the exit code, which is what it\nclaims to test.\n\n## Verification\n\n- On the runner that reproduces the bug: a temporary step ran the\n**checked-out** installer under `shell: powershell` against the real\npublished v2.3.1 artefacts (run `31781680486`) →\n`OK: GPG signature verified (5A20457CCD8B53FFAA945240886ADA6B487CAB6E).`\n/ `OK: Nimbus installed.`\n- New regression test, `install-remote-windows.test.ts`, driven through\n**`powershell.exe` specifically** — every other test in that file uses\n`pwsh`, where this bug is invisible, so a `pwsh` test here would be a\ntest that cannot fail. **Red-proved**: against `origin/main`'s\n`install.ps1` it fails with `gpg is present but not runnable --\nSIGNATURE NOT CHECKED` followed by `OK: Nimbus installed.` (i.e. it\ncatches the real fail-open); with the fix it refuses to install.\n- `bun run preflight:fast` green; `bun test scripts/install/` 37 pass /\n0 fail.\n\n## Known limitation — please read before expecting green\n\n**This PR cannot turn the `windows-2022 documented one-liner` leg green,\nand it will stay red until a release ships.** That job fetches\n`install.ps1` from `releases/latest/download`, which serves the\n*published* (still-broken) script regardless of what is on `main`. The\nrunner-side proof above is the strongest evidence available before a\nrelease exists. The leg should be re-checked on the first release that\nincludes this commit — and #1167 should not be closed until it is.\n\nUnix `install.sh` is deliberately untouched: its sockets live under a\nshort `/tmp` and its shell has no equivalent stderr conversion.\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n* Improved Windows installer signature verification when GPG emits\nnon-fatal warnings.\n* Prevented valid verification attempts from being incorrectly skipped\nor marked as unavailable.\n  * Continued rejecting unsigned or invalid release content.\n* Improved compatibility with Windows PowerShell 5.1 and avoided\nunnecessary GPG agent startup.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-08-14T12:23:13+03:00",
+          "tree_id": "25a296c727c770602b036404755b649037144bf9",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/6c991eabf4cb110a4ddaf0ca844da62bfd437e7d"
+        },
+        "date": 1786700095735,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 316.6896396499975,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 316.0700753999969,
             "unit": "ms"
           }
         ]
