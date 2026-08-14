@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786734353757,
+  "lastUpdate": 1786735327412,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -11865,6 +11865,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 319.73157474999715,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "de196f8caad9fcfb3f030fca74515329f2a5da59",
+          "message": "test(install): derive the fixture asset name from the release-assets SSoT (#1187)\n\n`main`'s macOS CI leg has been red since #1172 landed — six consecutive\nruns of\n**Unit + Coverage — macos-15**, both retry attempts each time. Five\ntests in\n`scripts/install/install-remote.test.ts` fail there while the ubuntu and\nwindows\nlegs stay green.\n\n## Root cause\n\nThe test hardcoded the **Linux** tarball name in all six of its\nfixtures:\n\n```ts\nconst tarballName = \"nimbus-headless-linux-amd64-v2.2.0.tar.gz\";\n```\n\n`install.sh` does not use a fixed name — `detect_asset()` derives it\nfrom\n`uname`. And the Linux tarball is the one asset that carries its version\nin the\nfilename; the macOS tarballs are unversioned by design\n(`release-assets.ts`\ndocuments this and says not to harmonise them). Both shapes are real,\nand both\nship on every release:\n\n```\nnimbus-headless-linux-amd64-v2.4.1.tar.gz\nnimbus-headless-macos-arm64.tar.gz\n```\n\nSo on a macos-15 runner install.sh requested\n`nimbus-headless-macos-arm64.tar.gz`,\nthe fixture server only served the Linux name, and it answered **404**:\n\n```\nDownloading nimbus-headless-macos-arm64.tar.gz (v2.2.0)…\ncurl: (22) The requested URL returned error: 404\nError: download failed\n```\n\nThe one test that passed on macOS — \"aborts on a tampered archive\" —\npasses only\nbecause its server returns bytes for *any* path with no 404 fallback.\n\n**`install.sh` itself was correct and is unchanged** — this was only\never a test\ndefect.\n\n## Fix\n\n**1. Derive the fixture name from the SSoT.** `assetNameFor()` in\n`release-assets.ts` is the same source `release-assets-drift.test.ts`\nalready\npins install.sh's `detect_asset()` against. Each OS now exercises its\nown real\nasset name rather than Linux's. A host with no published build (Linux\narm64)\nskips instead of failing on a name that could never have been served,\nand\n`--from-release` takes the same `FIXTURE_VERSION` constant the name is\nbuilt\nfrom, so the two cannot drift.\n\n**2. Close the gap that let this reach `main` at all.** install.sh's\nmacOS\nnaming had *no executable cover at PR time*: the PR-time cross-platform\njob\nruns gateway/CLI unit tests only (\"just `bun test` on source\"), so\n`scripts/`\ntests never run there, and a macOS-only naming break could be caught\nonly by\nthe post-merge matrix. The new drift test runs install.sh for real in\n`--dry-run` mode (which touches neither disk nor network) with `uname`\nstubbed\nto each supported platform, and compares the name it would request\nagainst the\nSSoT by **exact equality** — so macOS naming is now covered from a Linux\nrunner,\nbefore merge. That is strictly stronger than the existing `toContain`\nstem\nchecks, which prove a stem is *present* but not that it is *reached*.\n\n## Verification\n\n- All 6 tests pass on Linux x64 (`oven/bun:1.3` + curl/gpg), so the\npreviously\n  green leg is unregressed: `29 pass, 14 skip, 0 fail` across all of\n  `scripts/install/`.\n- The derivation is exact for the failing platform:\n`assetNameFor({darwin, arm64}, \"2.2.0\")` →\n`nimbus-headless-macos-arm64.tar.gz`,\ncharacter-for-character the name the failing CI log shows install.sh\nrequesting.\n- The new drift test is **red-proved**: renaming install.sh's\ndarwin/arm64 asset\n  to `macos-aarch64` fails it with the exact mismatch, on Linux.\n- `bun run preflight:fast` — all 29 gates pass.\n\n### Scope of that verification, stated plainly\n\nThis PR's own checks do **not** execute `install-remote.test.ts` on\nmacOS —\nno PR-time job runs `scripts/` tests off Linux. The macOS evidence\nbefore merge\nis the exact-equality dry-run test above plus the string match against\nthe\nfailing log; `install-remote.test.ts` itself is re-exercised on macOS by\nthe\npost-merge matrix, which is the leg that has been failing.",
+          "timestamp": "2026-08-14T19:10:37Z",
+          "tree_id": "776566dec6b529f34e37ad21bfd1d875e080c524",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/de196f8caad9fcfb3f030fca74515329f2a5da59"
+        },
+        "date": 1786735324880,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 313.2561073999994,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 313.3700099499976,
             "unit": "ms"
           }
         ]
