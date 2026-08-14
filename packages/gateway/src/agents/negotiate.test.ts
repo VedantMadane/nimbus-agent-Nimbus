@@ -1501,8 +1501,13 @@ test("connector present but no incident edges raises missing_relation_emit, not 
   ).toBe(false);
   const gap = brief.gaps.find((g) => g.category === "missing_relation_emit");
   expect(gap).toBeDefined();
-  expect(gap?.detail).toContain("resolves");
-  expect(gap?.detail).toContain("incident");
+  // Pinned against the honest, scoped detail `detectMissingIncidentPersonEdges` builds —
+  // the shared default ("not yet emitted by the graph populator") is false since
+  // `syncIncidentPersonEdges` shipped, and this must not silently revert to it.
+  expect(gap?.detail).toBe(
+    "No PagerDuty incident in the index is attributed to a person — either none carry " +
+      "an assignee or resolver, or their actor payloads carry no usable email.",
+  );
   db.close();
 });
 
@@ -1515,6 +1520,10 @@ test("incidents measured but attributed to nobody is a real count, not a gap", a
   // about the "no edges emitted yet" gap covered by the previous test.
   seedIncident(db, "PD-1", { assignees: ["jane@example.com"], resolvedBy: "jane@example.com" });
   seedIncident(db, "PD-2", {});
+  // Also suppress the Sentry gap block (a sibling, structurally independent lane) so the
+  // unscoped assertions below genuinely mean "no gap from any source", not "no pagerduty gap".
+  db.run("INSERT INTO sync_state (connector_id) VALUES (?)", ["sentry"]);
+  seedErrorIssue(db, "S-1", "jane@example.com");
 
   const brief = await runNegotiate({ mePersonIdOverride: "person:me" }, ctxFor(db));
 
@@ -1529,10 +1538,137 @@ test("healthy incident attribution raises neither gap note", async () => {
   seedMe(db);
   db.run("INSERT INTO sync_state (connector_id) VALUES ('pagerduty')");
   seedIncident(db, "PD-1", { assignees: ["jane@example.com"], resolvedBy: "jane@example.com" });
+  // Also suppress the Sentry gap block (a sibling, structurally independent lane) so the
+  // unscoped assertions below genuinely mean "no gap from any source", not "no pagerduty gap".
+  db.run("INSERT INTO sync_state (connector_id) VALUES (?)", ["sentry"]);
+  seedErrorIssue(db, "S-1", "jane@example.com");
 
   const brief = await runNegotiate({ mePersonIdOverride: "person:me" }, ctxFor(db));
 
   expect(brief.gaps.some((g) => g.category === "missing_connector")).toBe(false);
   expect(brief.gaps.some((g) => g.category === "missing_relation_emit")).toBe(false);
+  db.close();
+});
+
+function seedErrorIssue(db: Database, id: string, email: string | null): void {
+  upsertIndexedItem(db, {
+    service: "sentry",
+    type: "error_issue",
+    externalId: id,
+    title: `TypeError in ${id}`,
+    bodyPreview: "",
+    modifiedAt: Date.now(),
+    syncedAt: Date.now(),
+    metadata: {
+      org: "acme",
+      project: "checkout",
+      assignedTo: email === null ? null : { type: "user", id: "1", email },
+    },
+  });
+}
+
+test("counts error issues assigned to the subject", async () => {
+  const db = freshDb();
+  seedMe(db);
+  seedErrorIssue(db, "S-1", "jane@example.com");
+  seedErrorIssue(db, "S-2", "jane@example.com");
+  seedErrorIssue(db, "S-3", null);
+
+  const brief = await runNegotiate({ mePersonIdOverride: "person:me" }, ctxFor(db));
+  expect(brief.incidents?.errorIssuesAssigned).toBe(2);
+  db.close();
+});
+
+// Error issues must NOT leak into the incident counts. Spec § 5.7.
+test("error issues do not inflate the incident counts", async () => {
+  const db = freshDb();
+  seedMe(db);
+  seedErrorIssue(db, "S-1", "jane@example.com");
+
+  const brief = await runNegotiate({ mePersonIdOverride: "person:me" }, ctxFor(db));
+  expect(brief.incidents?.errorIssuesAssigned).toBe(1);
+  expect(brief.incidents?.assigned).toBe(0);
+  expect(brief.incidents?.resolved).toBe(0);
+  expect(brief.incidents?.unattributable).toBe(0);
+  db.close();
+});
+
+test("no sentry connector yields a missing_connector gap naming sentry", async () => {
+  const db = freshDb();
+  seedMe(db);
+  const brief = await runNegotiate({ mePersonIdOverride: "person:me" }, ctxFor(db));
+  const details = brief.gaps.map((g) => g.detail).join(" ");
+  expect(brief.gaps.map((g) => g.category)).toContain("missing_connector");
+  expect(details).toContain("sentry");
+  db.close();
+});
+
+test("sentry present but no assignment edges yields a missing_relation_emit gap", async () => {
+  const db = freshDb();
+  seedMe(db);
+  db.run("INSERT INTO sync_state (connector_id) VALUES (?)", ["sentry"]);
+  seedErrorIssue(db, "S-1", null);
+
+  const brief = await runNegotiate({ mePersonIdOverride: "person:me" }, ctxFor(db));
+  const relationGaps = brief.gaps.filter((g) => g.category === "missing_relation_emit");
+  expect(relationGaps.length).toBeGreaterThan(0);
+  // The remediation must be actionable, not the shared default — the default says
+  // the edges are "not yet emitted by the graph populator", which is false here.
+  expect(relationGaps.some((g) => (g.remediation ?? "").includes("sentry"))).toBe(true);
+  // Pinned against the honest, scoped detail `detectMissingErrorIssuePersonEdges` builds
+  // — an unassigned Sentry issue is the NORM, so this must not silently revert to the
+  // shared default detail (which would make `nimbus index regraph` read as the fix for
+  // the common case, when it is a no-op there).
+  expect(
+    relationGaps.some(
+      (g) =>
+        g.detail ===
+        "No Sentry issue in the index is assigned to a resolvable person — either none " +
+          "are assigned, or the assignee actors carry no usable email.",
+    ),
+  ).toBe(true);
+  db.close();
+});
+
+test("a healthy sentry index emits neither sentry gap", async () => {
+  const db = freshDb();
+  seedMe(db);
+  db.run("INSERT INTO sync_state (connector_id) VALUES (?)", ["sentry"]);
+  seedErrorIssue(db, "S-1", "jane@example.com");
+
+  const brief = await runNegotiate({ mePersonIdOverride: "person:me" }, ctxFor(db));
+  const sentryGaps = brief.gaps.filter((g) =>
+    (g.detail + (g.remediation ?? "")).includes("sentry"),
+  );
+  expect(sentryGaps).toHaveLength(0);
+  db.close();
+});
+
+test("renders error-issue assignments on their own line", async () => {
+  const db = freshDb();
+  seedMe(db);
+  db.run("INSERT INTO sync_state (connector_id) VALUES (?)", ["sentry"]);
+  seedErrorIssue(db, "S-1", "jane@example.com");
+  seedErrorIssue(db, "S-2", "jane@example.com");
+
+  const markdown = renderNegotiate(
+    await runNegotiate({ mePersonIdOverride: "person:me" }, ctxFor(db)),
+  );
+  expect(markdown).toContain("## Incidents");
+  expect(markdown).toContain("2 Sentry error issue(s) assigned");
+  // Must NOT be folded into the incident line.
+  expect(markdown).toContain("0 resolved, 0 assigned");
+  db.close();
+});
+
+// Zero prints nothing: "0 Sentry error issues assigned" in a brief for someone
+// with no Sentry connector reads as a measured zero, which it is not.
+test("omits the error-issue line when it is zero", async () => {
+  const db = freshDb();
+  seedMe(db);
+  const markdown = renderNegotiate(
+    await runNegotiate({ mePersonIdOverride: "person:me" }, ctxFor(db)),
+  );
+  expect(markdown).not.toContain("Sentry error issue");
   db.close();
 });
