@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786722918276,
+  "lastUpdate": 1786726730714,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -11729,6 +11729,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 223.76053145000006,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fe539e5de767a9ee56c487a4a8b8b8608d94f921",
+          "message": "ci: restore wall-clock margin on the Windows gateway test leg (#1185)\n\n## Why\n\n`PR quality — Cross-platform (gateway, windows-2025)` failed on #1184\nwith `exit code 124` — the `scripts/run-with-timeout.ts` wall-clock cap\nfiring, on **both** attempts. Zero tests failed; no summary line was\never printed, because the run was killed mid-suite at 600 s.\n\nThis was not a regression from any product change. The leg has simply\nhad no margin left:\n\n| Run (2026-08-14) | Tests | Files | Duration |\n| --- | --- | --- | --- |\n| 03:19 | 11,082 | 794 | 340.7 s |\n| 07:47 | 11,166 | 796 | 404.1 s |\n| 09:24 | 11,166 | 796 | 516.0 s |\n| 09:45 | 11,183 | 796 | **557.0 s** |\n| 15:53 | — | — | **killed at 600 s** |\n\nThe last passing run cleared the cap with **43 seconds to spare (93 % of\nbudget)**. Test count grew 0.9 % across the day while duration grew 63\n%, so this is runner variance, not suite growth — note 07:47 vs 09:24:\nidentical work (11,166 tests / 796 files), 404 s then 516 s, a 28 %\nswing. The proximate trigger was one test stalling for 59.2 s (`GET\n/v1/preflight/deploy returns 400 when max_findings is not an integer`,\nnormally ~2-3 s), which alone exceeded the remaining slack.\n\n## What\n\n**1. Stop rebuilding the schema per test.** Every `beforeEach` in\n`http-server.test.ts` replayed the full migration chain (up to\n`CURRENT_SCHEMA_VERSION` = 53) against a fresh on-disk DB. That one file\ncost **113.9 s — 20.4 % of the entire gateway suite**, for tests that\nare trivial read-only route assertions.\n\nEach distinct DB shape is now migrated once into a module-scoped\ntemplate and copied per test. Isolation is unchanged: every test still\ngets its own pristine file. Copying the bare `.db` is sound because\n`runIndexedSchemaMigrations` never switches the database to WAL, so a\nclosed template leaves no `-wal`/`-shm` sidecar holding pages the copy\nwould miss.\n\nMeasured locally (Windows), same 52 tests passing both ways:\n\n```\nbefore: Ran 52 tests across 1 file. [6.60s]\nafter:  Ran 52 tests across 1 file. [724.00ms]\n```\n\n**2. Raise the cap 600 s → 900 s.** The old value was justified\nin-comment as *\"far above a healthy Windows run (~2-3 min)\"*. That\npremise had silently expired — a healthy run is now ~9.3 min — and the\ncomment asserted this failure mode \"never\" happens while it was actively\nhappening. The comment is rewritten to record the real numbers and to\nsay when to revisit.\n\n**3. Raise the job ceiling 25 → 40 min.** This is required, not\nincidental: 2 × 900 s of tests is 30 min, so leaving the ceiling at 25\nwould have cancelled a double-timeout at the job level (\"The operation\nwas canceled\") instead of surfacing the wrapper's exit 124 —\nreintroducing exactly the failure mode the per-attempt cap exists to\nprevent. The comment now states the two must move together.\n\n## Verification\n\n- `bun run preflight:fast` — PASSED (29 gates, incl.\n`audit:workflow-lint`)\n- `bun test packages/gateway/src/ipc` — 1718 pass, 17 skip, **0 fail**\n\n## Note\n\nRaising the cap is the stopgap; the suite getting faster is the fix. The\nremaining known hotspot is `db.verify > returns clean:true on an empty\nfresh DB` at **41.6 s** in one test — that one is real work (`PRAGMA\nintegrity_check` over a real DB), so it is deliberately left alone here\nrather than papered over from a test.",
+          "timestamp": "2026-08-14T19:47:30+03:00",
+          "tree_id": "c9ffda68163868faf96920e756d2d414968b036a",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/fe539e5de767a9ee56c487a4a8b8b8608d94f921"
+        },
+        "date": 1786726728935,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 316.7509408999995,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 317.1225849499977,
             "unit": "ms"
           }
         ]
