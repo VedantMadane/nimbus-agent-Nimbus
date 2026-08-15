@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786790160994,
+  "lastUpdate": 1786790848142,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -12341,6 +12341,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 312.58514385000274,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "78cb49b0b8242e8ce56245c4454cc6e49c507244",
+          "message": "fix(tui): render the watcher pane, and stop claiming OS notifications work (#1204)\n\n## What is actually true\n\n`NotificationService.show()` has **exactly one implementation** in the\ntree — an empty async function — and `win32.ts`, `darwin.ts` and\n`linux.ts` all delegate to the same assembler. It is a no-op on\n**every** platform, with no per-platform variant to find. That was a\nknown, sized deferral (`docs/ecosystem-roadmap.md`). Three places\nasserted otherwise, and one real bug sat next to it.\n\n## What is NOT true — stated precisely, because the opposite is easy to\nassume\n\n**No alert is lost.** All three producers write durable state *before*\ncalling `show()`:\n\n- a watcher fire → `insertWatcherEvent` + `updateWatcherLastFired`, one\nstatement ahead of the notify\n- auth loss → `transitionHealth` into `sync_state.health_state`,\n`last_error`, and a `connector_health_history` row\n- repeated sync failure → same `transitionHealth` path\n\nAll of it then surfaces through `nimbus connector\nlist`/`status`/`history`, `nimbus doctor`, the TUI, the Tauri tray, and\nagent `connectorHealthCaveat` strings.\n\nSo this is a **reachability** gap — the unattended push channel — not\ndata loss. Framing it as data loss would itself be the kind of false\nclaim this sweep exists to remove, which is why the changelog entry says\nso explicitly.\n\n## The real bug: the TUI watcher pane never rendered anything\n\n`WatcherPane` declared rows as `{ id, name, active, firing }` and\nunwrapped the response with `Array.isArray(poll.data)`. Neither matched\nthe Gateway:\n\n- `watcher.list` returns **`{ watchers: [...] }`**, not a bare array\n- `listWatchers` selects the table's own columns — **`enabled`** (0/1)\nand **`last_fired_at`** (epoch ms or null). `active`/`firing` have never\nexisted on the wire.\n\nThe guard therefore always rejected, and the pane rendered **\"No\nwatchers configured\" no matter how many watchers were running**.\n\nIts test could not have caught this: it stubbed a bare array carrying\nthe invented `active`/`firing` fields, so the fake agreed with the\ncomponent instead of with the Gateway. The fixture now builds real rows\nin the real envelope. Red-proved: restoring the old unwrap fails **6 of\n8** tests.\n\n`firing` is now an explicit, documented derivation — fired within\n`WATCHER_RECENT_FIRE_WINDOW_MS` (15 min). **This is a judgement call**:\n`last_fired_at` records a *completed* fire, so there is no in-progress\nstate to read, and a window equal to the 30 s poll interval would\nsurface a fire for at most one refresh — often zero, depending on where\nit landed relative to the tick.\n\n## Corrected claims\n\n| Where | Was | Now |\n|---|---|---|\n| `watchers.mdx` step 2 | \"A tray notification pops: …\" | deleted;\nreplaced with a note that a fire is **recorded, not announced**, naming\nthe surfaces that do show it |\n| `watchers.mdx` history | \"The Tauri Watchers panel shows a history\ndrawer\" | drawer **does** exist (`WatcherHistoryDrawer.tsx`, wired in\n`Watchers.tsx`) — but the desktop app ships in no released binary, so\nthe text now says so and points at `watcher.listHistory` |\n| `roadmap.md` 401/403 | `[x] … + notification UX` / \"one-shot CLI\nnotification\" | stays `[x]` (typed error + `transitionHealth` + every\nread surface genuinely shipped); the inert notification half is struck |\n| `roadmap.md` Notification routing | `[x]` | **`[ ]`** — see below |\n| `ecosystem-roadmap.md` | cited `assemble.ts:225` / `:1703` | stale by\n~500 lines; now cites the symbols instead of line numbers |\n\n## The orphan\n\n`makeChatopsWatcherNotify` is exported and unit-tested with **zero\nproduction callers** — every watcher-notify callsite in `assemble.ts`\npasses `notifications.show` alone. Its docblock claimed it *\"composes\nwith the existing IPC-notify callback at the wiring site (both are\ncalled)\"*, describing a wiring site that has never existed. The comment\nnow says so, and the roadmap row is unchecked to match.\n\n**Deliberately not wired here.** Doing so makes a path that emits\nnothing today start posting outbound to a channel — I23 (ChatOps posts\ngo only through `reply-dispatcher.ts` to a server-derived `ReplyTarget`)\nand plausibly I29. That needs the invariant triple-rule, not an\nincidental hookup.\n\n## Observability\n\nThe stub is renamed `createUnimplementedNotifications` and logs\n`notification.dropped` with the **title only**. Never the body: watcher\nbodies interpolate `fired.summary` (`${service}: ${item title}`)\nstraight from the index, so logging them would write indexed item titles\ninto `logDir`, and `gateway-log-redact.ts` scrubs secrets rather than\narbitrary indexed content — it is no backstop here. A test pins that the\nbody never reaches the log.\n\nExporting the factory for that test follows the file's own convention\n(`appendBootMarkerOrWarn` is exported for the same reason). The\n`PlatformServices.notifications` interface field is deliberately\n**kept** — it is the seam a real implementation lands on.\n\n## Verification\n\n- `bun test packages/cli/src` — **2270 pass, 0 fail**\n- `bun test packages/gateway/src/{automation,platform,chatops}` — **484\npass, 0 fail**\n- `bun run preflight:fast` — **29/29 gates PASSED** (incl.\n`audit:status-drift` with the row unchecked)\n- **Red-proved**: restoring the `Array.isArray` unwrap fails 6 of the 8\n`WatcherPane` tests\n\n## Not in scope\n\nImplementing OS notifications. Three platform `show()` implementations\nplus the consent hop means new native dependencies or spawn paths on all\nthree OSes, I1 env-scoping review for any child process, and a 3-OS\nmatrix — a build slot, not a sweep. It is already sized in\n`docs/ecosystem-roadmap.md` (\"Effort: S per platform\").\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-15T13:25:07+03:00",
+          "tree_id": "ae36b868d014c373e91c80ed7da7b37de906c2cf",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/78cb49b0b8242e8ce56245c4454cc6e49c507244"
+        },
+        "date": 1786790845713,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 319.44201250000077,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 320.96783005000145,
             "unit": "ms"
           }
         ]
