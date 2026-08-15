@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786776598372,
+  "lastUpdate": 1786777273638,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -12205,6 +12205,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 311.96723760000316,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1b62476768388d062133250a7ad07b4f78bd1d1d",
+          "message": "ci(docs): stop transient github.com 504s failing the link check (#1200)\n\nThe link check has failed **twice in one day** on transient `504 Gateway\nTimeout`s from github.com — never on a broken link:\n\n```\n[docs/CHANGELOG.md]:   [504] .../nimbus-client/pull/5 (at 1763:23)\n[docs/ci-secrets.md]:  [504] .../nimbus-client/pull/5 (at 361:17)\n🔍 1313 Total  ✅ 1199 OK  🚫 2 Errors\n```\n\nBoth were the **same URL**, and it is fine: three consecutive `HEAD`\nrequests\nreturn **HTTP 200**, and the PR exists (merged). The earlier failure was\na\ndifferent URL with the same signature — a github.com permalink, live at\n200 on\ndemand.\n\nA gate that cries wolf gets ignored, which is the real cost here.\n\n## Why `max_retries` did not already handle it\n\n`max_retries = 3` was **already set**. Without a wait between attempts\nall three\nretries land inside the same few-second hiccup, so they fail together.\n\n## The fix\n\n- **`retry_wait_time = 2`** — spread the retries across the hiccup\ninstead of\n  stacking them inside it.\n- **`host_concurrency = 8`** — per-*host*, not global. Almost every link\nin this\nrepo is github.com, so the run was opening far more simultaneous\nconnections\nto a single host than it needs; that is what earns a 504. Other hosts\nare\n  unthrottled.\n\nDeliberately **not** done: adding `5xx` to `accept`. A 504 does mean the\nserver\ntimed out rather than the link being broken, but accepting it wholesale\nwould\nalso make a genuinely dead host look healthy, which defeats the gate.\n\n## Verified locally, with lychee 0.24.2 — the exact CI version\n\n- Both TOML keys are accepted (an unknown key is a hard error, so this\nis a real\n  check, and it was run against the pinned version rather than assumed).\n- Full run over the real inputs after the change: **1,313 links, 845\nunique,\n  1201 OK, 0 errors**.\n\n**It is not free, and the file says so.** One run each: **111s before,\n127s\nafter** — roughly +15%, some of which is network variance. That is\nrecorded in\nthe config rather than glossed, along with a note to raise the number if\nrun\ntime ever matters more than the flake.\n\nThe two PRs currently red on this (#1197, #1199) have had their link\njobs\nre-run; this change is about the next occurrence, not those two.",
+          "timestamp": "2026-08-15T09:48:14+03:00",
+          "tree_id": "85456736a28184db1283c2ae71230f726bcd303f",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/1b62476768388d062133250a7ad07b4f78bd1d1d"
+        },
+        "date": 1786777271866,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 325.8078653000033,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 326.8110201500007,
             "unit": "ms"
           }
         ]
