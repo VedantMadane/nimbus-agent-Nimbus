@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786790848142,
+  "lastUpdate": 1786796675880,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -12375,6 +12375,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 320.96783005000145,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fa65d957c46ff46354f8c17d9d37cf4d13957c19",
+          "message": "fix(sonar): resolve the six minor findings and annotate the S8786 false positive (#1206)\n\nResolves **7 of the 16** open SonarCloud issues here. The other 9 are\nall `S3776` and follow separately — see the end.\n\n## The `S8786` is a false positive, and I measured rather than argued\n\nSonar flags `LINK_VALUE_RE` (`/^<([^<>]*)>\\s*(.*)$/s`) in\n`connectors/link-header.ts` for \"super-linear performance due to\nbacktracking\". It isn't. Across five adversarial shapes — unclosed `<`,\nwhitespace+newlines after the URL, a long space run before the params,\nmany separators, nested angle brackets — at 10k/20k/40k/80k characters,\n**every shape stays at or under 0.5 ms, flat**, with no growth as input\ndoubles.\n\nFor contrast, the two *real* `S8786` findings I fixed in the sibling\nrepos this pass measured 90→363 ms and 98→396 ms over 20k→40k — the\n4×-time-for-2×-input signature this one simply does not have.\n\nIt cannot backtrack, structurally:\n\n- `^` gives it exactly one start position.\n- `[^<>]*` is a negated class, so a missing `>` makes it give characters\nback one at a time, once — linear.\n- `\\s*(.*)$` can never **fail** once `>` has matched, because `.*` under\nthe `s` flag always reaches the end. So although `\\s` and `.` overlap,\nthere is no failure for the engine to backtrack into.\n\nMarked as a false positive in SonarCloud with that reasoning and the\nmeasurements, citing the new test by name so the annotation points at\nsomething executable.\n\n### What the new test does and does not prove\n\n`parseLinkHeader > stays linear on adversarial headers` runs all five\nshapes under a wall-clock bound. I verified the assertion is **live** —\ndropping the threshold fails it and names the offending shape.\n\nIt is **not** a proven tripwire against a future backtracking edit, and\nthe comment says so. Two attempts to introduce one failed to trip it:\nmaking the pattern quadratic the obvious way (adding a failure point\nafter the overlapping quantifiers) also changes what it parses, so the\ncorrectness tests fire first; and a lazy-body variant that *does*\npreserve parsing stayed fast. Evidence for the false-positive call, not\na guarantee.\n\n## The six minor findings\n\n- **`S6582` optional chain** — `connectors/github-sync.ts`. Note the fix\nis `row?.metadata ?? null` rather than the `== null` the rule nudges\ntoward: the column is nullable **and** the row may be absent, so the\noptional chain yields `undefined | string | null`. Folding both empty\ncases into one `null` keeps the comparison strict-equality only, which\nthe codebase requires.\n- **`S7780` `String.raw`** — `cli/commands/doctor-fix-keyring.ts`. This\none emits a shell script, so I verified the change is byte-identical\nrather than assuming: both spellings produce `printf \"\\n\" |\ngnome-keyring-daemon …` exactly.\n- **`S7778` repeated `Array#push`** — same file; two consecutive pushes\nbecame one call.\n- **`S5906` length assertions ×3** — `egress/egress-verify.test.ts`,\n`connectors/actor-email.test.ts`. `toHaveLength` for better failure\noutput.\n\n## Verification\n\n- `bun test packages/gateway/src/connectors packages/cli/src/commands` —\n**4732 pass, 0 fail**\n- `bun run preflight:fast` — **29/29 gates PASSED**\n\n## Following separately\n\nThe remaining 9 are all `S3776` cognitive complexity, and all only 1–2\npoints over the 15 threshold: `pagerduty-attribution.ts`,\n`pagerduty-sync.ts`, `sentry-issue-sync.ts`, `github-sync.ts`,\n`graph/graph-populator.ts`, `agents/negotiate.ts` (×2),\n`agents/premortem.ts`, `cli/commands/doctor-core.ts`. Nine extraction\nrefactors across connector and agent code share nothing with the fixes\nabove and carry their own regression risk, so folding them in here would\nmake both harder to review.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n* Improved handling of missing or incomplete metadata during\nsynchronization.\n  * Preserved keyring command behavior while streamlining status output.\n\n* **Tests**\n* Added performance coverage for parsing malformed and complex link\nheaders.\n  * Updated collection-size assertions for clearer test validation.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-15T12:13:10Z",
+          "tree_id": "4a568d0f9a0bfbbb33d39bb46a2608a0d3ee6a1f",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/fa65d957c46ff46354f8c17d9d37cf4d13957c19"
+        },
+        "date": 1786796674050,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 318.31940770000074,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 317.342919999997,
             "unit": "ms"
           }
         ]
