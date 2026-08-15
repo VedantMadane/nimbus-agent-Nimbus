@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786766399662,
+  "lastUpdate": 1786767804271,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -12001,6 +12001,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 316.98480430000564,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b619319898adc3e11728a7e7df92cc6a72dfedd2",
+          "message": "ci(audit): make audit:doc-refs actually scan the skill files (#1193)\n\n`audit:doc-refs` declares `.claude/commands/*.md` as a doc source. It\nhas been\nmatching **zero files** for as long as that glob has existed.\n\n`Bun.Glob.scan` skips dot-directories unless `dot: true` is passed, and\nevery\n`DOCS_GLOBS` pattern lives under `.claude/`. Measured directly:\n\n```\nnew Glob(\".claude/commands/*.md\").scanSync({cwd})              → 0\nnew Glob(\".claude/commands/*.md\").scanSync({cwd, dot: true})   → 21\n```\n\nSo the gate reported *\"688 refs across 16 docs — all resolve\"* — the\nhardcoded\nlist only — while the 21 files the glob was added to cover were never\nopened.\nEvery path, command and count in the skills was unchecked, which is why\nthe\ndrift below survived.\n\n**After:** `1172 refs across 41 docs` — a 70% increase in what is\nactually\nverified. `.claude/agents/*.md` is added too; it was not in `DOCS_GLOBS`\nat all.\n\n## What turning it on immediately caught\n\n**1. A real defect in `nimbus-architecture.md`.** Its \"where does new\ncode go\"\ntable sent every new migration to `packages/gateway/src/db/migrations/`\n— a\ndirectory that does not exist. The real location is\n`packages/gateway/src/index/migrations/`, which is also what the\n`nimbus-db-migrations` skill says, so the two skills contradicted each\nother and\nan agent following the architecture table would create a file the\nmigration\nrunner never reads.\n\n**2. A false positive in the gate itself.** `nimbus-file-map.md`\ndescribes this\nvery gate as catching \"broken `` `[text](path)` `` and backtick path\nrefs\".\nRead literally that is a link to a file named `path`. Quoted syntax is\nnot a\nreference, so the markdown-link pass now masks inline code spans first —\npreserving length, so byte offsets still map to the correct line.\n`extractBacktickPaths` deliberately does **not** mask, because a\nbackticked\npath *is* a reference there.\n\n## Making it testable\n\nThe module had **no exports and no tests** — it ended in a bare\ntop-level\n`await run()`, so importing it executed the whole audit and could\n`process.exit(1)` in the importing process. That is precisely why a gate\nthis\nload-bearing had no cover. It is now `if (import.meta.main) await\nrun()`, which\nleaves `bun run audit:doc-refs` unchanged (`import.meta.main` is true\nwhen it is\nthe entry point) and makes the helpers importable.\n\n## Verification\n\n10 new tests, including the direct red-prove of the defect: scanning\neach glob\n**without** `dot: true` asserts zero hits, and **with** it asserts a\nnon-zero\nfloor. The false-positive fix is pinned by the real `nimbus-file-map.md`\nline,\nplus a case proving a genuine link on the *same* line is still found —\nmasking\nmust not blind the pass.\n\n- `bun test ./scripts/structure-audit/check-doc-references.test.ts` — 10\npass, 0 fail\n- `bun run audit:doc-refs` — 1172 refs across 41 docs, all resolve\n- `bun run preflight:fast` — all 29 gates pass\n\nThe skill-file count assertion is a floor rather than an equality on\npurpose:\nskills get added and removed, and a brittle count would fail for the\nwrong\nreason. Zero is the failure mode that matters.",
+          "timestamp": "2026-08-15T07:12:12+03:00",
+          "tree_id": "035fb955132479b5e5202595593dc2ad53bcf843",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/b619319898adc3e11728a7e7df92cc6a72dfedd2"
+        },
+        "date": 1786767802423,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 313.68266825000137,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 313.8975516999999,
             "unit": "ms"
           }
         ]
