@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786807502598,
+  "lastUpdate": 1786809347288,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -12545,6 +12545,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 323.9871882000007,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c6824c7a361af60a966d3aa9004e079ff3dbd914",
+          "message": "fix: `nimbus config set` on a fresh machine, and an unactionable brief footer (#1212)\n\nTwo defects found by **actually running Nimbus against a local Ollama**,\nneither reachable by any test in the suite. That was the point of the\nexercise — a fake gateway agrees with the code; a real one does not.\n\nSetup was a fully isolated install: `APPDATA` / `LOCALAPPDATA` /\n`USERPROFILE` / `HOME` all redirected to a temp root — **not** just\n`NIMBUS_CONFIG_DIR`, which moves the config dir only and would have left\nthe gateway writing to the real index. Confirmed afterwards that the\nreal config (untouched since 2026-08-10) and data dir were never\nwritten.\n\n## 1. `nimbus config set` fails on a fresh machine\n\n`writeUtf8FileAtomicReplace` calls `mkdtempSync(join(dir, …))` without\nensuring `dir` exists. The install guide runs\n\n```bash\nnimbus config set llm.local_model llama3.2\n```\n\n**before** \"Start the Gateway\" — which is the thing that would otherwise\ncreate the directory. So step one of setup on a new machine dies with:\n\n```\nENOENT: no such file or directory, mkdtemp '<configDir>/.nimbus.toml.swap-XXXXXX'\n```\n\nAn error naming a swap file the user never asked for, with no hint that\nthe real problem is a missing directory.\n\nFix is one `mkdirSync(dir, { recursive: true })`. **Red-proved**:\nreverting it fails the new test, and a control test confirms an existing\ndirectory and its other files are left alone (the mkdir is recursive and\nidempotent).\n\n## 2. The deterministic-brief footer told users to fix something that\nchanges nothing\n\nEvery built-in brief ended with:\n\n> _Rendered deterministically — configure an LLM for prose synthesis._\n\nConfiguring one does nothing. Both production callers of\n`dispatchAgentsRpc` omit `llm`:\n\n- `ipc/server/dispatchers.ts`\n- `agent-runs/agent-http-invoke.ts` — explicitly, in a comment:\n*\"omitting `llm`, which that path also omits, so an HTTP brief and a\nsocket brief are the same\"*\n\nSo `AgentsRpcContext.llm` is **always** undefined in production.\n`briefs/brief-llm-adapter.ts` states the same from the other side,\ndescribing itself as *\"the first place an LLM is wired into a built-in\ngateway agent surface (`AgentsRpcContext.llm` has always been left\nundefined in production, so every other brief is deterministic\nMarkdown)\"*.\n\n**Confirmed live, not by reading**: with `local_model = \"llama3.2\"`,\n`prefer_local = true`, and Ollama running — a configuration `nimbus ask`\nused successfully in the same session — `nimbus why` still printed the\nold footer. The advice sent a user who had done everything right to go\nand do it again.\n\nThe footer now states the mode instead of prescribing a fix:\n\n> _Rendered deterministically — built-in briefs do not use an LLM,\nregardless of `[llm]` settings._\n\nThe empty/throwing-LLM fallback branches deliberately still do **not**\nget this footer: there an LLM genuinely was supplied and just produced\nnothing usable, so calling the render LLM-free would be the inverse\nerror.\n\n## What the run confirmed working\n\nWorth recording, because it is the local-first claim end to end with\nzero cloud calls:\n\n- `nimbus init` inside a git repo appended a `[[filesystem.roots]]`\nblock, **detected the running gateway** and said to restart rather than\nsilently indexing nothing, then indexed on the second run — and\nsuggested a real command derived from the actual code: `nimbus why\nsrc/resize.ts:1 # resizeToThumbnail`.\n- `nimbus search \"thumbnail\"` returned the indexed `code_symbol`.\n- `nimbus ask` routed to Ollama and answered **from indexed context**,\nciting the repo's own commit message, in 24.7 s on a 3.2B model.\n- `nimbus why` produced real git-blame attribution and listed its gaps\nhonestly.\n- `nimbus egress` reported **0 outbound events** for the entire session,\nwith an accurate scope label and its two boot markers — the I29 zero-row\nclaim observed rather than asserted.\n\n## Verification\n\n- `bun test packages/cli/src/lib/nimbus-toml-config.test.ts\npackages/gateway/src/agents/_lib` — **201 pass, 0 fail**\n- `bun test packages/gateway/src/agents` — 436 pass, 0 fail\n- `bun run preflight:fast` — **29/29 gates PASSED**\n- New footer verified **live** against a restarted gateway, not just in\ntests\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-15T15:45:21Z",
+          "tree_id": "6e481b44e0d067e102a1246d01c476286f2ec1df",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/c6824c7a361af60a966d3aa9004e079ff3dbd914"
+        },
+        "date": 1786809345162,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 299.14926000000014,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 302.22763205000666,
             "unit": "ms"
           }
         ]
