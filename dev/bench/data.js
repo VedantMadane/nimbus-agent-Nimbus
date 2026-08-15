@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786771593436,
+  "lastUpdate": 1786774046251,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -12103,6 +12103,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 317.92944774999194,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e4828bcdf854731ab3be71dd043d04d1e4ac8eb5",
+          "message": "ci(org): bring create-nimbus-connector inside the org-drift gates (#1194)\n\n`create-nimbus-connector` publishes to npm, has 9 workflows and a live\n`General`\nruleset — and sat outside **every** list that keeps the org consistent:\n\n| gate | before |\n|---|---|\n| `general-branch.json` `repos` (ruleset drift) | absent |\n| `general-branch.json` `bypass.by_repo` | absent |\n| `org-drift-sweep.yml` sha-pins matrix | absent |\n| `check-cla-coverage.ts` `GATED_REPOS` | absent |\n| `check-review-coverage.ts` `GATED_REPOS` | absent |\n| the three App-token `repositories:` scopes | absent |\n\nSo its branch protection, action pinning, CLA workflow and review config\ncould\ndrift indefinitely without anything going red.\n\n## The part that would have made this change fake\n\nAdding it to the workflow's `repositories:` scopes is **necessary but\nnot\nsufficient** — that only widens the App token. `check-cla-coverage.ts`\nand\n`check-review-coverage.ts` iterate their own hardcoded `GATED_REPOS`\nconsts,\nso the audits would have kept checking the old set and still reported\ngreen.\nOnly `check-ruleset-drift.ts` reads `general-branch.json`.\n\nI caught that because the counts did not move: after the workflow-only\nedit the\naudits still printed `OK (6 repos)` and `OK (5 repos, 1 exempt)`. With\nthe\nconsts updated they print:\n\n```\naudit:ruleset-drift:   OK (6 repos)          # was 5\naudit:cla-coverage:    OK (7 repos)          # was 6\naudit:review-coverage: OK (6 repos, 1 exempt) # was 5\n```\n\nThe count moving is the evidence the repo is actually being checked\nrather than\nmerely listed.\n\n## Verified it does not red the weekly sweep\n\nChecked against live GitHub **before** adding it, since a scheduled\nworkflow\ngoing red on Monday is the failure mode here:\n\n- **Ruleset shape** — its `General` ruleset's comparable fields (name,\ntarget,\nenforcement, ref conditions, every `pull_request` parameter) are\n**byte-identical**\n  to Nimbus's. It carries all three `required_rule_types`. The baseline\ndeliberately does not diff `required_status_checks`/`code_quality`,\nwhich is\nwhere it legitimately differs (its contexts are `check`,\n`cla-assistant`,\n  `Analyze (javascript-typescript)`).\n- **Bypass actors** — genuinely empty, so `\"create-nimbus-connector\":\n[]` is the\n  honest entry rather than a placeholder.\n- **Action pinning** — all 22 `uses:` refs across its 8 workflows are\n40-hex\n  SHA-pinned.\n- **CLA** — `cla.yml` present, pinned to\n`contributor-assistant/github-action@ca4a40a7…`\n  — the *same* SHA as Nimbus's.\n- **Review config** — `.coderabbit.yaml` present with\n`reviews.auto_review.enabled: true`.\n\nThen all three audits were run locally against the real API with it\nincluded:\nall pass, counts as above.\n\n- `bun test` over the three audits' test files — 44 pass, 0 fail\n- `bun run preflight:fast` — all 29 gates pass\n\n## Not included\n\nThe sha-pins matrix entry is added, but that job checks out each repo in\nCI, so\nits verification happens on the next sweep rather than here. Its pinning\nis\nalready clean per the scan above, so it should pass; if it does not, it\nwill\nsay which ref.\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Chores**\n  * Expanded repository governance coverage for additional projects.\n* Updated automated checks for branch protection, contributor agreement\ncoverage, review coverage, and configuration consistency.\n  * Added required workflow verification for newly covered repositories.\n\n* **Impact**\n  * Improves consistency and compliance across managed projects.\n  * No changes to end-user functionality.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-08-15T08:56:04+03:00",
+          "tree_id": "ca9a9760a7cb46d228fe21b8e23677caed8f183d",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/e4828bcdf854731ab3be71dd043d04d1e4ac8eb5"
+        },
+        "date": 1786774044226,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 313.1534355500029,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 312.79443834999984,
             "unit": "ms"
           }
         ]
