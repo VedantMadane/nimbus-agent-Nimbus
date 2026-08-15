@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786796675880,
+  "lastUpdate": 1786802270875,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -12409,6 +12409,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 317.342919999997,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "34b3faf800ccd14b8df2742687eb214f6a7558b8",
+          "message": "ci(docs): fix the lychee 504 for real — retries never applied to status codes (#1207)\n\n## #1200 did not fix this, and its stated reason was wrong\n\n#1200 added `retry_wait_time = 2` to `lychee.toml` for the recurring\ngithub.com 504, claiming those settings \"address the cause\". **They do\nnot apply to a 504 at all.**\n\nMeasured against a local server that counts requests:\n\n| response | requests received |\n|---|---|\n| `504 Gateway Timeout` | **1** |\n| `503 Service Unavailable` | **1** |\n| connection dropped mid-response | **4** (1 + 3 retries) |\n\nlychee retries **transport errors only**. A response that arrives and\nfails the `accept` list is final — which is exactly what the error text\nwas telling us all along (*\"Rejected status code\"*, not a timeout). So\n`max_retries`/`retry_wait_time` were inert for the one failure mode they\nwere added to fix.\n\nI've corrected the comment in `lychee.toml` rather than quietly\nreplacing it. The settings stay, because they *are* correct for genuine\ntransport flakes (connection reset, TLS hiccup) which do occur from\nrunner egress — they are just not the 504 mitigation.\n\nThis recurred a third time today, on\n`https://github.com/nimbus-agent/Nimbus/issues/1072`, which answered\n**HTTP 200 on three consecutive checks** seconds later.\n\n## The actual fix\n\n`scripts/check-links.sh`, used by both `bun run audit:links` and the CI\nstep, so a local reproduction and CI cannot drift:\n\n1. `--cache` — successful links are cached.\n2. `--cache-exclude-status '429,500..504'` — transient statuses are\ndeliberately **not** cached.\n3. On failure, run once more.\n\nBecause successes are cached and transients are not, the retry re-checks\n**only what failed**. Verified by request count: across two passes, the\ntwo OK URLs were fetched **once each**, the 504 URL **twice**.\n\nDeliberately **not** `accept = [\"504\"]` — that would hide a genuinely\ndead host, which is the one thing a link checker must not do.\n\n## A dead link still fails the gate\n\nRed-proved with a real 404\n(`.../blob/main/this-file-does-not-exist-xyz123.md`):\n\n- fails **both** passes, exits **2**\n- 404 stays *in* the cache — correct, it's a real break, not a transient\n\nMy first attempt at this used a `.invalid` URL and it was silently\n**excluded** (👻 113→114), proving nothing. Worth stating, because a\nred-prove that quietly no-ops is worse than none.\n\n## Measurements\n\n| | before | after |\n|---|---|---|\n| cold run | 125 s (your run) / 70 s (mine) | 70 s |\n| warm re-run | n/a | **0.2 s** |\n| retry after a failure | full ~2 min sweep | 0.3 s |\n\nThe cold-run difference between 125 s and 70 s is network variance, not\nthe cache — that run started with an empty cache. The cache only earns\nits keep on the retry and on repeat local runs.\n\n`.lycheecache` is gitignored.\n\n## Verification\n\n- `bun run audit:links` — **1207 OK, 0 errors** over 1320 links\n- `bun run preflight:fast` — 29/29 gates PASSED\n- `audit:workflow-lint` — OK (25 workflows, 198 bash bodies parsed)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-15T13:46:18Z",
+          "tree_id": "e40cf488cd59171ed1905bf433996799c445cee9",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/34b3faf800ccd14b8df2742687eb214f6a7558b8"
+        },
+        "date": 1786802268780,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 325.67898885000216,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 323.7402156499978,
             "unit": "ms"
           }
         ]
