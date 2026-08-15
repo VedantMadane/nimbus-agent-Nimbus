@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786774046251,
+  "lastUpdate": 1786775919594,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -12137,6 +12137,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 312.79443834999984,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "025b8d895d4a821a066951b93d59af03de1e7b44",
+          "message": "ci(docs): correct the duplication-gate comment to the measured numbers (#1198)\n\nThe duplication job's comment claimed the ratchet was *\"pinned just\nabove the\ncurrent strict duplication (~4.41%)\"*. That number matches **neither**\nfigure:\n\n| | value |\n|---|---|\n| threshold in `.jscpd.json` | **4** |\n| actual duplicated lines | **3.48%** (6,122 of 176k, 600 clones) |\n| the comment | ~4.41% |\n\nSo there is **0.52pp of slack**, not \"just above\".\n\n## The part worth writing down\n\nThe threshold gates the **LINE** percentage, not the token percentage.\nThat\nmatters because jscpd prints both, and the token figure is **4.19% —\nabove the\n4 threshold**. Anyone reading that column concludes this job should be\nfailing\nand goes looking for a broken gate.\n\nVerified rather than assumed, by bisecting the config against the real\nrun:\n\n- `threshold: 3.6` (above lines 3.48, below tokens 4.19) → **exit 0**\n- `threshold: 3.4` (below lines 3.48) → **exit 1**\n\nOnly line-gating explains both. Config restored afterwards; the only\nchange in\nthis PR is the comment.\n\nComment-only — no behaviour change. `bun run audit:workflow-lint` OK.",
+          "timestamp": "2026-08-15T09:27:02+03:00",
+          "tree_id": "ba71cdbe7b58c1dba07558b6195ba91b0b6683a1",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/025b8d895d4a821a066951b93d59af03de1e7b44"
+        },
+        "date": 1786775917279,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 325.55422265000124,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 327.85517870000115,
             "unit": "ms"
           }
         ]
