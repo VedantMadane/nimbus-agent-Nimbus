@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786777273638,
+  "lastUpdate": 1786783036446,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -12239,6 +12239,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 326.8110201500007,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f62fd8553e1ebc14f67f0a16a784302e80cb55e2",
+          "message": "fix(admin-console): escape policy.version before it reaches innerHTML (#1201)\n\n`renderPolicyBanner` interpolated `policy.version` **unescaped** into a\nstring\nthat `main.ts` assigns to `innerHTML`. It was the only dynamic value in\nthe\nrenderer that `esc()` did not cover.\n\n```ts\n`<div class=\"banner\">policy <b>${esc(p.org ?? \"\")}</b> v${p.version ?? 0} …`\n//                              ^^^ escaped              ^^^ NOT escaped\n```\n\n## This was reported and dismissed\n\nSonarCloud raised it as a **BLOCKER** DOM-XSS (`tssecurity:S5696`),\nnaming the\nsink (`main.ts:136`), the propagation point (`render.ts:32`) and even\nthe field\n(\"a malicious value was previously assigned to field 'version'\").\n\nIt was closed **FALSE-POSITIVE** with:\n\n> every dynamic value reaching innerHTML is HTML-escaped via esc() in\n> render.ts/views.ts (the only interpolation point)\n\nThat is true of `policy.org` — sitting on the same line — and false of\n`policy.version`. A security suppression whose stated reason does not\nhold is\nworse than an open issue, because nobody re-checks it.\n\nI verified the claim rather than taking either side: every `${…}` in\n`render.ts` and `views.ts` that is not `esc()`-wrapped is either routed\nthrough\n`card()` (which escapes — lines 43–48), a locally-built constant\n(`restart`), or\na literal (`\"yes\"`/`\"no\"`). `policy.version` was the only untrusted\nvalue\nreaching the sink raw.\n\n## Why the type does not protect it\n\n`version` is typed `number`, but `client.ts` only shape-checks the\nresponse —\n`typeof body === \"object\" && \"data\" in body` — and then casts. The type\nis an\nassumption about a remote JSON document, not a guarantee, which is\nexactly what\nSonar's taint analysis was pointing at.\n\nExploitability is bounded (it needs control of the gateway's\n`/v1/admin/status` response), so this is hardening rather than an\nincident.\n\n## Red-proved\n\nWith the fix reverted, the new test fails with the rendered output:\n\n```\n<div class=\"banner\">policy <b>acme</b> v<img src=x onerror=\"alert(1)\"> ✓ signed</div>\n```\n\n— an executable payload assigned to `innerHTML`. With the fix it renders\n`&lt;img …` and the test passes.\n\nThree tests added: version escaped, org escaped (the half already\ncovered, so a\nfuture edit cannot silently swap which one is protected), and a plain\nnumeric\nversion still rendering as `v7` — so the fix cannot pass by mangling\nnormal\noutput.\n\n- `bun test packages/admin-console/src/render.test.ts` — 6 pass, 0 fail\n- `bun run preflight:fast` — all 29 gates pass\n\nFollow-up, not done here: the Sonar issue should be re-opened so it\ncloses as\n**fixed** rather than staying resolved as a false positive. I'd rather\nchange\nthat triage state alongside the rest of the Sonar work than as a side\neffect of\nthis PR.\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n* Improved security for policy status banners by safely escaping policy\nversion and organization values.\n* Prevented potentially malicious content from being rendered as\nexecutable HTML.\n\n* **Tests**\n* Added coverage confirming that normal version values display correctly\nand unsafe values are safely encoded.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-08-15T08:27:33Z",
+          "tree_id": "223b806cd9af94272385cbc261c3231550492db8",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/f62fd8553e1ebc14f67f0a16a784302e80cb55e2"
+        },
+        "date": 1786783034196,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 316.77930620000006,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 313.17983134999776,
             "unit": "ms"
           }
         ]
