@@ -144,6 +144,19 @@ export async function discoverSourceFiles(): Promise<string[]> {
     new Glob("packages/cli/src/**/*.ts"),
     new Glob("packages/cli/src/**/*.tsx"),
     new Glob("packages/mcp-connectors/*/src/**/*.ts"),
+    // `shared/` has no `src/` segment, so the glob above never matched it — yet
+    // CI has always instrumented it (instrument-scope.ts) and `_test-suite.yml`
+    // runs its tests. The result was real coverage numbers that no gate read:
+    // `safe-cli-arg.ts`, the argv-flag-smuggling guard, sat at 62.5% line and
+    // `join-api-path.ts` had no lcov record at all. All 16 files clear the floor
+    // as of this change, so it lands with no baselined debt.
+    new Glob("packages/mcp-connectors/shared/**/*.ts"),
+    // Measured (instrument-scope.ts) and its tests run (build-lcov.sh), but it
+    // was in neither this list nor the instrumentation scope — so the floor
+    // could not see it even in principle. Both its files clear the floor today
+    // (exit-status 100/100, resolve-binary 88.0/92.9); the point is that a
+    // regression in them now fails rather than going unnoticed.
+    new Glob("packages/mcp-launcher/src/**/*.ts"),
   ];
   for (const glob of globs) {
     for await (const rawRel of glob.scan({ cwd: REPO_ROOT })) {
@@ -152,6 +165,15 @@ export async function discoverSourceFiles(): Promise<string[]> {
       seen.add(rel);
       if (rel.endsWith(".test.ts")) continue;
       if (rel.endsWith(".test.tsx")) continue;
+      // `.spec` is a test marker to Bun exactly as `.test` is ("Tests need
+      // '.test', '_test_', '.spec' or '_spec_' in the filename"), and
+      // `shouldInstrument` already skips both — but this discovery pass only
+      // skipped `.test`. A `*.spec.ts` would therefore be discovered as SOURCE,
+      // never instrumented, and reported `missing_from_lcov` at 0%: a false
+      // failure on a file that is not source at all. None exists in the repo
+      // today, so this is closing the asymmetry before it can bite.
+      if (rel.endsWith(".spec.ts")) continue;
+      if (rel.endsWith(".spec.tsx")) continue;
       if (rel.endsWith(".d.ts")) continue;
       if (rel.includes("/__fixtures__/")) continue;
       if (rel.includes("/test/fixtures/")) continue;
