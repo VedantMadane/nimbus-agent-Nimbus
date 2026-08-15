@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786735327412,
+  "lastUpdate": 1786760490891,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -11899,6 +11899,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 313.3700099499976,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1743437229cc4b9fec8387fede74ced92f8d0453",
+          "message": "fix(egress): count the whole prove window, not the first page of it (#1189)\n\n`nimbus prove` is the product's honesty primitive — the number it prints\nis a\nclaim about how much left this machine. On any window holding more than\n1000\nrows that number was **wrong, and wrong in the worst direction**.\n\n## The defect\n\n`proveWindow` derived `outboundEgressEvents` by filtering the rows\n`listEgress`\nreturned. `listEgress` caps at **1000 rows by default** and orders `id\nASC`, so:\n\n- a window with 3,000 authorized rows reported **999**;\n- the rows it dropped were the **most recent** ones;\n- and it reported `indeterminate: false` with `verify.ok: true`, so the\nCLI\n  printed the wrong number **with full confidence and exit 0**.\n\nAn under-claim delivered confidently is the exact failure this subsystem\nis\nbuilt to prevent — its own rule is \"indeterminate, never a false zero\".\n\nThis is also a **second instance of a hazard the file had already\nescaped\nonce**: `lastMarkerAtOrBefore` carries a note explaining that\n`listEgress`'s\n1000-row page would make a boot marker past row 1000 invisible, and was\nmoved\ninto SQL for that reason (\"fix 1\"). The count immediately below it was\nleft on\nthe same page.\n\nThe signed receipt inherited the same flaw:\n`digestEgressWindow(window.rows)`\nsigned only the truncated page while the printed count claimed the whole\nwindow — the signature covered different evidence than the claim beside\nit.\n\n## The fix\n\n- `countOutboundEgress()` counts in **SQL over the whole window**. The\nmarker\nset comes from `MARKER_SOURCE_TYPES` rather than being re-spelled, and\nNULL\n`source_type` is counted explicitly — `NOT IN` alone would drop it, and\nfor a\nproof an unrecognised row inflating the number is safe while one\nvanishing\nfrom it is not. This matches `isMarkerSourceType`'s documented \"unknown\n  values are NOT markers — an unknown row counts\".\n- `proveWindow` now returns `rowsTotal` + `rowsTruncated`. `rows` stays\npaginated on purpose (it crosses IPC; an unbounded window would ship the\nwhole ledger) — what changed is that the page no longer *pretends* to be\nthe\nwindow. The CLI now prints `… showing the oldest N of M rows in this\nwindow\n  (the count above covers all of them)`.\n- The receipt digest binds `outboundEgressEvents` and `rowsTotal`,\ntagged\n`nimbus-egress-window-v2` so it cannot collide with a digest made under\nthe\n  old rule. Receipts are local and nothing verifies a stored digest (the\nportable EAF artifact is deferred), so there is no compatibility\nsurface.\n\n## Verification\n\n**Red-proved.** Reverting `proveWindow` to the old page-filter fails 3\nof the\nnew tests. The sharpest is `blocked rows are never counted as outbound,\nat any\nsize`: with 1,010 blocked rows followed by one authorized row, the old\ncode\nreports **0** — the page fills with blocked rows and the single real\negress\nevent falls outside it. A window that genuinely emitted something\nreported\nnothing.\n\nNew tests cover: counting past the page limit unbounded and within an\nexplicit\n`since`/`until`; `rowsTruncated` false when the window fits; blocked\nrows never\ncounted at any size; and a parity suite asserting the SQL predicate and\n`isMarkerSourceType` agree for **every** member of the frozen\nsource-type\nunion, so the two encodings cannot drift — plus that an unrecognised\n`source_type` counts rather than vanishing.\n\n- `bun test packages/gateway/src/egress/` — 97 pass, 0 fail\n- egress-rpc + CLI prove + egress — 133 pass, 0 fail\n- `packages/gateway/src/security-invariants.test.ts` — 115 pass, 0 fail\n- `bun run preflight:fast` — all 29 gates pass\n\n## Note on what this does not change\n\n`verifyEgressChain` still walks the entire ledger, so `proveWindow` was\nalready\nO(whole ledger) before this change — the page limit was never buying the\ncost\nsaving it looked like it was. Its 124 MB / 1.67 s cost at 200k rows is a\nreal,\nseparate problem and is deliberately left for its own PR.",
+          "timestamp": "2026-08-15T05:10:04+03:00",
+          "tree_id": "bf40372d13594f1257f1bf5fdccfbf3efb1be061",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/1743437229cc4b9fec8387fede74ced92f8d0453"
+        },
+        "date": 1786760488781,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 317.37119150000217,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 316.9421349999986,
             "unit": "ms"
           }
         ]
