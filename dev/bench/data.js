@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786769056226,
+  "lastUpdate": 1786771593436,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -12069,6 +12069,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 278.5322434999998,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7b7c8bf9cd81cae9781451d26866051728640f82",
+          "message": "ci(coverage): actually measure mcp-launcher, and drop two dead scope arms (#1195)\n\n`build-lcov.sh` has run `packages/mcp-launcher`'s tests since #1047, and\nits\ncomment describes that as closing a *\"measurement gap, not a testing\ngap\"*.\n\nIt did not. The package was never in\n`scripts/coverage/instrument-scope.ts`'s\nscope, so **nothing it loaded was instrumented** and it emitted no\ncoverage\nrecords at all — Sonar went on reporting `resolve-binary.ts` and\n`exit-status.ts` at 0% while their 15 tests passed.\n\nRunning a package's tests and *measuring* it are separate switches. Only\none was\nflipped, and the comment claimed both.\n\n## Red/green proof\n\nRan mcp-launcher's tests through the real istanbul pipeline\n(`istanbul-register` + `report-coverage` preloads, then\n`merge-coverage`), with\nand without the scope fix:\n\n| | result |\n|---|---|\n| **without** the fix | `merge-coverage: merged 0 shard(s)` — **zero**\nmcp-launcher records |\n| **with** the fix | `exit-status.ts` **100.0%** line / 100.0% branch ·\n`resolve-binary.ts` **88.0%** / 92.9% |\n\nSo the 0% was an artifact of never being measured, not untested code.\n\n## Also removed: two dead alternations\n\n`FIRST_PARTY` read `packages/(gateway|cli|sdk|client)/src/`.\n`packages/sdk` and\n`packages/client` **do not exist in this monorepo** — they were\nextracted to\nnimbus-sdk / nimbus-client. A scope regex naming packages that cannot\nmatch\nreads as coverage being collected somewhere it is not, which is the same\nconfusion that hid the mcp-launcher gap. Now\n`(gateway|cli|mcp-launcher)`, with\na test pinning that the departed packages are not claimed.\n\n## Closing the enforcement half too\n\nBeing *measured* and being *gated* are also separate.\n`discoverSourceFiles()` in\nthe floor gate globs gateway/cli/mcp-connectors only, so even with lcov\nrecords\nthe floor could not see mcp-launcher. Added — safe today, since both\nfiles clear\nthe 85% line / 80% branch floor by the numbers above. The point is that\na\nregression in them now fails instead of going unnoticed.\n\nThis also makes an existing exclusion meaningful rather than dead:\n`exclusions.ts:61` exempts `packages/mcp-launcher/src/index.ts`, a file\nthe\ndiscovery glob never enumerated in the first place.\n\n## Verification\n\n- `bun test scripts/coverage/instrument-scope.test.ts\nscripts/coverage-floor/` — 109 pass, 0 fail\n- `bun run preflight:fast` — all 29 gates pass\n- The `build-lcov.sh` comment is corrected rather than left standing; it\nwas the\n  thing asserting the gap was closed.\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Tests**\n  * Expanded coverage checks to include the MCP launcher source files.\n* Added safeguards confirming test files and extracted SDK/client\npackages remain excluded from coverage instrumentation.\n\n* **Chores**\n* Updated coverage tracking to reflect current first-party components,\nincluding gateway, CLI, and MCP launcher code.\n  * Documented coverage scope and recorded resulting coverage metrics.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-08-15T05:14:58Z",
+          "tree_id": "7e6bc91a8a182fcfb1ccd1191523d18e45576c52",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/7b7c8bf9cd81cae9781451d26866051728640f82"
+        },
+        "date": 1786771591044,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 315.69571044999793,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 317.92944774999194,
             "unit": "ms"
           }
         ]
