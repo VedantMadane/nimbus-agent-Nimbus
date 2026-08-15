@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786788954774,
+  "lastUpdate": 1786790160994,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -12307,6 +12307,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 320.67717394999346,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "710493c34f2c36e511439a0aab596a1d5682ab51",
+          "message": "chore: release main (#1205)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>2.4.3</summary>\n\n##\n[2.4.3](https://github.com/nimbus-agent/Nimbus/compare/v2.4.2...v2.4.3)\n(2026-08-15)\n\n\n### Bug Fixes\n\n* **admin-console:** escape policy.version before it reaches innerHTML\n([#1201](https://github.com/nimbus-agent/Nimbus/issues/1201))\n([f62fd85](https://github.com/nimbus-agent/Nimbus/commit/f62fd8553e1ebc14f67f0a16a784302e80cb55e2))\n* **cli:** stop blocking gateway RPCs dying on the 30s client timeout\n([#1203](https://github.com/nimbus-agent/Nimbus/issues/1203))\n([3fc2132](https://github.com/nimbus-agent/Nimbus/commit/3fc2132255c86fbf04fce408e8f35cb123cb24ef))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-15T13:24:53+03:00",
+          "tree_id": "39b5ca9021028f9f1788b8157f4542a57a131f3f",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/710493c34f2c36e511439a0aab596a1d5682ab51"
+        },
+        "date": 1786790159234,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 311.8949042,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 312.58514385000274,
             "unit": "ms"
           }
         ]
