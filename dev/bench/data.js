@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786775919594,
+  "lastUpdate": 1786776598372,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -12171,6 +12171,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 327.85517870000115,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d4d38f026667a472800f871b4d354658ebd9752c",
+          "message": "docs: delete 83 delivered plans and specs, per the #1048 precedent (#1199)\n\nFollows the convention set by **#1048** (\"archive 44 delivered\nplans/specs\"),\nwhich deleted delivered docs outright and rewrote references to the\n`git show <sha>:<path>` form rather than moving anything to an archive\ndirectory.\n\n**83 deleted, 14 kept.** 45,383 lines removed.\n\n## What went, and why it is safe\n\nEvery deleted document describes work that has shipped. The groups, each\nwith a\nmerged PR behind it:\n\npre-mortem (15) · incident attribution, PagerDuty + Sentry (9) ·\nownership graph\n(8) · HTTP agents route + token scopes (7) · negotiate agent (6) ·\nticket depth,\nJira + Linear (6) · agents-as-MCP-tools (6) · installer download\ncapability (6) ·\ntargeted-fetch miss reasons + credential validation (4) · Sentry issue\nindexing\n(4) · ship-what-we-claim PR 1 + PR 2 plans (4) · contribution-depth PR 1\nplans\n(3) · I29/D22 egress completeness (2) · workflow stream tagging + cancel\n(2) ·\nresolve-by-URL + fetch-on-miss (1)\n\n## Order mattered, and it was checked first\n\nFour documents had inbound references. Deleting first would have left\ndangling\npointers — two of them in **source comments**, which `audit:doc-refs`\ndoes not\nscan and so would never have caught:\n\n| reference | from |\n|---|---|\n| installer-download-capability plan |\n`packages/cli/src/commands/doctor-fix-keyring.ts` |\n| ticket-depth design | `packages/gateway/src/connectors/jira-sync.ts` |\n| the two i29 specs | `docs/CHANGELOG.md` (live markdown links) |\n\nAll four were rewritten to `git show e4828bcd:<path>` **before** the\ndeletion.\nThe CHANGELOG pair were real markdown links — the lychee gate would have\ngone\nred on those; the two source comments would have failed silently, which\nis\nworse.\n\n**Recoverability verified, not assumed:** `git show e4828bcd:<path>` was\nexecuted for a sample and returns the full documents (315 / 1,415 / 300\nlines),\nand `e4828bcd` is an ancestor of `origin/main`, so the references are\npermanent.\n\n## What was kept, and why\n\n- **Launch execution + design (5)** — a live runbook. The code shipped,\nbut\n  Gates 1–3 are human gates and still unchecked.\n- **Directory listings design + feedback (2)** — an in-flight tracker\nwith 7\n  not-started rows.\n- **Quality-floor design (1)** — entirely unbuilt; no such gate exists.\n- **ship-what-we-claim design (3)** and **contribution-depth design\n(3)** —\npartially delivered. Both are the only written spec for their remaining\nPR, so\nthey stay, now carrying an explicit **PARTIALLY DELIVERED** header\nsaying what\nshipped, what has not, and how to recover the deleted implementation\nplans.\n  Without that header they read as though none of the work is done.\n\n## Verification\n\n- Reference sweep over every deleted filename: no markdown link to a\ndeleted doc\n  remains anywhere in the tree; the only surviving mentions are the four\n  `git show` prose forms.\n- `bun run audit:doc-refs` — 1174 refs across 41 docs, all resolve.\n- `bun run preflight:fast` — all 29 gates pass, including\n`lint:markdown`.\n\nDeletion groups were cross-checked against the merged PR numbers\nindependently\nof the docs' own self-description — which is not trustworthy here: two\nof the\ndeleted documents state \"not yet implemented\" while being fully shipped.",
+          "timestamp": "2026-08-15T09:30:15+03:00",
+          "tree_id": "515be0d94d84c7f1e4bfa16407dd9b3a2222690e",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/d4d38f026667a472800f871b4d354658ebd9752c"
+        },
+        "date": 1786776596650,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 312.7698643499989,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 311.96723760000316,
             "unit": "ms"
           }
         ]
