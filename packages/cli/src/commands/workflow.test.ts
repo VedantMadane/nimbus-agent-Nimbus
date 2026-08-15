@@ -3,12 +3,22 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { clearFixture, FAKE_SOCKET_PATH, setFixture } from "../../test/helpers/cli-mocks.ts";
+import {
+  clearFixture,
+  FAKE_SOCKET_PATH,
+  type RecordedClientConstruction,
+  setFixture,
+} from "../../test/helpers/cli-mocks.ts";
 import { captureOutput } from "../../test/helpers/cli-output.ts";
 import { createMockIpcClient } from "../../test/helpers/mock-ipc-client.ts";
 
+import { INTERACTIVE_RPC_TIMEOUT_MS } from "../lib/rpc-timeouts.ts";
+
 const mod = await import("./workflow.ts");
 const { runWorkflowCli, runWorkflowList, runWorkflowDelete, runWorkflowSave, runWorkflowRun } = mod;
+
+/** Yield a macrotask so every pending microtask chain (connect → call → handler) settles. */
+const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
 const out = captureOutput();
 
@@ -218,5 +228,104 @@ describe("runWorkflowCli (dispatcher)", () => {
     });
     await runWorkflowCli([]);
     expect(ipc.calls[0]?.method).toBe("workflow.list");
+  });
+
+  // A workflow step can trip a HITL gate, and the Gateway then blocks on
+  // `consent.respond`. Without a `consent.request` handler this command hung to the
+  // client timeout without ever prompting the user — the failure mode
+  // `interactive-ipc-handlers.ts` documents.
+  it("registers a consent.request handler for 'run', so a HITL step can be approved", async () => {
+    const handlers = new Map<string, (params: unknown) => void>();
+    const ipc = createMockIpcClient([{ ok: true }], handlers);
+    setFixture({
+      gatewayState: { socketPath: FAKE_SOCKET_PATH },
+      ipcClient: {
+        call: ipc.client.call,
+        connect: () => {},
+        disconnect: () => {},
+        onNotification: ipc.client.onNotification,
+      },
+    });
+    await runWorkflowCli(["run", "deploy"]);
+    expect(handlers.has("consent.request")).toBe(true);
+  });
+
+  it("answers consent WHILE workflow.run is still in flight", async () => {
+    // The ordering the Gateway's gate requires: a HITL step raises `consent.request`
+    // from inside the pending `workflow.run` and blocks on `consent.respond`, so the
+    // approval has to reach it before the call resolves — not merely at some point.
+    const handlers = new Map<string, (params: unknown) => void>();
+    let releaseRun = (): void => {};
+    const runPending = new Promise<{ ok: boolean }>((resolve) => {
+      releaseRun = () => {
+        resolve({ ok: true });
+      };
+    });
+    const ipc = createMockIpcClient([runPending, { ok: true }], handlers);
+    setFixture({
+      gatewayState: { socketPath: FAKE_SOCKET_PATH },
+      clackAnswer: true,
+      ipcClient: {
+        call: ipc.client.call,
+        connect: () => {},
+        disconnect: () => {},
+        onNotification: ipc.client.onNotification,
+      },
+    });
+
+    const done = runWorkflowCli(["run", "deploy"]);
+    await flush();
+    expect(ipc.calls.map((c) => c.method)).toEqual(["workflow.run"]);
+
+    handlers.get("consent.request")?.({ requestId: "req-1", prompt: "Deploy to prod?" });
+    await flush();
+
+    // Approved before the gated run resolved.
+    expect(ipc.calls.find((c) => c.method === "consent.respond")?.params).toEqual({
+      requestId: "req-1",
+      approved: true,
+    });
+
+    releaseRun();
+    await done;
+  });
+
+  it("still streams agent chunks for 'run'", async () => {
+    // The consent handler was added ALONGSIDE the chunk handler, not instead of it.
+    const handlers = new Map<string, (params: unknown) => void>();
+    const ipc = createMockIpcClient([{ ok: true }], handlers);
+    setFixture({
+      gatewayState: { socketPath: FAKE_SOCKET_PATH },
+      ipcClient: {
+        call: ipc.client.call,
+        connect: () => {},
+        disconnect: () => {},
+        onNotification: ipc.client.onNotification,
+      },
+    });
+    await runWorkflowCli(["run", "deploy"]);
+    expect(handlers.has("agent.chunk")).toBe(true);
+  });
+
+  it("gives 'run' the interactive budget and leaves 'list' on the tight default", async () => {
+    const runConstructions: RecordedClientConstruction[] = [];
+    const runIpc = createMockIpcClient([{ ok: true }]);
+    setFixture({
+      gatewayState: { socketPath: FAKE_SOCKET_PATH },
+      clientConstructions: runConstructions,
+      ipcClient: { call: runIpc.client.call, connect: () => {}, disconnect: () => {} },
+    });
+    await runWorkflowCli(["run", "deploy"]);
+    expect(runConstructions[0]?.opts).toEqual({ requestTimeoutMs: INTERACTIVE_RPC_TIMEOUT_MS });
+
+    const listConstructions: RecordedClientConstruction[] = [];
+    const listIpc = createMockIpcClient([{ workflows: [] }]);
+    setFixture({
+      gatewayState: { socketPath: FAKE_SOCKET_PATH },
+      clientConstructions: listConstructions,
+      ipcClient: { call: listIpc.client.call, connect: () => {}, disconnect: () => {} },
+    });
+    await runWorkflowCli(["list"]);
+    expect(listConstructions[0]?.opts).toBeUndefined();
   });
 });

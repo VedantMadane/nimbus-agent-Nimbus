@@ -6,13 +6,19 @@ import {
   CLACK_CANCEL,
   clearFixture,
   FAKE_SOCKET_PATH,
+  type RecordedClientConstruction,
   setFixture,
 } from "../../test/helpers/cli-mocks.ts";
 import { captureOutput } from "../../test/helpers/cli-output.ts";
 import { createMockIpcClient } from "../../test/helpers/mock-ipc-client.ts";
 
+import { BATCH_RPC_TIMEOUT_MS } from "../lib/rpc-timeouts.ts";
+
 const connectorMod = await import("./connector.ts");
 const { runConnector } = connectorMod;
+
+/** Yield a macrotask so every pending microtask chain (connect → call → handler) settles. */
+const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
 const out = captureOutput();
 
@@ -388,6 +394,159 @@ describe("runConnector reindex", () => {
     await expect(runConnector(["reindex"])).rejects.toThrow(
       "Usage: nimbus connector reindex <name>",
     );
+  });
+
+  // `--depth full` is HITL-gated in `ipc/reindex-rpc.ts`, so the Gateway raises
+  // `consent.request` and blocks on `consent.respond`. The two tests above cannot
+  // catch a missing handler: their mock resolves `call` immediately and never raises
+  // the notification, so they passed while the command failed 100% of the time in
+  // production. These pin the handler itself.
+  it("registers a consent.request handler, so a HITL-gated reindex can be approved", async () => {
+    const handlers = new Map<string, (params: unknown) => void>();
+    const ipc = createMockIpcClient([{ itemsAffected: 0, mode: "full" }], handlers);
+    setFixture({
+      gatewayState: { socketPath: FAKE_SOCKET_PATH },
+      ipcClient: {
+        call: ipc.client.call,
+        connect: () => {},
+        disconnect: () => {},
+        onNotification: ipc.client.onNotification,
+      },
+    });
+    await runConnector(["reindex", "github", "--depth", "full"]);
+    expect(handlers.has("consent.request")).toBe(true);
+  });
+
+  it("answers consent WHILE the gated reindex is still in flight", async () => {
+    // Ordering is the property under test, not just registration. The Gateway raises
+    // `consent.request` from INSIDE the pending `connector.reindex` call and blocks on
+    // `consent.respond`, so a handler registered after the call was issued would never
+    // be reached. Emitting the notification after the command had already returned —
+    // as an earlier version of this test did — cannot tell those apart.
+    const handlers = new Map<string, (params: unknown) => void>();
+    let releaseReindex = (): void => {};
+    const reindexPending = new Promise<{ itemsAffected: number; mode: string }>((resolve) => {
+      releaseReindex = () => {
+        resolve({ itemsAffected: 3, mode: "full" });
+      };
+    });
+    const ipc = createMockIpcClient([reindexPending, { ok: true }], handlers);
+    setFixture({
+      gatewayState: { socketPath: FAKE_SOCKET_PATH },
+      clackAnswer: true,
+      ipcClient: {
+        call: ipc.client.call,
+        connect: () => {},
+        disconnect: () => {},
+        onNotification: ipc.client.onNotification,
+      },
+    });
+
+    const done = runConnector(["reindex", "github", "--depth", "full"]);
+    // Drain to the in-flight `connector.reindex`. A macrotask tick, not a microtask:
+    // `withIpc` awaits `readGatewayState` and `connect()` before issuing the call, so a
+    // single `Promise.resolve()` lands before the call has been made at all.
+    await flush();
+    expect(ipc.calls.map((c) => c.method)).toEqual(["connector.reindex"]);
+
+    const onConsent = handlers.get("consent.request");
+    expect(onConsent).toBeDefined();
+    onConsent?.({ requestId: "req-1", prompt: "Reindex github at full depth?" });
+    // The handler awaits the clack confirm before responding.
+    await flush();
+
+    // The approval reached the Gateway BEFORE the gated call resolved — the ordering
+    // the Gateway's gate actually requires.
+    const respond = ipc.calls.find((c) => c.method === "consent.respond");
+    expect(respond?.params).toEqual({ requestId: "req-1", approved: true });
+
+    releaseReindex();
+    await done;
+    expect(out.stdout).toContain("3 items affected");
+  });
+
+  it("relays a DENIED consent decision rather than approving by default", async () => {
+    // `clackAnswer: false` is the user answering "n". The CLI must forward that, not
+    // silently approve — the auto-approve handler is a different, opt-in code path.
+    const handlers = new Map<string, (params: unknown) => void>();
+    const ipc = createMockIpcClient([{ itemsAffected: 0, mode: "full" }, { ok: true }], handlers);
+    setFixture({
+      gatewayState: { socketPath: FAKE_SOCKET_PATH },
+      clackAnswer: false,
+      ipcClient: {
+        call: ipc.client.call,
+        connect: () => {},
+        disconnect: () => {},
+        onNotification: ipc.client.onNotification,
+      },
+    });
+    await runConnector(["reindex", "github", "--depth", "full"]);
+    handlers.get("consent.request")?.({ requestId: "req-2", prompt: "Reindex?" });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(ipc.calls.find((c) => c.method === "consent.respond")?.params).toEqual({
+      requestId: "req-2",
+      approved: false,
+    });
+  });
+
+  it("opts into the batch budget rather than the transport's 30s default", async () => {
+    const constructions: RecordedClientConstruction[] = [];
+    const ipc = createMockIpcClient([{ itemsAffected: 0, mode: "full" }]);
+    setFixture({
+      gatewayState: { socketPath: FAKE_SOCKET_PATH },
+      clientConstructions: constructions,
+      ipcClient: {
+        call: ipc.client.call,
+        connect: () => {},
+        disconnect: () => {},
+      },
+    });
+    await runConnector(["reindex", "github", "--depth", "full"]);
+    expect(constructions[0]?.opts).toEqual({ requestTimeoutMs: BATCH_RPC_TIMEOUT_MS });
+  });
+});
+
+describe("runConnector sync — request budget", () => {
+  beforeEach(() => {
+    out.reset();
+  });
+  afterEach(() => {
+    clearFixture();
+  });
+
+  it("opts into the batch budget, since the Gateway awaits the whole sync run", async () => {
+    const constructions: RecordedClientConstruction[] = [];
+    const ipc = createMockIpcClient([{ ok: true }]);
+    setFixture({
+      gatewayState: { socketPath: FAKE_SOCKET_PATH },
+      clientConstructions: constructions,
+      ipcClient: {
+        call: ipc.client.call,
+        connect: () => {},
+        disconnect: () => {},
+      },
+    });
+    await runConnector(["sync", "github"]);
+    expect(constructions[0]?.opts).toEqual({ requestTimeoutMs: BATCH_RPC_TIMEOUT_MS });
+  });
+
+  it("leaves fast connector RPCs on the tight default", async () => {
+    // `requestTimeoutMs` is per-client, so the budget must be opted into per command.
+    // If a future refactor moves it onto the shared `withIpc` helper, this fails.
+    const constructions: RecordedClientConstruction[] = [];
+    const ipc = createMockIpcClient([[]]);
+    setFixture({
+      gatewayState: { socketPath: FAKE_SOCKET_PATH },
+      clientConstructions: constructions,
+      ipcClient: {
+        call: ipc.client.call,
+        connect: () => {},
+        disconnect: () => {},
+      },
+    });
+    await runConnector(["history", "github"]);
+    expect(constructions[0]?.opts).toBeUndefined();
   });
 });
 
