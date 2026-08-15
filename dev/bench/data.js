@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786814364586,
+  "lastUpdate": 1786815523172,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -12647,6 +12647,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 207.34082980000167,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "68bfd47d21811877ef469f4aee66bb8de8cfd41d",
+          "message": "refactor(cli): collapse eleven copies of the gateway-connect lifecycle into one (#1215)\n\nEvery `nimbus` command that talks to the Gateway re-derived the same\nfive steps: read gateway state, throw the not-running message, construct\na client, connect, `try/finally` disconnect.\n\n**Eleven local helpers did it** — `withIpc` in `audit`, `clip`,\n`people`, `share`, `vault`, `watch`, `connector`, `workflow`, `prove`,\nplus `withConsentIpc` and `data`'s `withClient` — alongside the shared\n`withGatewayIpc` that already existed. **Six were byte-identical to\nit.** The rest differed only in which of `onConnect` /\n`requestTimeoutMs` they exposed, so both are now options on the shared\nhelper.\n\n## Why this mattered beyond line count\n\nEach copy was its own opportunity to get the lifecycle subtly wrong, and\ntwo of them did.\n\n`connector reindex --depth full` and `nimbus workflow run` both shipped\nwith **no `consent.request` handler**, so a HITL gate hung until the\nrequest timeout. I fixed that a day ago — in two places, because there\nwere two places. There is one now.\n\n## Behaviour changes, both improvements\n\n- The six identical helpers threw a bare `Error` where the shared one\nthrows **`GatewayNotRunningError`**. Strict upgrade: the message is\nunchanged, so the tests asserting on it still pass, and callers gain an\n`instanceof` to branch on rather than a string to match.\n- `onConnect` runs after `connect()` and before `fn` — the seam for\nregistering notification handlers.\n\n## Tests\n\n`onConnect` is tested for **ordering**, not merely for running:\n\n```\n[\"connect\", \"onConnect\", \"onNotification:consent.request\", \"call\", \"disconnect\"]\n```\n\nThat ordering is the whole point — a handler registered after the first\ncall is issued can miss a notification arriving in the same socket chunk\nas that call's response, which is precisely how those two commands came\nto hang. A third test pins that a throwing `onConnect` doesn't strand\nthe connection.\n\n**Two guards keep it consolidated**, both red-proved by reintroducing\nthe duplication into `watch.ts` and confirming they fail *and name the\nfile*:\n\n1. a local helper must delegate to `withGatewayIpc`\n2. a file declaring one must not also contain the raw `\"Gateway is not\nrunning\"` throw\n\nThin wrappers are still allowed — `connector.ts` keeps one because\neleven call sites use its positional `(fn, onConnect, timeout)` shape.\nWhat's forbidden is a wrapper that does the work itself.\n\n## Verification\n\n- `bun run preflight:fast` — **29/29 gates PASSED**\n- `bun test packages/cli/src` — **2291 pass** (was 2286), **same 3\npre-existing failures**\n\nOn those 3: `nimbus tui fallback behavior` fails only in the combined\nrun and passes in isolation — I confirmed it fails identically on clean\n`main` before attributing it. It's the `mock.module` contamination\nCLAUDE.md documents for `bun test packages/cli/src`. Verified before\n*and* after, so this refactor changed no test outcome.\n\nNet **−97 lines** of source.\n\n## One incidental fix\n\nFour `useImportType` lint warnings appeared because removing the local\nhelpers made `IPCClient` type-only in those files. Fixed. Not touched:\n`biome.json`'s `$schema` pin (2.5.6 vs the locked CLI 2.5.7) — it's\ninfo-level, pre-dates this change, and landed with #1049.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-15T17:27:04Z",
+          "tree_id": "c8d22eb3caf61fd59ccecd56e487113a92aa774d",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/68bfd47d21811877ef469f4aee66bb8de8cfd41d"
+        },
+        "date": 1786815521131,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 334.17085869999573,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 333.5374039500064,
             "unit": "ms"
           }
         ]
