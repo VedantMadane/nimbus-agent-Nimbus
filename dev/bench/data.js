@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786804307771,
+  "lastUpdate": 1786807502598,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -12511,6 +12511,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 317.38446614999265,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9e95d8c9b379328cb0ba087cbdf8da8200bfca41",
+          "message": "refactor: clear the nine cognitive-complexity findings (#1211)\n\nClears the last **9** open SonarCloud issues in this repo, all `S3776`.\nThat takes the org to zero across all six repos.\n\nEvery change is an extraction of a block that already existed as a unit\n— no behaviour change, no signature change on anything exported.\n\n| file | was | what moved |\n|---|---|---|\n| `graph/graph-populator.ts` | 17 | a **fifteen-arm `if` chain** on\n`row.type` → `GRAPH_SYNC_BY_TYPE` lookup table |\n| `connectors/sentry-issue-sync.ts` | 27 | the per-page upsert loop →\n`upsertSentryIssuePage` |\n| `agents/negotiate.ts` | 32 | two byte-identical connector-gap blocks →\none `pushConnectorOrEdgeGap` |\n| `agents/negotiate.ts` | 17 | the PR-metadata fold →\n`accumulateAuthoredPrStats` |\n| `agents/premortem.ts` | 28 | epic resolve/validate →\n`requireIndexedJiraEpic`; the non-Jira brief → `nonJiraTrackerBrief` |\n| `connectors/pagerduty-attribution.ts` | 16 | the inner actor loop →\n`addUnresolvedActorIds` |\n| `connectors/pagerduty-sync.ts` | 16 | the email merge →\n`mergeNewEmails`; **two identical** early-return literals →\n`partialSyncResult` |\n| `connectors/github-sync.ts` | 16 | the merged-only fields →\n`applyMergeFields` |\n| `cli/commands/doctor-core.ts` | 16 | print-and-score →\n`printAndScoreLines` |\n\nTwo are worth more than a complexity number: the `graph-populator` chain\nwas fifteen arms of identical shape, so a table makes the handled set\nreadable at a glance and adding one a single row; and `negotiate` /\n`pagerduty-sync` each had genuinely duplicated blocks that are now\nwritten once.\n\nThe table uses `Object.hasOwn` rather than a bare index — `row.type` is\na string off an indexed row, so `\"constructor\"` would otherwise reach\n`Object.prototype` and be invoked.\n\n## A gate weakness found on the way, and why I did not \"fix\" it here\n\n`audit:any` failed with `any count regressed: 5 > baseline 2`, blaming\n`doctor-core.ts` for **3**. I added no types — those were the English\nword in my new docblock.\n\n`countAnyInSource` strips comments with a hand-rolled scanner that does\nnot understand **regex literals**. The one at `doctor-core.ts:78` —\n\n```ts\nconst OBJECT_PATH_PATTERN = /(?:^|\\s)(?:object path|o)\\s+\"([^\"]*)\"/m;\n```\n\n— puts it into a string state it never leaves: only **1,177 of 25,554\nbytes** get stripped, so comment prose from the top of the file onward\nis scanned as code.\n\n**It over-counts only.** I checked the direction that would matter:\nappending a real `x: any` to that file still moves the count 3 → 5, so\nthe non-negotiable \"no `any`\" gate is not missing violations. That is\nworth stating precisely rather than alarming — the failure mode is a\nfalse positive on prose, not a hole.\n\nI reworded my comment instead of touching the scanner. Teaching it regex\nliterals would change counts across the tree and force a baseline\nre-bank; that belongs in its own change with its own red-prove, not\nbundled into nine refactors. The comment in `doctor-core.ts` records the\ntrap so the next person does not spend the same twenty minutes.\n\n## Verification\n\n- `bun test packages/gateway/src packages/cli/src` — **13452 pass, 0\nfail**\n- `bun run preflight:fast` — **29/29 gates PASSED**\n- per-area suites green after each extraction (graph 162, negotiate 72,\npremortem 44, sentry 44, pagerduty 57+18, github-sync 32, doctor 83)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-15T15:13:38Z",
+          "tree_id": "6abfe78a488d1d275951b975da09a5fa26645cb8",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/9e95d8c9b379328cb0ba087cbdf8da8200bfca41"
+        },
+        "date": 1786807500866,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 320.64506374999655,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 323.9871882000007,
             "unit": "ms"
           }
         ]
