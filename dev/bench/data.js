@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786765602135,
+  "lastUpdate": 1786766399662,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -11967,6 +11967,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 322.2377903500077,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fd32e7939aa3077d523f4db9963a64d5d60b6a76",
+          "message": "ci(coverage): enforce the per-area coverage floors that CLAUDE.md advertises (#1191)\n\nCLAUDE.md advertises \"Coverage gates in CI: Engine ≥85%, Vault ≥90%,\nEmbedding\n≥80%, plus scheduler/rate-limiter/people\". **All 24 of those gates\npassed\nunconditionally.** ~30 CI jobs ran full test suites and asserted\nnothing.\n\n## Two independent causes, both verified on Bun 1.3.14\n\n**1. The flag does not exist.** `bun test --help` lists only\n`--coverage`,\n`--coverage-reporter` and `--coverage-dir`. There is no\n`--coverage-threshold-lines`, and Bun ignores unknown flags silently:\n\n```\n$ bun test lib.test.js --totally-bogus-flag=7      → exit 0\n$ bun test lib.test.js --coverage --coverage-threshold-lines=99   → exit 0\n```\n\n…at **28%** line coverage. Worse than silent: `--coverage` *does* work,\nso the\ncoverage table prints and the run looks like it is being measured.\n\n**2. Collection is off anyway.** `bunfig.toml` sets `[test] coverage =\nfalse`.\nUnder it, even an explicit `--coverage --coverage-reporter=lcov\n--coverage-dir=X` writes **no lcov at all** — so there was nothing for a\nthreshold to read even in principle. Verified: the directory is never\ncreated.\n\nProved positively too — moving the same threshold to where Bun actually\nreads\nit (`[test.coverageThreshold]` with `coverage = true`) exits **1** on\nthe same\nfixture. The mechanism works; the spelling never reached it.\n\n## The fix\n\n`audit:coverage-scopes` asserts the same 24 floors against the merged\n`coverage/lcov.info` that `audit:coverage-floor` already consumes, wired\ninto\nthe Linux job immediately after it. **No extra test run and no extra CI\nminutes.**\n\nMeasured against CI's real merged lcov (main @ `de196f8c`) — every scope\npasses\ntoday, so this is not a ratchet reset:\n\n```\nok  Engine      97.1% >= 85%      ok  Vault      100.0% >= 90%\nok  Embedding   97.1% >= 80%      ok  Sandbox    100.0% >= 80%\nok  MCP conn.   95.8% >= 70%      ok  Deployment  87.1% >= 80%   … 24/24\n```\n\nTwo deliberate semantics, both chosen to match the existing floor gate:\n\n- **Exempt files are out of the denominator.** With them in, `vault`\nreads\n89.9% and `sandbox` 65.5% — numbers that describe how much untestable\nper-OS\nglue a scope contains, not how well its testable code is covered. Both\nare\n  100% over non-exempt files.\n- **A scope matching zero files FAILS.** These predicates name\ndirectories, and\ndirectories get renamed; a silently-empty scope is exactly the shape of\ngate\n  that cannot fail.\n\n## What I deliberately did *not* do\n\nThe audit that surfaced this recommended deleting the ~30 now-pointless\njobs.\n**That would have been a real regression.** Those jobs do work the main\nsuite\ndoes not:\n\n- the **Sandbox** job builds the sandbox helper and runs\n`cppcheck --enable=all --error-exitcode=1` over its C source — a genuine\n  static gate — then `setcap`s the binary;\n- the **Vault** job installs libsecret + D-Bus and runs under\n  `run-with-optional-dbus.sh`.\n\nDelete them and that static analysis disappears while those tests\nquietly start\nskipping. They stay. Their `--coverage-threshold-lines` arguments are\nleft in\nplace too — inert either way, and stripping 25 script bodies would churn\nthe\n`coverage-gates-pal` matrix, `audit:coverage-gate-pal` and the docs in a\nchange\nwhose point is enforcement. Called out below instead.\n\n## Honesty about scope\n\nThis reads the **Linux** merged lcov, so the floors are enforced on\nLinux only.\nThat is not a regression — the per-OS jobs never enforced anything — but\n`vault/win32.ts` (which carries I12) and `vault/darwin.ts` still have no\nfloor\non their own platforms. That hole is real and is not closed here.\n\n## Verification\n\n- `bun run audit:coverage-scopes` against CI's downloaded lcov artifact:\n24/24 ok.\n- 8 new tests, including the two red-proves that matter: a scope one\npoint below\nits floor **fails**, and an lcov where every scope matches nothing\n**fails**\n  with `matched 0 non-exempt files` rather than reporting 24 passes.\n- Exempt-file exclusion is pinned by a test that reads a real entry out\nof\n  `EXCLUSIONS` rather than hardcoding a path.\n- `bun test scripts/coverage-floor/` — 102 pass, 0 fail.\n- `bun run preflight:fast` — all 29 gates pass, including\n`audit:coverage-gate-pal`\n  (untouched by design) and `audit:doc-refs`.\n- Docs corrected in CLAUDE.md, GEMINI.md and the `nimbus-commands`\nskill: they\nnow name the mechanism that enforces the floors and state plainly that\nthe\n  `test:coverage:*` flag does not.\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n* Added automated coverage enforcement across 24 defined project areas.\n* Coverage checks now report each area’s results and fail when required\nfloors are not met.\n* Added coverage-scope validation to full preflight checks and Linux CI\nworkflows.\n\n* **Bug Fixes**\n* Improved handling of excluded files, missing coverage data, and scopes\nwithout matching files.\n\n* **Documentation**\n* Clarified how aggregate coverage thresholds are enforced and which\ncommands perform validation.\n\n* **Tests**\n* Added comprehensive tests for passing, failing, boundary, exclusion,\nand configuration scenarios.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-08-15T06:48:46+03:00",
+          "tree_id": "dbb3c9e10049739b456ed47d80d3c4548dc17274",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/fd32e7939aa3077d523f4db9963a64d5d60b6a76"
+        },
+        "date": 1786766397980,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 314.1049841000029,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 316.98480430000564,
             "unit": "ms"
           }
         ]
