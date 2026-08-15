@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786802933438,
+  "lastUpdate": 1786804307771,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -12477,6 +12477,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 242.29715205000358,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "73906269f794ee7e3117735330087926705d3ec1",
+          "message": "chore: repair drifted skills, correct mirrored docs, delete dead scripts (#1210)\n\nFour separate cleanups batched into one PR, since each would otherwise\npay its own CI cost and none is independently interesting.\n\n## The skill loader was reading a table row as a skill description\n\n`nimbus-file-map.md` **had no frontmatter**. Four markdown table rows\nhad been pasted *above* the YAML block, and the opening `---` fence was\nfused onto the end of the fourth (`…(D22 rule (d)) |---`), so the file\nnever opened with a fence.\n\nThe consequence was live, not theoretical — the skill listing read:\n\n```\nnimbus-file-map: | `packages/gateway/src/egress/agent-brief-egress.ts` | `recordAgentBriefEgress` — the agent-brie...\n```\n\nIntroduced by `4b4bedb4` (#1063, 2026-08-07) and unnoticed for a week,\nbecause a malformed skill still loads — it just loads wrong. Fence\nrestored; three orphan rows re-homed into the Phase 6 table (the fourth\nwas a stale duplicate of a row already there in updated wording).\n**Verified by the listing now showing the real description.**\n\n## Counts corrected against the code\n\nEach read from source, not taken from the audit:\n\n| skill | said | actual |\n|---|---|---|\n| `nimbus-http-write-surface` | `WRITE_ROUTE_ALLOWLIST` 12 | **14**\n(tests assert 14) |\n| `nimbus-tauri-allowlist` | `ALLOWED_METHODS` 101 | **106** |\n| `nimbus-tauri-allowlist` | `NO_TIMEOUT_METHODS` 5 | **6**\n(`workflow.run`) |\n| `nimbus-db-migrations` | schema V48 | **V53** |\n| `nimbus-egress` | `EgressSourceType` 9 members | **10** (omitted\n`http`) |\n| `nimbus-ipc` | `agents.*` twelve methods | **fifteen** |\n| `nimbus-architecture` | 54 CLI commands | **62** |\n| `nimbus-tool-output-envelope` | \"two production sites\" | **7 files / 9\ncall sites** |\n\nI re-counted the CLI commands myself and got 71 before realising I was\ncounting continuation lines; the audit's 62 was right. Worth saying,\nsince the whole point here is not replacing one wrong number with\nanother.\n\n## Claims that were simply false\n\n- `nimbus-architecture` called `packages/admin-console` an **\"Electron\nadmin console\"**. It has no Electron dependency, and CLAUDE.md says the\nopposite two files away.\n- `nimbus-security-invariants` said never expose `updater.*` to the\nrenderer. **Four `updater.*` methods are deliberately on the Tauri\nallowlist** so the desktop app can drive its own update flow — and the\nallowlist skill documents them. Replaced with the rule the Rust tests\nactually encode.\n- `nimbus-testing` cited an e2e path that does not exist.\n- `nimbus-architecture` still said Phase 7 is next; CLAUDE.md has the\nSpine overlay, slot S1.\n\n## The coverage table is deleted, not corrected\n\nIt listed nine scopes — three did not exist, and it omitted **nineteen\nof the twenty-four** actually enforced by `SCOPE_GATES`. A\nhand-maintained duplicate of two dozen numbers is a drift generator. The\nsection now points at the live source and states the two real gates plus\nthe traps (the dead `--coverage-threshold-lines` flag, `bunfig.toml`\nsuppressing collection, Linux-authoritative floor).\n\n## Docs — CLAUDE.md and GEMINI.md are required to mirror\n\nBoth said `bun-version: latest` appears in one workflow; it appears in\n**two** (`org-drift-sweep.yml`, `release-channel-drift.yml`). Both\nomitted `packages/mcp-launcher`, a real workspace member. Fixed in both,\nand the mirrored lines verified byte-identical afterwards.\n\n## Scripts — six dead files deleted\n\n\n`scripts/windows/{build-debug,build-release,kill-gateway,run-tests}.ps1`,\n`scripts/linux/run-tests.sh`, and\n`scripts/audit/generate-connector-readme.ts` (which hardcoded a\n29-connector list against 94 real connectors).\n\nVerified two ways: exact-path grep, **and** a `join()`-built-path search\n— my first pass used stem matching and produced false hits\n(`build-debug` matching the unrelated `scripts/build-debug.ts`), and the\naudit noted its own regex had already missed a `join()`-built reference\nelsewhere.\n\nAlso: a comment in `package-headless-bundle.ts` told developers to run\n`bun run compile:gateway`, which is a script in no package.json.\n\n## One performance fix, measured\n\n`verifyEgressChain` selected `payload_summary` and never read it. It is\nthe widest column (256 bytes vs. integers and fixed-width hashes) and is\n**deliberately excluded from the row hash** — `egress-ledger.ts` records\nit \"is intentionally NOT hashed: it is redacted/lossy\" — so dropping it\ncannot change verification.\n\nMeasured in **isolated processes** over 200k rows: **90.3 MB → 58.0 MB\n(36%)**. My first measurement ran both in one process and reported a\n*negative* delta for the second — GC firing mid-run — so I discarded it.\nThe audit claimed 49%; the measured figure is 36%.\n\nIt needed its own narrow row type: `RawRow` is shared with `listEgress`,\nwhose `toRow` still reads the column, so narrowing the shared type would\nhave failed the build (exactly as the verification pass predicted).\n\n## Deliberately not taken\n\nTwo fixes from the same audit were rejected after adversarial\nverification:\n\n- **`dbRun` statement cache** — wired 1 of ~20 `Database` sites and\nwould have re-created the #969 finalization hazard elsewhere, for ~0.2 s\non a 100k-item sync.\n- **`graph-populator` commit lookup** — the proposed regex has **no\ncapturing group** while `extractCommitShas` reads `m[1]`, so it would\nhave silently destroyed every commit-SHA edge.\n\nBoth are real findings with broken fixes; they need their own change\nwith their own tests.\n\n## Verification\n\n- `bun run preflight:fast` — **29/29 gates PASSED**\n- `bun test packages/gateway/src/{egress,index}` — **544 pass, 0 fail**\n- `typecheck` — 0 errors\n- `lint:markdown`, `audit:doc-refs` (1173 refs resolve),\n`audit:status-drift` — all clean\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n- **Documentation**\n- Updated architecture, migration, command, HTTP, IPC, security,\nallowlist, testing, coverage, and output-envelope references.\n- Documented the new MCP launcher package and verified HTTP egress\nsupport.\n  - Added a maintenance-sweep entry to the changelog.\n\n- **Bug Fixes**\n  - Reduced unnecessary data handling during egress-chain verification.\n\n- **Chores**\n- Removed obsolete platform wrappers and connector\ndocumentation-generation tooling.\n  - Corrected build and CI troubleshooting references.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-15T17:20:17+03:00",
+          "tree_id": "f2f2fb3c5f71e5b670992d03b6d59c748da9e6ef",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/73906269f794ee7e3117735330087926705d3ec1"
+        },
+        "date": 1786804305265,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 319.52180944999674,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 317.38446614999265,
             "unit": "ms"
           }
         ]
