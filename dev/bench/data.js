@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786810241761,
+  "lastUpdate": 1786814364586,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -12613,6 +12613,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 309.58416815000453,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ea69b388fac48dfe8b6d0ad0e59b18aadfb35705",
+          "message": "test(perf): 🧪 add empty array edge case tests to poolTrimmedSamples (#1214)\n\n🎯 **What:** The testing gap addressed was missing edge case tests for\nthe array input of `poolTrimmedSamples` in `bench-harness.ts`.\n📊 **Coverage:** Scenarios now tested include passing an empty array\n(`[]`) and passing an array of empty runs (`[[], [], []]`). Both\ncorrectly return an empty array as intended by the utility function\nlogic.\n✨ **Result:** Increased test robustness by covering array boundary\nconditions.\n\n---\n*PR created automatically by Jules for task\n[1166933202576600570](https://jules.google.com/task/1166933202576600570)\nstarted by @asafgolombek*\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Tests**\n* Added coverage confirming sample pooling returns no results when given\nno runs or only empty runs.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\nCo-authored-by: google-labs-jules[bot] <161369871+google-labs-jules[bot]@users.noreply.github.com>\nCo-authored-by: asafgolombek <18427644+asafgolombek@users.noreply.github.com>",
+          "timestamp": "2026-08-15T20:12:50+03:00",
+          "tree_id": "5db38f3779737f011771a8dce0736b4f7a80bf1d",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/ea69b388fac48dfe8b6d0ad0e59b18aadfb35705"
+        },
+        "date": 1786814362485,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 205.24869750000215,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 207.34082980000167,
             "unit": "ms"
           }
         ]
