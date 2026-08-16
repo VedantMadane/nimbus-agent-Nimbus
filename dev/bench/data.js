@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786879251429,
+  "lastUpdate": 1786881206401,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -13089,6 +13089,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 316.9577860000012,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b2d9d1ab608780b9600977131f19a4a9cb67505f",
+          "message": "docs(changelog): record seven user-facing commits the generated changelog dropped (#1229)\n\nDocs only. The loose thread from #1227: I said the 400-commit sample\nsuggested more than two dropped commits and hadn't checked. I have now,\nacross all of history, and it is **seven** — the oldest from April.\n\n## Method\n\nRan release-please's own parser over all 2,698 commits on `main`. 594 do\nnot parse, but 587 of those are `chore` / `test` / `ci` / `docs` or\npre-Conventional subjects that were never changelog-eligible, so no\nentry was ever owed. Seven are `feat` or `fix` **and** absent from\n`CHANGELOG.md`.\n\nThe absences were then verified by hand rather than trusted to my\nmatcher, including a positive control: `#1225`, which is present,\nmatches — so the search works.\n\n| commit | release | subject |\n| --- | --- | --- |\n| `f409dec1` | 2026-04-19, direct commit | `fix(llm): restore\nglobalThis.fetch correctly after each test` |\n| `14c7ae4a` | `v0.5.0` | `feat: nimbus security scan v2` |\n| `0d2d006f` | `v1.7.0` | `feat(audit): gate the workflow_run\npwn-request premise` |\n| `63c23afc` | `v1.9.0` | `fix(quality): clear all 171 SonarCloud\nissues` |\n| `dd98484b` | `v1.21.0` | `feat(index): enforce connector depth, index\nreal Gmail and Outlook bodies` |\n| `828090ca` | `v2.4.6` | `fix(security): widen D12 and D22d past their\nblind spots` |\n| `b59ccacf` | `v2.4.7` | `fix(release): make the drop-guard ask whether\nthe release PR is complete` |\n\nThree are features, one of those security tooling. **None of the four\nolder ones appears in `docs/CHANGELOG.md` either**, so until now the\nonly record of them was the git log.\n\n## Why this is docs-only\n\nTags are immutable and the published notes cannot be corrected, so the\nrecord goes where the #1218 record already went: `docs/CHANGELOG.md`,\nthe canonical dated log. Nothing in the product changes.\n\nI deliberately did **not** edit the historical GitHub Release bodies.\nThat is possible — the text is mutable even though the tag is not — but\nit rewrites published artifacts and is your call, not mine.\n\n## All seven would be blocked today\n\nEach was reconstructed as the PR that produced it and run through the\ngate added in #1227. Every one exits 1:\n\n```\nb59ccacf  v2.4.7    WOULD BLOCK  at 17:15\n828090ca  v2.4.6    WOULD BLOCK  at 103:15\ndd98484b  v1.21.0   WOULD BLOCK  at 155:42\n63c23afc  v1.9.0    WOULD BLOCK  at 33:31\n0d2d006f  v1.7.0    WOULD BLOCK  at 142:17\n14c7ae4a  v0.5.0    WOULD BLOCK  at 13:51\nf409dec1  direct    WOULD BLOCK  at 3:11\n```\n\nThat is the useful result, and it is why this is worth writing down: the\ngate is not tuned to the two incidents that prompted it. It catches a\nfour-month pattern nobody had noticed, and the rate — seven user-facing\ndrops across 2,698 commits — is what the release notes were quietly\nlosing before.\n\n`preflight:fast` 29 of 29, including `audit:doc-refs` and\n`lint:markdown`.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n* Added automated validation to catch malformed pull request release\nmessages before merging.\n* Added checks to ensure release pull requests include complete\nchangelog information.\n* Improved release verification when an explicit pull request is\nprovided.\n\n* **Bug Fixes**\n* Prevented release notes from being omitted when pull request messages\ncannot be parsed.\n\n* **Documentation**\n* Updated the changelog with previously missing user-facing release\nentries.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-16T14:41:52+03:00",
+          "tree_id": "04348d3b961274ab20f73ff92bbb4c9146453de4",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/b2d9d1ab608780b9600977131f19a4a9cb67505f"
+        },
+        "date": 1786881204028,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 323.0554351500028,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 322.72897165000177,
             "unit": "ms"
           }
         ]
