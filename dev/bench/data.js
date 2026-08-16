@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786815523172,
+  "lastUpdate": 1786851295471,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -12681,6 +12681,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 333.5374039500064,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e049de9ff6ba8282455fa41a23fe89c8469a0912",
+          "message": "test(security): close the I23(c) subdirectory blind spot and floor both D17 scans (#1216)\n\nAuditing whether the I1–I30 enforcement tests can actually fail. Most\nare in good shape — the file consistently guards its own guards (`I17`\nasserts `toContain(\"query-gate.ts\")`; the D22 `_lib` scan carries an\nexplicit *\"Guard the guard: if the directory scan finds nothing, the\nassertion above is vacuous\"*). **I23's two D17 scans were the\nexceptions**, and one of them had a real hole.\n\n## I23(c) could not see a subdirectory\n\n`(b)` and `(c)` enforce the same D17 rule with the same regex against\nthe same two tool ids. `(b)` walked recursively. `(c)` called `readdir`\nonce, flat.\n\n`tribal/` has no subdirectories today, so `(c)` was complete **by\naccident, not by construction** — the moment anyone adds\n`tribal/<group>/foo.ts`, a direct `slack_chat_post` there walks straight\npast the invariant.\n\nProved rather than argued. With a planted `tribal/nested/leak.ts`\nexporting `slack_chat_post`:\n\n```\nOLD scan offenders: [] -> PASSES (violation missed)\nNEW: (fail) I23 ... (c) no tribal module references the connector post tools\n  +   \"nested/leak.ts\",\n```\n\nI ran the pre-fix scan verbatim against the planted file to get that\nfirst line — the old code, not a reconstruction of it. I23 is the\ninvariant that keeps operational ChatOps posts bound to a server-derived\n`ReplyTarget`, so the blind spot was in a rule about **where the agent\nis allowed to send messages**.\n\n## Both scans could have passed while checking nothing\n\nNeither `(b)` nor `(c)` asserted it had scanned anything. `readdir`\nthrows on a missing directory, so the wrong-path case already failed\nloudly — but every *exclusion* in `(b)` is a filter\n(`reply-dispatcher.ts`, `transport/`), and a filter that widened until\nit swallowed the directory would leave `offenders` empty and the test\ngreen.\n\nBoth now assert a floor, matching what the rest of the file already\ndoes.\n\n## What changed\n\nThe recursive walk is now a shared `productionTsUnder()` helper, so the\ntwo siblings cannot drift apart again — the asymmetry existed for no\nreason either invariant states. The `POST_TOOLS` regex is likewise named\nonce instead of written twice.\n\n## Verified as still enforcing\n\nBefore changing anything I confirmed both scans genuinely catch a\nviolation today, by planting `slack_chat_post` in\n`tribal/tribal-suggestion.ts` and in `chatops/intent-router.ts` — each\nfailed the right test, naming the right file, and passed again on\nrevert. This is a real gap being closed, not a dead guard being\nresuscitated.\n\n## Verification\n\n`bun test security-invariants.test.ts` — **115 pass, 0 fail** (348\nassertions; the two new floors take I23 from 5 expectations to 7).\n`bun run preflight:fast` — **PASSED**, all gates including `audit:any`,\n`audit:cross-platform`, `audit:exclusion-parity` and jscpd.",
+          "timestamp": "2026-08-16T03:23:32Z",
+          "tree_id": "61925dd46d789afa6a5764b242ccd4fc8b3a0864",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/e049de9ff6ba8282455fa41a23fe89c8469a0912"
+        },
+        "date": 1786851293275,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 313.96222350000136,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 312.42721624998956,
             "unit": "ms"
           }
         ]
