@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786860610257,
+  "lastUpdate": 1786862772309,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -12783,6 +12783,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 252.54476449999711,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0549fef939e35d1f4bdc2ca4f1849fca33287f2b",
+          "message": "test(security): make five invariant enforcement tests capable of failing (#1219)\n\nFive `security-invariants.test.ts` assertions that pass whether or not\nthe invariant holds, and the forged audit row one of them was hiding.\nCluster B of the I1–I30 audit; #1218 was cluster A.\n\nFor each, the question asked was: **what single edit to production code\nwould break this invariant and leave this test green?** Where I could\nname one, it is a finding.\n\n## I15 — a per-*file* check over a file with 26 spawn sites\n\nThe test was a four-file loop whose whole body was\n`expect(src).toMatch(/wrapServerSpec\\s*\\(/)` — one token, anywhere in\nthe file. `connector-spawns.ts` funnels 26 MCPClient spawns through a\nsingle `wrap` helper, so its token survives **any** per-site removal.\nThe static `D10-wrap-spec` rule short-circuited per file too.\n\nReproduced against the real file: unwrapping one connector left **6\n`wrapServerSpec(` tokens** in place, and both gates reported clean. The\nthird gate — that connector's own spawner test — also passes, because\nonly 6 of the file's spawner describes assert `.command`. The child\nwould then run with a live OAuth token in its env and no\nlandlock/seccomp/seatbelt profile, past three green checks.\n\nBoth checks are now **per site**: every `...connectorSpawn(` literal\nmust be lexically enclosed by a `wrap(` / `wrapServerSpec(` call,\nresolved by walking back to the nearest open paren. Against the real\ntree that is 78 sites, zero violations, zero false positives.\n\nThe hardcoded four also omitted **`chatops-bot-spawn.ts`**, which has\ntwo real spawn sites. The list is now derived, behind a non-vacuity\nfloor so a mis-globbed scan can't pass as a compliant tree.\n\n## I4 — a forged `approved` row, and a grep that saw one file\n\n`connectors/reindex.ts:122` wrote `hitlStatus: \"approved\"` on its\n`data.minimization.prune` audit row. `ipc/reindex-rpc.ts` gates `depth\n=== \"full\"` alone, and the `full` branch returns `itemsAffected: 0` — so\nthat row can **only** be emitted on a path where the gate was never\nentered. A consent decision that never happened, inside the verified\nhash chain: the S1-F5 / chain C6 shape the invariant exists to prevent.\nIt now writes `not_required`, following the documented pattern at\n`federation-rpc.ts:543-546`.\n\nThe entire enforcement of I4 was one `read()` of\n`commands/data-delete.ts` and one `not.toMatch` — adding the string to\nany other file was invisible, and there is no static D-rule for I4. It\nnow scans `packages/{gateway,cli,ui}/src` recursively against an\n**earned set** of five files, each carrying the gate that backs it.\nEvery entry was checked against its gate rather than assumed: the set is\ndeliberately *not* \"the files that currently contain the string\", which\nis how an allowlist becomes a laundering mechanism for the thing it\npolices. `reindex.ts` was in that population and is not in the set.\n\n## I18 — an assertion satisfied by a type declaration\n\n`expect(gate).toContain(\"isOperatorValid\")` against `query-gate.ts`,\nwhere the only occurrence of that string is the ctx **type field**:\n\n```ts\nreadonly identity?: { readonly enabled: boolean; readonly isOperatorValid: () => boolean };\n```\n\nThe call lives in `_lib/gate-commons.ts` and the wiring in\n`ipc/federation-rpc.ts` — files the test never opened. Deleting the one\nline that supplies `ctx.identity` left it green, because `query-gate.ts`\nwould be byte-identical.\n\nThe test's own title promised two things and asserted neither half about\nthe first. There is now an assertion for each: the real call site, the\nwiring that feeds it, and a tree scan proving no module outside\n`identity/` verifies a JWT.\n\n## I1 — a regex that did not match its own documented anti-pattern\n\n`docs/SECURITY-INVARIANTS.md` writes the anti-pattern as `{ env: {\n...process.env, EXTRA: ... } }`. The regex was\n`/\\{\\s*\\.\\.\\.process\\.env\\s*\\}/`, which requires `}` **immediately**\nafter the spread — so it matched the bare form and missed the documented\none. The comma form is what a real regression looks like, since the site\nbeing rewritten needs to add a variable alongside the inherited\nenvironment.\n\nIts companion asserted `extensionProcessEnv(` appears **≥ 20** times\nagainst **80** real call sites, so 60 could regress and still pass — and\n`readDirConcat` swept in `*.test.ts`, so fixtures counted toward that\nfloor, and was non-recursive, so a subdirectory was invisible. The floor\nis now derived: every `env:` under lazy-mesh is enumerated and\nclassified, written as what *cannot* pass, with locals resolved back to\ntheir `extensionProcessEnv` binding rather than exempted.\n\n## D22 — four assertions scanning for strings inside the functions being\nscanned for\n\n`expect(audit).toContain(\"D22-connectors-dispatch\")` and three siblings.\nAll four literals are `rule:` fields **inside the check functions**.\nDeleting the `run()` block that invokes them leaves every assertion\ngreen while `audit:invariants` stops executing D22. Rules (b) and (c)\nsurvive that by luck — each has an independent tree-scan elsewhere. Rule\n(a), the `connectors.dispatch` confinement, has none. Now asserts the\ninvocations, same shape as the scan-floor test in #1217.\n\n## Red-prove\n\nEvery guard was reverted and confirmed to fail naming the right thing —\nmutations applied to real files, restored after, tree verified clean:\n\n| Mutation | Failing test |\n| --- | --- |\n| `{ ...process.env, X }` into a lazy-mesh spawn | `contains no \\`{\n...process.env\\` spread` + `every env: … comes from extensionProcessEnv`\n|\n| Unwrap one spawn site (6 wrapper tokens remain) | `every ServerSpec\nliteral under lazy-mesh is enclosed` |\n| `approved` row in a file outside the earned set | `no production file\noutside the earned set hardcodes hitlStatus` |\n| Delete `identity: ctx.identityGuard` | `the federated gate CALLS\nisOperatorValid` |\n| Delete the D22 invocation from `run()` | `D22 confines\nconnectors.dispatch …` |\n\nDocs updated in the same commit per the triple rule, including three\nclaims that were simply false: I18's \"size assertion 94\" describes an\nassertion this file has never contained (`94` appears nowhere in it);\nI4's \"the only production assignment site\" was wrong by five; and I1's\nwiring counts said \"30+ … `connector-spawns.ts` (16), `phase3-config.ts`\n(8)\" against actual figures of 78, 31 and 45.\n\n`bun run preflight:fast` — 29/29. `bun test\npackages/gateway/src/security-invariants.test.ts\nscripts/structure-audit` — 715 pass, 0 fail. Connector + lazy-mesh\nsuites — 3,154 pass, 0 fail.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n* Corrected metadata-only reindex audit records so they accurately\nreflect when consent was not required.\n* Improved security checks for environment handling, approval records,\nconnector spawning, identity validation, and audit enforcement.\n* Added detection for partially wrapped or unwrapped server\nspecifications.\n\n* **Tests**\n* Expanded invariant and structure-audit coverage to validate all\nrelevant sites and prevent false passes.\n* Added checks for approved exceptions, stale exemptions, recursive\nscanning, and identity/RPC wiring.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-16T06:34:48Z",
+          "tree_id": "368fd60ced41d082887fa065cb97cb4c8119b138",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/0549fef939e35d1f4bdc2ca4f1849fca33287f2b"
+        },
+        "date": 1786862770446,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 321.07903450000015,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 322.5561085999936,
             "unit": "ms"
           }
         ]
