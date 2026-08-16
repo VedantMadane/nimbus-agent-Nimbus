@@ -61,8 +61,54 @@ export const I15_EXEMPT: readonly string[] = [
   `${LAZY_MESH_DIR}/first-party-manifests.ts`,
 ];
 
-const I15_CONSTRUCTS_RE = /\bnew\s+MCPClient\s*\(|Record\s*<\s*string\s*,\s*ServerSpec\s*>/;
-const I15_WRAP_RE = /\bwrapServerSpec\s*\(/;
+/**
+ * A `ServerSpec` literal. Every spawn site under lazy-mesh opens with this spread — 78 of them
+ * across `connector-spawns.ts`, `phase3-config.ts` and `chatops-bot-spawn.ts` — which makes it
+ * the marker a PER-SITE rule can key on.
+ */
+const I15_SPEC_LITERAL_RE = /\.\.\.\s*connectorSpawn\s*\(/g;
+/** The wrapper itself — always accepted, wherever it appears. */
+const I15_WRAPPER_CALLEE = "wrapServerSpec";
+/**
+ * The file-local alias, accepted ONLY in a file that defines it as a delegation to the wrapper.
+ *
+ * `connector-spawns.ts` and `phase3-config.ts` each declare
+ * `function wrap(spec, serviceId, ctx) { return wrapServerSpec(spec, …); }` and route their specs
+ * through it, so the alias has to be accepted or the rule is unusable. But accepting the NAME
+ * alone means a new file declaring `function wrap(s: ServerSpec) { return s; }` makes every site
+ * in that file compliant — the guard would be checking that a call is spelled `wrap`, not that the
+ * spec reaches the sandbox. So the alias is bound to the reason it exists: the delegation must be
+ * present in the same file.
+ */
+const I15_ALIAS_CALLEE = "wrap";
+const I15_ALIAS_DELEGATES_RE =
+  /function\s+wrap\s*\([^)]{0,200}\)\s*:?[^{]{0,80}\{\s*return\s+wrapServerSpec\s*\(/;
+
+/**
+ * Which call, if any, lexically encloses the offset — the callee name of the nearest `(` that is
+ * still open at that point. `wrap({ ...connectorSpawn("slack"), env: … }, "slack", ctx)` answers
+ * `wrap`; the same literal sitting bare inside `new MCPClient({ servers: { slack: {…} } })`
+ * answers `MCPClient`, which is exactly the difference the rule needs to see.
+ */
+function enclosingCallee(stripped: string, offset: number): string | undefined {
+  let depth = 0;
+  for (let i = offset - 1; i >= 0; i--) {
+    const c = stripped[i];
+    if (c === ")" || c === "]" || c === "}") depth++;
+    else if (c === "[" || c === "{") {
+      if (depth === 0) continue; // an object/array literal is not a call boundary
+      depth--;
+    } else if (c === "(") {
+      if (depth > 0) {
+        depth--;
+        continue;
+      }
+      const before = stripped.slice(Math.max(0, i - 96), i);
+      return /([A-Za-z_$][\w$]{0,64})\s*$/.exec(before)?.[1];
+    }
+  }
+  return undefined;
+}
 
 export function checkWrapServerSpecInvariant(files: readonly FileEntry[]): Violation[] {
   const out: Violation[] = [];
@@ -70,22 +116,25 @@ export function checkWrapServerSpecInvariant(files: readonly FileEntry[]): Viola
     if (!f.relPath.startsWith(`${LAZY_MESH_DIR}/`)) continue;
     if (I15_EXEMPT.includes(f.relPath)) continue;
     const stripped = stripComments(f.contents);
-    if (!I15_CONSTRUCTS_RE.test(stripped)) continue;
-    if (I15_WRAP_RE.test(stripped)) continue;
     const lines = stripped.split("\n");
-    let hitLine = 1;
-    for (let i = 0; i < lines.length; i++) {
-      if (I15_CONSTRUCTS_RE.test(lines[i] as string)) {
-        hitLine = i + 1;
-        break;
+    // Earned per file, not granted by name: see I15_ALIAS_DELEGATES_RE.
+    const aliasIsReal = I15_ALIAS_DELEGATES_RE.test(stripped);
+    I15_SPEC_LITERAL_RE.lastIndex = 0;
+    let m: RegExpExecArray | null = I15_SPEC_LITERAL_RE.exec(stripped);
+    while (m !== null) {
+      const callee = enclosingCallee(stripped, m.index);
+      const wrapped = callee === I15_WRAPPER_CALLEE || (callee === I15_ALIAS_CALLEE && aliasIsReal);
+      if (!wrapped) {
+        const line = stripped.slice(0, m.index).split("\n").length;
+        out.push({
+          rule: "D10-wrap-spec",
+          file: f.relPath,
+          line,
+          snippet: (lines[line - 1] ?? "").trim(),
+        });
       }
+      m = I15_SPEC_LITERAL_RE.exec(stripped);
     }
-    out.push({
-      rule: "D10-wrap-spec",
-      file: f.relPath,
-      line: hitLine,
-      snippet: (lines[hitLine - 1] as string).trim(),
-    });
   }
   return out;
 }
