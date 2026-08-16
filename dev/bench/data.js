@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786873187902,
+  "lastUpdate": 1786877239198,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -13021,6 +13021,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 322.51947125001095,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "074daab8d22b28212b4a8fd467d3783b76678e35",
+          "message": "fix(release): gate the release PR at PR time, and reject a body release-please cannot parse (#1227)\n\nTwo gaps from the `v2.4.7` postmortem, both of which let a release ship\nwithout a changelog entry.\n\n## The second incident\n\n`v2.4.6` lost #1218 because its PR body held code spans with unbalanced\nparentheses; release-please threw `unexpected token` and dropped the\ncommit. **`v2.4.7` then lost #1224 — the PR that fixed the fallout — the\nsame way**, because its body quoted those same strings while explaining\nthem. Tags are immutable, so neither can be corrected after the fact.\n\nSo the postmortem repeated itself verbatim, one release later, and the\nguard I added in #1224 caught it and still could not stop it. Both\nhalves are addressed here.\n\n## (1) The completeness guard now gates the release PR\n\nIt ran only on push-to-main, where it goes red **after** release-please\nhas already opened the release PR — and it is not one of that PR's\nchecks. On `v2.4.7` it caught the omission and went red within minutes\nof the merge, while the release PR showed CLEAN and merged anyway. A\nfinding that arrives somewhere nobody is looking at merge time does not\nstop anything.\n\nThe script now takes an explicit `PR_NUMBER` and runs as a check **on**\nthe release PR, in addition to the push-to-main run.\n`resolveReleasePrNumbers` is extracted and tested: an explicit number\nwins, blank falls back to the label search — blank matters because\nActions passes an unset input as the empty string, and treating that as\npinned would check PR `\"\"`.\n\n## (2) The PR body must produce a parseable commit\n\n`pr-title-lint.yml` already guards the title, for exactly this reason.\nThe body is parsed too and nothing guarded it.\n\n**This uses release-please's own parser rather than a heuristic, and\nthat choice was measured.** I first modelled it as unbalanced parens,\nthen as nesting depth, and checked each against 400 commits on `main`:\nthe first flagged 17 where only 2 had actually failed; the second\nflagged 148, including a commit that parsed fine; and neither explained\nthe reported error positions. A gate that noisy gets switched off.\n\n`@conventional-commits/parser` is release-please's own dependency,\npinned at the same `^0.4.1`. Dependency pre-flight via `bun run\ncheck-package`: published 2020-12-28, author Ben Coe, maintainers\n`oss-bot` and `bcoe` — the conventional-commits reference\nimplementation, two transitive deps.\n\nIt reproduces both historical failures at the **exact** line and column\nCI reported:\n\n| commit | CI reported | parser locally |\n| --- | --- | --- |\n| `828090ca` (#1218) | `103:15` | `103:15` |\n| `b59ccacf` (#1224) | `17:15` | `17:15` |\n\n## Wiring\n\nA new `pr-quality-release-safety` job, added to `pr-quality-required`'s\n`needs` list with `EXPECTED` bumped 6 to 7 — so it actually blocks,\nwithout touching the ruleset. The completeness step is conditional on\nthe head branch being release-please's, since the question is only\nmeaningful about a release PR.\n\n## Red-prove\n\nDriving the real CLIs the way CI does, on real historical inputs:\n\n```\nparse check, the two commits release-please really rejected\n  828090ca (#1218): exit=1 at=103:15  BLOCKED\n  b59ccacf (#1224): exit=1 at=17:15   BLOCKED\n\ncontrol: healthy commits must NOT be blocked\n  f7d8c75c (#1225): exit=0  allowed\n  6fc59e51 (#1221): exit=0  allowed\n  84d3e629 (#1220): exit=0  allowed\n  4e773395 (#1217): exit=0  allowed\n\nempty title: exit=1  refuses  (no clean report on no input)\n```\n\nThe controls matter as much as the catches: `4e773395` has unbalanced\nparens and parses fine, which is precisely why the heuristics were\nunshippable.\n\n**One correction to my own method.** My first retrospective check of the\ncompleteness mode reported \"nothing dropped\" for `#1226` and `#1222`,\nwhich I knew had omitted commits. That was the probe, not the check:\n`v2.4.7` is now tagged, so the comparison baseline had moved and the\nrange was legitimately empty. The third probe artifact of this session —\nI now print the derived inputs before believing a negative result.\n\n`preflight:fast` 29 of 29. `bun test scripts/release` — 301 pass, 4\nfail, all four the pre-existing Windows GPG `nimbus-verify.ps1` failures\nthat are identical on `main`.\n\n## Note\n\nThis PR is its own first test: the parse check runs on this body.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n* Improved release validation for pull requests by detecting malformed\nsquash-merge messages and highlighting the affected lines.\n* Added clearer validation for release pull request changelog\ncompleteness.\n  * Improved handling of explicitly identified release pull requests.\n\n* **Tests**\n* Added coverage for message formatting, parser errors, line excerpts,\nand historical failure scenarios.\n  * Expanded release completeness validation coverage.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-16T10:36:08Z",
+          "tree_id": "0d4f4a5daee578b34ff7cbc12dff715ed9df7a75",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/074daab8d22b28212b4a8fd467d3783b76678e35"
+        },
+        "date": 1786877237459,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 321.0737410500016,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 322.8458455000011,
             "unit": "ms"
           }
         ]
