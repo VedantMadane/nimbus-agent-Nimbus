@@ -67,7 +67,7 @@ Three read-only agents that surface cross-colleague context by fanning the shipp
 
 ### Pre-mortem agent (Spine S1 — Local Brain)
 
-**`pre-mortem`** (`packages/gateway/src/agents/premortem.ts`) — IPC `agents.premortem`, CLI `nimbus pre-mortem <epic-ref> [--service <name>]… [--json] [--refresh] [--repropose]`, notification `premortem.briefReady`. Four sequential lanes (not `AgentCoordinator` — each depends on the previous one's output): resolve a Jira epic to its affected services, build an IDF-weighted service-overlap cohort of closed epics, compute five structural risks over that cohort, and read recurring blocker themes (`premortem_theme`, mined by the debounced background pass Task 1/2 shipped). Jira-only, and `parent_key`-derived cohort membership is team-managed-Jira-only — no `linear:project` items are indexed at all. Confidence tops out at 0.86, matching `glossary`/`decisions`: no connector indexes ticket comments.
+**`pre-mortem`** (`packages/gateway/src/agents/premortem.ts`) — IPC `agents.premortem`, CLI `nimbus pre-mortem <epic-ref> [--service <name>]… [--json] [--refresh] [--repropose]`, notification `premortem.briefReady`. Four sequential lanes (not `AgentCoordinator` — each depends on the previous one's output): resolve a Jira epic to its affected services, build an IDF-weighted service-overlap cohort of closed epics, compute five structural risks over that cohort, and read recurring blocker themes (`premortem_theme`, mined by the debounced background pass Task 1/2 shipped). Jira-only, and `parent_key`-derived cohort membership is team-managed-Jira-only — no `linear:project` items are indexed at all. Confidence tops out at 0.86, matching `decisions` (`THEME_CONFIDENCE_CEILING`, `premortem/theme-identity.ts`): no connector indexes ticket comments. `glossary` has no confidence-ceiling concept of its own — its honesty disclosure is per-brief truncation counts and definition provenance (`snippet`/`manual`/`llm`), not a confidence score.
 
 **This is the one built-in agent that is not purely read-only — read the exception's bounds below before treating "read-only, no write tools in scope" as unconditional.**
 
@@ -84,7 +84,7 @@ Every built-in agent must be:
 - **Read-only** — no write tools in scope.
 - **Parallel where possible** — use `AgentCoordinator` with independent sub-agents.
 - **HITL-free** — if the coordinator encounters a HITL-required tool it skips it and notes the omission in output. Built-in agents never wait on consent.
-- **Notifying** — emits a `<agentName>.briefReady { sessionId, brief: string, findings }` IPC notification on completion.
+- **Notifying** — emits a `<agentName>.briefReady { sessionId, brief: string, findings, synthesis }` IPC notification on completion.
 
 ### The pre-mortem exception, and its exact bounds
 
@@ -125,14 +125,28 @@ Sub-agents are defined as functions passed via `SubTask.execute()`. Tool access 
 
 ## IPC Notification Contract
 
-Every agent emits a completion notification via the Gateway IPC server:
+Every agent emits a completion notification via the Gateway IPC server, through the shared
+`emitBriefWithSynthesis` helper (`packages/gateway/src/agents/_lib/emit-brief.ts`) rather than a
+direct `notify` call:
 
 ```typescript
-ipcServer.notify(`${agentName}.briefReady`, { sessionId, brief, findings });
+opts.notify(opts.briefReadyMethod, { sessionId, brief: markdown, findings: brief, synthesis: provenance });
 ```
 
-- `brief` is **always a Markdown string**.
+- `brief` is **always a Markdown string** — either the deterministic render, or an LLM-synthesized
+  rewrite of it (see below).
 - `findings` is **that agent's own typed brief object**, declared in `packages/gateway/src/agents/_lib/<agent>-types.ts` — `ExpertBrief`, `CatchupBrief`, `ImpactBrief`, `WhyBrief`, `GlossaryBrief`, `DecisionsBrief`, `OwnershipBrief`, `PremortemBrief`, and so on. This is deliberately not a closed union: adding an agent adds a type here, it does not change the contract. Clients can render it directly or transform the Markdown further. CLI-side narrowing guards (e.g. `PremortemBriefLike` in `packages/cli/src/commands/pre-mortem.ts`) are structural subsets used to validate an untyped IPC payload — they are not the gateway-side type this field carries.
+- `synthesis` is the `SynthesisProvenance` union (`packages/gateway/src/agents/_lib/synthesize.ts`):
+  `{attempted: false, reason: "disabled" | "no_eligible_provider"}` when `brief` is the
+  deterministic render because no LLM was ever called; `{attempted: true, used: true, model,
+  remote}` when `brief` is a synthesized rewrite; or `{attempted: true, used: false, reason, ...}`
+  when a rewrite was attempted and discarded (a dropped contractual disclaimer, a timeout, a
+  provider error, an egress-append failure, or the provider returning no usable text) — `brief` is
+  the deterministic render in that last case too, so `synthesis` is the only field that
+  distinguishes "never asked" from "asked and discarded." Gated by `[agents] synthesis`
+  (`"off"` | `"local"` default | `"allow-remote"`); a
+  non-local generation appends an egress-ledger row (invariant I29, coverage class `model`) before
+  `synthesis.used` can read `true` with `remote: true`.
 - `sessionId` ties the notification to the originating `engine.askStream` call.
 - Notification name is always `<agentName>.briefReady` — the CLI subscribes to that exact name.
 

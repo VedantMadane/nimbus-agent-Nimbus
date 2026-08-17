@@ -19,6 +19,19 @@ export type ProviderMeta = {
   contextWindow?: number;
 };
 
+/**
+ * The provider `resolveForSynthesis()` selected for an `[agents]` brief synthesis attempt, plus
+ * whether it runs on this machine. `isLocal` is derived from `LOCAL_PROVIDER_IDS` — never from
+ * `prefersLocal()`/`config.preferLocal`, which express only a preference (see `isLocalProviderKind`
+ * doc comment) — so a caller enforcing `[agents].synthesis = "local"` can refuse a resolved
+ * remote provider rather than trust config intent.
+ */
+export type ResolvedSynthesisProvider = {
+  readonly providerId: LlmProviderKind;
+  readonly modelName: string;
+  readonly isLocal: boolean;
+};
+
 export type LlmTaskStatus = {
   providerId: LlmProviderKind;
   modelName: string;
@@ -79,6 +92,51 @@ export class LlmRouter {
     opts?: { preferLocal?: boolean },
   ): Promise<LlmProvider | undefined> {
     return this.firstAvailable(task, (p) => this.probeAvailable(p), opts?.preferLocal);
+  }
+
+  /**
+   * Resolve the provider a `[agents]` brief synthesis attempt would use, right now, for the
+   * `"reasoning"` task — plus an `isLocal` flag derived from `LOCAL_PROVIDER_IDS` rather than
+   * duplicating the priority walk at the call site. Reuses `selectProvider`, so air-gap and the
+   * reasoning capability floor are honored the same way they are for every other caller. Callers
+   * that must not trust a bare `remote: true`/`false` re-derive it from `providerId` here, not
+   * from `config.preferLocal`.
+   *
+   * `preferLocal` defaults to `config.preferLocal` — an omitted argument behaves exactly as
+   * before this parameter existed. A caller with its own local-preference precedent (mirroring
+   * `briefs/brief-llm-adapter.ts`'s `createBriefLlm(router, preferLocal)`) passes its own value
+   * instead of inheriting `[llm].prefer_local`: without this, `[llm] prefer_local = false` with a
+   * remote provider registered makes priority remote-first, so `resolveForSynthesis()` resolves
+   * the remote provider even with a healthy local one — and `[agents] synthesis = "local"` then
+   * refuses the whole attempt as `no_eligible_provider`, not because no local provider answered,
+   * but because a remote one was picked first.
+   */
+  async resolveForSynthesis(
+    preferLocal: boolean = this.config.preferLocal,
+  ): Promise<ResolvedSynthesisProvider | undefined> {
+    const provider = await this.selectProvider("reasoning", { preferLocal });
+    if (provider === undefined) {
+      return undefined;
+    }
+    return {
+      providerId: provider.providerId,
+      modelName: this.modelNameFor(provider.providerId),
+      isLocal: isLocalProviderKind(provider.providerId),
+    };
+  }
+
+  /**
+   * Generates markdown from the EXACT provider `resolveForSynthesis()` resolved — never
+   * re-selects — so the provider actually invoked always matches the one a caller classified as
+   * local/remote and (if applicable) ledgered.
+   */
+  async generateMarkdown(prompt: string, resolved: ResolvedSynthesisProvider): Promise<string> {
+    const provider = this.providers.get(resolved.providerId);
+    if (provider === undefined) {
+      throw new Error(`LLM provider "${resolved.providerId}" is no longer registered`);
+    }
+    const result = await provider.generate({ task: "reasoning", prompt });
+    return result.text;
   }
 
   // Walks the task's provider priority order (respecting air-gap and the capability floor) and

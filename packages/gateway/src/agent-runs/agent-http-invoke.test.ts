@@ -1,10 +1,13 @@
 // packages/gateway/src/agent-runs/agent-http-invoke.test.ts
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { buildAgentSynthesisRunner } from "../agents/_lib/agent-synthesis-runner.ts";
+import type { SynthesisRouter } from "../agents/_lib/synthesis-llm.ts";
 import { LocalIndex } from "../index/local-index.ts";
+import { dispatchAgentsRpc } from "../ipc/agents-rpc.ts";
 import { buildAgentHttpInvoker, requireRunId } from "./agent-http-invoke.ts";
 import { AgentRunController, MAX_CONCURRENT_AGENT_RUNS } from "./agent-run-store.ts";
 
@@ -21,6 +24,92 @@ function makeRuns(): AgentRunController {
 
 function countLedger(db: Database): number {
   return (db.query(`SELECT COUNT(*) AS n FROM egress_ledger`).get() as { n: number }).n;
+}
+
+/** A tmpdir `nimbus.toml` pinning `[agents].synthesis` to `mode`. */
+function makeAgentsConfigDir(mode: "off" | "local" | "allow-remote"): string {
+  const dir = mkdtempSync(join(tmpdir(), "nimbus-agent-http-cfg-"));
+  writeFileSync(join(dir, "nimbus.toml"), `[agents]\nsynthesis = "${mode}"\n`, "utf8");
+  return dir;
+}
+
+/** A LOCAL-provider SynthesisRouter — resolves and generates deterministically, no real LLM call. */
+function fakeLocalRouter(markdown: string): SynthesisRouter {
+  return {
+    resolveForSynthesis: async () => ({
+      providerId: "ollama",
+      modelName: "fake-model",
+      isLocal: true,
+    }),
+    generateMarkdown: async () => markdown,
+  };
+}
+
+/** A REMOTE-only SynthesisRouter — used to prove `[agents].synthesis = "local"` refuses it. */
+function fakeRemoteRouter(): SynthesisRouter {
+  return {
+    resolveForSynthesis: async () => ({
+      providerId: "remote",
+      modelName: "remote-model",
+      isLocal: false,
+    }),
+    generateMarkdown: async () => "SHOULD-NEVER-BE-USED",
+  };
+}
+
+/**
+ * Strips `render.ts`'s `renderLatency` footer line (`_generated in N.N s_`) before a markdown
+ * equality check — the ONE piece of a deterministic `why` render that is not reproducible between
+ * two separate dispatches (wall-clock latency), so leaving it in would make an otherwise-real
+ * equivalence assertion flake under load.
+ */
+function stripLatencyFooter(markdown: string | null | undefined): string | null {
+  if (markdown == null) return null;
+  return markdown.replace(/_generated in [\d.]+ s_\n?/g, "");
+}
+
+/** Dispatches `agents.why` the way `ipc/server/dispatchers.ts`'s `tryDispatchAgentsRpc` does. */
+async function briefViaSocket(
+  configDir: string,
+  router: SynthesisRouter,
+  db: Database,
+  params: unknown,
+): Promise<{ brief: unknown; synthesis: unknown } | undefined> {
+  const runner = buildAgentSynthesisRunner({ configDir, db, router, method: "agents.why" });
+  let captured: { brief: unknown; synthesis: unknown } | undefined;
+  await dispatchAgentsRpc("agents.why", params, {
+    db,
+    notify: (m, p) => {
+      if (m === "why.briefReady") {
+        captured = p as { brief: unknown; synthesis: unknown };
+      }
+    },
+    configDir,
+    ...(runner === undefined ? {} : { runner }),
+  });
+  const deadline = Date.now() + 5_000;
+  while (captured === undefined && Date.now() < deadline) {
+    await Bun.sleep(10);
+  }
+  return captured;
+}
+
+/** Dispatches `agents.why` over the HTTP invoker, polling the run to a terminal state. */
+async function briefViaHttp(
+  configDir: string,
+  router: SynthesisRouter,
+  db: Database,
+  params: unknown,
+): Promise<{ brief: unknown; synthesis: unknown }> {
+  const runs = makeRuns();
+  const out = await buildAgentHttpInvoker({ db, runs, configDir, router })("why", params, "chrome");
+  if (!out.ok) throw new Error("unreachable");
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline && runs.get(out.runId)?.status === "running") {
+    await Bun.sleep(10);
+  }
+  const run = runs.get(out.runId);
+  return { brief: run?.brief ?? null, synthesis: run?.synthesis ?? null };
 }
 
 describe("requireRunId — the defensive paths, exercised directly", () => {
@@ -63,6 +152,7 @@ describe("buildAgentHttpInvoker", () => {
       index: new LocalIndex(db),
       configDir: mkdtempSync(join(tmpdir(), "nimbus-agent-cfg-")),
       selfIdentity: { publicKey: new Uint8Array(32), secretKey: new Uint8Array(32) },
+      router: undefined,
     })("expert", { topicOrFile: "auth.ts" }, "chrome");
     expect(out.ok).toBe(true);
     if (!out.ok) throw new Error("unreachable");
@@ -74,7 +164,7 @@ describe("buildAgentHttpInvoker", () => {
   test("an unknown agent is refused before any admission is spent", async () => {
     const db = freshDb();
     const runs = makeRuns();
-    const out = await buildAgentHttpInvoker({ db, runs })("nope", {}, "chrome");
+    const out = await buildAgentHttpInvoker({ db, runs, router: undefined })("nope", {}, "chrome");
     expect(out).toEqual({ ok: false, reason: "unknown_agent" });
     // No reservation leaked: the cap is still fully available.
     for (let i = 0; i < MAX_CONCURRENT_AGENT_RUNS; i++) expect(runs.admit().ok).toBe(true);
@@ -83,7 +173,7 @@ describe("buildAgentHttpInvoker", () => {
   test("preflight is refused as unknown, and appends nothing", async () => {
     // I24. Refused at the resolver, so it never reaches the dispatcher and never ledgers.
     const db = freshDb();
-    const out = await buildAgentHttpInvoker({ db, runs: makeRuns() })(
+    const out = await buildAgentHttpInvoker({ db, runs: makeRuns(), router: undefined })(
       "preflight",
       { ref: "HEAD", namespace: "n" },
       "chrome",
@@ -94,7 +184,7 @@ describe("buildAgentHttpInvoker", () => {
 
   test("whyPeek is refused as unknown too", async () => {
     const db = freshDb();
-    const out = await buildAgentHttpInvoker({ db, runs: makeRuns() })(
+    const out = await buildAgentHttpInvoker({ db, runs: makeRuns(), router: undefined })(
       "whyPeek",
       { ref: "src/a.ts:1" },
       "chrome",
@@ -106,7 +196,7 @@ describe("buildAgentHttpInvoker", () => {
   test("a successful invocation returns the gateway sessionId as the runId", async () => {
     const db = freshDb();
     const runs = makeRuns();
-    const out = await buildAgentHttpInvoker({ db, runs })(
+    const out = await buildAgentHttpInvoker({ db, runs, router: undefined })(
       "expert",
       { topicOrFile: "auth.ts" },
       "chrome",
@@ -121,7 +211,7 @@ describe("buildAgentHttpInvoker", () => {
 
   test("the invocation appends exactly one source_type='http' row, attributed to the label", async () => {
     const db = freshDb();
-    await buildAgentHttpInvoker({ db, runs: makeRuns() })(
+    await buildAgentHttpInvoker({ db, runs: makeRuns(), router: undefined })(
       "expert",
       { topicOrFile: "auth.ts" },
       "chrome-work",
@@ -137,7 +227,11 @@ describe("buildAgentHttpInvoker", () => {
   test("invalid params are a typed refusal, not a thrown error", async () => {
     const db = freshDb();
     const runs = makeRuns();
-    const out = await buildAgentHttpInvoker({ db, runs })("expert", { topicOrFile: "" }, "chrome");
+    const out = await buildAgentHttpInvoker({ db, runs, router: undefined })(
+      "expert",
+      { topicOrFile: "" },
+      "chrome",
+    );
     expect(out.ok).toBe(false);
     if (out.ok) throw new Error("unreachable");
     expect(out.reason).toBe("invalid_params");
@@ -150,7 +244,11 @@ describe("buildAgentHttpInvoker", () => {
     // per-agent validator runs inside the handler. So a rejected call IS ledgered. That matches the
     // MCP path exactly and is the honest reading of "append before any agent work".
     const db = freshDb();
-    await buildAgentHttpInvoker({ db, runs: makeRuns() })("expert", { topicOrFile: "" }, "chrome");
+    await buildAgentHttpInvoker({ db, runs: makeRuns(), router: undefined })(
+      "expert",
+      { topicOrFile: "" },
+      "chrome",
+    );
     expect(countLedger(db)).toBe(1);
   });
 
@@ -164,7 +262,11 @@ describe("buildAgentHttpInvoker", () => {
     for (let i = 0; i < MAX_CONCURRENT_AGENT_RUNS; i++) expect(runs.admit().ok).toBe(true);
 
     expect(
-      await buildAgentHttpInvoker({ db, runs })("expert", { topicOrFile: "x" }, "chrome"),
+      await buildAgentHttpInvoker({ db, runs, router: undefined })(
+        "expert",
+        { topicOrFile: "x" },
+        "chrome",
+      ),
     ).toEqual({
       ok: false,
       reason: "busy",
@@ -183,7 +285,11 @@ describe("buildAgentHttpInvoker", () => {
     db.exec(`DROP TABLE egress_ledger`);
     const runs = makeRuns();
     await expect(
-      buildAgentHttpInvoker({ db, runs })("expert", { topicOrFile: "x" }, "chrome"),
+      buildAgentHttpInvoker({ db, runs, router: undefined })(
+        "expert",
+        { topicOrFile: "x" },
+        "chrome",
+      ),
     ).rejects.toThrow();
     expect(runs.activeCount()).toBe(0);
     // ...and the reservation was released, so a transient failure cannot leak capacity.
@@ -196,7 +302,7 @@ describe("buildAgentHttpInvoker", () => {
     // brief to every other local client.
     const db = freshDb();
     const runs = makeRuns();
-    const out = await buildAgentHttpInvoker({ db, runs })(
+    const out = await buildAgentHttpInvoker({ db, runs, router: undefined })(
       "expert",
       { topicOrFile: "auth.ts" },
       "chrome",
@@ -207,5 +313,93 @@ describe("buildAgentHttpInvoker", () => {
       await Bun.sleep(20);
     }
     expect(runs.get(out.runId)?.status).not.toBe("running");
+  });
+});
+
+describe("buildAgentHttpInvoker — the synthesis runner (Task 6: production wiring)", () => {
+  // "Socket" here means "constructed the same way ipc/server/dispatchers.ts's tryDispatchAgentsRpc
+  // does" (briefViaSocket calls dispatchAgentsRpc in-process) — this proves buildAgentSynthesisRunner
+  // factory-level identity between the two production call sites, not equivalence over a real
+  // socket transport; neither path opens an actual IPC socket.
+  test("HTTP invocation and the socket-path construction remain identical under every synthesis mode (factory-level identity, not a real socket transport)", async () => {
+    for (const mode of ["off", "local", "allow-remote"] as const) {
+      const configDir = makeAgentsConfigDir(mode);
+      const db = freshDb();
+      const router = fakeLocalRouter("SAME-MARKDOWN-MARKER");
+
+      const viaSocket = await briefViaSocket(configDir, router, db, { ref: "x" });
+      const viaHttp = await briefViaHttp(configDir, router, db, { ref: "x" });
+
+      // `briefViaSocket` returns undefined when its 5 s deadline expires, and
+      // `stripLatencyFooter(undefined)` returns null. Without this assertion a socket-path
+      // TIMEOUT makes both sides of the comparison below null and the parity check passes
+      // vacuously — this test exists to prove factory-level identity, so an absent socket
+      // brief must fail it rather than match an absent HTTP one.
+      expect(viaSocket).toBeDefined();
+      expect(stripLatencyFooter(viaHttp.brief as string | null)).toEqual(
+        stripLatencyFooter(viaSocket?.brief as string | null),
+      );
+      expect(viaHttp.synthesis).toEqual(viaSocket?.synthesis);
+    }
+  });
+
+  test("a synthesis-eligible context is actually supplied to the HTTP invoker — not omitted as before", async () => {
+    const configDir = makeAgentsConfigDir("local");
+    const db = freshDb();
+    const runs = makeRuns();
+    const router = fakeLocalRouter("HTTP-SUPPLIED-MARKER");
+
+    const out = await buildAgentHttpInvoker({ db, runs, configDir, router })(
+      "why",
+      { ref: "x" },
+      "chrome",
+    );
+    if (!out.ok) throw new Error("unreachable");
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline && runs.get(out.runId)?.status === "running") {
+      await Bun.sleep(10);
+    }
+    const run = runs.get(out.runId);
+    expect(run?.synthesis).toMatchObject({ attempted: true, used: true, model: "fake-model" });
+    expect(run?.brief).toContain("HTTP-SUPPLIED-MARKER");
+  });
+
+  test("with no router supplied, the runner is skipped — same deterministic brief as before Task 6", async () => {
+    const db = freshDb();
+    const runs = makeRuns();
+    const out = await buildAgentHttpInvoker({ db, runs, router: undefined })(
+      "why",
+      { ref: "x" },
+      "chrome",
+    );
+    if (!out.ok) throw new Error("unreachable");
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline && runs.get(out.runId)?.status === "running") {
+      await Bun.sleep(10);
+    }
+    const run = runs.get(out.runId);
+    expect(run?.synthesis).toMatchObject({ attempted: false, reason: "disabled" });
+  });
+
+  test("wiring the HTTP runner causes NO remote egress on a default install (no configDir → synthesis=local, a REMOTE-only router)", async () => {
+    const db = freshDb();
+    const runs = makeRuns();
+    const out = await buildAgentHttpInvoker({ db, runs, router: fakeRemoteRouter() })(
+      "why",
+      { ref: "x" },
+      "chrome",
+    );
+    if (!out.ok) throw new Error("unreachable");
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline && runs.get(out.runId)?.status === "running") {
+      await Bun.sleep(10);
+    }
+    const run = runs.get(out.runId);
+    // "local" (the default) refuses a resolved REMOTE provider — no_eligible_provider, not "used".
+    expect(run?.synthesis).toMatchObject({ attempted: false, reason: "no_eligible_provider" });
+    const synthesisRows = db
+      .query(`SELECT method FROM egress_ledger WHERE method LIKE '%.synthesis'`)
+      .all();
+    expect(synthesisRows).toEqual([]);
   });
 });

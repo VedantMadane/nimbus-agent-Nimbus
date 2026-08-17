@@ -3,7 +3,8 @@ import { describe, expect, it, mock, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SynthesizerLlm } from "../agents/_lib/synthesize.ts";
+import type { SynthesisRunner } from "../agents/_lib/synthesis-llm.ts";
+import { upsertIndexedItem } from "../index/item-store.ts";
 import { LocalIndex } from "../index/local-index.ts";
 import {
   AgentsRpcError,
@@ -12,7 +13,7 @@ import {
   resolveHttpAgentMethod,
 } from "./agents-rpc.ts";
 
-function makeCtx(db: Database, extras?: { llm?: SynthesizerLlm; configDir?: string }) {
+function makeCtx(db: Database, extras?: { runner?: SynthesisRunner; configDir?: string }) {
   return {
     db,
     notify: mock(() => {}),
@@ -20,10 +21,21 @@ function makeCtx(db: Database, extras?: { llm?: SynthesizerLlm; configDir?: stri
   };
 }
 
-/** Returns a fake SynthesizerLlm that immediately resolves to null (no synthesis). */
-function fakeLlm(): SynthesizerLlm {
+/**
+ * A SynthesisRunner whose effect is OBSERVABLE in the rendered brief. A runner that always reports
+ * `no_eligible_provider` (the previous fixture here) makes a weaker proof: every brief kind but
+ * `negotiate` has an empty `requiredPhrases` set, so `contractViolations` never rejects this
+ * markdown (see `brief-contract.ts`), and — since `synthesize.ts` gives `no_eligible_provider` its
+ * own footer, distinct from the plain "does not use an LLM" one a dropped `ctx.runner` renders —
+ * asserting "was `ctx.runner` threaded through" would reduce to a footer-WORDING diff rather than
+ * a brief-CONTENT diff. A threaded runner using this fake makes the brief carry `markdown`
+ * verbatim plus a "Synthesized by <model>" footer — an unambiguous signal that `ctx.runner`
+ * genuinely reached `synthesize()`. That difference is the proof.
+ */
+function okRunner(markdown = "OBSERVABLE-SYNTHESIS-MARKER"): SynthesisRunner {
   return {
-    generateMarkdown: (_prompt: string) => Promise.resolve(null),
+    run: (_prompt: string) =>
+      Promise.resolve({ ok: true, markdown, model: "fake-model", remote: false }),
   };
 }
 
@@ -58,6 +70,27 @@ async function waitForNotify(
     await new Promise((r) => setTimeout(r, 25));
   }
   return false;
+}
+
+/**
+ * Same polling contract as `waitForNotify`, but returns the notification's `params` (the second
+ * call argument) instead of a boolean — so a test can inspect `brief`/`synthesis` and prove a
+ * threaded runner's effect actually reached the caller, not merely that SOME notification fired.
+ */
+async function waitForNotifyParams(
+  notify: unknown,
+  eventName: string,
+  timeoutMs = 5_000,
+): Promise<Record<string, unknown> | undefined> {
+  // NOSONAR S4325: cast exposes the bun mock's .mock.calls (ctx.notify is typed as a plain fn)
+  const calls = (notify as ReturnType<typeof mock>).mock.calls;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const found = calls.find((c) => c[0] === eventName);
+    if (found !== undefined) return found[1] as Record<string, unknown>;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  return undefined;
 }
 
 describe("dispatchAgentsRpc", () => {
@@ -438,34 +471,227 @@ describe("dispatchAgentsRpc — agents.catchup sinceMs+service validation", () =
   });
 });
 
-describe("dispatchAgentsRpc — llm-present branches", () => {
-  test("agents.expert with llm set takes the llm-present context arm", async () => {
-    const ctx = makeCtx(freshDb(), { llm: fakeLlm() });
+describe("dispatchAgentsRpc — runner-present branches", () => {
+  // Each test below uses okRunner() — not a runner that always reports `no_eligible_provider` —
+  // because that outcome makes a weaker proof: every brief kind but `negotiate` has an empty
+  // `requiredPhrases` set, so `contractViolations` never rejects the markdown, and — since
+  // `synthesize.ts` gives `no_eligible_provider` its own footer, distinct from the plain
+  // "does not use an LLM" one a dropped `ctx.runner` renders — asserting "was `ctx.runner`
+  // threaded through" would reduce to a footer-WORDING diff rather than a brief-CONTENT diff.
+  // okRunner() returns `{ok: true, markdown}`, which only reaches the emitted brief when
+  // ctx.runner genuinely made it into `synthesize()` — that is the observable difference these
+  // tests assert on.
+  test("agents.expert with runner set actually synthesizes (marker + provenance observable)", async () => {
+    const ctx = makeCtx(freshDb(), { runner: okRunner() });
     const out = await dispatchAgentsRpc("agents.expert", { topicOrFile: "src/x.ts" }, ctx);
     expect(out.kind).toBe("hit");
-    // briefReady is emitted; the llm-present arm was taken (no error = correct branch)
-    expect(await waitForNotify(ctx.notify, "expert.briefReady")).toBe(true);
+    const params = await waitForNotifyParams(ctx.notify, "expert.briefReady");
+    expect(params?.["brief"]).toContain("OBSERVABLE-SYNTHESIS-MARKER");
+    expect(params?.["synthesis"]).toMatchObject({
+      attempted: true,
+      used: true,
+      model: "fake-model",
+    });
   });
 
-  test("agents.impact with llm set takes the llm-present context arm", async () => {
-    const ctx = makeCtx(freshDb(), { llm: fakeLlm() });
+  test("agents.impact with runner set actually synthesizes (marker + provenance observable)", async () => {
+    const ctx = makeCtx(freshDb(), { runner: okRunner() });
     const out = await dispatchAgentsRpc("agents.impact", { fileOrPrUrl: "src/x.ts" }, ctx);
     expect(out.kind).toBe("hit");
-    expect(await waitForNotify(ctx.notify, "impact.briefReady")).toBe(true);
+    const params = await waitForNotifyParams(ctx.notify, "impact.briefReady");
+    expect(params?.["brief"]).toContain("OBSERVABLE-SYNTHESIS-MARKER");
+    expect(params?.["synthesis"]).toMatchObject({
+      attempted: true,
+      used: true,
+      model: "fake-model",
+    });
   });
 
-  test("agents.catchup with llm set takes the llm-present context arm", async () => {
-    const ctx = makeCtx(freshDb(), { llm: fakeLlm() });
+  test("agents.catchup with runner set actually synthesizes (marker + provenance observable)", async () => {
+    const ctx = makeCtx(freshDb(), { runner: okRunner() });
     const out = await dispatchAgentsRpc("agents.catchup", {}, ctx);
     expect(out.kind).toBe("hit");
-    const deadline = Date.now() + 5_000;
-    while (Date.now() < deadline) {
-      const calls = (ctx.notify as ReturnType<typeof mock>).mock.calls; // NOSONAR S4325: cast exposes the bun mock's .mock.calls (ctx.notify is typed as a plain fn)
-      if (calls.some((c) => c[0] === "catchup.briefReady")) break;
-      await new Promise((r) => setTimeout(r, 25));
-    }
-    const calls = (ctx.notify as ReturnType<typeof mock>).mock.calls; // NOSONAR S4325: cast exposes the bun mock's .mock.calls (ctx.notify is typed as a plain fn)
-    expect(calls.some((c) => c[0] === "catchup.briefReady")).toBe(true);
+    const params = await waitForNotifyParams(ctx.notify, "catchup.briefReady");
+    expect(params?.["brief"]).toContain("OBSERVABLE-SYNTHESIS-MARKER");
+    expect(params?.["synthesis"]).toMatchObject({
+      attempted: true,
+      used: true,
+      model: "fake-model",
+    });
+  });
+});
+
+describe("dispatchAgentsRpc — ctx.runner threading proof for the remaining agents", () => {
+  // These eight agents (Task 6 review) had NO test proving `ctx.runner` survives the handler's
+  // optional-spread forwarding (`...(ctx.runner === undefined ? {} : { runner: ctx.runner })`) —
+  // deleting that line still typechecks, so only an OBSERVABLE runner effect (see okRunner() above)
+  // catches the regression. `catchup` is covered above; the other seven are covered here.
+  function ctxWithFederationAndRunner() {
+    const db = freshDb();
+    const index = new LocalIndex(db);
+    return {
+      db,
+      notify: mock(() => {}),
+      index,
+      selfIdentity: { publicKey: new Uint8Array(32), secretKey: new Uint8Array(32) },
+      sendOverWire: async () => ({ kind: "ok" as const, response: { items: [] } }),
+      runner: okRunner(),
+    };
+  }
+
+  test("agents.conflicts with runner set actually synthesizes", async () => {
+    const ctx = ctxWithFederationAndRunner();
+    const out = await dispatchAgentsRpc("agents.conflicts", { file: "src/x.ts" }, ctx);
+    expect(out.kind).toBe("hit");
+    const params = await waitForNotifyParams(ctx.notify, "conflicts.briefReady");
+    expect(params?.["brief"]).toContain("OBSERVABLE-SYNTHESIS-MARKER");
+    expect(params?.["synthesis"]).toMatchObject({
+      attempted: true,
+      used: true,
+      model: "fake-model",
+    });
+  });
+
+  test("agents.huddle with runner set actually synthesizes", async () => {
+    const ctx = ctxWithFederationAndRunner();
+    const out = await dispatchAgentsRpc("agents.huddle", {}, ctx);
+    expect(out.kind).toBe("hit");
+    const params = await waitForNotifyParams(ctx.notify, "huddle.briefReady");
+    expect(params?.["brief"]).toContain("OBSERVABLE-SYNTHESIS-MARKER");
+    expect(params?.["synthesis"]).toMatchObject({
+      attempted: true,
+      used: true,
+      model: "fake-model",
+    });
+  });
+
+  test("agents.janitor with runner set actually synthesizes", async () => {
+    const ctx = ctxWithFederationAndRunner();
+    const out = await dispatchAgentsRpc("agents.janitor", { resourceRef: "res-1" }, ctx);
+    expect(out.kind).toBe("hit");
+    const params = await waitForNotifyParams(ctx.notify, "janitor.briefReady");
+    expect(params?.["brief"]).toContain("OBSERVABLE-SYNTHESIS-MARKER");
+    expect(params?.["synthesis"]).toMatchObject({
+      attempted: true,
+      used: true,
+      model: "fake-model",
+    });
+  });
+
+  test("agents.preflight with runner set actually synthesizes", async () => {
+    const ctx = ctxWithFederationAndRunner();
+    const out = await dispatchAgentsRpc("agents.preflight", { ref: "HEAD", namespace: "svc" }, ctx);
+    expect(out.kind).toBe("hit");
+    const params = await waitForNotifyParams(ctx.notify, "preflight.briefReady");
+    expect(params?.["brief"]).toContain("OBSERVABLE-SYNTHESIS-MARKER");
+    expect(params?.["synthesis"]).toMatchObject({
+      attempted: true,
+      used: true,
+      model: "fake-model",
+    });
+  });
+
+  test("agents.why with runner set actually synthesizes", async () => {
+    const ctx = makeCtx(freshDb(), { runner: okRunner() });
+    const out = await dispatchAgentsRpc("agents.why", { ref: "x" }, ctx);
+    expect(out.kind).toBe("hit");
+    const params = await waitForNotifyParams(ctx.notify, "why.briefReady");
+    expect(params?.["brief"]).toContain("OBSERVABLE-SYNTHESIS-MARKER");
+    expect(params?.["synthesis"]).toMatchObject({
+      attempted: true,
+      used: true,
+      model: "fake-model",
+    });
+  });
+
+  test("agents.glossary with runner set actually synthesizes", async () => {
+    const ctx = makeCtx(freshDb(), { runner: okRunner() });
+    const out = await dispatchAgentsRpc("agents.glossary", {}, ctx);
+    expect(out.kind).toBe("hit");
+    const params = await waitForNotifyParams(ctx.notify, "glossary.briefReady");
+    expect(params?.["brief"]).toContain("OBSERVABLE-SYNTHESIS-MARKER");
+    expect(params?.["synthesis"]).toMatchObject({
+      attempted: true,
+      used: true,
+      model: "fake-model",
+    });
+  });
+
+  test("agents.ownership with runner set actually synthesizes", async () => {
+    const ctx = makeCtx(freshDb(), { runner: okRunner() });
+    const out = await dispatchAgentsRpc("agents.ownership", {}, ctx);
+    expect(out.kind).toBe("hit");
+    const params = await waitForNotifyParams(ctx.notify, "ownership.briefReady");
+    expect(params?.["brief"]).toContain("OBSERVABLE-SYNTHESIS-MARKER");
+    expect(params?.["synthesis"]).toMatchObject({
+      attempted: true,
+      used: true,
+      model: "fake-model",
+    });
+  });
+
+  // Fix round 2: three more forwarding sites (handleDecisions, handleNegotiate,
+  // handlePremortem) had the SAME optional-spread shape and the SAME no-test gap.
+
+  test("agents.decisions with runner set actually synthesizes", async () => {
+    const ctx = makeCtx(freshDb(), { runner: okRunner() });
+    const out = await dispatchAgentsRpc("agents.decisions", {}, ctx);
+    expect(out.kind).toBe("hit");
+    const params = await waitForNotifyParams(ctx.notify, "decisions.briefReady");
+    expect(params?.["brief"]).toContain("OBSERVABLE-SYNTHESIS-MARKER");
+    expect(params?.["synthesis"]).toMatchObject({
+      attempted: true,
+      used: true,
+      model: "fake-model",
+    });
+  });
+
+  test("agents.premortem with runner set actually synthesizes", async () => {
+    const db = freshDb();
+    // Premortem throws "not found in the local Jira index" for an unresolvable epicRef before
+    // ever reaching synthesize() — a real target epic must be indexed for this test to exercise
+    // the runner-forwarding line at all, not just the earlier resolution failure.
+    const now = Date.now();
+    upsertIndexedItem(db, {
+      service: "jira",
+      type: "issue",
+      externalId: "PROJ-1",
+      title: "PROJ-1 title",
+      metadata: { issue_type: "Epic", status_category: "in_progress", created_at_ms: now },
+      modifiedAt: now,
+      syncedAt: now,
+    });
+    const ctx = makeCtx(db, { runner: okRunner() });
+    const out = await dispatchAgentsRpc("agents.premortem", { epicRef: "PROJ-1" }, ctx);
+    expect(out.kind).toBe("hit");
+    const params = await waitForNotifyParams(ctx.notify, "premortem.briefReady");
+    expect(params?.["brief"]).toContain("OBSERVABLE-SYNTHESIS-MARKER");
+    expect(params?.["synthesis"]).toMatchObject({
+      attempted: true,
+      used: true,
+      model: "fake-model",
+    });
+  });
+
+  test("agents.negotiate with runner set actually attempts synthesis (discarded by the contract guard, not dropped)", async () => {
+    // negotiate is the one brief kind with NON-EMPTY requiredPhrases (brief-contract.ts's
+    // NEGOTIATE_LANES): every null lane requires its own "could not be computed" disclaimer
+    // under its own heading. okRunner()'s bare marker string satisfies none of that, so
+    // contractViolations correctly discards it as a contract_violation — the guard working
+    // exactly as designed, not a reason to weaken it for this test. The point here is only to
+    // prove ctx.runner was threaded through, and `{attempted: true, used: false}` already does
+    // that on its own: a DROPPED runner (ctx.runner undefined) produces
+    // `{attempted: false, reason: "disabled"}` at synthesize()'s very first branch — a
+    // different, unambiguous value a discarded-but-attempted outcome can never be confused with.
+    const ctx = makeCtx(freshDb(), { runner: okRunner() });
+    const out = await dispatchAgentsRpc("agents.negotiate", {}, ctx);
+    expect(out.kind).toBe("hit");
+    const params = await waitForNotifyParams(ctx.notify, "negotiate.briefReady");
+    expect(params?.["synthesis"]).toMatchObject({
+      attempted: true,
+      used: false,
+      reason: "contract_violation",
+    });
   });
 });
 
