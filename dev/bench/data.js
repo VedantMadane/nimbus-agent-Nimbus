@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786986664176,
+  "lastUpdate": 1786996571435,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -13293,6 +13293,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 241.96612794999018,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "044c16bd36b4aa06716a917d6a6e412ef9c8ef80",
+          "message": "fix(release): parse the squash message GitHub actually creates (#1235)\n\n`feat(agents): make built-in brief synthesis executable` (#1234) merged\nwith a green\n`PR quality — Release safety` check, then release-please could not parse\nits squash commit,\nreported `commits: 0`, and opened no release PR — so the drop-guard on\n`main` went red with one\nunreleased user-facing commit. This fixes the gate that was supposed to\nprevent exactly that, and\ncuts the release #1234 never got.\n\n### Why the gate passed\n\n**GitHub hard-wraps a squash commit BODY at 72 columns and leaves the\nSUBJECT alone.**\n`check-pr-message-parses.ts` composed `subject` + blank line + the PR\nbody verbatim and parsed\nthat, so the message it judged was not the message that landed.\n\nThat difference is exactly the kind that flips a parse: wrapping inserts\na newline mid-line, and\nthis grammar will not accept a newline inside a paren group. #1234's\nbody carried a code span\nholding `createBriefLlm` with its two arguments; wrapped, the opening\nparen ended its line and the\nclosing one fell to the next, giving `unexpected token '\\n' at 105:24`.\n\n### The gate was mostly inert, not wrong at the margin\n\nMeasured over the 120 most recently merged PRs, against their real\nsquash commits as ground truth:\nfour genuinely fail to parse — #1218, #1219, #1224, #1234 — and the\nun-wrapped composition caught\nexactly one, #1224. It missed #1218, the incident the gate was built\nfor.\n\nThis also corrects a claim in `docs/CHANGELOG.md`. \"All seven would be\nblocked today\" was verified\nby reconstructing each PR body from its already-wrapped **commit**,\nwhich is a fixed point of the\nwrap and so parses the same either way. Fed the un-wrapped bodies the\nworkflow really supplies\nvia `github.event.pull_request.body`, the gate as it then stood did not\nblock #1218 or #1219. Both\nthat entry and the new one now say so.\n\n### The fix\n\n- `wrapBody()` reproduces #1234's landed commit body **byte-for-byte**,\n222 of 222 lines. 72 is\nthe only width of 70/72/75/76/80 that does. GitHub's appended\n`Co-authored-by:` trailer is not\nmodelled and does not need to be: a trailer after the body cannot change\na parse failure earlier\n  in it.\n- `githubSquashMessage()` wraps the body and leaves the subject alone.\nGetting that backwards is\nnot cosmetic — wrapping the subject too shifted every body line by one\nand reported #1218 at\n104:15 instead of its real 103:15, still \"failing\" but for the wrong\nreason. A test pins it.\n- The CLI checks the wrapped form **and** the raw one. Wrapping only\never adds newlines, so it is\nnot obvious that a raw failure must survive it, and a gate is the wrong\nplace to rely on that.\n- The error output now says the excerpt is post-wrap, because otherwise\nan author looks at a\nbalanced line in the PR editor and cannot see what CI is complaining\nabout.\n\n### Verification\n\nAll three reproducible incidents land on their exact CI-reported\npositions — 103:15, 20:72 and\n105:24 — and across the 120-PR corpus the model agrees with the real\ncommit on every one, with\nzero false positives.\n\n`scripts/release/fixtures/squash-parse-corpus.json` checks in five real\nPR bodies, three failing\nand two passing, so the negative side is pinned too. One test asserts\nthe OLD path's specific\nblindness, so the corpus cannot rot into a set of cases that would pass\nwithout the wrap.\n\nRed-proved by reverting: with `wrapBody` neutered to return its input, 6\ntests fail, including all\nthree incident reproductions. `bun run preflight:fast` passes; `bun test\nscripts/release` is 318\npass / 0 fail.\n\n### Why this forces 2.6.0\n\n#1234 is a `feat` and is still unreleased. Merging this alone would let\nrelease-please cut a patch\nfrom this `fix`, shipping that feature under the wrong bump. No release\nPR is currently open, so\nthe trailer below is safe to add. #1234's release note is lost either\nway — the tag will be\nimmutable and its commit still does not parse — so its substance is\nrecorded in\n`docs/CHANGELOG.md` instead, alongside the correction above.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nRelease-As: 2.6.0\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n- **Bug Fixes**\n- Improved release-message validation to accurately reflect GitHub’s\n72-column wrapping behavior.\n- Enhanced parse errors with clearer context about wrapped commit\nbodies.\n- Prevented regressions involving previously undetected release-message\nformatting issues.\n\n- **Tests**\n- Added coverage for wrapping, line-ending normalization, subject\npreservation, parser positions, and representative release-message\nscenarios.\n\n- **Documentation**\n- Updated the changelog with details about the validation correction,\naffected incidents, measurements, and remaining release-note gaps.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-17T19:44:22Z",
+          "tree_id": "746aaf88826026e7904392d2632d0c773ae121df",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/044c16bd36b4aa06716a917d6a6e412ef9c8ef80"
+        },
+        "date": 1786996568799,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 336.1897367000005,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 334.48767504999887,
             "unit": "ms"
           }
         ]
