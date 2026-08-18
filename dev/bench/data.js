@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787068063779,
+  "lastUpdate": 1787070325024,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -13429,6 +13429,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 337.74175890000043,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5b9c1152c6c0df19f0035ab401bd62413132b89b",
+          "message": "feat(agents): give every interleaved brief disclosure one definition and a guard (#1245)\n\nI31 PR 1 made whole-section disclosures safe by construction: `## Gaps`\nand negotiate's two reserved sections are built by the renderer and\nre-attached verbatim, so a rewrite cannot drop them. The sentences\ninterleaved with the numbers they qualify cannot use that mechanism —\nthey sit inside prose the model is meant to rewrite — and the\nanchor-phrase fallback covered only negotiate's seven null-lane\ndisclaimers, from string literals in `render.ts` with a matching copy in\n`brief-contract.ts`. Two sets free to drift: edit one and you get either\na guard requiring a phrase nothing renders, which rejects every\nsynthesis, or a rendered disclosure nothing guards.\n\n## What changed\n\nNew `agents/_lib/brief-disclosures.ts` is the single definition of each\ndisclosure — its `line`, the text the renderer emits; its `anchor`, the\nfactual fragment that must survive a rewrite; and, where it is\nconditional, its presence predicate. `render.ts` emits `.line`.\n`brief-contract.ts`'s `requiredPhrases` requires `.anchor` under the\nsame predicate, by asking the module rather than re-deriving it, so the\nguard cannot require a phrase the brief never rendered, nor miss one it\ndid.\n\nCoverage widens from those seven sentences to the whole interleaved set:\nnegotiate's ownership accountability disclaimer and list-truncation\nclause, its two `unattributable` disambiguation lines, glossary's two\ndefinition-provenance lines, and the last-modified-not-created window\nclause.\n\nThe window clause needed a second scope, not just an anchor. It lives in\nthe preamble above the first `##` — deliberately, since it qualifies\nevery headline count in the brief — where `sectionBody` cannot reach, so\na required phrase pointed at it had nowhere to be checked.\n`markdown-sections.ts` gains `preambleBody`, fence-aware through the\nsame shared scan. It is scoped to the preamble rather than the whole\ndocument: a rewrite that deletes the clause from the header and mentions\nit under some unrelated section has still dropped it from the place the\ncounts are read against.\n\nAnchors are each sentence's factual clause, never its full text —\nrequiring that verbatim would reject legitimate paraphrase and discard\nthe rewrite — and never its variable tail, since the decisions line ends\n\"not necessarily yours\" or \"not necessarily theirs\" depending on\n`--person`, so a tail-inclusive anchor would be inert for half of all\nbriefs.\n\n## Behaviour change worth stating plainly\n\nA negotiate brief now ALWAYS has a non-empty requirement set, because\nthe window clause is unconditional. Before this, a fully-populated\nnegotiate brief had none — a model could return a single line and it was\naccepted verbatim. Three fixtures across the suite encoded that\nbehaviour and now carry the disclosures a real rewrite must keep.\n\n## Bounds, recorded rather than hidden\n\nA phrase check proves a fragment survived, not that the sentence around\nit still means what it meant: a rewrite keeping \"no indexed author\"\ninside a sentence that reverses its sense would pass.\n\nGlossary requires a phrase only in `term` mode, for `entries[0]`,\nexactly mirroring `renderGlossaryBody`. List and miss mode render no\nprovenance sentence at all, and requiring one there would reject every\nlist-mode synthesis over a disclosure the renderer never wrote.\n\nOne design item was dropped on contact with the code: exact-match\nheading scoping for glossary terms, proposed against a prefix collision\nbetween two term sections that cannot arise, because term mode renders a\nsingle entry. The extra axis on the shared scanner went with it.\n\n## Verification\n\n- `bun run preflight:fast` — passed, all 29 gates.\n- `bun run preflight` — every gate green except `audit:coverage-floor`,\nwhich flags 3 violations in `socket-listeners.ts` and\n`platform/linux.ts`. Neither file is touched by this branch, and both\nmatch the documented Windows-only divergence where the Linux PAL arm\nnever executes. This branch's own files: `brief-disclosures.ts` 100%\nline and 100% branch; `brief-contract.ts` 97.3 and 95.5;\n`markdown-sections.ts` 100 and 91.2; `render.ts` 98.8 and 90.3 — all\nclear of the 85 and 80 floors.\n- `bun test packages/gateway/src` — 11381 pass, 0 fail.\n- Six red-proofs, each by reverting the mechanism and confirming the\nmatching test goes red: the window requirement, preamble scoping, the\nzero-suppression predicate, an inert anchor, the glossary mode mirror,\nand the new `security-invariants.test.ts` I31 row.\n\n## Docs\n\nI31's statement, wiring site, anti-patterns and compliance recipe; the\nmirrored `CLAUDE.md` and `GEMINI.md` bullets, which asserted the\nopposite; the roadmap's Remaining-in-S1 row plus the stale \"is PR 2's\nscope\" clause in the A0 row; a dated `CHANGELOG.md` entry.\n\nNo schema change, no IPC change, no Tauri allowlist change, no new\ninvariant — I31 already exists and its text is updated in place.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+          "timestamp": "2026-08-18T19:16:03+03:00",
+          "tree_id": "83ae81dd3a2daca4b40ebb5e71ebf3b8b1ffdb9e",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/5b9c1152c6c0df19f0035ab401bd62413132b89b"
+        },
+        "date": 1787070322688,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 247.25556044999647,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 246.8442115000005,
             "unit": "ms"
           }
         ]
