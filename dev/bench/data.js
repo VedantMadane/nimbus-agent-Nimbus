@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787066071438,
+  "lastUpdate": 1787068063779,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -13395,6 +13395,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 272.7883624000031,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "19cbb41b521e5d95709f0591c896e0bae8e7888b",
+          "message": "chore(ci): stop Dependabot re-proposing the js-yaml 5 major (#1243)\n\nDependabot opened #1239 to take `js-yaml` from 4.3.1 to 5.3.0. That\nupgrade is\nnot adoptable, and it is not adoptable for reasons already established\nby\nattempting it in #1049 — so this adds the `ignore` entry that stops it\nbeing\nre-proposed every week, with the rationale recorded next to it.\n\n## Why #1239 cannot go green\n\nRoot `overrides` pins `js-yaml` to 4.3.1. Dependabot edits\n`dependencies`; it\nhas no notion of `overrides`. So the declaration moved to `^5.3.0` while\nthe\nlockfile kept resolving 4.3.1, and `audit:override-drift` failed the PR\n— which\nis exactly the drift that gate exists to catch.\n\nThe three blockers behind the pin, re-verified against today's tree\nrather than\ntaken from the #1049 write-up:\n\n1. v5's ESM build dropped the default export. TypeScript does not catch\nthis;\nonly running the tests does. Six files need converting to named imports,\nfour\n   of them CI gate scripts — `workflow-lint`, `check-openapi-drift`,\n`check-workflow-run-triggers`, `linux-repo-config` — that would then\nfail\n   every future preflight.\n2. The whole Astro/Starlight chain imports `js-yaml` as a default export\nand\ndeclares v4: `astro@7.2.0` wants `^4.3.0`, `@astrojs/starlight@0.41.7`\nwants\n   `^4.1.1`, and `@astrojs/internal-helpers` wants `^4.1.1`/`^4.3.0`.\n3. Root `overrides` is global by construction, so no configuration gives\nthe\ngateway v5 and Astro v4. The override cannot simply be dropped either:\nit is\nalso lifting `gray-matter` and `@istanbuljs/load-nyc-config` off\n`js-yaml`\n   3.x, which is the advisory the pin was added for in #781.\n\n## What changes\n\nOne `ignore` entry for `js-yaml` majors, alongside the `vite`,\n`@vitejs/plugin-react` and `typescript` entries that are held back for\ntheir own\ndocumented reasons. Minor and patch updates within v4 still flow\nnormally.\n\nThe comment states the revisit condition and the trap: when the Astro\nchain\nships v5 support, the root `overrides` pin has to move in the SAME PR as\nthe\ndeclarations, or the next attempt fails the same gate the same way.\n\n#1239 is closed in favour of this.\n\n## Verification\n\n`bun run preflight:fast` — all 29 gates pass, `audit:override-drift` and\n`audit:workflow-lint` among them. The edited file was parsed with\n`js-yaml`\nitself to confirm the `ignore` list contains all four entries.\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Chores**\n* Updated dependency update settings to defer major `js-yaml` upgrades\nuntil compatibility issues with the Astro toolchain are resolved.\n* Documented the conditions for revisiting this dependency restriction.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-18T15:35:56Z",
+          "tree_id": "1d73787740d3cee15581fad2e1abf46fb58ea773",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/19cbb41b521e5d95709f0591c896e0bae8e7888b"
+        },
+        "date": 1787068061006,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 334.54855150000327,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 337.74175890000043,
             "unit": "ms"
           }
         ]
