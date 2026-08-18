@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787071208744,
+  "lastUpdate": 1787079363827,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -13497,6 +13497,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 322.4660837500014,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "becc386cb9d114ed4bf9f292b3ce99cb7e97afa7",
+          "message": "feat(engine): nimbus ask --devil argues against the plan (#1246)\n\n`nimbus ask --devil` makes the agent argue AGAINST the plan or\nassumption in the question — the risks it runs, the edge cases it\nignores, the alternative readings of the evidence it skips — instead of\nhelping to carry it out. Second of the three Wave 6 answer-quality\nsurfaces to land after A0 unblocked them.\n\n## The hazard this row warned about was designed out, not satisfied\n\n`docs/roadmap.md` recorded, from a check against the tree during the A0\ndesign pass, that `--devil` needed two independent prompt sites \"updated\ntogether\": `engine/agent.ts`'s three Mastra `instructions:` literals,\nand `run-conversational-agent.ts`'s separate hardcoded `systemPrompt`. A\nchange at one silently no-ops on the other.\n\nNeither was touched. Both execution paths — `runViaLocalRouter` and\n`runViaAgent` — consume a prompt built by a single function,\n`buildPromptText`, and `applyDevilAdvocate` prefixes the directive to\nwhat that function returns — one site, above the router-vs-agent fork,\nso both paths carry it by construction rather than by anyone remembering\nto update two prompt strings. The sentence has exactly one definition,\n`engine/devil-advocate.ts`'s `DEVIL_ADVOCATE_DIRECTIVE` — the same\nsingle-definition discipline as `brief-disclosures.ts` in #1245.\n\n## The real two-site risk was one layer up, where the roadmap had not\nlooked\n\n`agent.invoke` and `engine.askStream` are separate IPC dispatchers that\nresolve the same `getAgentInvokeHandler`, each parsing its own params\nrecord — and `engine.askStream` is the path the desktop UI and the VS\nCode extension use. Wiring only `agent.invoke` would have shipped a flag\nthat worked in the terminal and was inert on every other surface. Both\nare wired and independently tested: breaking either leg fails only its\nown test, which is how that was verified rather than assumed.\n\n## Routing\n\n`--devil` skips intent classification and forces the conversational\npath. Plan dispatch executes a plan and has no argument to make, so\nwithout this the flag would do nothing for every query a probabilistic\nclassifier reads as an action — a subset the user cannot predict.\nForcing the route does not fabricate one: with no agent and no local\nrouter it raises the existing `GatewayAgentUnavailableError`. The\nclassifier is skipped outright rather than called and ignored, saving a\nround-trip per `--devil` turn. The conversational block became one\n`answerConversationally` helper so the classifier's route and the\n`--devil` route cannot drift apart.\n\nThe directive's closing clause is load-bearing, not politeness: a mode\nthat asks a model to argue against the user invites invented objections,\nso it must ground each objection in citable indexed evidence and say an\nobjection is unsupported rather than manufacture support for it.\n\n## Acceptance criterion replaced, not met\n\nThe Wave 6 row asked for an integration test asserting the response\n\"contains at least 3 distinct counter-arguments\". That grades model\nprose, needs a live model the suite does not have, and would be flaky\nwhere one exists. Substituted: seam tests proving the directive reaches\nthe prompt on both execution paths, is absent when the flag is off,\nsurvives the indexed-context and prior-turns transforms, and crosses\nboth dispatchers — plus the forced-routing behaviour and the no-LLM\ncase. **The counter-argument count is verified by no automated test.**\nThat is recorded as a gap in the roadmap row and the changelog, not\nquietly dropped.\n\nTwo more bounds stated rather than hidden:\n\n- A prompt-level directive carries less weight with most models than a\nsystem-level one. The router path's own `systemPrompt` is deliberately\nleft alone so there is a single application site rather than two free to\ndiverge; strengthening it later reads the same constant.\n- `gateway-main.ts` carries `devil` from the IPC context into `runAsk`\nthrough a `{...ctx}` spread. Both sides declare the field and `devil` is\nnot among the later keys that could clobber it, but no test covers that\none hop.\n\n## Verification\n\n- `bun run preflight:fast` — passed, all 29 gates.\n- `bun test packages/gateway/src packages/cli/src` — 13689 pass, 0 fail,\n30 skip.\n- Four red-proofs, each by reverting the mechanism and confirming the\nmatching test goes red: removing the injection fails BOTH path tests\ntogether; breaking only the `engine.askStream` leg fails only its own\ntest while `agent.invoke` stays green; disabling the forced-routing\nbranch fails the routing tests; and the missing module failed first,\nbefore any implementation existed.\n\n## Unrelated fix needed to get the gate green\n\n`packages/gateway/test/unit/connectors/sentry-sync.test.ts` carried a\n`lint/style/useTemplate` violation that biome **2.5.8** began flagging —\nbumped by #1238, in a file last touched by #1172. **`main` is red on\n`lint` because of it, independently of this branch.** One line, fixed\nhere so this PR's own gate can pass.\n\n## Docs\n\n`docs/cli-reference.md` gains a `--devil` section, the architecture IPC\ncontract block records the param on both methods and why it must be on\nboth, the Wave 6 A1 row and its acceptance criterion are updated with\nthe two corrections above, and `docs/CHANGELOG.md` carries a dated\nentry.\n\nNo schema change, no new IPC method, no HITL involvement, no invariant,\nno Tauri or LAN allowlist change — `devil` is a new optional param on\nmethods that already exist.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+          "timestamp": "2026-08-18T18:39:43Z",
+          "tree_id": "5d4ad3b31a50f2f6e46c3dfd4916d2fc2dbb2992",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/becc386cb9d114ed4bf9f292b3ce99cb7e97afa7"
+        },
+        "date": 1787079361198,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 326.0204549000049,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 327.994664850003,
             "unit": "ms"
           }
         ]
