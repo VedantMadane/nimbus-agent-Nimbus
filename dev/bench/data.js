@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787070325024,
+  "lastUpdate": 1787071208744,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -13463,6 +13463,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 246.8442115000005,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0d3bef8d12d80a38e464a90e372766c6c9448405",
+          "message": "chore: release main (#1244)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>2.6.0</summary>\n\n##\n[2.6.0](https://github.com/nimbus-agent/Nimbus/compare/v2.5.0...v2.6.0)\n(2026-08-18)\n\n\n### Features\n\n* **agents:** give every interleaved brief disclosure one definition and\na guard ([#1245](https://github.com/nimbus-agent/Nimbus/issues/1245))\n([5b9c115](https://github.com/nimbus-agent/Nimbus/commit/5b9c1152c6c0df19f0035ab401bd62413132b89b))\n* **agents:** never let synthesis drop a brief's disclosures\n([#1237](https://github.com/nimbus-agent/Nimbus/issues/1237))\n([f27b416](https://github.com/nimbus-agent/Nimbus/commit/f27b416b793fc096f59e73196a3b1717ca7e8764))\n\n\n### Bug Fixes\n\n* **release:** parse the squash message GitHub actually creates\n([#1235](https://github.com/nimbus-agent/Nimbus/issues/1235))\n([044c16b](https://github.com/nimbus-agent/Nimbus/commit/044c16bd36b4aa06716a917d6a6e412ef9c8ef80))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-18T19:18:01+03:00",
+          "tree_id": "e36df8e1c569a1fb59442e845e6db77588b1c293",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/0d3bef8d12d80a38e464a90e372766c6c9448405"
+        },
+        "date": 1787071206738,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 320.7303650500056,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 322.4660837500014,
             "unit": "ms"
           }
         ]
