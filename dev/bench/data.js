@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786996571435,
+  "lastUpdate": 1787065475146,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -13327,6 +13327,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 334.48767504999887,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f27b416b793fc096f59e73196a3b1717ca7e8764",
+          "message": "feat(agents): never let synthesis drop a brief's disclosures (#1237)\n\nSynthesis rewrites a deterministic agent brief with an LLM. Until now\nthe\nwhole rendered brief went to the model, including the sections that\nexist\nto say what the brief could NOT determine. A rewrite could quietly drop\nthem, and the reader saw a confident brief with the caveats missing.\n\n## What changes\n\nDisclosure-only sections are now withheld from the model's input\nentirely\nand re-attached verbatim afterwards:\n\n- `## Gaps`, for all fourteen brief kinds\n- `## Sources` and `## Evidence not available from the index`, for\n  `negotiate`\n\nThe protection is structural, not a check. These sections are built by\nthe renderer from the brief's own data and are never parsed back out of\nmarkdown, so a rewrite cannot drop them. Brief content is untrusted\nmarkdown — a glossary definition quoted verbatim from an indexed Slack\nmessage can itself contain a `## Gaps` line — so a scan-based recovery\nwould extract the wrong region. Constructing removes that whole class\ninstead of hardening a scan against it.\n\nIf the model invents a reserved section anyway, it is stripped before\nre-attachment. If the canonical render and the `omitReserved` render of\nthe same brief come back identical — meaning some renderer ignored the\nflag — no rewrite is attempted at all.\n\n## Scope and limits\n\nThe fail-closed guard fires only on exact identity of the two full\nrenders. A renderer that honours the flag for one reserved section but\nnot another still passes it; that section's protection then rests on\nre-attachment alone. No disclosure is lost either way.\n\nInterleaved disclosures, which cannot be withheld as a whole section,\nare still checked by anchor phrase. That covers only `negotiate`'s seven\nnull-lane disclaimers today. Deriving those phrases from constants\nshared with the render sites — rather than the two independent copies\nthat exist now — is follow-up work, and is on the roadmap.\n\n## Also in here\n\n`scripts/coverage-floor/build-lcov.sh` did not run the two shared\nfolders that have no package.json, which CI runs explicitly. Sixteen\nfiles that CI measures therefore reported no coverage locally and failed\nthe floor at 0%, while CI stayed green. The script's header calls itself\na CI mirror; these two lines are what make that true.\n\nRecorded as invariant I31. Wiring, docs and enforcement tests land\ntogether, per the triple rule.\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-18T17:52:24+03:00",
+          "tree_id": "584ce79c6833fb4155035738679205c361a78829",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/f27b416b793fc096f59e73196a3b1717ca7e8764"
+        },
+        "date": 1787065472542,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 339.9772248499943,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 337.1979173499902,
             "unit": "ms"
           }
         ]
