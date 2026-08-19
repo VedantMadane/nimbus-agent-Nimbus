@@ -2052,12 +2052,91 @@ export function parseNimbusAgentsToml(
   return out;
 }
 
-export function loadNimbusAgentsFromConfigDir(configDir: string): NimbusAgentsToml {
-  return loadTomlSection(
-    join(configDir, "nimbus.toml"),
-    DEFAULT_NIMBUS_AGENTS_TOML,
-    parseNimbusAgentsToml,
+// ---------------------------------------------------------------------------
+// [persona] — agent persona (Spine S1, W6-A2)
+//
+// Two knobs only. `tool_caution` and `confidence_threshold` from the original
+// roadmap row are REJECTED, not deferred: Non-Negotiable #2 + I2 forbid a knob
+// that loosens HITL, and a dial that makes the agent hedge less is the same
+// mistake one layer up. See the design spec, D1.
+// ---------------------------------------------------------------------------
+
+export type PersonaTone = "neutral" | "terse" | "formal" | "casual" | "verbose";
+export type PersonaVoice = "neutral" | "opinionated" | "collective";
+
+export type NimbusPersonaToml = {
+  tone: PersonaTone;
+  voice: PersonaVoice;
+};
+
+/** Both `"neutral"` — the value that makes `applyPersona` the identity function. */
+export const DEFAULT_NIMBUS_PERSONA_TOML: NimbusPersonaToml = {
+  tone: "neutral",
+  voice: "neutral",
+};
+
+/** An unrecognised `[persona]` value, surfaced so the loader can warn (design § 5.1). */
+export type PersonaIssue = { key: string; value: string };
+
+const PERSONA_TONES: ReadonlySet<string> = new Set([
+  "neutral",
+  "terse",
+  "formal",
+  "casual",
+  "verbose",
+]);
+const PERSONA_VOICES: ReadonlySet<string> = new Set(["neutral", "opinionated", "collective"]);
+
+function applyNimbusPersonaKey(
+  out: NimbusPersonaToml,
+  key: string,
+  valRaw: string,
+  issues: PersonaIssue[] | undefined,
+): void {
+  const v = valRaw.trim().replace(/^"|"$/g, "");
+  if (key === "tone") {
+    if (PERSONA_TONES.has(v)) out.tone = v as PersonaTone;
+    else issues?.push({ key, value: v });
+    return;
+  }
+  if (key === "voice") {
+    if (PERSONA_VOICES.has(v)) out.voice = v as PersonaVoice;
+    else issues?.push({ key, value: v });
+  }
+}
+
+export function parseNimbusPersonaToml(
+  raw: string,
+  defaults: NimbusPersonaToml = DEFAULT_NIMBUS_PERSONA_TOML,
+  issues?: PersonaIssue[],
+): NimbusPersonaToml {
+  const out: NimbusPersonaToml = { ...defaults };
+  forEachSectionEntry(raw, "[persona]", (key, valRaw) =>
+    applyNimbusPersonaKey(out, key, valRaw, issues),
   );
+  return out;
+}
+
+export function loadNimbusPersonaFromPath(
+  tomlPath: string,
+  issues?: PersonaIssue[],
+): NimbusPersonaToml {
+  return loadTomlSection(tomlPath, DEFAULT_NIMBUS_PERSONA_TOML, (raw) =>
+    parseNimbusPersonaToml(raw, DEFAULT_NIMBUS_PERSONA_TOML, issues),
+  );
+}
+
+/**
+ * The ONE `[agents]` loader. It takes a path, not a config dir, because the path a caller
+ * wants is the PROFILE-RESOLVED one (`resolveNimbusTomlForProfile`) — the former
+ * `loadNimbusAgentsFromConfigDir` hardcoded `nimbus.toml` and was therefore profile-BLIND,
+ * which silently discarded `[agents] synthesis` set in a profile TOML. A2 moved the sole
+ * production caller (`agents/_lib/agent-synthesis-runner.ts`) onto this function and DELETED
+ * the config-dir variant rather than leaving a profile-blind loader exported beside the
+ * profile-aware one for someone to reach for by accident. See the design spec § 5.1.
+ */
+export function loadNimbusAgentsFromPath(tomlPath: string): NimbusAgentsToml {
+  return loadTomlSection(tomlPath, DEFAULT_NIMBUS_AGENTS_TOML, parseNimbusAgentsToml);
 }
 
 // ---------------------------------------------------------------------------

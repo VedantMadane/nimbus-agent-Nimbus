@@ -15,6 +15,7 @@ export function ProfilesPanel() {
   const setProfileList = useNimbusStore((s) => s.setProfileList);
   const setProfileActionInFlight = useNimbusStore((s) => s.setProfileActionInFlight);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [switchNotice, setSwitchNotice] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const confirm = useConfirm();
@@ -53,13 +54,25 @@ export function ProfilesPanel() {
     async (name: string) => {
       if (name === active) return;
       setProfileActionInFlight(true);
+      setSwitchNotice(null);
       try {
         await createIpcClient().profileSwitch(name);
+        // Re-read the list, exactly as onCreate/onDelete do. Without this the `active` marker
+        // stays on the OLD row while the notice below says the switch succeeded — two
+        // contradictory statements on screen at once. The server is the source of truth for
+        // which profile is active, so this refetches rather than setting it optimistically.
+        await refresh();
+        // Switching a profile only updates the on-disk marker: NIMBUS_PROFILE is read at spawn
+        // (cli/src/lib/spawn-gateway.ts), so the switch takes effect on the next Gateway start,
+        // not this one. The CLI already prints this (cli/src/commands/profile.ts); mirror it here.
+        setSwitchNotice(
+          "Active profile set. Restart the Gateway for it to take effect (nimbus stop && nimbus start).",
+        );
       } finally {
         setProfileActionInFlight(false);
       }
     },
-    [active, setProfileActionInFlight],
+    [active, refresh, setProfileActionInFlight],
   );
 
   const onDelete = useCallback(
@@ -91,6 +104,14 @@ export function ProfilesPanel() {
       />
       {fetchError !== null && (
         <PanelError message={`Failed to load profiles: ${fetchError}`} onRetry={refresh} />
+      )}
+      {switchNotice !== null && (
+        <div
+          role="status"
+          className="p-3 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-subtle)]"
+        >
+          <p className="text-sm">{switchNotice}</p>
+        </div>
       )}
       <div className="flex justify-end">
         <button
