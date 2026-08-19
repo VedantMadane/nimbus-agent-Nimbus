@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787143284670,
+  "lastUpdate": 1787145037521,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -13701,6 +13701,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 318.49092640000015,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d134eeab66409690656d3689edd9e02f47e64d8b",
+          "message": "chore: release main (#1256)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>2.7.0</summary>\n\n##\n[2.7.0](https://github.com/nimbus-agent/Nimbus/compare/v2.6.0...v2.7.0)\n(2026-08-19)\n\n\n### Features\n\n* **briefs:** research briefs draw on the whole index, not only clips\n([#1253](https://github.com/nimbus-agent/Nimbus/issues/1253))\n([80c21df](https://github.com/nimbus-agent/Nimbus/commit/80c21dfa0590d1bbb6af88c6556a4a0cfb7da2d3))\n* **engine:** [persona] gives Nimbus a configurable voice\n([#1248](https://github.com/nimbus-agent/Nimbus/issues/1248))\n([10b3175](https://github.com/nimbus-agent/Nimbus/commit/10b31750e57f1b3a6469b731b0942929b7f4d7fc))\n* **engine:** nimbus ask --devil argues against the plan\n([#1246](https://github.com/nimbus-agent/Nimbus/issues/1246))\n([becc386](https://github.com/nimbus-agent/Nimbus/commit/becc386cb9d114ed4bf9f292b3ce99cb7e97afa7))\n* **metrics:** nimbus stats charts a metric over time\n([#1249](https://github.com/nimbus-agent/Nimbus/issues/1249))\n([ba316d4](https://github.com/nimbus-agent/Nimbus/commit/ba316d412fb25b83d78be798e757bd64c9fdfb80))\n\n\n### Bug Fixes\n\n* **ci:** stop the AuditPanel vitest flake, clear the Sonar board, and\nmake docs/README.md the only README\n([#1252](https://github.com/nimbus-agent/Nimbus/issues/1252))\n([70f15ca](https://github.com/nimbus-agent/Nimbus/commit/70f15ca9ab2d0ad1ccb93acc01ab54ad3106c38f))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-19T15:59:28+03:00",
+          "tree_id": "c7f68b9fcaf59c4713126f1ab12012ff4ecb48cb",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/d134eeab66409690656d3689edd9e02f47e64d8b"
+        },
+        "date": 1787145035554,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 320.684162499999,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 319.244068350007,
             "unit": "ms"
           }
         ]
