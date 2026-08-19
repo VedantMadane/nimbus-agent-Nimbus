@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787145037521,
+  "lastUpdate": 1787146969183,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -13735,6 +13735,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 319.244068350007,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "34a08e3005e554e935135409ff1a64469b56d5c8",
+          "message": "fix(ownership): stop the symbol sync wiping owner counts from the graph (#1255)\n\n## Summary\n\n`graph_entity.metadata` was last-writer-wins.\n`ownership/ownership-pass.ts`\nwrote owner counts onto a `source_file` entity;\n`graph/graph-populator.ts`\nwrote the **same** entity — a byte-identical `file:<repoRoot>:<path>`\nexternal id, a deliberate convergence — with no metadata, so every\n`syncCodeSymbolGraph` run set that metadata to `NULL`.\n\nThe user-visible effect: `nimbus owners` alternated between its real\noutput\nand the fallback branch meant for legacy rows, depending on which pass\nran\nlast. No error, no gap note — the brief just quietly said less.\n\nThis PR gives co-owned entities a **namespaced** metadata map, so two\nwriters can no longer touch each other's data.\n\n- `upsertGraphEntityNamespaced` merges a writer's own namespace via\n  SQLite `json_patch`, leaving sibling namespaces untouched.\n- `EntityMetadataWriter` is a closed union, so a typo cannot silently\n  create a namespace nothing reads.\n- `readEntityMetadata` deliberately has **no** flat fallback: a flat row\n  returns `null` rather than being reinterpreted as ownership data.\n  A fallback would mask exactly the clobber this work exists to surface.\n- V54 rewraps existing rows as `{\"ownership\": <existing>}`.\n- Two independent guards stop the flat API being called on a co-owned\ntype: a `NonCoOwnedType<T>` compile-time guard and a static audit rule.\n\n## Related Issue\n\nRelates to Spine S1 — this is sub-project A of the changed-file-indexing\nwork, and a precondition for it. It is independently valuable because it\nfixes the live bug above.\n\n## Type of Change\n\n- [x] Bug fix (non-breaking change that fixes an issue)\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` passes with zero errors\n- [x] `bun run lint` passes — Biome, format + lint\n- [x] All existing tests pass — 14220 pass, 32 skip, 0 fail across 1056\nfiles\n- [x] New behaviour is covered by tests\n- [x] No `any` types introduced — `unknown` is used for external data\n- [x] No credentials, tokens, or secret values appear anywhere\n- [x] Platform-specific code is behind `PlatformServices`\n- [x] The HITL consent gate has not been weakened or bypassed\n\n## Testing\n\n`bun run preflight:fast` passes all 30 gates. `bun test\npackages/gateway`\nis green. `bun run typecheck:tests` reports 471 known errors baselined\nand\n0 new — the count, not the exit code, since it exits 0 on win32\nregardless.\n\nThe static audit rule was **red-proved**, not merely observed green:\npointing one converted write back at the flat function fails\n`audit:invariants` at that exact file and line, and the compile guard\nfails\nthe same revert with a separate error. The regex bound was red-proved\ntoo,\nby widening the match window until the test went red.\n\n## Notes for Reviewers\n\n**The co-owned set was wrong in both directions, and only a whole-branch\nreview found it.** Five per-task reviews passed, because every task was\ninternally consistent with a constant nobody re-derived.\n\n- **Missing:** `workspace` and `repo`. Both files write them under\n  converging external-id keys. Nothing is lost today, because neither\n  passes metadata — but the moment one records metadata the original bug\nreturns, and **neither guard fires**, since both key off that constant.\n- **Overstated:** `service` cannot collide. Its two writers use disjoint\n  keyspaces, so `ON CONFLICT` never fires between them. It stays\n  namespaced anyway: shrinking a live protection on a \"disjoint today\"\n  argument is the fragile direction. Only the claim changed.\n- `directory` has just one writer and is namespaced for uniformity.\n\nThe doc comment on `CO_OWNED_ENTITY_TYPES` now records all six\njustifications per type, and says the list is chosen rather than\nderived.\nAn earlier version claimed both writers wrote all four and framed itself\nas\n\"resolved from the tree\" — that claim was false and appeared in three\nseparate places before it was fully rooted out.\n\n**V54 edited in place rather than superseded.** A migration is normally\na\nfrozen record, so widening one would be wrong. V54 has never shipped: it\nexists only on this branch, so this is editing a draft. Once this\nmerges,\nthe usual rule binds and an equivalent change needs a V55.\n\n**Known, recorded bound:** the migration's type list is a separate\nhand-kept literal from `CO_OWNED_ENTITY_TYPES`, deliberately. A drift\ntest\ncatches a widened constant with a stale migration, but not the reverse.\nNarrow, and the safe direction.\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n* Added metadata namespacing for shared graph entities, preventing\nownership and symbol data from overwriting each other.\n* Added migration support to update existing metadata safely to the new\nformat.\n* Updated graph synchronization and ownership processing to preserve\nindependent metadata.\n\n* **Bug Fixes**\n  * Prevented code-symbol updates from clearing ownership counts.\n  * Added safeguards for invalid, missing, or malformed metadata.\n\n* **Documentation**\n* Updated schema, architecture, changelog, and migration documentation\nfor schema version 54.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-19T16:31:30+03:00",
+          "tree_id": "080a3abd10b4d30d050cfd1053bd6d7a6a22ad1a",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/34a08e3005e554e935135409ff1a64469b56d5c8"
+        },
+        "date": 1787146966957,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 308.780577950001,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 310.85987699999384,
             "unit": "ms"
           }
         ]
