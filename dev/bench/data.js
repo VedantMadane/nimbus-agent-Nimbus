@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787113799752,
+  "lastUpdate": 1787127012703,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -13565,6 +13565,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 323.71516309999936,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ba316d412fb25b83d78be798e757bd64c9fdfb80",
+          "message": "feat(metrics): nimbus stats charts a metric over time (#1249)\n\nAdds `nimbus stats <metric> --service <id>`, returning a **time series**\n— one value per disjoint bucket — over the already-indexed graph. It is\nthe counterpart to `nimbus metrics dora`, which returns a single scalar\nover one window. Closes the aggregation half of Spine S1's last open\nrow; negation remains.\n\n## What ships\n\nSix metrics. Four wrap the existing DORA calculators, called once per\nbucket with the window bound to the bucket's bounds — no DORA logic is\ncopied into SQL where a second copy could drift from the original. Two\nare new counters:\n\n- `deployment-frequency`, `lead-time`, `change-failure-rate`, `mttr` —\nwrapped\n- `pr-merges` — counts `metadata.merged_at`\n- `incidents-opened` — counts `metadata.opened_at_ms`\n\nBuckets walk backward from the request time and are deliberately not\ncalendar-aligned, so the newest bucket ends exactly at \"now\" and the\nfreshest point is complete. The accepted cost: two runs on different\ndays cover different absolute spans. `--align` is a recorded follow-up.\n\nEvery metric is service-scoped through the `ServiceConfig` DORA already\nuses, so there is no new `nimbus.toml` section.\n\n## What it will not claim\n\n**An empty bucket returns `null` with a named gap, never `0`.** Zero\nincidents and no incident data are different facts, and the CLI renders\nthe difference: a null prints `—` with its reason, a real zero prints\n`0`.\n\n**A caveated value shows its caveat.** `mttr` with fewer than three\nsamples returns a real median *and* `low_sample` — the common weekly\ncase — so the gap prints on rows that carry values too, and the summary\ncounts caveated buckets separately from empty ones.\n\n**Sparse output is the expected shape, not a malfunction.** `mttr` is a\nmedian and a one-week bucket often holds one or two incidents. The CLI\nprints a summary line and, when every bucket is null, one plain sentence\nnaming the dominant gap rather than a wall of dashes.\n\n## Limits, stated rather than omitted\n\n**`pr-merges` is GitHub-only.** `connectors/github-sync.ts` is the only\nconnector writing `metadata.merged_at`; GitLab and Bitbucket write\nnothing. A service binding a non-GitHub repo gets a\n`github_only_merge_data` gap; one binding no GitHub repos gets\n`no_repos` rather than a misleading zero.\n\n**`incidents-opened` excludes incidents with no `opened_at_ms`** and\ndiscloses that through an `incidents_missing_opened_at` gap. DORA's own\ncode falls back to `synced_at` here; this feature deliberately does not,\nbecause that would place an incident in the week we happened to index it\nwhile presenting it as the week it opened.\n\n**Only the two new counters bucket on a real event timestamp.** The four\nwrapped metrics inherit DORA's `item.modified_at` predicate —\neffectively event time for the `ci_run` and `deployment` rows behind\n`deployment-frequency`, but genuine last-touch for the `pr` and\n`incident` rows the other three read — and `mttr` also inherits DORA's\n`synced_at` fallback. That is the accepted cost of calling four tested\ncalculators unchanged rather than reimplementing them with a different\ntime predicate. An earlier revision of the spec asserted the property\nfor all six; it was false and is corrected in seven places.\n\n## Built differently from the roadmap row\n\nThe roadmap asks for a \"rolling 7-day MTTR trend\". This ships\n**disjoint** buckets, not rolling windows. They are different: rolling\ngives smoother series and better per-point samples, at ~90 evaluations\ninstead of 13, with adjacent points sharing data so a reader can\nover-trust a trend. Rolling is a recorded follow-up. The roadmap's \"PR\nmerge throughput\" also implies all forges; it is GitHub-only, above.\n\n## Scope\n\nNo schema migration, no new `nimbus.toml` section, no new HTTP route, no\nnew security invariant, and no Tauri allowlist change —\n`ALLOWED_METHODS` stays at 105. `metrics.stats` appends no\n`egress_ledger` row: local SQLite reads only, no connector dispatch, no\nremote model call. The spec records the condition that would void that\nexemption.\n\nFollow-ups recorded, not built: rolling windows; `--align`; `merged_at`\nfor GitLab and Bitbucket, which would retire the GitHub-only gap; and\n`pr-opened`, blocked on connectors capturing a PR creation timestamp.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n* Added `nimbus stats` for bucketed time-series analysis across six\nmetrics, including DORA metrics, pull-request merges, and incidents\nopened.\n* Supports service filtering, configurable time windows and bucket\nsizes, JSON output, and sparse results with gap explanations.\n* Added validation for invalid durations, metrics, services, and\noversized bucket ranges.\n\n* **Documentation**\n* Added CLI help, reference documentation, architecture details,\nchangelog entries, and roadmap updates.\n\n* **Tests**\n* Added comprehensive coverage for aggregation, rendering, validation,\nIPC handling, gaps, and empty results.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-19T11:00:33+03:00",
+          "tree_id": "9f56ba0753ea0475f776d963d3241ffe543f74c1",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/ba316d412fb25b83d78be798e757bd64c9fdfb80"
+        },
+        "date": 1787127010225,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 250.27438680000304,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 255.99250484999283,
             "unit": "ms"
           }
         ]
