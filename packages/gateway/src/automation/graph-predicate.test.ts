@@ -148,7 +148,7 @@ function seededDb(): Database {
 
 function seedPersonAndPr(db: Database): { personId: string; prId: string } {
   return {
-    personId: upsertGraphEntity(db, {
+    personId: upsertGraphEntity<string>(db, {
       type: "person",
       externalId: "gh:42",
       label: "Dev",
@@ -209,7 +209,7 @@ describe("itemMatchesGraphPredicate", () => {
       label: "PR",
       service: "github",
     });
-    const repoId = upsertGraphEntity(db, {
+    const repoId = upsertGraphEntity<string>(db, {
       type: "repo",
       externalId: "github:acme/svc",
       label: "acme/svc",
@@ -243,7 +243,7 @@ describe("itemMatchesGraphPredicate", () => {
   test("downstream_of matches a target → item edge", () => {
     const db = seededDb();
     const now = 1_700_000_000_000;
-    const wsId = upsertGraphEntity(db, {
+    const wsId = upsertGraphEntity<string>(db, {
       type: "workspace",
       externalId: "filesystem:/repo",
       label: "/repo",
@@ -336,7 +336,7 @@ describe("countItemsMatchingGraphPredicate", () => {
        VALUES ('i2', 'github', 'pr', 'pr-new', 'new', ?, ?)`,
       [t0 + 10_000, t0 + 10_000],
     );
-    const personId = upsertGraphEntity(db, {
+    const personId = upsertGraphEntity<string>(db, {
       type: "person",
       externalId: "gh:7",
       label: "Dev",

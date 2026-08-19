@@ -70,7 +70,7 @@ describe("watcher.validateCondition", () => {
        VALUES ('i1', 'github', 'pr', 'pr-1', 'feature', ?, ?)`,
       [t0 + 1000, t0 + 1000],
     );
-    const personId = upsertGraphEntity(db, {
+    const personId = upsertGraphEntity<string>(db, {
       type: "person",
       externalId: "gh:7",
       label: "Dev",
@@ -118,7 +118,7 @@ describe("watcher.validateCondition", () => {
        VALUES ('i1', 'github', 'pr', 'pr-1', 'SECRET_TOKEN_xyz', ?, ?)`,
       [1_700_001_000_000, 1_700_001_000_000],
     );
-    const personId = upsertGraphEntity(db, {
+    const personId = upsertGraphEntity<string>(db, {
       type: "person",
       externalId: "gh:1",
       label: "x",

@@ -8,6 +8,87 @@ Phase-level history before `v0.1.0` (Phases 1–4) lives in [`docs/roadmap.md` �
 
 ## Post-Phase-6 deliveries
 
+- **2026-08-19 — Graph-entity metadata namespacing (schema V54): fixes a live bug where
+  `nimbus owners` silently alternated between its real output and an "owner breakdown not
+  recorded" line.** `graph_entity.metadata` was last-writer-wins — `upsertGraphEntity`'s
+  `ON CONFLICT … DO UPDATE SET metadata = excluded.metadata` replaced the whole column with
+  whoever wrote last. `ownership/ownership-pass.ts` writes owner counts
+  (`ownerCountsMetadata(...)`) as `metadata` on `source_file`, `directory` and `service` —
+  those three only; its `person`, `workspace` and `repo` writes carry no counts.
+  `graph/graph-populator.ts` writes the **same** `source_file` entity — a byte-identical
+  `file:<repoRoot>:<path>` external id, a convergence that is deliberate — with no metadata.
+  Every `syncCodeSymbolGraph` run therefore NULLed the counts the ownership pass had just
+  written, and every ownership pass restored them, alternating forever depending on which pass
+  ran last. `ownership-store.ts`'s `parseCounts` read the absence, and
+  `agents/_lib/render.ts`'s `renderOwnershipCounts` hit its own null-guard and emitted
+  *"(owner breakdown not recorded for this path — run `nimbus owners --refresh`)"*. So
+  `nimbus owners` rendered a real "N of M contributor(s) clear the share floor" line half the
+  time and that line the other half — no error, no gap note, nothing that would surface the
+  clobber as a defect. (The same "not recorded" wording is reused by a **different** branch, in
+  `renderOwnershipTarget`, for rows predating the ownerCount/ownersAboveFloor split; earlier
+  drafts of this entry attributed the alternation to that legacy-row branch. It is not the
+  branch taken.)
+
+  Fixed by namespacing `graph_entity.metadata` as a map keyed by writer
+  (`EntityMetadataWriter = "ownership" | "symbols"`, a closed union) for six entity types:
+  `source_file`, `directory`, `person`, `service`, `workspace`, `repo`. The set is **chosen,
+  not derived**, with three different justifications, spelled out per type at
+  `CO_OWNED_ENTITY_TYPES`: `source_file`, `person`, `workspace` and `repo` are written by both
+  files under converging external ids; `directory` has no second writer at all
+  (`graph-populator.ts` never writes one) and is namespaced for uniformity; `service` is
+  written by both files but under **disjoint** id spaces (`service:<id>` versus
+  `<service>:<project>` / `openapi:service:<name>`), so `ON CONFLICT` cannot fire between them
+  today — it is namespaced defensively, and nothing here calls it a proven collision. Only
+  `source_file` has a proven, user-visible failure; the others carry no metadata from either
+  side yet, so the fix is real for them the moment either side starts recording something.
+  The new `upsertGraphEntityNamespaced` merges a writer's own namespace via two sequential
+  `json_patch` calls — a `null` patch that deletes the writer's existing namespace key, then a
+  set patch that inserts the new value fresh — rather than a single recursive `json_patch`,
+  which would have let a stale field the writer meant to drop leak forward forever
+  (`json_patch` is RFC 7396 merge patch, and merge patch recurses; it does not replace at the
+  top level the way an earlier draft of this design assumed). `readEntityMetadata` reads back
+  one writer's namespace and does **not** fall back to treating flat metadata as the
+  `ownership` namespace — a flat write landing on a co-owned type, or a skipped migration,
+  must stay visible as `null` rather than render as valid data. The V54 migration wraps
+  existing rows on those six types as `{"ownership": <existing value>}`, idempotently, and
+  only where the value is non-null, `json_valid`, `json_type(...) = 'object'` and not already
+  namespaced — a malformed or scalar value is left exactly as it is, not wrapped. Both writers
+  converted: `ownership-pass.ts` writes `writer: "ownership"` at all eight of its co-owned
+  sites, three of which carry owner counts and five of which pass `metadata: {}`;
+  `graph-populator.ts` writes `writer: "symbols"` at all thirteen of its co-owned sites
+  (`source_file`, `person`, `service`, `workspace`, `repo` — it never writes `directory`),
+  every one of them passing `metadata: {}`, including the `source_file` bug site itself, since
+  it has no symbol-level facts to record on any of them. `metadata: {}` clears that writer's
+  own `"symbols"` namespace to `{}` while leaving `"ownership"`'s counts untouched, which is
+  not the same thing as a no-op. A compile-time guard (`NonCoOwnedType<T>`, narrowing
+  `upsertGraphEntity`'s `type` parameter for a literal argument) and an independent static
+  audit rule in `scripts/structure-audit/check-nimbus-invariants.ts` both reject a flat
+  `upsertGraphEntity` call on a co-owned type, so the flat overwrite that caused this bug
+  cannot silently return. Both layers have the same two stated bounds: the audit exempts
+  `.test.ts` files (fixture-only writes keep the flat call by design) and, like the compiler
+  guard, resolves **literals only** — `type: someVariable` evades both, and neither claims
+  otherwise.
+
+  **Visible change worth recording:** `person`, `service`, `source_file`, `workspace` and
+  `repo` rows whose `metadata` was previously `NULL` now store `{"symbols":{}}` once
+  `graph-populator.ts` touches them. That is inert for every reader — `readEntityMetadata`
+  returns `{}` rather than `null` for the `symbols` writer and `null` for `ownership` either
+  way — but the column is surfaced to the LLM through `traverseGraph`, so the value is
+  observable.
+
+  **`service` and `label` clobbering is out of scope, by decision, not oversight.** Both
+  columns are written unconditionally by the same `ON CONFLICT` statement — in
+  `upsertGraphEntityNamespaced` exactly as in the flat `upsertGraphEntity`; only `metadata` is
+  namespaced. `label` is written identically by both writers, so there is nothing to lose.
+  `service` genuinely is clobbered, but `ownership-pass.ts` already works around it by deriving
+  file scope from its own `contains` edges rather than the `service` column — changing
+  `service`'s write semantics would touch every entity type in the repo for no proven defect.
+  Only these six entity types are namespaced; **24** flat-metadata call sites remain across the
+  codebase — 11 in production (all in `graph-populator.ts`) plus 13 test fixtures — and stay
+  flat. The namespaced API is available repo-wide and adopted only where a second writer
+  actually exists. `ensureGraphEntity` is untouched: it upserts `ON CONFLICT DO NOTHING`, so it
+  can never overwrite a namespace regardless.
+
 - **2026-08-19 — `nimbus stats`: aggregation-over-time queries (W6-B), shipped as disjoint
   buckets rather than the rolling window the roadmap row named.** `nimbus stats <metric>
   --service <id> [--window 90d] [--bucket 1w] [--json]` returns one value per bucket over the

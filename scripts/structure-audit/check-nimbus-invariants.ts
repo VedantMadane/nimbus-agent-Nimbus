@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { CONNECTOR_VAULT_SECRET_KEYS } from "../../packages/gateway/src/connectors/connector-secrets-manifest.ts";
+import { CO_OWNED_ENTITY_TYPES } from "../../packages/gateway/src/graph/relationship-graph.ts";
 import { auditOutputPath, iterateSourceFiles, stripComments } from "./lib.ts";
 
 export type FileEntry = { relPath: string; contents: string };
@@ -844,6 +845,111 @@ export function checkEgressChokepointConfinement(files: readonly FileEntry[]): V
   return out;
 }
 
+// graph-entity flat/co-owned confinement — NOT a numbered security invariant and not a new one:
+// this rule enforces a data-integrity property (Task 4 of the graph-entity-metadata-namespacing
+// plan), not a docs/SECURITY-INVARIANTS.md row, so it deliberately does not take a "D2x" number —
+// taking one would misstate what CLAUDE.md's "Static complement" line documents (D10 through D22
+// map 1:1 onto specific I-numbers). It follows the D20–D22 SHAPE — a named regex plus an
+// allowed-path constant — without claiming their provenance.
+//
+// WHAT IT PROTECTS: `graph_entity.metadata` is namespaced per-writer for the co-owned types
+// named by `CO_OWNED_ENTITY_TYPES` — imported directly from relationship-graph.ts rather than
+// restated here, so the two lists cannot drift (this script already imports other production
+// constants, e.g. CONNECTOR_VAULT_SECRET_KEYS above). The membership rule, and which entries are
+// live collisions versus defensive or uniformity inclusions, is documented at that constant and
+// deliberately NOT duplicated here — a copy would be one more thing to keep true.
+// The flat `upsertGraphEntity` REPLACES the whole `metadata` column; calling it with a co-owned
+// type is exactly the bug Tasks 1–3 fixed (a code-symbol sync wiping the ownership-pass's owner
+// counts). Step 1's `NonCoOwnedType<T>` already rejects a LITERAL co-owned type at compile time;
+// this rule is the second, independent layer, covering literals in any file — including a file
+// the compiler guard cannot see if the call site widens its type parameter, and including files
+// added after this commit.
+//
+// A NEW co-owned type must be added to `CO_OWNED_ENTITY_TYPES` in relationship-graph.ts, in the
+// SAME commit it becomes co-owned; this rule reads that constant directly and needs no edit of its
+// own, but the commit must still convert every new co-owned write site to
+// `upsertGraphEntityNamespaced` or this rule (and the compiler guard) will start catching them.
+//
+// MATCH SHAPE: the real call site is always multi-line —
+//   upsertGraphEntity(db, {
+//     type: "source_file",
+// — never on one line — so a same-line regex would miss every real occurrence and pass vacuously.
+// `[\s\S]{0,120}?` (lazy) spans from the `(` the regex just consumed to the `type:` literal,
+// across newlines. 120 is bounded deliberately: re-measured against every real
+// `upsertGraphEntity(` call site in graph-populator.ts on 2026-08-19, `type:` is always the FIRST
+// field and starts 10–12 characters after that `(` (`db, {`, a newline, then a four- or
+// six-space indent). 120 is therefore an order of magnitude of slack without being able to reach
+// a SUBSEQUENT call, whose own `upsertGraphEntity(` starts hundreds of characters later in every
+// measured case. This bound is asserted directly in this file's tests — a `type:` pushed past the
+// window is NOT matched — rather than inferred from how fast the scan runs.
+//
+// `\bupsertGraphEntity\s*\(` does not match `upsertGraphEntityNamespaced`, and the reason is the
+// `\s*\(`, NOT a trailing `\b`: the shipped pattern below has a LEADING `\b` only. In
+// `upsertGraphEntityNamespaced(` the character right after `...Entity` is `N` — neither
+// whitespace nor `(` — so the pattern cannot complete there. (A trailing `\b` would separate the
+// two names as well, since `y`→`N` is word-to-word and no boundary exists; it simply is not what
+// the code does, and this comment claimed it was.) No explicit exclusion of the namespaced name
+// is needed either way.
+//
+// EXEMPTION: `.test.ts` files, matching every other rule in this file (D20/D21/D22). Tasks 1 and 3
+// established that fixture-only test writes — `upsertGraphEntity<string>(db, { type: "person", ... })`
+// with no `metadata`, existing only to materialise a node so a relation has an endpoint — correctly
+// keep the flat call: neither "ownership" nor "symbols" describes a test fixture, and converting
+// them would write a namespace nobody reads. The exemption is by FILE PATH, not by the presence of
+// an explicit `<string>` type argument: trusting that argument as an opt-out marker would let ANY
+// caller — including a future production writer — silence this rule by adding one type parameter,
+// which is exactly the kind of escape hatch a "what cannot pass" rule must not offer. In the real
+// `bun run audit:invariants` run this exemption is defense-in-depth rather than load-bearing:
+// `iterateSourceFiles()` (scripts/structure-audit/lib.ts) already excludes every `.test.ts` file
+// before any rule sees it. It matters when a check function here is exercised directly against a
+// synthetic `FileEntry[]`, which is exactly how this file's own tests — and the fixture files named
+// above — are exercised.
+//
+// LIMIT, stated rather than implied: like Step 1's `NonCoOwnedType<T>` compiler guard, this rule
+// resolves LITERALS only. `upsertGraphEntity(db, { type: someVariable, ... })` evades both layers
+// no matter what `someVariable` holds at runtime — neither layer can see through a `string`-typed
+// binding to the value it carries. Together the two layers close every literal shape present in
+// the tree today; a call site that computes its type dynamically evades both, and nothing here
+// claims otherwise.
+const GRAPH_ENTITY_FLAT_DEFINITION_SITE = "packages/gateway/src/graph/relationship-graph.ts";
+const GRAPH_ENTITY_COOWNED_TYPE_ALT = CO_OWNED_ENTITY_TYPES.join("|");
+// The optional `<...>` segment is LOAD-BEARING, not defensive tidiness. `upsertGraphEntity` is
+// generic, so `upsertGraphEntity<string>(db, { type: "person", … })` instantiates `T` as `string`
+// explicitly; `NonCoOwnedType<string>` collapses back to `string` (a non-union never distributes),
+// so the compiler guard accepts it. Without this segment the regex did not match that shape
+// either, which left a production caller able to defeat BOTH layers by adding one type argument —
+// re-creating, by accident, exactly the caller-controlled opt-out the path-based exemption below
+// was chosen to avoid. Red-proved in both directions before and after this change: a probe file
+// using `<string>` passed `audit:invariants` AND `typecheck` beforehand, and fails the audit now.
+// Bounded (`{0,120}`) and `(`-free so it cannot run past the call it is matching.
+const GRAPH_ENTITY_COOWNED_FLAT_RE = new RegExp(
+  `\\bupsertGraphEntity(?:\\s*<[^()]{0,120}>)?\\s*\\([\\s\\S]{0,120}?type:\\s*["'\`](?:${GRAPH_ENTITY_COOWNED_TYPE_ALT})["'\`]`,
+  "g",
+);
+
+export function checkFlatUpsertGraphEntityCoOwnedTypes(files: readonly FileEntry[]): Violation[] {
+  const out: Violation[] = [];
+  for (const f of files) {
+    if (f.relPath.endsWith(".test.ts")) continue;
+    if (f.relPath === GRAPH_ENTITY_FLAT_DEFINITION_SITE) continue;
+    const stripped = stripComments(f.contents);
+    const lines = stripped.split("\n");
+    GRAPH_ENTITY_COOWNED_FLAT_RE.lastIndex = 0;
+    let m: RegExpExecArray | null = GRAPH_ENTITY_COOWNED_FLAT_RE.exec(stripped);
+    while (m !== null) {
+      const line = stripped.slice(0, m.index).split("\n").length;
+      out.push({
+        rule: "graph-entity-flat-coowned",
+        file: f.relPath,
+        line,
+        snippet: (lines[line - 1] ?? "").trim(),
+      });
+      m = GRAPH_ENTITY_COOWNED_FLAT_RE.exec(stripped);
+    }
+  }
+  return out;
+}
+
 type Mode = "spawn" | "wrap-spec" | "vault-key" | "db-run" | "db-run-exec" | "binary-only" | "all";
 
 function parseArgs(argv: readonly string[]): Mode {
@@ -905,6 +1011,11 @@ export const RULE_ANCHORS: readonly string[] = [
   "packages/gateway/src/connectors/connector-write-registry.ts", // D20
   "packages/gateway/src/share/share-gate.ts", // D21
   "packages/gateway/src/share/share-forward.ts", // D21 second emit path
+  // graph-entity-flat-coowned. Anchored on a file the rule SCANS, not on relationship-graph.ts:
+  // that file is the rule's own skip target (GRAPH_ENTITY_FLAT_DEFINITION_SITE), so its presence
+  // in the scanned set proves nothing about whether the rule can see anything. ownership-pass.ts
+  // is one of the two converted co-owned writers and is scanned normally.
+  "packages/gateway/src/ownership/ownership-pass.ts",
 ];
 
 /** Fail loudly when the scanned set cannot support the rules about to run. */
@@ -1082,6 +1193,15 @@ async function run(): Promise<void> {
     for (const e of v) {
       console.error(
         `::error file=${e.file},line=${e.line}::D22(d) agent emitter imported outside ipc/agents-rpc.ts — a second entry point would serve a brief with no egress row; I29 regression: ${e.snippet}`,
+      );
+    }
+    if (v.length > 0) exit = 1;
+  }
+  if (mode === "binary-only" || mode === "all") {
+    const v = checkFlatUpsertGraphEntityCoOwnedTypes(files);
+    for (const e of v) {
+      console.error(
+        `::error file=${e.file},line=${e.line}::flat upsertGraphEntity called with a co-owned type (${CO_OWNED_ENTITY_TYPES.join("/")}) — use upsertGraphEntityNamespaced instead, or the flat write wipes the other owner's namespace: ${e.snippet}`,
       );
     }
     if (v.length > 0) exit = 1;

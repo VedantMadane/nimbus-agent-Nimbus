@@ -48,10 +48,13 @@ export type GraphRelationRow = {
   to_id: string;
 };
 
-export function upsertGraphEntity(
+/** `never` for a co-owned literal, so `upsertGraphEntity({ type: "source_file" })` fails to compile. */
+type NonCoOwnedType<T extends string> = T extends CoOwnedEntityType ? never : T;
+
+export function upsertGraphEntity<T extends string>(
   db: Database,
   row: {
-    type: string;
+    type: NonCoOwnedType<T>;
     externalId: string;
     label: string;
     service?: string | null;
@@ -72,6 +75,151 @@ export function upsertGraphEntity(
     [id, row.type, row.externalId, row.label, row.service ?? null, meta],
   );
   return id;
+}
+
+/**
+ * Subsystems permitted to own a namespace inside `graph_entity.metadata`.
+ *
+ * A CLOSED union on purpose: a free-form string would let a typo silently create a third
+ * namespace that nothing ever reads, which looks identical to data loss. Sub-project B adds
+ * `"changed_files"` here when it lands, as a deliberate edit.
+ */
+export type EntityMetadataWriter = "ownership" | "symbols";
+
+/**
+ * Entity types whose metadata is namespaced. Every other type has a single writer and keeps
+ * flat metadata (design D2).
+ *
+ * This list is CHOSEN, not derived. An earlier version of this comment claimed it followed from
+ * one rule; it does not, and saying so misdescribed the tree. The six entries have three
+ * different justifications, recorded per type so the next reader inherits the gaps rather than
+ * rediscovering them. Verified against `ownership/ownership-pass.ts` and
+ * `graph/graph-populator.ts` as of this commit:
+ *
+ * - `source_file` — GENUINELY CO-OWNED, and the live bug this work exists to fix. Both files
+ *   write it under a byte-identical `file:<repoRoot>:<path>` external id (a deliberate
+ *   convergence), and the flat write NULLed the ownership pass's owner counts.
+ * - `person` — genuinely co-owned. `ownership-pass.ts` keys a resolved owner on `person.id`
+ *   (`ownership/owner-identity.ts`), and `graph-populator.ts` keys `row.authorId` /
+ *   `resolvePersonForSync(...)`, which is the same `person.id`. Converging keyspace.
+ * - `workspace` — genuinely co-owned by key shape. `ownership-pass.ts` writes
+ *   `filesystem:<root>`; `graph-populator.ts` writes `filesystem:<repoRoot>` from three syncs
+ *   (commit, dependency, code-symbol). Byte-identical shape.
+ * - `repo` — genuinely co-owned by key shape. `ownership-pass.ts` writes
+ *   `<service>:<owner>/<name>`; `graph-populator.ts` writes `<service>:<repoFull>`, the same
+ *   `<owner>/<name>` form, from the PR and issue syncs.
+ * - `directory` — NOT co-owned today: `ownership-pass.ts` is its only writer, and
+ *   `graph-populator.ts` contains no `directory` write at all. Namespaced for uniformity, so a
+ *   second writer appearing later is already safe. Do not cite it as a live collision.
+ * - `service` — both files write it, but their external ids are DISJOINT today:
+ *   `ownership-pass.ts` keys `service:<id>`, while `graph-populator.ts` keys
+ *   `<service>:<project>` and `openapi:service:<name>`. `ON CONFLICT` therefore cannot fire
+ *   between them, so this is a DEFENSIVE inclusion, not a proven collision. It stays namespaced
+ *   because the two writers are one id-shape change away from converging, and shrinking a
+ *   protection on a "disjoint today" argument is the fragile direction.
+ *
+ * Do not restate this as "both writers write all of them", and do not restate it as "derived
+ * from one rule": both claims stood here before and both were false.
+ */
+export const CO_OWNED_ENTITY_TYPES = [
+  "source_file",
+  "directory",
+  "person",
+  "service",
+  "workspace",
+  "repo",
+] as const;
+
+/**
+ * DERIVED from the array above, never written as a second literal list. Step 4b's compile-time
+ * guard and this runtime array must never disagree about which types are co-owned; two hand-kept
+ * lists of the same strings drift the moment a type is added to one of them.
+ */
+export type CoOwnedEntityType = (typeof CO_OWNED_ENTITY_TYPES)[number];
+
+/**
+ * Upsert an entity whose metadata is co-owned, merging the caller's namespace into whatever
+ * is already there instead of replacing the column.
+ *
+ * Sibling top-level keys (other writers' namespaces) are always left untouched — that part of
+ * `json_patch`'s top-level merge is exactly as advertised. But `json_patch` implements RFC 7396
+ * merge patch, which is RECURSIVE: patching an existing namespace object merges into it key by
+ * key rather than replacing it outright, so a stale field from a prior write of the SAME writer
+ * would survive a call that no longer mentions it (verified directly against this repo's
+ * `bun:sqlite`). A writer replacing its own namespace wholesale therefore needs two `json_patch`
+ * calls — first delete the writer's own key entirely (`{writer: null}`, itself a `json_patch`
+ * null-delete), then set it fresh from an absent key, which is the same shape as a first-ever
+ * write and cannot leak old fields forward.
+ *
+ * The identical two-step patch is applied on the INSERT branch too (via `json_patch('{}', ...)`
+ * rather than binding the raw JSON string): an `ON CONFLICT DO UPDATE`'s `VALUES` clause is
+ * evaluated even when no conflict occurs and would otherwise store a `null` field verbatim
+ * instead of dropping it, since only the `DO UPDATE SET` branch went through `json_patch` at all
+ * in an earlier draft of this function (caught by the brief's own null-deletion test, which
+ * exercises exactly a first insert).
+ *
+ * CAUTION, verified rather than assumed: `json_patch` treats a JSON `null` VALUE as a DELETE
+ * instruction. `json_patch('{"ownership":{"a":1}}','{"symbols":{"b":null}}')` yields
+ * `{"ownership":{"a":1},"symbols":{}}` — `b` is gone, not stored. Never write `null` inside a
+ * namespace; omit the key instead, and record "computed and found nothing" as an explicit
+ * non-null field such as a `0` or a boolean.
+ */
+export function upsertGraphEntityNamespaced(
+  db: Database,
+  row: {
+    type: string;
+    externalId: string;
+    label: string;
+    service?: string | null;
+    writer: EntityMetadataWriter;
+    metadata: Record<string, unknown>;
+  },
+): string {
+  const id = deterministicGraphEntityId(row.type, row.externalId);
+  const clearPatch = JSON.stringify({ [row.writer]: null });
+  const setPatch = JSON.stringify({ [row.writer]: row.metadata });
+  dbRun(
+    db,
+    `INSERT INTO graph_entity (id, type, external_id, label, service, metadata)
+     VALUES (?, ?, ?, ?, ?, json_patch('{}', ?))
+     ON CONFLICT (type, external_id) DO UPDATE SET
+       label = excluded.label,
+       service = excluded.service,
+       metadata = json_patch(json_patch(COALESCE(graph_entity.metadata, '{}'), ?), ?)`,
+    [id, row.type, row.externalId, row.label, row.service ?? null, setPatch, clearPatch, setPatch],
+  );
+  return id;
+}
+
+/**
+ * Read one writer's namespace out of a raw `graph_entity.metadata` value.
+ *
+ * Returns `null` for: a null column, unparseable JSON, a non-object root, an absent
+ * namespace, or a namespace holding a non-object. `graph_entity.metadata` is written by many
+ * paths, so a parse failure must degrade to "no metadata" rather than break a read.
+ *
+ * DELIBERATELY NO FLAT FALLBACK. Treating un-namespaced metadata as the `ownership`
+ * namespace was considered and rejected: a flat write landing on a co-owned type produces
+ * exactly that shape, and so does a skipped V54 — the fallback would render both as valid
+ * data instead of surfacing them. See the design spec § 5.2.
+ */
+export function readEntityMetadata(
+  raw: string | null,
+  writer: EntityMetadataWriter,
+): Record<string, unknown> | null {
+  if (raw === null || raw.length === 0) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const ns = (parsed as Record<string, unknown>)[writer];
+  if (ns === undefined || ns === null || typeof ns !== "object" || Array.isArray(ns)) {
+    return null;
+  }
+  return ns as Record<string, unknown>;
 }
 
 /**
