@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787209406011,
+  "lastUpdate": 1787237606434,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -13973,6 +13973,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 322.16632879999963,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "10c20cb0cbb2daaf83585ff81346acfdce7a247c",
+          "message": "feat(query): first-class negation queries that refuse rather than answer from an empty index (W6-B.1) (#1277)\n\nCloses the structured half of **W6-B**, the last open Wave 6\nanswer-quality row. Three named\nnegation predicates plus `--explain`, each on the command whose row\nshape it already matches:\n\n```bash\nnimbus query --service github --type pr         --not-touching 'tests/**'\nnimbus query --service github --type deployment --no-downstream-incident\nnimbus people list --not-reviewed --since 7d\n```\n\nNo predicate language, no `--negate`, no composition. The roadmap's own\n2026-08-16 correction\nrecorded that \"the structured index already handles negation natively\"\nis true only of raw SQL, so\nshipping `--negate` would have meant inventing a grammar — a parser, a\nprecedence design, an\nerror-message surface and an injection boundary, with no per-predicate\nplace to state the honesty\nstory each one needs. Three flags instead.\n\n## Why a negation is not a filter with a NOT in it\n\nThis is the constraint the whole design is shaped around. For a positive\nquery a missing row costs\na result. For a negation a missing row **produces** one: a PR whose file\nlist was never fetched\nsatisfies \"no row matching that path\" exactly as well as a PR that\ngenuinely never touched it, and\nthe two are identical at the SQL level. An unpopulated substrate does\nnot make a negation\nincomplete — it makes it **wrong**, and wrong in the direction that\nreads as a finding, because the\nemptier the index the MORE rows come back.\n\nFour bounds follow, all enforced rather than documented:\n\n1. **An empty substrate refuses.** Each predicate probes its own\nsubstrate before answering — any\n`pr_files_state` row; any `correlates_with` edge; any `reviewed` edge\n**within the query's own\n`--since` window**, not an all-time count, because edges that are all\nolder than the window are\nexactly the state where \"nobody reviewed\" and \"nothing synced\" are\nindistinguishable. A failed\nprobe returns `status: refused` with `reason: missing_substrate` and\nexit `1`: the human message\nto **stderr** so it cannot be piped in as rows, the `--json` document to\n**stdout** so a script\ncan parse it. *Refused* and *none matched* are opposite answers, and a\nnon-zero exit alone does\n   not separate a refusal from a crash.\n2. **All three predicates exclude and count unverifiable rows; only the\nshape differs.**\n`--not-touching` reports never-fetched and fetched-incompletely\nseparately. The other two reach\ntheir edges through an inner join to `graph_entity`, so an item or\nperson with no entity of the\nrequired type is excluded and counted as `excludedNoGraphEntity` —\ndropping them is fail-closed\nand stays, dropping them *uncounted* was the defect, and it was\nreachable:\n`syncGraphFromIndexedItem` returns without writing below `user_version <\n7`, which is why\n`regraphAllItems` exists. The gap line prints on every negation call,\n`--explain` or not.\n3. **The correlation window is fixed at two hours and no flag can widen\nit.** The edges are written\nunder a fixed `CORRELATION_WINDOW_MS` at WRITE time and\n`graph_relation.created_at` is a write\ntimestamp, not event time, so a query-time window cannot be\nreconstructed even in principle. A\n`--within 24h` flag would advertise a control that does not exist. The\nprinted number is DERIVED\nfrom the constant and pinned by a test that imports the real gateway\nvalue.\n4. **Subject-type scoping is mandatory**, checked before any IPC call\nand on whether the flag was\nSUPPLIED rather than what it parsed to, so `--not-touching ''` trips it\ntoo. Unscoped,\n`--not-touching 'tests/**'` would return every issue, message and commit\n— none of which can\ntouch a path at all — a flood of confident false positives from the\nfeature built to prevent\n   them.\n\n## Delivered as fields on existing methods\n\n`index.queryItems` and `people.list` gain optional `notTouching` /\n`noDownstreamIncident` /\n`notReviewed` / `sinceMs` / `explain` params and sibling `gaps` /\n`explain` response keys.\n`people.list` still returns a BARE ARRAY on a plain call, byte-for-byte\nas before, so no existing\ncaller breaks. A present-but-unusable param is rejected with `-32602`,\nnever treated as absent — a\ncaller who asked to negate must never silently fall through to the full\nunfiltered list.\n\nNo schema migration, no new IPC method, no new HTTP route, no new\ninvariant, `ALLOWED_METHODS`\nstays at 105, and no `egress_ledger` row is appended: all three\npredicates are local SQLite reads\nwith no connector dispatch and no remote model call.\n\n## `--explain`\n\nPrints the COMPOSED SQL that actually shaped the result — never the bare\npredicate subquery, which\nomits `unlinkedOnly` and the `LIMIT` and would answer a wider question\nif pasted into sqlite3 —\nplus its bound params and the substrate probe. It works on every `query`\n/ `people list` call, not\nonly negation ones, since the SQL is built anyway. Under `--json` it is\na field in the document and\na refusal is printed alone; either one loose alongside the rows would\nmake the output unparseable.\n\n## Verification\n\n- `bun run preflight:fast` — PASSED, all gates\n- `bun test packages/gateway` — 14420 pass, 32 skip, **0 fail** across\n1063 files\n- `bun test packages/cli` — 2447 pass, **0 fail** across 140 files\n- `bun run typecheck:tests` — 471 known errors baselined, 0 new\n- Doc gates: `lint:markdown` 0 issues; `audit:links` 0 errors on 1446\nlinks, checked on its own\nexit code; `audit:status-drift` OK; `audit:doc-refs` 1208 refs all\nresolve\n\nEvery substrate check was red-proved by deleting the check and\nconfirming the test goes red;\nrefusal tests assert the refusal document and exit status, never merely\nthat no rows came back,\nbecause an empty result passes identically when the feature is absent\nentirely.\n\n## Scope boundary\n\n**B.2 — exposing these predicates to `nimbus ask` — is not in this PR**\nand gets its own spec: tool\nspecs, which surface, prompt wiring, and the failure mode where the\nmodel picks the wrong predicate\nwhile still sounding authoritative. B.1 was its precondition either way.\nAlso out: any grammar,\ncomposing two predicates in one query, and cross-service negation, which\nwould mean relaxing the\nexisting `--service` requirement for every `query` invocation.\n\nDesign: `docs/superpowers/specs/2026-08-20-negation-queries-design.md`.\nPlan: `docs/superpowers/plans/2026-08-20-negation-queries.md`.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n* Added structured negation queries for pull requests, deployments, and\npeople.\n* Added `--not-touching`, `--no-downstream-incident`, and\n`--not-reviewed` filters.\n* Added optional time-window filtering and `--explain` output with query\ndetails and coverage information.\n* Added fail-closed refusals when required data is unavailable,\nincluding clear exclusion and gap reporting.\n  * Preserved existing plain-array output for standard people listings.\n\n* **Documentation**\n* Updated CLI reference, changelog, roadmap, and project guidance with\nthe new query options and behavior.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-20T14:42:00Z",
+          "tree_id": "d79f4c38fbb62eb17c1db7ce318826312b1dcfdc",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/10c20cb0cbb2daaf83585ff81346acfdce7a247c"
+        },
+        "date": 1787237603908,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 305.0259901500005,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 307.9970934000001,
             "unit": "ms"
           }
         ]
