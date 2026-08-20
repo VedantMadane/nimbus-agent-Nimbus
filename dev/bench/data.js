@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787239935421,
+  "lastUpdate": 1787251437234,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -14041,6 +14041,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 248.12522420000496,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2b28065c2ded4fcc629a55e0be139cc677494693",
+          "message": "docs(specs): clip source metadata on POST /v1/clips (#1279)\n\n## Summary\n\nDesign only — no gateway code in this PR. It proposes one optional\n`source` object on `POST /v1/clips` so a web clip can carry provenance.\n\nToday `validateClipInput`\n(`packages/gateway/src/clips/clip-ingest.ts:46`) reads exactly seven\nfields and drops everything else, and `ingestClip` composes the item's\n`metadata` itself. So a clip is the **one item type in the index that\narrives with no provenance at all** — no author, no publish date, no\nsite name — while every connector-sourced item has them from its source.\nThe browser clipper already extracts `byline`, `siteName`,\n`publishedTime` and `lang` (Readability parses JSON-LD and OpenGraph for\nfree) and throws all four away, because there is nowhere on the wire to\nput them.\n\nThe proposed shape lands as `metadata.source`:\n\n```ts\nsource?: { author?: string; publishedAt?: number; siteName?: string; lang?: string; leadImage?: string }\n```\n\nTwo decisions the spec argues rather than assumes:\n\n- **`publishedAt` is epoch ms, normalised client-side.**\n`article:published_time` and JSON-LD `datePublished` carry whatever\nformat the publisher chose; parsing that on a locked ingest path where a\nparse failure costs the caller their clip is the wrong place for it. The\nvalidator checks only \"integer inside `Date`'s range\".\n- **A malformed member is dropped, not thrown.** `asString` throws\nbecause a clip without a title is not a clip; a clip with a malformed\nbyline is still a perfectly good clip, and failing it would mean one bad\n`<meta>` tag costs the user their capture. Bounds are typed by what the\nvalue *is*: prose truncates, structured values are dropped — half a URL\nis a broken link rather than a shorter one.\n\nIt also pins three things this must **not** change: clip identity\n(`externalIdFor` hashes the canonical URL and, for selections, the body\n— never metadata), `modified_at` (still `capturedAt`; letting\n`publishedAt` drive it would reorder data already in every user's\nindex), and `author_id` (byline → person resolution is its own design).\n\nTwo gates that look like they apply and do not, both checked rather than\nassumed: `packages/gateway/openapi/v1.yaml` describes the read-only data\nAPI and does not mention `/v1/clips`, and this adds a field to an\nexisting route rather than a route, so `WRITE_ROUTE_ALLOWLIST` and the\n`I30` minting rule are untouched.\n\n## Related Issue\n\nRelates to the web clipper's roadmap item 2.5. This is the **S2** slice\nof a cross-repo design; the browser slices live in\n[`nimbus-web-clipper`](https://github.com/nimbus-agent/nimbus-web-clipper).\nS1 (canonical-URL fidelity, client-only) shipped there in\nnimbus-agent/nimbus-web-clipper#67. S3 (extraction and threading) is\ndeliberately gated on this landing — shipping it earlier would put\nAuthor and Published in the extension's pre-send preview while this\nvalidator discarded them, making that preview lie about what leaves.\n\nCloses #\n\n## Type of Change\n\n- [x] Documentation only\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` passes with zero errors\n- [x] `bun run lint` passes (Biome — format + lint)\n- [x] All existing tests pass (`bun test`)\n- [x] New behaviour is covered by tests — n/a, design document only; the\nspec enumerates the test cases the implementation must carry, including\nthe drop-don't-throw rule and a 1965 publication date staying valid\n- [x] No `any` types introduced — `unknown` is used for external data\n- [x] No credentials, tokens, or secret values appear in logs, IPC\nmessages, config, or test fixtures\n- [x] Platform-specific code is behind the `PlatformServices`\nabstraction — n/a\n- [x] The HITL consent gate has not been weakened, bypassed, or made\nconfigurable\n- [x] If this PR touches `docs/README.md` — n/a\n\nAlso verified: `bun run lint:markdown` clean, and `bun\nscripts/structure-audit/check-doc-references.ts --check` resolves 1208\nrefs across 41 docs.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **Documentation**\n* Added an approved design for optional source metadata on clip\nsubmissions, including author, publication date, site name, language,\nand lead-image URL.\n* Documented validation, size limits, timestamp handling, metadata\nreplacement behavior, and privacy-preserving URL handling.\n* Added a design review covering open questions around URL lengths,\npublication dates, and language values.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-20T21:32:30+03:00",
+          "tree_id": "2cb02943234b9e5037ef3442156580cf0206c306",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/2b28065c2ded4fcc629a55e0be139cc677494693"
+        },
+        "date": 1787251434801,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 324.80492640000193,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 322.9368442999963,
             "unit": "ms"
           }
         ]
