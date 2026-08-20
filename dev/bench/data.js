@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787197683770,
+  "lastUpdate": 1787199327084,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -13837,6 +13837,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 294.2348862499948,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "926fb80fd4f04515c6f92ef8aca40a0986746df4",
+          "message": "feat(prfiles): index PR changed-file paths behind an explicit coverage record (#1258)\n\n## Summary\n\nA PR's changed-file **paths** were not indexed anywhere.\n`github-sync.ts` stored\n`changed_files` as a **count** — one of four size stats — and nothing\nrecorded\nwhich files those were. So the canonical negation question, *\"PRs that\ndon't\ntouch tests\"*, was not partially answerable. It was not answerable at\nall.\n\nThis indexes those paths across GitHub, GitLab and Bitbucket, behind an\nexplicit\ncoverage record. It is sub-project **B** of the changed-file-indexing\neffort and\nthe data prerequisite for **W6-B first-class negation queries**.\n\n**The constraint the whole design is shaped around:** for a negation, a\nmissing\nrow **produces** a result rather than costing one. A PR whose file list\nwas never\nfetched matches \"no row with that path\" exactly as well as a PR that\ngenuinely\ndid not touch it. So partial coverage is not incomplete — it is\n**wrong**, in the\ndirection of a confident false positive, and the more incomplete the\nindex the\n**more** results it returns.\n\nEverything follows from that: coverage is recorded explicitly, and\nanything not\npositively verified is excluded.\n\n- **V55** adds `pr_changed_file` and `pr_files_state`, both keyed on\n`item.id`\n  with `ON DELETE CASCADE`.\n- **One row per touched path.** A rename writes TWO rows, a deletion ONE\n— so a\nPR that renamed `tests/a.ts` away still fails a \"does not touch tests/\"\nfilter.\n- **Two independent exclusion rules**: no coverage row, **and**\n`truncated = 1`.\n  A PR we hold 300 of 4,000 paths for cannot verify a negative either.\n- Three forge mappers, a bounded per-tick driver, and a `nimbus status`\n  coverage line.\n\n## Related Issue\n\nRelates to Spine S1. Sub-project B of the changed-file-indexing effort;\nbuilds on\nsub-project A, which shipped as #1255.\n\n## Type of Change\n\n- [x] New feature (non-breaking change that adds functionality)\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` passes with zero errors\n- [x] `bun run lint` passes — Biome, format + lint\n- [x] All existing tests pass — gateway 14308 pass / 32 skip / 0 fail;\nCLI 2406 pass / 0 fail\n- [x] New behaviour is covered by tests\n- [x] No `any` types introduced — `unknown` for external payloads\n- [x] No credentials, tokens, or secret values appear anywhere\n- [x] Platform-specific code is behind `PlatformServices`\n- [x] The HITL consent gate has not been weakened or bypassed\n\n## Testing\n\n`bun run preflight:fast` passes all gates. Full `bun test\npackages/gateway` and\n`bun test packages/cli` are green — quoted as counts, since `bun test`\ncan exit 0\nwhile reporting failures.\n\nGuards were **red-proved**, not merely observed green:\n\n- Removing the serializer field makes the new IPC-seam test fail\n  object-vs-`undefined`.\n- Reverting the selector limit drops the attempt-budget test from 1 to\n0.\n- Removing the `try`/`catch` makes the missing-tables test fail with\n  `SQLiteError: no such table: pr_files_state`.\n- Widening the rename branch makes the copy row-count assertion fail.\n\n## Notes for Reviewers\n\n**A rename chain used to abort a whole sync tick, permanently.**\nRenaming\n`a → b` while renaming `c → a` in one PR emits a duplicate path, which\nviolated\nthe primary key; the write sat outside the try, so the throw escaped the\ndriver.\nSince the selector is `modified_at DESC` over **uncovered** PRs, that PR\nwas\nre-picked first every tick forever and the backlog drained at zero\nbehind a\nsingle warn. Fixed by deduping first-wins and moving the write inside\nthe try.\n\n**A GitLab 429 could block a scheduler slot.** The pipelines step\npenalises\nwithout throwing; the pass then called `acquire()`, which sleeps out the\nfull\n`Retry-After`. Now uses `tryAcquire`, which declines instead of sleeping\n— fixed\nin the driver so all three forges are covered, not just the instance we\nfound.\n\n**The coverage metric never crossed the IPC seam.** `serializeMetrics()`\nis a\nhand-built allow-list and the new field was missing from it, so the\nstatus line\ncould never render. Nine per-task reviews missed it because the CLI test\nhand-built the payload it then asserted on, while the gateway test\nasserted the\nstruct — neither observed the serializer. There is now a test that\ncrosses it.\n\n**Two honesty notes.** `local_file_id` ships **unpopulated** — the\ncolumn, its\nFK and its `SET NULL` behaviour exist, but nothing writes it, so a\n`NULL` means\n\"not yet linked\", never \"no local file\". And coverage **grows over many\nticks**;\na low number means draining, not broken.\n\n**One trade worth a second opinion.** The status line prints on the\ndefault\n`nimbus status`, per the spec. That makes the default path always\ncollect index\nmetrics, which full-scans body and FTS sizes — noticeable on a large\nindex.\nRe-gating it behind `--verbose` is a two-line change if you prefer that.\n\n**No predicate language ships here** — no `--negate`, `--touches` or\n`--explain`.\nThose are W6-B, calling the primitive this adds.\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n* Added pull-request changed-file indexing across GitHub, GitLab, and\nBitbucket, including renamed, added, modified, and deleted paths.\n* Added bounded pagination, coverage tracking, truncation handling, and\nresilient synchronization behavior.\n* Added path-based filtering that safely excludes pull requests only\nwhen file coverage is complete.\n* Added pull-request file coverage metrics to status and diagnostic\noutput.\n\n* **Documentation**\n* Updated schema, architecture, migration, changelog, and implementation\ndocumentation for schema version 55 and changed-file indexing.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-20T07:04:05+03:00",
+          "tree_id": "b10129c5e63e49378cf9ed6b367a1d0058b15fa9",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/926fb80fd4f04515c6f92ef8aca40a0986746df4"
+        },
+        "date": 1787199324776,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 319.63114124999885,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 319.8861097000019,
             "unit": "ms"
           }
         ]
