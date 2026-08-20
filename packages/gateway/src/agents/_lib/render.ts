@@ -9,6 +9,7 @@ import {
   negotiateOwnershipDisclosures,
   negotiateSubjectVoice,
   negotiateWindowDisclosure,
+  whyChangeSubjectDisclosure,
 } from "./brief-disclosures.ts";
 import type { DecisionsBrief, DecisionsEntry } from "./decisions-types.ts";
 import type {
@@ -281,6 +282,21 @@ const WHY_LANE_HEADINGS: Readonly<Record<WhyLane, string>> = Object.freeze({
 });
 
 function renderWhySubjectLine(brief: WhyBrief): string {
+  // Branch BEFORE the null check: on the prUrl arm `subject` is always null, and
+  // the old line would report a resolved pull request as an unresolvable ref.
+  if (brief.changeSubject !== undefined) {
+    const cs = brief.changeSubject;
+    if (cs === null) {
+      // Deliberately does NOT say "is not in your index": `resolvePrSubject` collapses
+      // several distinct misses into this one `null` (`WhyBrief` carries no reason), and one
+      // of them — `not_a_pr` — resolves to an INDEXED item that simply isn't a pull request
+      // (e.g. the URL trims to an indexed issue or repo). Asserting absence would be false in
+      // that case, so the sentence stays neutral about which miss occurred.
+      return `_\`${brief.query.ref}\` did not resolve to a pull request in your index._`;
+    }
+    const num = cs.number === null ? "" : `#${String(cs.number)}`;
+    return [`\`${cs.repo}${num}\` — ${cs.title}`, "", whyChangeSubjectDisclosure().line].join("\n");
+  }
   if (brief.subject === null) {
     return `_Could not resolve \`${brief.query.ref}\` to an indexed location._`;
   }

@@ -4,7 +4,12 @@ import type { GlossaryInput } from "../agents/_lib/glossary-types.ts";
 import type { OwnershipInput } from "../agents/_lib/ownership-types.ts";
 import type { PremortemInput } from "../agents/_lib/premortem-types.ts";
 import type { SynthesisRunner } from "../agents/_lib/synthesis-llm.ts";
-import type { WhyInput, WhyPeek } from "../agents/_lib/why-types.ts";
+import {
+  isWhyPrInput,
+  type WhyInput,
+  type WhyPeek,
+  type WhyRefInput,
+} from "../agents/_lib/why-types.ts";
 import { emitCatchupBrief } from "../agents/catchup.ts";
 import { emitConflictsBrief } from "../agents/conflicts.ts";
 import { emitDecisionsBrief } from "../agents/decisions.ts";
@@ -412,8 +417,9 @@ async function handlePreflight(params: unknown, ctx: AgentsRpcContext): Promise<
 
 const MIN_REF_LEN = 1;
 const MAX_REF_LEN = 1024;
+const MAX_PR_URL_LEN = 2048;
 
-function requireWhyParams(params: unknown): WhyInput {
+function requireWhyRefParams(params: unknown): WhyRefInput {
   if (params === null || typeof params !== "object" || Array.isArray(params)) {
     throw new AgentsRpcError(-32602, "agents.why requires { ref: string, line?: number }");
   }
@@ -434,6 +440,52 @@ function requireWhyParams(params: unknown): WhyInput {
   return { ref: trimmed, ...(p.line === undefined ? {} : { line: p.line }) };
 }
 
+/**
+ * True when an http(s)-shaped URL carries userinfo (`user:pass@host`).
+ * `new URL()` parses that happily, and forwarding it downstream would land
+ * plaintext credentials in the brief's `query.ref` and get rendered back in
+ * the miss line — this repo's rule is explicit: never store plaintext
+ * credentials in logs, IPC messages, configuration, or source. This is the
+ * durable fix: every caller of `agents.why` (the browser extension included)
+ * goes through this validator, not just the CLI. An unparseable `prUrl` has
+ * nothing to check here; `resolveItemByUrl` rejects it later as
+ * `unresolvable_url`.
+ */
+function prUrlHasCredentials(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.username.length > 0 || parsed.password.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function requireWhyParams(params: unknown): WhyInput {
+  if (params === null || typeof params !== "object" || Array.isArray(params)) {
+    throw new AgentsRpcError(-32602, "agents.why requires { ref: string } or { prUrl: string }");
+  }
+  const p = params as { ref?: unknown; prUrl?: unknown };
+  const hasRef = p.ref !== undefined;
+  const hasPrUrl = p.prUrl !== undefined;
+  if (hasRef === hasPrUrl) {
+    throw new AgentsRpcError(-32602, "agents.why requires exactly one of { ref } or { prUrl }");
+  }
+  if (hasPrUrl) {
+    if (typeof p.prUrl !== "string") {
+      throw new AgentsRpcError(-32602, "prUrl must be a string");
+    }
+    const trimmed = p.prUrl.trim();
+    if (trimmed.length === 0 || trimmed.length > MAX_PR_URL_LEN) {
+      throw new AgentsRpcError(-32602, `prUrl must be 1..${MAX_PR_URL_LEN} chars after trim`);
+    }
+    if (prUrlHasCredentials(trimmed)) {
+      throw new AgentsRpcError(-32602, "prUrl must not contain userinfo (user:pass@) credentials");
+    }
+    return { prUrl: trimmed };
+  }
+  return requireWhyRefParams(params);
+}
+
 function whyRoots(ctx: AgentsRpcContext) {
   return ctx.configDir === undefined ? [] : loadNimbusFilesystemRootsFromConfigDir(ctx.configDir);
 }
@@ -441,9 +493,13 @@ function whyRoots(ctx: AgentsRpcContext) {
 async function handleWhy(params: unknown, ctx: AgentsRpcContext): Promise<{ sessionId: string }> {
   const input = requireWhyParams(params);
   const sessionId = newSessionId("why");
+  // `runWhy` never reads `roots` on the `prUrl` arm (it has no file/line subject to resolve
+  // against a filesystem root) — skip the per-call TOML read on that arm rather than doing it
+  // for nothing on the browser-facing path.
+  const roots = isWhyPrInput(input) ? [] : whyRoots(ctx);
   return await emitWhyBrief(input, {
     db: ctx.db,
-    roots: whyRoots(ctx),
+    roots,
     notify: ctx.notify,
     sessionId,
     ...(ctx.runner === undefined ? {} : { runner: ctx.runner }),
@@ -456,7 +512,7 @@ async function handleWhy(params: unknown, ctx: AgentsRpcContext): Promise<{ sess
  * not a hover").
  */
 async function handleWhyPeek(params: unknown, ctx: AgentsRpcContext): Promise<WhyPeek> {
-  const input = requireWhyParams(params);
+  const input = requireWhyRefParams(params);
   return await runWhyPeek(input, { db: ctx.db, roots: whyRoots(ctx) });
 }
 

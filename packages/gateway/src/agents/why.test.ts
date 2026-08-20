@@ -15,6 +15,7 @@ import type { ServiceConfig } from "../metrics/dora-config.ts";
 import { buildServiceIdentityResolver } from "../metrics/service-identity.ts";
 import { upsertBlameLines } from "../security/blame-store.ts";
 import type { SyncContext } from "../sync/types.ts";
+import type { BlameSpawn } from "./_lib/blame-on-demand.ts";
 import { runWhy } from "./why.ts";
 
 const HOUR = 60 * 60 * 1000;
@@ -42,7 +43,11 @@ type FixtureParts = {
   commit?: boolean;
   issue?: boolean;
   pr?: boolean;
-  blame?: { lineNo: number; authorTimeMs?: number };
+  // `authorTimeMs` omitted defaults to a real timestamp; `null` is
+  // deliberately distinct from "omitted" — it seeds a blame row with no
+  // `author-time` line, the real shape `parseBlamePorcelain` produces
+  // (`blame-store.ts:36,47`).
+  blame?: { lineNo: number; authorTimeMs?: number | null };
 };
 
 /**
@@ -112,10 +117,69 @@ function seedWhyFixture(db: Database, parts: FixtureParts): void {
         commitSha: SHA,
         authorName: "alice",
         authorEmail: "alice@example.com",
-        authorTimeMs: parts.blame.authorTimeMs ?? 1_700_000_000_000,
+        authorTimeMs:
+          parts.blame.authorTimeMs === undefined ? 1_700_000_000_000 : parts.blame.authorTimeMs,
       },
     ]);
   }
+}
+
+/**
+ * The prUrl arm's fixture: the same PR + ticket + discussion shape
+ * `seedWhyFixture` builds for the ref arm — a github PR referencing a linear
+ * ticket, and a Slack message mentioning that ticket — but deliberately NO
+ * blame row and NO filesystem-anchored commit. That absence is the point of
+ * this arm: `resolvePrSubject` resolves the PR straight from the index, no
+ * local checkout and no `git blame` process required.
+ */
+function seedPrWithTicketAndDiscussion(db: Database): void {
+  const t = Date.now();
+
+  upsertIndexedItem(db, {
+    service: "linear",
+    type: "issue",
+    externalId: "NIM-88",
+    title: "Retry backoff is wrong",
+    bodyPreview: "",
+    url: "https://linear.app/acme/issue/NIM-88",
+    modifiedAt: t,
+    syncedAt: t,
+    metadata: {},
+  });
+
+  // github PR — externalId/metadata shape from github-sync.ts, same as
+  // seedWhyFixture's `pr` part, but under acme/web#482 (the URL the prUrl
+  // arm's tests resolve against).
+  upsertIndexedItem(db, {
+    service: "github",
+    type: "pr",
+    externalId: "acme/web#482",
+    title: "Fix retry backoff",
+    bodyPreview: "part of NIM-88",
+    url: "https://github.com/acme/web/pull/482",
+    modifiedAt: t,
+    syncedAt: t,
+    metadata: {
+      number: 482,
+      repo: "acme/web",
+      state: "merged",
+      draft: false,
+      merged: true,
+    },
+  });
+
+  // Slack message mentioning the ticket — same shape as the ref arm's
+  // discussion-lane fixture.
+  upsertIndexedItem(db, {
+    service: "slack",
+    type: "message",
+    externalId: "C1/1000.1",
+    title: "anyone looking at NIM-88?",
+    bodyPreview: "anyone looking at NIM-88?",
+    modifiedAt: t,
+    syncedAt: t,
+    metadata: { channel: "C1" },
+  });
 }
 
 describe("runWhy", () => {
@@ -535,6 +599,49 @@ describe("runWhy", () => {
     ).toBe(true);
   });
 
+  test("driver lane: a blame row with no author-time line yields no finding, even when its commit resolves to a merged PR with an incident in ITS window", async () => {
+    // Regression for the ref arm borrowing the PR's `modifiedAt` as a stand-in
+    // for a missing blame timestamp. `git blame --line-porcelain` omits the
+    // `author-time` line for some blame states, so `authorTimeMs` really can
+    // be null on a resolved blame row (`blame-store.ts:36,47`) — and `pr` is
+    // still non-null here, since the blamed commit is the PR's merge commit.
+    // `occurredAt` must come from `blame.authorTimeMs` alone on this arm, not
+    // fall through to `pr.modifiedAt`.
+    //
+    // A quiet "no findings either way" assertion wouldn't distinguish the fix
+    // from the bug (subDriver returns no findings whenever nothing is seeded
+    // in the query window, regardless of which timestamp it used). So this
+    // seeds an incident squarely inside the window the BUGGY fallback would
+    // have queried — anchored to the PR's own `modifiedAt`, not to blame — so
+    // a driver finding here is proof the bug reappeared, not a coincidence.
+    const db = freshDb();
+    seedWhyFixture(db, { pr: true, blame: { lineNo: 42, authorTimeMs: null } });
+
+    const prModifiedAt = db
+      .query(
+        `SELECT i.modified_at AS modified_at FROM item i
+           JOIN graph_entity e ON e.external_id = i.id
+          WHERE e.type = 'pr'
+          LIMIT 1`,
+      )
+      .get() as { modified_at: number };
+    upsertIndexedItem(db, {
+      service: "pagerduty",
+      type: "incident",
+      externalId: "PD-regression",
+      title: "Should never surface via the PR's timestamp",
+      bodyPreview: "",
+      modifiedAt: prModifiedAt.modified_at - HOUR,
+      syncedAt: Date.now(),
+      metadata: {},
+    });
+
+    const brief = await runWhy({ ref: refAt(42) }, ctxFor(db));
+
+    const driver = brief.findings.filter((f) => f.lane === "driver");
+    expect(driver).toHaveLength(0);
+  });
+
   test("downstream lane: reverse depends_on from the file's symbols", async () => {
     const db = freshDb();
     const t = Date.now();
@@ -602,6 +709,26 @@ describe("runWhy", () => {
     expect(brief.gaps.length).toBeGreaterThan(0);
   });
 
+  test("unresolvable ref: the authorship and downstream gap notes are still emitted — the ref arm's genuine gaps must survive the prUrl arm's suppression of the same notes", async () => {
+    const db = freshDb();
+
+    const brief = await runWhy({ ref: "nope" }, ctxFor(db));
+
+    expect(
+      brief.gaps.some(
+        (g) =>
+          g.detail === "Cannot anchor authorship: no resolvable file/line subject for this ref.",
+      ),
+    ).toBe(true);
+    expect(
+      brief.gaps.some(
+        (g) =>
+          g.detail ===
+          "No indexed code symbols for this file — enable code_index on the root and sync.",
+      ),
+    ).toBe(true);
+  });
+
   async function makeTempGitDir(): Promise<string> {
     const d = await fs.mkdtemp(path.join(os.tmpdir(), "why-agent-"));
     tempDirs.push(d);
@@ -640,5 +767,87 @@ describe("runWhy", () => {
 
     expect(c.count).toBeLessThanOrEqual(1);
     expect(brief.subject).not.toBeNull();
+  });
+});
+
+describe("runWhy — the prUrl arm", () => {
+  test("answers the pull_request, ticket and discussion lanes without a checkout, and spawns no blame", async () => {
+    const db = freshDb();
+    // Seed the PR, its ticket and its discussion exactly as the ref-arm fixtures
+    // do, but DO NOT seed blame or filesystem roots — the point of this arm.
+    seedPrWithTicketAndDiscussion(db);
+    let spawned = 0;
+    const brief = await runWhy(
+      { prUrl: "https://github.com/acme/web/pull/482" },
+      {
+        db,
+        roots: [],
+        notify: () => {},
+        sessionId: "why-pr-1",
+        spawn: (() => {
+          spawned += 1;
+          return null;
+        }) as unknown as BlameSpawn,
+      },
+    );
+
+    expect(spawned).toBe(0);
+    expect(brief.subject).toBeNull();
+    expect(brief.changeSubject?.repo).toBe("acme/web");
+    expect(brief.query).toEqual({ ref: "https://github.com/acme/web/pull/482", line: null });
+    const lanes = new Set(brief.findings.map((f) => f.lane));
+    expect(lanes.has("pull_request")).toBe(true);
+    expect(lanes.has("ticket")).toBe(true);
+    // The Slack message mentions the ticket, which `subDiscussion` reaches via the PR's
+    // resolved ticket entity — this fixture answers discussion too, not just PR/ticket.
+    expect(lanes.has("discussion")).toBe(true);
+    expect(lanes.has("authorship")).toBe(false);
+    expect(lanes.has("downstream")).toBe(false);
+  });
+
+  test("a miss returns a brief with a null changeSubject, not a failure", async () => {
+    const db = freshDb();
+    const brief = await runWhy(
+      { prUrl: "https://github.com/acme/web/pull/999" },
+      { db, roots: [], notify: () => {}, sessionId: "why-pr-2" },
+    );
+    expect(brief.kind).toBe("why");
+    expect(brief.changeSubject).toBeNull();
+    expect(brief.subject).toBeNull();
+    expect(brief.findings).toEqual([]);
+  });
+
+  test("the ref arm leaves changeSubject absent", async () => {
+    const db = freshDb();
+    const brief = await runWhy({ ref: refAt(12) }, ctxFor(db));
+    // NOT `"changeSubject" in brief && brief.changeSubject !== undefined` — that passes both
+    // when the key is absent AND when it is present-and-`undefined`, which is exactly the
+    // distinction `why.ts`'s `...(changeSubject === undefined ? {} : { changeSubject })`
+    // spread exists to preserve (the repo compiles with `exactOptionalPropertyTypes`).
+    expect("changeSubject" in brief).toBe(false);
+  });
+
+  test("a resolved prUrl brief carries neither the authorship-anchor nor the no-symbols gap note — the change arm never had a file/line subject to report as missing", async () => {
+    const db = freshDb();
+    seedPrWithTicketAndDiscussion(db);
+
+    const brief = await runWhy(
+      { prUrl: "https://github.com/acme/web/pull/482" },
+      { db, roots: [], notify: () => {}, sessionId: "why-pr-3" },
+    );
+
+    expect(
+      brief.gaps.some(
+        (g) =>
+          g.detail === "Cannot anchor authorship: no resolvable file/line subject for this ref.",
+      ),
+    ).toBe(false);
+    expect(
+      brief.gaps.some(
+        (g) =>
+          g.detail ===
+          "No indexed code symbols for this file — enable code_index on the root and sync.",
+      ),
+    ).toBe(false);
   });
 });
