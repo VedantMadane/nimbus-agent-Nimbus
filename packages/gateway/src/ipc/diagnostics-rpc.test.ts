@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
+import { upsertGraphEntity, upsertGraphRelation } from "../graph/relationship-graph.ts";
 import { LocalIndex } from "../index/local-index.ts";
 import type { SandboxRunner } from "../platform/sandbox/sandbox-runner.ts";
 import { recordPrChangedFiles } from "../prfiles/pr-changed-file-store.ts";
@@ -68,6 +69,68 @@ function rmTmp(dir: string): void {
   } catch {
     /* best-effort */
   }
+}
+
+// -- negation-query seed helpers (index.queryItems: notTouching / noDownstreamIncident) --------
+//
+// Production writers, not hand-rolled INSERTs — `recordPrChangedFiles` for PR coverage,
+// `upsertGraphEntity`/`upsertGraphRelation` for the graph_entity bridge — mirroring the
+// "diag.snapshot carries prFileCoverage" test above and `premortem/cohort.test-helpers.ts`.
+
+function seedCoveredPr(db: Database, id: string, paths: readonly string[]): void {
+  db.run(
+    `INSERT INTO item (id, service, type, external_id, title, modified_at, synced_at)
+     VALUES (?, 'github', 'pr', ?, ?, 0, 0)`,
+    [id, id, id],
+  );
+  recordPrChangedFiles(db, {
+    itemId: id,
+    repoFull: "o/r",
+    files: paths.map((path) => ({ path, status: "modified", counterpartPath: null })),
+    apiFileCount: paths.length,
+    truncated: false,
+    nowMs: 1,
+  });
+}
+
+function seedUncoveredPr(db: Database, id: string): void {
+  db.run(
+    `INSERT INTO item (id, service, type, external_id, title, modified_at, synced_at)
+     VALUES (?, 'github', 'pr', ?, ?, 0, 0)`,
+    [id, id, id],
+  );
+}
+
+function seedDeploymentWithoutIncident(db: Database, id: string): void {
+  db.run(
+    `INSERT INTO item (id, service, type, external_id, title, modified_at, synced_at)
+     VALUES (?, 'github', 'deployment', ?, ?, 0, 0)`,
+    [id, id, id],
+  );
+  upsertGraphEntity(db, { type: "deployment", externalId: id, label: id });
+}
+
+function seedDeploymentNoGraphEntity(db: Database, id: string): void {
+  db.run(
+    `INSERT INTO item (id, service, type, external_id, title, modified_at, synced_at)
+     VALUES (?, 'github', 'deployment', ?, ?, 0, 0)`,
+    [id, id, id],
+  );
+}
+
+function seedDeploymentWithIncident(db: Database, id: string): void {
+  const depEntity = upsertGraphEntity(db, { type: "deployment", externalId: id, label: id });
+  db.run(
+    `INSERT INTO item (id, service, type, external_id, title, modified_at, synced_at)
+     VALUES (?, 'github', 'deployment', ?, ?, 0, 0)`,
+    [id, id, id],
+  );
+  const incidentEntity = upsertGraphEntity(db, {
+    type: "incident",
+    externalId: `inc-${id}`,
+    label: `inc-${id}`,
+  });
+  upsertGraphRelation(db, depEntity, incidentEntity, "correlates_with", 0);
 }
 
 describe("telemetry.getStatus", () => {
@@ -769,6 +832,508 @@ describe("index.queryItems", () => {
       rmTmp(dir);
     }
   });
+
+  test("refuses --not-touching when no PR coverage exists", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-qi-neg1-"));
+    try {
+      const { ctx, db } = makeCtxWithIndex(dir);
+      try {
+        const r = await dispatchDiagnosticsRpc("index.queryItems", { notTouching: "tests/*" }, ctx);
+        expect(r.kind).toBe("hit");
+        const v = (r as { value: { status?: string; reason?: string } }).value;
+        expect(v.status).toBe("refused");
+        expect(v.reason).toBe("missing_substrate");
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmTmp(dir);
+    }
+  });
+
+  test("returns gaps alongside items, not inside meta", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-qi-neg2-"));
+    try {
+      const { ctx, db } = makeCtxWithIndex(dir);
+      try {
+        seedCoveredPr(db, "p1", ["src/a.ts"]);
+        seedUncoveredPr(db, "p2");
+        const r = await dispatchDiagnosticsRpc("index.queryItems", { notTouching: "tests/*" }, ctx);
+        const v = (
+          r as {
+            value: {
+              items: Array<{ id: string }>;
+              meta: Record<string, unknown>;
+              gaps: { excludedNoCoverage: number };
+            };
+          }
+        ).value;
+        expect(v.items).toHaveLength(1);
+        expect(v.items[0]?.id).toBe("p1");
+        expect(v.gaps.excludedNoCoverage).toBe(1);
+        expect(v.meta["gaps"]).toBeUndefined(); // sibling key, never nested in meta
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmTmp(dir);
+    }
+  });
+
+  test("explain carries the SQL and the probe result for --not-touching", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-qi-neg3-"));
+    try {
+      const { ctx, db } = makeCtxWithIndex(dir);
+      try {
+        seedCoveredPr(db, "p1", ["src/a.ts"]);
+        const r = await dispatchDiagnosticsRpc(
+          "index.queryItems",
+          { notTouching: "tests/*", explain: true },
+          ctx,
+        );
+        const v = (
+          r as {
+            value: {
+              explain: {
+                sql: string;
+                params: unknown[];
+                substrate: { passed: boolean; probeSql: string };
+              };
+            };
+          }
+        ).value;
+        expect(v.explain.sql).toContain("NOT EXISTS");
+        expect(v.explain.params).toContain("tests/*");
+        expect(v.explain.substrate.passed).toBe(true);
+        expect(v.explain.substrate.probeSql).toContain("pr_files_state");
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmTmp(dir);
+    }
+  });
+
+  test("refuses --no-downstream-incident when no correlation data exists", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-qi-neg4-"));
+    try {
+      const { ctx, db } = makeCtxWithIndex(dir);
+      try {
+        const r = await dispatchDiagnosticsRpc(
+          "index.queryItems",
+          { noDownstreamIncident: true },
+          ctx,
+        );
+        const v = (r as { value: { status?: string; reason?: string } }).value;
+        expect(v.status).toBe("refused");
+        expect(v.reason).toBe("missing_substrate");
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmTmp(dir);
+    }
+  });
+
+  // Pins the Task 2 -> Task 3 ruling: a deployment with no graph entity of the required type is
+  // silently dropped by the predicate's INNER JOIN (fail-closed, correct), but that drop must be
+  // COUNTED, not silent — a caller asking "which deploys were clean?" must see why the list is
+  // shorter than the deployment count.
+  test("--no-downstream-incident: a deployment with no graph entity is absent from results AND counted", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-qi-neg5-"));
+    try {
+      const { ctx, db } = makeCtxWithIndex(dir);
+      try {
+        // Substrate probe needs at least one correlates_with edge to pass.
+        seedDeploymentWithIncident(db, "d-incident");
+        seedDeploymentWithoutIncident(db, "d-clean"); // graphed, no edge -> returned
+        seedDeploymentNoGraphEntity(db, "d-ungraphed"); // no graph entity at all -> dropped, counted
+        const r = await dispatchDiagnosticsRpc(
+          "index.queryItems",
+          { noDownstreamIncident: true },
+          ctx,
+        );
+        const v = (
+          r as {
+            value: {
+              items: Array<{ id: string }>;
+              gaps: { excludedNoGraphEntity: number };
+            };
+          }
+        ).value;
+        const ids = v.items.map((i) => i.id);
+        expect(ids).toContain("d-clean");
+        expect(ids).not.toContain("d-incident");
+        expect(ids).not.toContain("d-ungraphed");
+        expect(v.gaps.excludedNoGraphEntity).toBe(1);
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmTmp(dir);
+    }
+  });
+
+  test("--explain works on a plain --services-only query, not only negation ones", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-qi-neg6-"));
+    try {
+      const { ctx, db } = makeCtxWithIndex(dir);
+      try {
+        db.run(
+          `INSERT INTO item (id, service, type, external_id, title, modified_at, synced_at)
+           VALUES ('github:i1', 'github', 'pr', 'i1', 'feature', 1000, 1000)`,
+        );
+        const r = await dispatchDiagnosticsRpc(
+          "index.queryItems",
+          { services: ["github"], explain: true },
+          ctx,
+        );
+        expect(r.kind).toBe("hit");
+        const v = (
+          r as { value: { items: unknown[]; explain: { sql: string; params: unknown[] } } }
+        ).value;
+        expect(v.items).toHaveLength(1);
+        expect(v.explain).toBeDefined();
+        expect(v.explain.sql).toContain("FROM item");
+        expect(v.explain.params).toContain("github");
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmTmp(dir);
+    }
+  });
+
+  // CRITICAL from the Task 3 review: an empty/blank notTouching must never fall through to the
+  // plain path and silently answer a different question than the one asked. Reachable from the
+  // documented CLI surface — `takeFlag` (cli/src/commands/serve.ts) returns `args[i + 1]`
+  // verbatim, so `nimbus query --service github --type pr --not-touching ''` produces this.
+  test("an empty notTouching is rejected with -32602, not silently treated as absent", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-qi-neg7-"));
+    try {
+      const { ctx, db } = makeCtxWithIndex(dir);
+      try {
+        db.run(
+          `INSERT INTO item (id, service, type, external_id, title, modified_at, synced_at)
+           VALUES ('github:issue-1', 'github', 'issue', 'issue-1', 'not a pr', 1000, 1000)`,
+        );
+        expect(() => dispatchDiagnosticsRpc("index.queryItems", { notTouching: "" }, ctx)).toThrow(
+          DiagnosticsRpcError,
+        );
+        try {
+          dispatchDiagnosticsRpc("index.queryItems", { notTouching: "" }, ctx);
+        } catch (e) {
+          expect(e).toBeInstanceOf(DiagnosticsRpcError);
+          expect((e as DiagnosticsRpcError).rpcCode).toBe(-32602);
+          expect((e as DiagnosticsRpcError).message).toContain("notTouching");
+        }
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmTmp(dir);
+    }
+  });
+
+  test("a whitespace-only notTouching is rejected the same way", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-qi-neg8-"));
+    try {
+      const { ctx, db } = makeCtxWithIndex(dir);
+      try {
+        try {
+          dispatchDiagnosticsRpc("index.queryItems", { notTouching: "   " }, ctx);
+          throw new Error("expected a rejection");
+        } catch (e) {
+          expect(e).toBeInstanceOf(DiagnosticsRpcError);
+          expect((e as DiagnosticsRpcError).rpcCode).toBe(-32602);
+        }
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmTmp(dir);
+    }
+  });
+
+  // A PADDED glob is the blank-string guard's blind spot: `" tests/**"` survives the
+  // `.trim() === ""` rejection, and as a GLOB it matches NO path — so without the trim every
+  // covered PR comes back as "not touching tests", the exact confident-wrong answer, with a
+  // clean-looking zero gap count beside it. Asserted on BEHAVIOUR (the PR that does touch
+  // `tests/` is excluded), not on the string handed to the builder, so deleting the `.trim()`
+  // turns this red.
+  test("a padded notTouching glob is trimmed before use, never matched verbatim", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-qi-neg8a-"));
+    try {
+      const { ctx, db } = makeCtxWithIndex(dir);
+      try {
+        seedCoveredPr(db, "touches-tests", ["tests/a.test.ts"]);
+        seedCoveredPr(db, "touches-src", ["src/a.ts"]);
+        const r = await dispatchDiagnosticsRpc(
+          "index.queryItems",
+          { notTouching: "  tests/**  " },
+          ctx,
+        );
+        const v = (r as { value: { items: Array<{ id: string }> } }).value;
+        const ids = v.items.map((i) => i.id);
+        expect(ids).toContain("touches-src");
+        expect(ids).not.toContain("touches-tests");
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmTmp(dir);
+    }
+  });
+
+  // The two predicates do not compose (spec § 8). Answering one and dropping the other tells the
+  // caller nothing about the substitution — the same failure the present-but-unusable guards
+  // reject. Unreachable from the CLI (the `--type` scoping guards are mutually exclusive) and
+  // reachable from raw JSON-RPC, which is why it is enforced here.
+  test("supplying BOTH negation params is rejected, not silently resolved by priority", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-qi-neg8c-"));
+    try {
+      const { ctx, db } = makeCtxWithIndex(dir);
+      try {
+        // Both substrates populated, so a rejection here cannot be a disguised refusal.
+        seedCoveredPr(db, "p1", ["src/a.ts"]);
+        seedDeploymentWithIncident(db, "d1");
+        try {
+          dispatchDiagnosticsRpc(
+            "index.queryItems",
+            { notTouching: "tests/**", noDownstreamIncident: true },
+            ctx,
+          );
+          throw new Error("expected a rejection");
+        } catch (e) {
+          expect(e).toBeInstanceOf(DiagnosticsRpcError);
+          expect((e as DiagnosticsRpcError).rpcCode).toBe(-32602);
+          expect((e as DiagnosticsRpcError).message).toContain("do not compose");
+        }
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmTmp(dir);
+    }
+  });
+
+  // Residual from the Task 3 re-review, closed here. The blank-string guard above covers the
+  // CLI-reachable door; a JSON-RPC caller can also send a NON-STRING `notTouching` or a
+  // NON-BOOLEAN `noDownstreamIncident`. Both are the same confident-wrong-answer failure through
+  // a narrower door: each would fall back to "no negation requested" and return every item to a
+  // caller who asked which items DON'T match. `null` is the one present-but-absent spelling that
+  // must still pass, since JSON-RPC callers routinely spell an omitted optional that way — so it
+  // is asserted in the same test, or the guard could pass by rejecting everything.
+  test("a present-but-unusable negation param is rejected; null still reads as absent", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-qi-neg8b-"));
+    try {
+      const { ctx, db } = makeCtxWithIndex(dir);
+      try {
+        db.run(
+          `INSERT INTO item (id, service, type, external_id, title, modified_at, synced_at)
+           VALUES ('github:issue-1', 'github', 'issue', 'issue-1', 'not a pr', 1000, 1000)`,
+        );
+        for (const bad of [123, true, {}, ["tests/*"]]) {
+          try {
+            dispatchDiagnosticsRpc("index.queryItems", { notTouching: bad }, ctx);
+            throw new Error(`expected a rejection for notTouching: ${JSON.stringify(bad)}`);
+          } catch (e) {
+            expect(e).toBeInstanceOf(DiagnosticsRpcError);
+            expect((e as DiagnosticsRpcError).rpcCode).toBe(-32602);
+            expect((e as DiagnosticsRpcError).message).toContain("notTouching");
+          }
+        }
+        for (const bad of ["yes", 1, {}]) {
+          try {
+            dispatchDiagnosticsRpc("index.queryItems", { noDownstreamIncident: bad }, ctx);
+            throw new Error(
+              `expected a rejection for noDownstreamIncident: ${JSON.stringify(bad)}`,
+            );
+          } catch (e) {
+            expect(e).toBeInstanceOf(DiagnosticsRpcError);
+            expect((e as DiagnosticsRpcError).rpcCode).toBe(-32602);
+            expect((e as DiagnosticsRpcError).message).toContain("noDownstreamIncident");
+          }
+        }
+        const r = dispatchDiagnosticsRpc(
+          "index.queryItems",
+          { notTouching: null, noDownstreamIncident: null },
+          ctx,
+        );
+        const v = (r as { value: { status?: string; items: Array<{ id: string }> } }).value;
+        expect(v.status).toBeUndefined();
+        expect(v.items.map((i) => i.id)).toEqual(["issue-1"]);
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmTmp(dir);
+    }
+  });
+
+  // IMPORTANT 2 from the Task 3 review: a refusal is the case explain matters most (spec § 5 —
+  // the probe is "the only way to see WHY a query refused"), so it must carry an explain block
+  // too when requested, not only a successful result.
+  test("a refusal carries an explain block (with substrate) when explain: true", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-qi-neg9-"));
+    try {
+      const { ctx, db } = makeCtxWithIndex(dir);
+      try {
+        const r = await dispatchDiagnosticsRpc(
+          "index.queryItems",
+          { notTouching: "tests/*", explain: true },
+          ctx,
+        );
+        const v = (
+          r as {
+            value: {
+              status?: string;
+              explain?: { sql: string; params: unknown[]; substrate: { passed: boolean } };
+            };
+          }
+        ).value;
+        expect(v.status).toBe("refused");
+        expect(v.explain).toBeDefined();
+        expect(v.explain?.substrate.passed).toBe(false);
+        expect(v.explain?.sql).toContain("NOT EXISTS");
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmTmp(dir);
+    }
+  });
+
+  test("a refusal without explain: true carries no explain block", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-qi-neg10-"));
+    try {
+      const { ctx, db } = makeCtxWithIndex(dir);
+      try {
+        const r = await dispatchDiagnosticsRpc("index.queryItems", { notTouching: "tests/*" }, ctx);
+        const v = (r as { value: { status?: string; explain?: unknown } }).value;
+        expect(v.status).toBe("refused");
+        expect(v.explain).toBeUndefined();
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmTmp(dir);
+    }
+  });
+
+  // IMPORTANT 3 from the Task 3 review: explain must report the COMPOSED statement that actually
+  // shaped `items` (id IN (<predicate>) ... LIMIT ?), not the bare predicate SQL alone — the
+  // caller's own filters and the LIMIT must be visible, since that is what "what ran" means.
+  test("explain.sql is the composed statement — includes the caller's filters and LIMIT", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-qi-neg11-"));
+    try {
+      const { ctx, db } = makeCtxWithIndex(dir);
+      try {
+        seedCoveredPr(db, "p1", ["src/a.ts"]);
+        const r = await dispatchDiagnosticsRpc(
+          "index.queryItems",
+          { notTouching: "tests/*", services: ["github"], limit: 7, explain: true },
+          ctx,
+        );
+        const v = (r as { value: { explain: { sql: string; params: unknown[] } } }).value;
+        expect(v.explain.sql).toContain("NOT EXISTS"); // the predicate, still present
+        expect(v.explain.sql).toContain("id IN (");
+        expect(v.explain.sql).toContain("service IN"); // the caller's own filter
+        expect(v.explain.sql).toContain("LIMIT ?"); // the limit, invisible before this fix
+        expect(v.explain.params).toContain(7);
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmTmp(dir);
+    }
+  });
+
+  // IMPORTANT 4 from the Task 3 review: the printed gap count must be scoped to the query's own
+  // services filter, not the whole index — a github-scoped query must not report an uncovered
+  // gitlab PR's exclusion as if it belonged to this answer.
+  test("gaps are scoped to the query's own services filter, not index-global", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-qi-neg12-"));
+    try {
+      const { ctx, db } = makeCtxWithIndex(dir);
+      try {
+        seedCoveredPr(db, "p1", ["src/a.ts"]); // github, covered — passes the probe
+        db.run(
+          `INSERT INTO item (id, service, type, external_id, title, modified_at, synced_at)
+           VALUES ('gl-1', 'gitlab', 'pr', 'gl-1', 'gl-1', 0, 0)`, // gitlab, uncovered
+        );
+        const r = await dispatchDiagnosticsRpc(
+          "index.queryItems",
+          { notTouching: "tests/*", services: ["github"] },
+          ctx,
+        );
+        const v = (r as { value: { gaps: { excludedNoCoverage: number } } }).value;
+        // The gitlab PR must NOT be counted against a github-scoped answer.
+        expect(v.gaps.excludedNoCoverage).toBe(0);
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmTmp(dir);
+    }
+  });
+
+  // IMPORTANT 5 from the Task 3 review: the matching id set must not be bind-parameter bounded.
+  // SQLite's per-statement bind-parameter ceiling is well under 100,000; before this fix, a
+  // matching set at this scale threw instead of answering. This inserts tens of thousands of
+  // covered, non-matching PRs (so all of them satisfy `--not-touching tests/*`) and confirms the
+  // query still succeeds.
+  test("a matching set of tens of thousands of ids does not hit a bind-parameter ceiling", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "nimbus-diag-qi-neg13-"));
+    try {
+      const { ctx, db } = makeCtxWithIndex(dir);
+      try {
+        const N = 70_000;
+        const insertItemStmt = db.prepare(
+          `INSERT INTO item (id, service, type, external_id, title, modified_at, synced_at)
+           VALUES (?, 'github', 'pr', ?, ?, ?, ?)`,
+        );
+        const insertStateStmt = db.prepare(
+          `INSERT INTO pr_files_state (item_id, fetched_at_ms, api_file_count, stored_count, truncated)
+           VALUES (?, 0, 1, 1, 0)`,
+        );
+        const insertFileStmt = db.prepare(
+          `INSERT INTO pr_changed_file (item_id, repo_full, path, status)
+           VALUES (?, 'o/r', ?, 'modified')`,
+        );
+        try {
+          db.transaction(() => {
+            for (let i = 0; i < N; i++) {
+              const id = `p${i}`;
+              insertItemStmt.run(id, id, id, i, i);
+              insertStateStmt.run(id);
+              insertFileStmt.run(id, `src/file${i}.ts`);
+            }
+          })();
+        } finally {
+          insertItemStmt.finalize();
+          insertStateStmt.finalize();
+          insertFileStmt.finalize();
+        }
+
+        const r = await dispatchDiagnosticsRpc(
+          "index.queryItems",
+          { notTouching: "tests/*", limit: 1000 },
+          ctx,
+        );
+        expect(r.kind).toBe("hit");
+        const v = (r as { value: { items: unknown[]; meta: { total: number }; gaps: unknown } })
+          .value;
+        expect(v.items).toHaveLength(1000); // clamped to the requested limit, not the match count
+        expect(v.meta.total).toBe(1000);
+        expect(v.gaps).toBeDefined();
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmTmp(dir);
+    }
+  }, 30_000);
 });
 
 describe("diag.slowQueries", () => {

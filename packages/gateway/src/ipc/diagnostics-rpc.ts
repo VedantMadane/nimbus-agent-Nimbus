@@ -20,8 +20,20 @@ import { formatRepairReport, repairIndex } from "../db/repair.ts";
 import { listSnapshots, previewRestore, pruneSnapshots, takeSnapshot } from "../db/snapshot.ts";
 import { formatVerifyResult, verifyIndex } from "../db/verify.ts";
 import { preT2DisabledCount, signatureDisabledRegistry } from "../extensions/hard-disable.ts";
+import { buildItemListSql } from "../index/item-list-query.ts";
 import type { LocalIndex } from "../index/local-index.ts";
 import { LocalIndex as LocalIndexClass } from "../index/local-index.ts";
+import {
+  buildNoDownstreamIncidentSql,
+  buildNotTouchingSql,
+  countNoDownstreamIncidentExclusions,
+  countNotTouchingExclusions,
+  missingSubstrateRefusal,
+  type NegationExplain,
+  probeCorrelatesWith,
+  probePrFileCoverage,
+  toPositionalSubquery,
+} from "../index/negation-predicates.ts";
 import type { SandboxRunner } from "../platform/sandbox/sandbox-runner.ts";
 import { buildTelemetryPreview } from "../telemetry/collector.ts";
 import type { ConsentCoordinator } from "./consent.ts";
@@ -322,6 +334,16 @@ function rpcDbSetMeta(params: unknown, ctx: DiagnosticsRpcContext): DiagnosticsR
   }
 }
 
+// `QueryExplain` / `MissingSubstrateRefusal` / `missingSubstrateRefusal` / `toPositionalSubquery`
+// used to be defined here, byte-identical to a second copy in `ipc/people-rpc.ts`. Hoisted into
+// `index/negation-predicates.ts` (Task 4 fix round 1) as `NegationExplain` /
+// `MissingSubstrateRefusal` / `missingSubstrateRefusal` / `toPositionalSubquery` — see that
+// module's doc comments — and imported below rather than redefined, so the two IPC files cannot
+// drift again the way this pair already had (the identical duplication was itself Minor-1 review
+// feedback). `QueryExplain` stays as a local type ALIAS only so every existing reference in this
+// file reads the same as before.
+type QueryExplain = NegationExplain;
+
 function rpcIndexQueryItems(params: unknown, ctx: DiagnosticsRpcContext): DiagnosticsRpcOutcome {
   const rec = asRecord(params);
   const rawSinceMs = rec?.["sinceMs"];
@@ -345,14 +367,164 @@ function rpcIndexQueryItems(params: unknown, ctx: DiagnosticsRpcContext): Diagno
   const types = Array.isArray(rec?.["types"])
     ? (rec["types"] as unknown[]).filter((x): x is string => typeof x === "string")
     : [];
-  const items = requireLocalIndex(ctx).listItems({
+  const rawNotTouching = rec?.["notTouching"];
+  // A PRESENT but unusable `notTouching` must NEVER silently fall through to the plain path: that
+  // would answer a different question ("every item") than the one asked ("items not touching X"),
+  // which is exactly the confident-wrong-answer failure this whole feature exists to prevent.
+  // Written as what MAY pass, not what may not, so a new unusable shape is rejected by default:
+  // a blank string is reachable from the documented CLI surface (`takeFlag`,
+  // cli/src/commands/serve.ts, returns `args[i + 1]` verbatim, so `--not-touching ''` arrives as
+  // `""`), and a non-string reaches here only over raw JSON-RPC — a narrower door onto the same
+  // failure, closed here because it costs one clause. `null` is treated as ABSENT, not as an
+  // error: JSON-RPC callers routinely spell an omitted optional that way.
+  if (rawNotTouching !== undefined && rawNotTouching !== null) {
+    if (typeof rawNotTouching !== "string" || rawNotTouching.trim() === "") {
+      throw new DiagnosticsRpcError(-32602, "notTouching must be a non-empty glob pattern");
+    }
+  }
+  // TRIMMED, not raw: the guard above already treats surrounding whitespace as insignificant
+  // (it rejects `"   "` as blank), and passing the untrimmed value on would contradict that —
+  // `" tests/**"` is a perfectly valid GLOB that matches NO path, so every covered PR would come
+  // back as "not touching" with neither a gap nor a refusal to signal it. That is the
+  // confident-wrong answer this predicate exists to prevent, and the CLI cannot absorb it: the
+  // pattern arrives verbatim from `takeFlag`.
+  const notTouching = typeof rawNotTouching === "string" ? rawNotTouching.trim() : undefined;
+  const rawNoDownstreamIncident = rec?.["noDownstreamIncident"];
+  // Same reasoning, same failure: `noDownstreamIncident: "yes"` is a caller ASKING for the
+  // negation, and `=== true` alone would hand them every deployment instead. `explain` gets no
+  // such check on purpose — it is a debug flag, so falling back to off answers the same question.
+  if (rawNoDownstreamIncident !== undefined && rawNoDownstreamIncident !== null) {
+    if (typeof rawNoDownstreamIncident !== "boolean") {
+      throw new DiagnosticsRpcError(-32602, "noDownstreamIncident must be a boolean");
+    }
+  }
+  const noDownstreamIncident = rawNoDownstreamIncident === true;
+  // The two predicates do not compose (spec § 8), so a request carrying BOTH is rejected rather
+  // than answered by whichever one wins a priority rule: silently dropping one hands the caller
+  // an answer to a question they did not ask, with nothing in the response saying so — the same
+  // failure the present-but-unusable checks above reject. The CLI cannot produce this pair (the
+  // `--type` scoping guards are mutually exclusive), but a raw JSON-RPC caller reaches it
+  // directly, which is exactly why the check lives here and not only there.
+  if (notTouching !== undefined && noDownstreamIncident) {
+    throw new DiagnosticsRpcError(
+      -32602,
+      "notTouching and noDownstreamIncident do not compose — supply exactly one",
+    );
+  }
+  const explain = rec?.["explain"] === true;
+
+  const baseParams = {
     services,
     types,
     limit,
     ...(sinceMs === undefined ? {} : { sinceMs }),
     ...(untilMs === undefined ? {} : { untilMs }),
-  });
-  return { kind: "hit", value: { items, meta: { limit, total: items.length } } };
+  };
+  // The SAME services/types the query itself used, so a gap count printed beside a scoped result
+  // set describes THAT result set — an unscoped (index-global) count next to it would be read as
+  // belonging to it and would not.
+  const gapScope = { services, types };
+
+  const db = requireDb(ctx);
+
+  // --not-touching: probe the substrate FIRST. On an empty `pr_files_state`, every uncovered PR
+  // would trivially satisfy "does not touch this path" — a confident false positive, not an
+  // incomplete answer — so an empty substrate refuses rather than silently answering.
+  // Only one negation predicate can be in play here: supplying both is rejected above (spec § 8 —
+  // they do not compose), so this branch never silently wins a race with the one below.
+  if (notTouching !== undefined) {
+    const probeResult = probePrFileCoverage(db);
+    const predicate = buildNotTouchingSql(notTouching);
+    // Embedded as a subquery, never materialised into one bind parameter per matching id: SQLite
+    // has a ~65,535 bind-parameter ceiling per statement, so a large matching set would otherwise
+    // throw instead of answering. The subquery costs exactly its own parameter count (one, here)
+    // no matter how many rows it matches.
+    const idInSql = toPositionalSubquery(predicate);
+    const composed = buildItemListSql({ ...baseParams, idInSql });
+    if (!probeResult.passed) {
+      return {
+        kind: "hit",
+        value: missingSubstrateRefusal(
+          "no PR file-coverage data is indexed, so which PRs do not touch a path cannot be verified",
+          "sync a connector that populates PR changed-file coverage (GitHub/GitLab), then retry",
+          explain
+            ? { sql: composed.sql, params: composed.vals, substrate: probeResult }
+            : undefined,
+        ),
+      };
+    }
+    const items = requireLocalIndex(ctx).listItems({ ...baseParams, idInSql });
+    const gaps = countNotTouchingExclusions(db, gapScope);
+    const explainBlock: QueryExplain = {
+      sql: composed.sql,
+      params: composed.vals,
+      substrate: probeResult,
+    };
+    return {
+      kind: "hit",
+      value: {
+        items,
+        meta: { limit, total: items.length },
+        gaps,
+        ...(explain ? { explain: explainBlock } : {}),
+      },
+    };
+  }
+
+  // --no-downstream-incident: same probe-first shape, over the `correlates_with` substrate.
+  if (noDownstreamIncident) {
+    const probeResult = probeCorrelatesWith(db);
+    const predicate = buildNoDownstreamIncidentSql();
+    const idInSql = toPositionalSubquery(predicate);
+    const composed = buildItemListSql({ ...baseParams, idInSql });
+    if (!probeResult.passed) {
+      return {
+        kind: "hit",
+        value: missingSubstrateRefusal(
+          "no `correlates_with` edges are indexed, so which deployments have no downstream " +
+            "incident cannot be verified",
+          "run a sync that populates deployment-to-incident correlation, then retry",
+          explain
+            ? { sql: composed.sql, params: composed.vals, substrate: probeResult }
+            : undefined,
+        ),
+      };
+    }
+    const items = requireLocalIndex(ctx).listItems({ ...baseParams, idInSql });
+    // The Task 2 -> Task 3 ruling: an ungraphed deployment is silently DROPPED by the predicate's
+    // INNER JOIN — fail-closed and correct — but must not be dropped UNCOUNTED. See
+    // `countNoDownstreamIncidentExclusions`'s doc comment for why it is labelled "no graph entity
+    // of the required type" rather than "not graphed".
+    const gaps = countNoDownstreamIncidentExclusions(db, gapScope);
+    const explainBlock: QueryExplain = {
+      sql: composed.sql,
+      params: composed.vals,
+      substrate: probeResult,
+    };
+    return {
+      kind: "hit",
+      value: {
+        items,
+        meta: { limit, total: items.length },
+        gaps,
+        ...(explain ? { explain: explainBlock } : {}),
+      },
+    };
+  }
+
+  // Plain path — no negation predicate requested. `--explain` still works here: the spec (§ 5)
+  // requires it on ANY `query` invocation, not only negation ones, so it is attached on every
+  // return path rather than gated inside the negation branches above.
+  const items = requireLocalIndex(ctx).listItems(baseParams);
+  if (!explain) {
+    return { kind: "hit", value: { items, meta: { limit, total: items.length } } };
+  }
+  const built = buildItemListSql(baseParams);
+  const explainBlock: QueryExplain = { sql: built.sql, params: built.vals };
+  return {
+    kind: "hit",
+    value: { items, meta: { limit, total: items.length }, explain: explainBlock },
+  };
 }
 
 async function rpcIndexQuerySql(

@@ -75,4 +75,68 @@ describe("buildItemListSql (additional branches)", () => {
     expect(sql).toMatch(/FROM item\s+ORDER BY modified_at DESC LIMIT \?/);
     expect(vals).toEqual([5]);
   });
+
+  test("ids restricts with an IN (...) clause, AND-ed with other filters", () => {
+    const { sql, vals } = buildItemListSql({
+      services: ["github"],
+      types: [],
+      ids: ["p1", "p2"],
+      limit: 10,
+    });
+    expect(sql).toContain("service IN (?)");
+    expect(sql).toContain("id IN (?, ?)");
+    expect(vals).toEqual(["github", "p1", "p2", 10]);
+  });
+
+  test("an empty ids array matches nothing rather than emitting IN ()", () => {
+    const { sql, vals } = buildItemListSql({
+      services: [],
+      types: [],
+      ids: [],
+      limit: 10,
+    });
+    expect(sql).not.toContain("IN ()");
+    expect(sql).toContain("1 = 0");
+    expect(vals).toEqual([10]);
+  });
+
+  test("no ids filter (undefined) leaves the query unrestricted", () => {
+    const { sql } = buildItemListSql({ services: [], types: [], limit: 10 });
+    expect(sql).not.toContain("id IN");
+    expect(sql).not.toContain("1 = 0");
+  });
+
+  test("idInSql embeds the given SELECT verbatim as a subquery, no per-row bind params", () => {
+    // The fixture binds its own value rather than inlining `'pr'`, matching what the real
+    // predicate builders hand in (`buildNotTouchingSql` and friends bind every value they take).
+    // The point of the case survives: the subquery contributes exactly ONE parameter here, not
+    // one per matched row, however many rows it goes on to match.
+    const { sql, vals } = buildItemListSql({
+      services: ["github"],
+      types: [],
+      idInSql: {
+        sql: "SELECT i.id FROM item i WHERE i.type = ? AND NOT EXISTS (SELECT 1 WHERE 0)",
+        vals: ["pr"],
+      },
+      limit: 10,
+    });
+    expect(sql).toContain(
+      "id IN (SELECT i.id FROM item i WHERE i.type = ? AND NOT EXISTS (SELECT 1 WHERE 0))",
+    );
+    expect(vals).toEqual(["github", "pr", 10]);
+  });
+
+  test("idInSql's own vals splice in at the right position for a large id-matching set", () => {
+    // Exercises the actual reason this filter exists: a huge matching set costs exactly the
+    // subquery's own parameter count (one, here), never one bind parameter per matched row.
+    const { sql, vals } = buildItemListSql({
+      services: [],
+      types: [],
+      idInSql: { sql: "SELECT id FROM item WHERE service = ?", vals: ["gitlab"] },
+      sinceMs: 500,
+      limit: 10,
+    });
+    expect(sql).toContain("id IN (SELECT id FROM item WHERE service = ?)");
+    expect(vals).toEqual(["gitlab", 500, 10]);
+  });
 });
