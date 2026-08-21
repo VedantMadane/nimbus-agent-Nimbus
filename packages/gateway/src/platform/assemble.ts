@@ -251,6 +251,7 @@ import { createGatewayPinoLogger } from "./gateway-log-file.ts";
 import type { PlatformPaths } from "./paths.ts";
 import { registerUserMcpSyncablesFromDatabase } from "./register-user-mcp-sync.ts";
 import { createSandboxRunner } from "./sandbox/sandbox-runner.ts";
+import { reapAppContainersAtBoot } from "./sandbox/win32-reap.ts";
 import type { AutostartManager, NotificationService, PlatformServices } from "./types.ts";
 
 function createStubAutostart(): AutostartManager {
@@ -2253,6 +2254,11 @@ export async function assemblePlatformServices(
   // Built before `db` so a boot-marker append failure (below) has somewhere to log a warning.
   const syncLogger: Logger = createGatewayPinoLogger(paths.logDir);
   const vault = customVault ?? (await createNimbusVault(paths));
+  // Ordering is load-bearing on Windows: this constructs the runner, which synchronously probes
+  // the helper via `--check-caps` (creating, then deleting, a throwaway `nimbus-ext-probe`
+  // AppContainer profile) — BEFORE `reapAppContainersAtBoot` runs below. So if that probe's own
+  // delete ever fails and leaves `nimbus-ext-probe` behind, the reaper that runs right after on
+  // this same boot is what cleans it up, not a later restart.
   const sandboxRunner = await createSandboxRunner();
   const db = openGatewaySqlite(paths.dataDir, sidecarStops);
   // I29: record what THIS binary is built to observe, before anything can emit egress. Without a
@@ -2261,6 +2267,10 @@ export async function assemblePlatformServices(
   // so egress_ledger (V44) exists. Non-fatal on failure (see `appendBootMarkerOrWarn`) — a corrupted
   // or locked ledger degrades proofs to `indeterminate`, it does not stop the gateway from booting.
   appendBootMarkerOrWarn(db, THIS_BINARY_COVERAGE, Date.now(), syncLogger);
+  // The AppContainer profiles the Windows sandbox creates are per-user registry state. Reap the
+  // ones whose extension is gone, or they accumulate across every install/uninstall cycle and
+  // leave orphaned SIDs on paths they were granted. Non-fatal by construction: see the function.
+  void reapAppContainersAtBoot({ db, logger: syncLogger });
   const notifications = createUnimplementedNotifications(syncLogger);
   const rateLimiter = new ProviderRateLimiter();
   const activeTomlPath = resolveNimbusTomlForProfile(paths.configDir);
