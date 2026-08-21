@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787297918457,
+  "lastUpdate": 1787298627361,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -14415,6 +14415,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 311.80578334999916,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b99b557c9a558addaaf391737afd144a9aea13a4",
+          "message": "chore: release main (#1290)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>2.12.0</summary>\n\n##\n[2.12.0](https://github.com/nimbus-agent/Nimbus/compare/v2.11.0...v2.12.0)\n(2026-08-21)\n\n\n### Features\n\n* **security:** I32 — clip source metadata is whitelist-constructed, so\na page cannot deny ingestion of its own clip\n([#1288](https://github.com/nimbus-agent/Nimbus/issues/1288))\n([5587c84](https://github.com/nimbus-agent/Nimbus/commit/5587c84e55eff015ea508a423fb7365e14ce94f9))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-21T10:27:29+03:00",
+          "tree_id": "21af587f39234a0e92df1fe6273e2ac1f4632d58",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/b99b557c9a558addaaf391737afd144a9aea13a4"
+        },
+        "date": 1787298624780,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 343.6604610499959,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 335.3626968500001,
             "unit": "ms"
           }
         ]
