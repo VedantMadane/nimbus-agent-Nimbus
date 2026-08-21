@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787299335958,
+  "lastUpdate": 1787299845896,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -14483,6 +14483,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 330.1027467999993,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9b905f165430c0d267294f7ff8ce98a26a8c7dd8",
+          "message": "chore: release main (#1293)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>2.12.1</summary>\n\n##\n[2.12.1](https://github.com/nimbus-agent/Nimbus/compare/v2.12.0...v2.12.1)\n(2026-08-21)\n\n\n### Performance Improvements\n\n* **test:** a migrated-once schema template and a deadline-bounded poll,\nfor the Windows hot path\n([#1291](https://github.com/nimbus-agent/Nimbus/issues/1291))\n([6e5fbfd](https://github.com/nimbus-agent/Nimbus/commit/6e5fbfdea1a3e095095aec665cc6e0f9d5d10711))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-21T07:55:38Z",
+          "tree_id": "889c2c13cb5b6b836f8334f81c595eda1230f73b",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/9b905f165430c0d267294f7ff8ce98a26a8c7dd8"
+        },
+        "date": 1787299844090,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 223.80725894999557,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 223.06961080000036,
             "unit": "ms"
           }
         ]
