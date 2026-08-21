@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787335121991,
+  "lastUpdate": 1787335804474,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -14687,6 +14687,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 335.7845551999977,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "344e2173300bec92886d7f329ba6fe220360c234",
+          "message": "fix(ci): make the sandbox spawn suite report why it failed, and gate it on the platforms it is about (#1298)\n\nTwo defects, both mine, both surfaced by #1294 going red on `main`\nminutes after merge.\n\n## 1. The diagnostic was blind on the platforms that failed\n\nThe dump added in #1294 matched stderr against `[\"bwrap:\",\n\"nimbus-sandbox-wrapper:\"]` — the Linux launcher and the cross-platform\nwrapper. macOS launches through `sandbox-exec` and Windows through\n`nimbus-sandbox-helper.exe`; neither prefix was listed. So both failing\nruns reported a bare `Expected: \"hello-from-sandbox\" / Received: \"\"`\nwith the reason nowhere in the log, on runners nobody can log into.\n\nAn allow-list of failure signatures is the wrong shape for a diagnostic:\nit recognises only failures someone already thought of and fails silent\non the rest. It now dumps on anything **anomalous**, derived from the\nshape of the run rather than from known strings:\n\n- any stderr at all — no launcher prints on a clean launch;\n- `status === null` — killed by a signal, which no case expects;\n- exit 0 with empty stdout — the shape of \"the child never really ran\".\n\nThe two cases that legitimately produce empty stdout exit 7 and 77, so\nneither trips it.\n\n**Red-proved** by reproducing the exact CI symptom locally (a child that\nexits 0 printing nothing): the dump fires with platform, tmpdir, cwd,\npolicy, argv, status, stdout and stderr. **Verified quiet** on the green\npath — 0 dumps across all five passing cases.\n\n## 2. The PR gate never ran this suite off Linux\n\n`pr-quality`'s cross-platform job runs `bun test packages/<pkg>/src` —\nscoped to `src/`, so it never collects\n`packages/gateway/test/integration/`. On the PR gate that integration\nsuite runs on **Ubuntu only**.\n\nThat is how a Windows- and macOS-broken spawn suite merged green: the\nsuite written specifically to prove the wrapper spawns on all three\nplatforms had never once run on two of them before reaching `main`. The\npush matrix found it minutes later.\n\nThis does **not** widen the PR gate to the whole integration suite —\nthat would add minutes to every PR on two slow runners for tests that\nare not platform-sensitive. It adds one step running\n`packages/gateway/test/integration/platform/sandbox/` (seconds), plus\nthe Windows helper build it needs, both gated on `code-changed` and `pkg\n== gateway`. Without it, this branch's own fix could not be verified\nbefore merge either, and the cycle would repeat.\n\n## What this does NOT fix\n\nThe underlying failures. This makes CI say what they are.\n\nKnown so far, from the push-matrix logs:\n\n| Platform | Symptom |\n| --- | --- |\n| macOS | exit **134** (SIGABRT) on every case — the Bun child dies at\nstartup |\n| Windows | only the two **stdout-reading** cases fail; exit-code\npropagation (7) and policy refusal (77) both **pass** |\n\nSo on Windows the sandbox itself works and the stdio path does not — a\nmuch narrower problem than it first looked. Neither failure reproduces\non a local Windows machine, including with output redirected and\n`CI=true`, which is why the diagnostics come first.\n\n**This PR is expected to go red on the new Windows and macOS steps.**\nThat is the point: it is the first run that will print why.\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n- **Bug Fixes**\n- Improved macOS sandbox startup reliability by allowing required system\nmetadata and device access while preserving restricted access to `/dev`.\n- Added regression coverage for sandbox startup permissions and\ndefault-deny behavior.\n- Improved launcher anomaly diagnostics across platforms, including\nclearer handling of unexpected output and exits.\n\n- **Tests**\n- Expanded cross-platform gateway integration testing in CI, with\nplatform-specific setup and per-test time limits.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-21T20:47:14+03:00",
+          "tree_id": "a2c2db0c5a6f2f09a1c879bcff2ce51d3f7f7f49",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/344e2173300bec92886d7f329ba6fe220360c234"
+        },
+        "date": 1787335801040,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 305.72869035000184,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 307.3363510500105,
             "unit": "ms"
           }
         ]
