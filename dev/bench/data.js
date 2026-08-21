@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787284194394,
+  "lastUpdate": 1787286478541,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -14177,6 +14177,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 326.6463150000076,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5ce7505be84d5cc3e5c0f36e96dae6872c1102b0",
+          "message": "feat(engine): negation predicates reach nimbus ask and MCP clients, refusing rather than guessing (W6-B.2) (#1281)\n\nCloses **W6-B**, the last open Wave 6 answer-quality row. B.1 put three\nnegation predicates on\n`nimbus query` / `nimbus people list`; this puts the same three in front\nof a model, on two\nsurfaces:\n\n```text\nfindPrsNotTouching(pathGlob, service?, limit?)\nfindDeploymentsWithoutIncident(service?, limit?)\nfindPeopleWithoutReviews(sinceDays?, limit?)\n```\n\n- **the gateway engine** — Mastra tools, so `nimbus ask` can use them,\nand the desktop, VS Code and\n  ChatOps surfaces that share that engine get them too;\n- **the MCP server** — the same three names in `INDEX_TOOL_SPECS`, for\nexternal MCP clients.\n\n## Why a model surface is a different problem from a flag\n\nB.1's refusal is structural: an empty substrate means exit `1`, no rows,\nnothing else on screen.\nHand that same result to a model and every part of the guarantee becomes\na request. The model can\nparaphrase the refusal into a hedge, drop it, or route around it\nentirely by calling\n`searchLocalIndex` and answering the negation from ranked results — the\nconfident-wrong answer B.1\nexists to prevent, now with a fluent explanation attached.\n\nSo each tool records a disclosure sentence onto the per-request store,\nand\n`runConversationalAgent` drains it and appends it to the answer — and\nstreams the same text, so the\ndesktop cannot show less than the CLI — outside the model's control.\nEach tool also embeds the same\nsentence in its own payload, so the guarantee degrades to \"the model saw\nit\" rather than to silence\nif the store is ever missing.\n\n## What this delivery does NOT guarantee\n\nFour bounds, stated because a reader would otherwise assume otherwise:\n\n1. **The two surfaces are not equally protected.** Refusals are\nstructural on both — a refusing\ntool returns only the refusal, so there are no rows to present instead.\nBut **exclusion counts\nare guaranteed only on the engine surface**: the append lives in the\ngateway engine, and an\nexternal MCP client never reaches it, so its model can report the rows\nand drop \"12 excluded\".\n2. **The local-router path has no tools at all.** With\n`[llm].prefer_local = true` a turn goes\nthrough `runViaLocalRouter`, and the router has no tool-calling support\nwhatsoever — so the\nnegation tools are unreachable there, as is `searchLocalIndex`. For that\nuser the predicates\nremain available through the CLI or an MCP client, and \"negation in\n`nimbus ask`\" is inert.\n   Pre-existing, not introduced here, and previously unstated.\n3. **A model can still ignore the tool descriptions** and answer a\nnegation from a ranked search,\nwith no disclosure attached because no negation tool ran. Steering is by\ndescription only; there\nis deliberately no detector, because classifying free text as \"a\nnegation\" is a guess and a false\npositive would attach a scary caveat to a correct answer. Known, open,\nnot closed here.\n4. **What the ALS probe proves, precisely.** The design's top risk was\nthat the request store might\nnot survive Mastra's tool scheduling, which would make every disclosure\nvanish silently. A test\nproves the store survives retrieval through a real Mastra `Agent`. It\ndoes **not** prove\nMastra's own scheduling between the model's tool-call decision and\n`execute`, which the spec\nsaid up front cannot be proven in CI. That gap is why the\npayload-embedded copy exists.\n\n## Shape of the change\n\nThe probe-refuse-count-explain sequence B.1 left inline in two IPC\nhandlers moved into one module,\n`index/negation-query.ts`, now shared by both handlers and the three\ntools. Wire-shaped validation\nstayed in the RPC layer, so the engine never imports IPC error types.\nThe refactor is\nbehaviour-preserving: both handlers' test files pass unchanged, apart\nfrom two assertions that pin\na remediation string this delivery deliberately makes surface-neutral —\nB.1 told users to \"widen\n`--since`\", which is wrong advice on a surface with no CLI flags.\n\nType scoping moved from validated to intrinsic: each tool pins its own\nitem type, so there is no\n`itemType` argument to get wrong.\n\n**No schema migration, no new IPC method, no new HTTP route, no new\ninvariant, `ALLOWED_METHODS`\nunchanged at 105, and no `egress_ledger` row on either surface** — the\nengine tools read local\nSQLite and never reach `connectors.dispatch`, and MCP *index* tools have\nnever been ledgered.\n\n## Verification\n\n- `bun test packages/gateway` — 14468 pass, 32 skip, **0 fail** across\n1067 files\n- `bun test packages/cli` — 2459 pass, **0 fail** across 140 files\n- `bun run preflight:fast` — PASSED, 29/29 gates\n- `bun run typecheck` clean; `audit:any` at baseline; `lint:markdown`,\n`audit:status-drift`,\n  `audit:doc-refs`, `audit:links` all clean\n\nEvery guard was red-proved by reverting it and watching the covering\ntest fail: the read-once\ndrain, the substrate refusal, the streamed half of the append, the\nembedded disclosure copy, and\nthe `sinceDays` conversion.\n\nTwo defects found in review are worth naming because tests alone would\nnot have caught them. The\nshared orchestrator initially hardcoded the item type, so a\ncaller-supplied `types` filter was\nsilently overridden — the pre-refactor behaviour returned nothing, the\nnew one returned PRs.\nAnd the ChatOps path shares the engine and its tools but was calling\n`runAsk` outside the request\nstore, so a refusal there was warn-logged and dropped; it is now\nwrapped, with a test.\n\nDesign: `docs/superpowers/specs/2026-08-20-negation-in-ask-design.md`.\nPlan: `docs/superpowers/plans/2026-08-20-negation-in-ask.md`.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-21T04:16:49Z",
+          "tree_id": "e72aa0658540b97c66ef216f50b835ce046dfc96",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/5ce7505be84d5cc3e5c0f36e96dae6872c1102b0"
+        },
+        "date": 1787286476608,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 319.4396718999957,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 318.8771335499936,
             "unit": "ms"
           }
         ]
