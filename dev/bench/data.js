@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787252931188,
+  "lastUpdate": 1787282850645,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -14109,6 +14109,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 330.13418854999907,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4b60ac001c7101ea33ead481933edd5cefd3f5d8",
+          "message": "docs: record the MCP Registry listing and close the distribution blocker (#1282)\n\n`io.github.nimbus-agent/nimbus@0.2.0` went live in the official MCP\nRegistry\nyesterday. The distribution program spec still called it \"blocked —\nneeds a\npackaging decision\" in three places.\n\nThat spec exists to police claim-vs-reality drift, so it should not be\nthe last\ndocument carrying one.\n\n## What changed\n\n- **Listings table** — `blocked — needs a packaging decision` → `listed\n  2026-08-20 — io.github.nimbus-agent/nimbus@0.2.0`\n- **Verified-state bullet** — records that Branch B was chosen and\nexecuted:\n`packages/mcp-launcher` became `nimbus-agent/nimbus-mcp`, publishing via\nrelease-please + OIDC, so `NPM_TOKEN` stayed forbidden and the monorepo\nstill\n  has no `npm publish` path\n- **Next-action #1** — struck through as done, pointing at the executed\nplan and\n  the verified precedent it ran against\n- **`docs/CHANGELOG.md`** — the listing plus the CI automation\n- **`CLAUDE.md` / `GEMINI.md`** — one clause each, kept in sync: listed\nas\n  `io.github.nimbus-agent/nimbus`, republished from CI on every release\n\n## Not just a status flip\n\nTwo things bit during execution and are now recorded rather than left\nfor\nrediscovery:\n\n- **`@nimbus-dev/mcp@0.1.0` has no provenance.** npm will not configure\na trusted\npublisher until a package has one published version, so the bootstrap\nhad to be\nhand-published. The satellite's `SECURITY.md` states the exception\nrather than\n  claiming every release is attested.\n- **Interactive org-namespace publishing requires a `read:org` PAT.**\nThe\nregistry's login app is a *private* GitHub App, so it cannot be\ninstalled on the\norg and a device-flow token can never read the org role. The CLI's error\ntext\n(\"make your organization membership public\") points at the wrong\nrequirement\n  entirely — public membership is not it.\n\nThe CHANGELOG entry also records why the registry-publish job lives in\n`release.yml` rather than the tag-triggered workflow the registry's docs\nshow:\nthat shape races, because release-please pushes the tag *before* the npm\npublish\njob runs and the registry entry is metadata pointing at the package.\n\n## Verification\n\n`preflight PASSED`, `audit:doc-refs` OK, `audit:status-drift` OK,\nmarkdownlint\nclean across 130 files.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-21T06:15:53+03:00",
+          "tree_id": "2ca57dbf62d9453d86645c9abd1676c42bf258ef",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/4b60ac001c7101ea33ead481933edd5cefd3f5d8"
+        },
+        "date": 1787282848076,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 315.1915868000011,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 313.3566588999944,
             "unit": "ms"
           }
         ]
