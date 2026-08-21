@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787328660348,
+  "lastUpdate": 1787332041586,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -14585,6 +14585,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 259.18891910000127,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6ae5a53fd3ca911373ca511dafa5ad48e29f1d69",
+          "message": "fix(preflight): an unknown service must not pass the deploy gate (#1297)\n\n`nimbus deploy preflight --service <not-in-config> --target-ref main\n--mode block` printed `[ok]`\nand exited **0**. The gate passed for a service that does not exist.\n\n```text\n$ nimbus deploy preflight --service totally-made-up --target-ref main --mode block\nDeploy preflight — totally-made-up @ main  [ok]\n  Active P1 incidents             0  [no_pagerduty_mapping]\n  Failing CI runs                 0  [no_repos]\n  Open PR merge conflicts         0  [no_repos]\n$ echo $?\n0\n```\n\n## Why it failed open\n\n`ipc/preflight-rpc.ts`'s `unconfiguredEnvelope` hard-coded `verdict:\n\"ok\"`. The verdict vocabulary\nis only `ok | warn`, and both consumers block on `warn` alone —\n`commands/deploy.ts` and the\nAction's `decideExitCode`. So a healthy service and a nonexistent one\nproduced byte-identical\nenvelopes apart from their gap labels, and a typo'd or renamed\n`--service` was indistinguishable\nfrom a clean bill of health.\n\nThe same dispatcher serves `GET /v1/preflight/deploy`, which is what the\nfirst-party\n`preflight-query` Action calls, and `render.ts` emits **no annotations\nat all** on an `ok` verdict.\nA workflow whose service id drifted out of `nimbus.toml` went green and\nsilent.\n\nWorth noting the contrast that made this a defect rather than a choice:\nthe Action's\n`allow-gateway-failure` defaults to `false`, so an **unreachable\ngateway** already fails the\nworkflow. The transport was fail-closed; the configuration was\nfail-open.\n\n## The fix\n\n`unconfiguredEnvelope` now returns `verdict: \"warn\"` with `gap:\n\"unknown_service\"` on all three\nchecks and counts still zero. `--mode block` exits 1, the Action\nannotates, and the reason is\nlegible.\n\n**`warn`, not a new third verdict** — this is the load-bearing decision.\nThe published Action's\n`safeVerdict` read:\n\n```ts\nfunction safeVerdict(raw: unknown): \"ok\" | \"warn\" {\n  return raw === \"warn\" ? \"warn\" : \"ok\";\n}\n```\n\nEvery value it did not recognise became `ok`. A `verdict:\n\"unknown_service\"` would therefore have\narrived at an already-deployed Action as `ok` and reintroduced the\nidentical fail-open one layer\nout. `warn` is the only value that fails closed in every consumer, old\nand new; the reason travels\nin the gap, which is a free-form string on the wire.\n\nThat coercion is fixed in the same PR, in the safe direction: only the\nliteral `\"ok\"` now yields\n`\"ok\"`. An unrecognised verdict is precisely the case where the Action\ncannot tell whether it is\nsafe to deploy.\n\n**F24b**, same envelope one command over: `metrics dora` reported\n`no_repos` for a service that was\nnever defined — \"exists, no repositories bound\", a different and much\nmore fixable-looking problem,\nand what an agent calling the `getDoraMetrics` MCP tool would act on.\n`DoraGap` gains\n`unknown_service`. The soft-envelope **shape** asymmetry with\n`metrics.stats`, which refuses\noutright, is deliberate and documented in `metrics-rpc.ts` and is\nunchanged — only the label moved.\n\n## Tests\n\nTwo pre-existing assertions pinned the fail-open and are **inverted on\npurpose**, each with a\ncomment saying so:\n\n- `test/unit/ipc/preflight-rpc.test.ts` asserted `verdict: \"ok\"` for an\nunconfigured service.\n- `preflight-query/src/main.test.ts` asserted `verdict: \"danger\"`\nnormalizes to `\"ok\"` — under the\n  name *\"normalizes verdict\"*.\n\nNew coverage: a table-driven check that seven unrecognised verdicts all\ncoerce to `warn` and only\nliteral `\"ok\"` survives; zero-count/no-findings assertions so `warn`\ncannot be misread as \"found\nthree problems\"; and an end-to-end CLI test that this exact envelope\nmakes `--mode block` exit\nnon-zero. That last one was red-proved by disabling the block branch,\nnot by watching it pass.\n\n`packages/gateway/openapi/v1.yaml` had already drifted from both source\nenums — `PreflightGap` was\nmissing `pagerduty_urgency_without_priority` and `DoraGap` was missing\n`mixed_source`. Both synced\nhere alongside the new member. `audit:openapi-drift` compares routes,\nnot enum members, which is\nwhy it did not catch that.\n\n`bun run preflight:fast` passes; 556 tests across the affected scopes\npass.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-21T16:58:57Z",
+          "tree_id": "7bbf62324e3a9f5559e926f4b401f289a2e06791",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/6ae5a53fd3ca911373ca511dafa5ad48e29f1d69"
+        },
+        "date": 1787332039629,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 252.6164970500009,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 251.60582689999902,
             "unit": "ms"
           }
         ]
