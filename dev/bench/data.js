@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787286478541,
+  "lastUpdate": 1787288048763,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -14211,6 +14211,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 318.8771335499936,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7eb443d4a2dc1ea904a48226360935b431d7d7fb",
+          "message": "chore: release main (#1284)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>2.10.0</summary>\n\n##\n[2.10.0](https://github.com/nimbus-agent/Nimbus/compare/v2.9.0...v2.10.0)\n(2026-08-21)\n\n\n### Features\n\n* **engine:** negation predicates reach nimbus ask and MCP clients,\nrefusing rather than guessing (W6-B.2)\n([#1281](https://github.com/nimbus-agent/Nimbus/issues/1281))\n([5ce7505](https://github.com/nimbus-agent/Nimbus/commit/5ce7505be84d5cc3e5c0f36e96dae6872c1102b0))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-21T07:39:19+03:00",
+          "tree_id": "72719675e04794fb3bd81ba26ef2cd6a8d51daf5",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/7eb443d4a2dc1ea904a48226360935b431d7d7fb"
+        },
+        "date": 1787288046387,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 306.98354485000016,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 308.9438149500005,
             "unit": "ms"
           }
         ]
