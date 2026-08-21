@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787295541872,
+  "lastUpdate": 1787296272074,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -14313,6 +14313,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 247.34133560000555,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5de0a7676f22b37974e1ee78ac8984acd4b131ea",
+          "message": "docs(spec): the whitelist test needs 70 KB, not 60 — 60 never crossed the ceiling (#1287)\n\n## Summary\n\nCorrects an arithmetic error in the clip-source-metadata design spec\n(merged 2026-08-20), and records why it changed.\n\nThe spec's Testing section specified **a 60 KB unknown member** as the\ncase that proves the `source` whitelist, on the reasoning that without\nthe whitelist the item \"would exceed the store's 64 KB metadata ceiling\nand `upsertIndexedItem` would throw, so a page could deny ingestion of\nits own clip.\"\n\nIt would not. `RAW_META_MAX_BYTES` is 65,536, and that metadata\nserialises to **60,112 bytes** — comfortably under. The implementation\nin #1285 copied the number faithfully, which produced a test that passed\non its `toEqual` assertion while advertising itself as a\ndenial-of-ingestion fence. Review caught it before merge and shipped\n**70 KB** (70,112 bytes), which genuinely crosses.\n\nTwo edits:\n\n- The Testing bullet now says 70 KB, and states plainly that the size\nhas to be *over* the ceiling rather than merely large — with the\noriginal 60 KB error recorded rather than quietly overwritten, since the\narithmetic is the entire point of that bullet.\n- The \"Unknown members are discarded\" rule no longer names a specific\nsize at all. It now cites `RAW_META_MAX_BYTES` (65,536 bytes) and says\n\"enough to cross that ceiling\", which cannot go stale.\n\n## Related Issue\n\nFollow-up to #1285 (2.5 S2). No issue number.\n\n## Type of Change\n\n- [x] Documentation only\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` passes with zero errors (no code changed)\n- [x] `bun run lint` passes (no code changed)\n- [x] All existing tests pass (no code changed — the shipped test\nalready uses 70 KB)\n- [x] New behaviour is covered by tests (n/a — documentation only)\n- [x] No `any` types introduced\n- [x] No credentials, tokens, or secret values appear in logs, IPC\nmessages, config, or test fixtures\n- [x] Platform-specific code is behind the `PlatformServices`\nabstraction (n/a)\n- [x] The HITL consent gate has not been weakened, bypassed, or made\nconfigurable\n- [x] Does not touch `docs/README.md`\n\n## Testing\n\n`bun run lint:markdown` — 138 files, 0 issues. `bun\nscripts/structure-audit/check-doc-references.ts --check` — 1,208 refs\nacross 41 docs, all resolve. No code paths touched.\n\n## Notes for Reviewers\n\nWorth doing now rather than later because **S3 of roadmap 2.5 is gated\non S2 being released**, and S3's author will read this spec. Leaving the\nwrong number in it invites re-deriving a test that looks like a DoS\nfence and isn't.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n- **Documentation**\n- Updated the clip source metadata specification with a clearer\noversized-field validation example.\n- Increased the example payload from 60 KB to 70 KB to explicitly exceed\nthe 64 KB metadata limit.\n- Added an explanation of the size calculation and clarified that\noversized unknown fields are excluded before storage.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-08-21T09:51:55+03:00",
+          "tree_id": "080cdc7c069d266d9cd1dcf8112c73c466942fea",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/5de0a7676f22b37974e1ee78ac8984acd4b131ea"
+        },
+        "date": 1787296269537,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 327.9537767999973,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 334.50936349999904,
             "unit": "ms"
           }
         ]
