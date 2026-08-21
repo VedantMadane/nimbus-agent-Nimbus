@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787296852429,
+  "lastUpdate": 1787297918457,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -14381,6 +14381,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 304.6626124500064,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7a9480ca2969be5c8e7cda3ce784d238a9424836",
+          "message": "docs: close Spine S1, open S2, and record where CI's 31 minutes go (#1289)\n\nS1 (Local Brain) has had zero open roadmap rows since W6-B.2 landed on\n2026-08-20, but every status surface still declared it the current build\nslot. This closes S1, opens S2, deletes the specs and plans whose work\nshipped, corrects three factual errors in the skills, and records a\nmeasured CI diagnosis.\n\n## Closing S1, opening S2\n\n`docs/roadmap.md` moves the S1 section into Shipped under a new\n`#spine-s1` anchor, with a delivery summary and the three bounds S1\ncarried rather than closed: the `allow-remote` synthesis path is wired\nbut unreachable in production, the local-router path has no tool-calling\nsupport so the negation predicates cannot be reached there, and\nexclusion\ncounts on a negation are guaranteed only on the gateway engine surface.\n\n`## Active` becomes S2 — Local Compute Fleet, drawn from Phase 14 plus\nthe two overlay rows, and marked as nothing-shipped-yet. The\nbring-your-own-frontier-model row is called out as the one that would\nmake the `model` egress class append a row for the first time.\n\nThe mirrored surfaces follow: `CLAUDE.md` and `GEMINI.md` status\nparagraphs, the `docs/README.md` phase table, the roadmap Status\nOverview, contents list, spine table and Phase 6 cross-reference. The\ntwo\nmirrors were byte-identical before this change and still are.\n\nHistorical links that read `[S1 — Local Brain](#active)` now point at\n`#spine-s1`, so they resolve to what they meant when written.\n\n## The parked MCP-server row is closed as delivered\n\nThe server ships in-repo over stdio with no network port, the launcher\nis\npublished and listed in the MCP Registry, and W6-B.2 took the tool\nsurface from 18 to 21. What did not ship is the owner-sink write\nsurface,\nwhich is stated as the reason `I28` stays reserved, and re-scoped onto\nS3 along with the transport conditions that were never reached.\n\n## Deleted specs and plans\n\n45 files across nine shipped workstreams. The rule applied: delete only\nwhat shipped AND is not linked from `docs/CHANGELOG.md`. The changelog\nis\na permanent record and `lychee` checks every markdown link under\n`docs/`,\nso a spec the changelog cites stays. That preserved the mcp-launcher,\ndistribution-program and negation-in-ask sets.\n\nTwo source comments cited the deleted negation-queries spec. Both now\npoint at `docs/cli-reference.md`, which carries the same three\ninvocations; the pin test that keeps the doc examples parseable still\npasses.\n\n## Skill corrections\n\nThese were wrong, not merely stale.\n\n- `nimbus-tauri-allowlist` claimed the size assertion is 106. The code\n  asserts 105 — negotiate added one in #1166 and #1225 removed\n  unreachable methods afterwards.\n- `nimbus-agent-patterns` listed thirteen agents and omitted `negotiate`\n  from both its description and its file roster. There are fourteen.\n- `nimbus-commands` had none of S1's back half. Added `pre-mortem`,\n  `negotiate`, `stats`, the three negation predicates and `--devil`,\n  each with the bound that matters.\n- `nimbus-architecture` build-slot line updated.\n\n## CI diagnosis\n\nNew spec at\n`docs/superpowers/specs/2026-08-21-ci-critical-path-design.md`,\nmeasured against run 32452626344, which took 31m11s. No workflow file is\ntouched by this PR.\n\nThe obvious suspect is not the answer. `Unit + Coverage` at 12m21s is\nthe\nsecond-longest job; the run is set by the Windows cross-platform job at\n30m35s. That job ran the gateway suite twice, because one test timed out\non attempt 1 and passed on the retry, so a single flake cost roughly\neleven minutes while the job still reported green.\n\nSix files out of 831 account for 74% of the Windows suite. The worst is\n`diagnostics-rpc.test.ts` at 447 seconds, dominated by the 22\n`index.queryItems` tests that landed the day before in W6-B.1. Those\nsame\ntests run in 8.66 seconds locally, so this is an 18x runner gap rather\nthan badly written tests.\n\nThe spec also declines the \"move something to a new repo\" idea on\nCI-time grounds and shows why: all 95 connectors are 97.5 seconds of\ntest\ntime on a job that is not the bottleneck, against a gateway that is\n62.5k\nLOC and eleven minutes on Windows. It suggests revisiting that on\nownership grounds instead.\n\nSix proposals are ranked with estimated savings and risk. None is\napplied\nhere; they go on their own branch so a red CI experiment never blocks a\ndocs merge.\n\n## Verification\n\n`bun run preflight:fast` passes all 30 gates. `bun run audit:links`\nreports 0 errors across 1458 links. `audit:doc-refs` resolves 1212\nreferences. The two touched CLI source files pass their tests.",
+          "timestamp": "2026-08-21T07:27:18Z",
+          "tree_id": "ce6732500663338bbee673438610dd4ffc2e535c",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/7a9480ca2969be5c8e7cda3ce784d238a9424836"
+        },
+        "date": 1787297915719,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 312.5090811499969,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 311.80578334999916,
             "unit": "ms"
           }
         ]
