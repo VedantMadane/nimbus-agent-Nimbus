@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787288048763,
+  "lastUpdate": 1787294559706,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -14245,6 +14245,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 308.9438149500005,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1c7e8184e04acf8b1eaddf6415e52fbda46b2001",
+          "message": "feat(clips): a web clip can say who wrote it — optional source metadata on POST /v1/clips (2.5 S2) (#1285)\n\n## Summary\n\n`POST /v1/clips` gains one optional `source` object, so a web clip\nfinally carries provenance: `author`, `publishedAt` (epoch ms),\n`siteName`, `lang`, `leadImage`. It lands at `metadata.source`. Until\nnow `validateClipInput` read exactly seven fields and dropped the rest,\nwhich made a clip **the one item type in the index arriving with no\nauthor, publish date or site name** — every connector-sourced item has\nthem. Mozilla Readability already parses `byline`, `siteName`,\n`publishedTime` and `lang` in the extension; there was simply nowhere on\nthe wire to put them.\n\nThis is **S2** of `nimbus-web-clipper` roadmap item **2.5**. S1\n(canonical-URL fidelity, client-only) shipped as nimbus-web-clipper#67.\n**S3 (client extraction + threading) is gated on this being RELEASED,\nnot merely merged** — shipping it earlier would show Author and\nPublished in the extension's pre-send preview while a deployed validator\nstill discarded them.\n\nDesign:\n[`docs/superpowers/specs/2026-08-20-clip-source-metadata-design.md`](../blob/main/docs/superpowers/specs/2026-08-20-clip-source-metadata-design.md)\n(approved 2026-08-20).\n\n### The three rules that are deliberately unlike the rest of this body\n\n- **Whitelist, never blocklist.** `validateClipInput` *constructs* a new\n`ClipSource` from the five known fields — it never returns, spreads, or\ndeletes-from the caller's object. This is load-bearing, not tidiness:\n`upsertIndexedItem` serialises the whole metadata object and **throws**\nabove 64 KB, so an unrecognised sibling key riding along would let a\nhostile page deny ingestion of its own clip.\n- **A malformed *member* is dropped, not thrown.** `asString` throws\nbecause a clip without a title is not a clip; a clip with a garbled\nbyline is still a perfectly good clip, and failing it would let one bad\n`<meta>` tag cost the user their capture. A `source` that is not a JSON\nobject (including an array) *is* a `ClipValidationError` — that is\ncaller error, not page noise.\n- **Prose truncates, structured values drop.** `author`/`siteName` cut\nto 200 and stay useful; an over-length `lang` (20) or `leadImage` (2048)\nis discarded, because half a URL is a broken link rather than a shorter\none and a consumer cannot tell it was cut.\n\n`publishedAt` is normalised to epoch ms client-side and checked here\nonly for \"an integer inside `Date`'s range\". Pre-1970 and far-future\nvalues are **valid and kept** — archived essays and embargoed posts\ncarry them honestly, and nothing sorts on this field.\n\n## Related Issue\n\nRelates to nimbus-web-clipper#67 (S1). No issue number for S2.\n\n## Type of Change\n\n- [x] New feature (non-breaking change that adds functionality)\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` passes with zero errors\n- [x] `bun run lint` passes (Biome — 3,444 files, no fixes applied)\n- [x] All existing tests pass (`bun test packages/gateway` — 14,508 pass\n/ 32 skip / **0 fail**, up from a 14,475 baseline)\n- [x] New behaviour is covered by tests (+33)\n- [x] No `any` types introduced — `unknown` is used for external data\n- [x] No credentials, tokens, or secret values appear in logs, IPC\nmessages, config, or test fixtures\n- [x] Platform-specific code is behind the `PlatformServices`\nabstraction (n/a — no OS-specific code)\n- [x] The HITL consent gate has not been weakened, bypassed, or made\nconfigurable\n- [x] Does not touch `docs/README.md`\n\n## Testing\n\n`bun test packages/gateway` — 14,508 pass / 32 skip / 0 fail. Also run:\n`bun run typecheck`, `bun run lint`, `bun run lint:markdown` (138 files,\n0 issues), `bun scripts/structure-audit/check-doc-references.ts --check`\n(1,208 refs, all resolve).\n\n**Three invariants are pinned by tests**, because each is the kind of\nthing a future reader will assume this broke:\n\n1. **Clip identity is untouched.** `externalIdFor` hashes the canonical\nURL plus, for selections, the body — never metadata. Re-clipping after a\nbyline changes is an `updated` on the same id. The test asserts the row\ncount, not just id equality, so a second insert would fail it.\n2. **`modified_at` still comes from `capturedAt`.** The test uses a 1965\n`publishedAt` clearly distinct from `capturedAt`, so it cannot pass\nvacuously.\n3. **`author_id` stays null** even when the clip carries an author — a\nbyline string is not an identity claim.\n\n## Notes for Reviewers\n\n**Two gates that look like they apply and do not** — both checked rather\nthan assumed, so you don't have to: `packages/gateway/openapi/v1.yaml`\ndoes not describe `/v1/clips` (it covers the read-only data API), and\n`WRITE_ROUTE_ALLOWLIST` / `I30` are untouched because this adds a field\nto an existing route, not a route. Also verified: `web_clip` is absent\nfrom `GRAPH_SYNC_BY_TYPE`, so the graph populator returns early for\nclips and never reads the new metadata key.\n\n**One inherited behaviour is documented rather than fixed:** a re-clip\nthat sends no `source` **clears** a stored one, because\n`upsertIndexedItem` replaces metadata wholesale (`metadata =\nexcluded.metadata`). `tags` already behave exactly this way. Left\nsilent, the first person to notice would file it as a bug — so it has a\ncomment and a test.\n\n**`leadImage` is deliberately not scheme-validated**, only type- and\nlength-bounded, matching the spec's argument that dropping a URL which\nfails a regex but is otherwise good costs the user real lead images. Its\ndeclaration now says so explicitly and warns that any consumer which\n*renders* it must scheme-check first — the previous comment claimed\n\"absolute http(s) URL\", a guarantee nothing enforced.\n\n**One correction worth flagging:** the whitelist test originally used a\n60 KB unknown member and claimed that without the whitelist the metadata\nwould cross the store's 64 KB ceiling. That is arithmetically false — it\nserialises to 60,112 bytes against a 65,536 ceiling, so the test was\npassing on its `toEqual` line and never exercised the denial it\nadvertised. It now uses 70 KB (70,112 bytes), which genuinely crosses.\n**The merged design spec still carries the original 60 KB claim in its\nTesting section**; it was left untouched here rather than silently\nrewritten inside an implementation PR, and should get a one-line\ncorrection so S3's author does not re-derive it.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n* Added optional source metadata to web clips, including author,\npublication date, site name, language, and lead image.\n* Valid source details are stored with the clip and replaced when a clip\nis re-submitted.\n  * Invalid, unsupported, or oversized values are safely excluded.\n\n* **Documentation**\n* Added changelog information and implementation guidance for clip\nsource metadata.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-21T06:31:06Z",
+          "tree_id": "fff35a031452226e7d40f5235704376700a5af12",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/1c7e8184e04acf8b1eaddf6415e52fbda46b2001"
+        },
+        "date": 1787294557001,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 311.12718114999626,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 311.1539390000027,
             "unit": "ms"
           }
         ]
