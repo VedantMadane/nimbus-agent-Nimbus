@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787334105764,
+  "lastUpdate": 1787335121991,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -14653,6 +14653,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 247.80632434998952,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "934779b29fcab02a7d234402e949a14b80264a92",
+          "message": "fix(build): bundle the gateway workers so they exist in a compiled binary (#1299)\n\nBoth of the gateway's `new Worker()` sites — 2 of 2 — were dead in every\ncompiled release, for the\nentire life of the project. `nimbus query --sql` and semantic search\nalike:\n\n```text\n$ nimbus query --sql \"SELECT 1\"\nBuildMessage: ModuleNotFound resolving \"B:\\~BUN\\root\\query-guard-worker.ts\" (entry point)\n```\n\n`git log -S worker -- scripts/build-release.ts scripts/build-debug.ts`\nreturns **no commits**: no\nworker was ever passed to the build, so no worker was ever included.\nEvery source-tree test passed\nthroughout, because from source the `.ts` file really is there.\n\n## What actually works, measured\n\n`new Worker(new URL(\"./w.ts\", import.meta.url))` resolves at\n**runtime**, so the bundler never sees\nthe dependency. On Bun 1.3.14 I built four probes and ran each from a\ndirectory with no source\npresent:\n\n| approach | result |\n|---|---|\n| `new Worker(new URL(…, import.meta.url))`, inline | `ModuleNotFound` |\n| same, hoisted to a variable first | `ModuleNotFound` |\n| worker passed as a second `--compile` entry point | `ModuleNotFound` |\n| embed the `.ts` with `{ type: \"file\" }` | embeds, but the Worker realm\nparses TS as JS and dies on the first type annotation |\n| **pre-bundle to JS, embed that with `{ type: \"file\" }`** | **works** |\n\nSo the inline-form theory is wrong and multiple entry points do not\nhelp. The last row is what this\nPR implements — the same shape the admin console has always used in\n`ipc/embedded-assets.ts`.\n\n## The change\n\n- `src/workers/worker-entries.ts` — one manifest of worker entry points.\n- `scripts/build-workers.ts` — bundles each to\n`packages/gateway/dist/workers/<name>.js` (gitignored).\n- `src/workers/embedded-workers.ts` — embeds those with `{ type: \"file\"\n}` and exports the paths.\n- Both spawn sites take their path from that module. One code path for\ndev and compiled, so a test\nexercises what the binary ships — which is the specific thing that went\nwrong here.\n- `prepare` builds the workers, and `compile-gateway.ts` rebuilds them\nimmediately before\n`bun build --compile` rather than trusting them to be fresh, matching\nhow it already handles the\n  admin-console dist.\n\n## The guard\n\n`scripts/structure-audit/check-worker-entries.ts`, wired into the fast\npreflight tier: a\n`new Worker(...)` argument in `packages/gateway/src` must be an\nidentifier exported by\n`embedded-workers.ts`. Written as what cannot pass — 2 of 2 sites were\nwrong, so the sample was not\nthe exception. Comments are stripped first, because several of the\nprotected files explain the\nbanned form in prose and a guard that fires on its own rationale gets\ndeleted.\n\nRed-proved by reverting `query-guard.ts` to `new Worker(new URL(...))`:\nexit 1, then exit 0\nrestored. Eleven unit tests cover the pure functions, including the\n`.href` spelling and a bare\nstring literal.\n\n## Verification against a real binary\n\nCompiled the gateway, copied `nimbus-gateway.exe` and `vec0.dll` to a\ndirectory with no source\ntree, booted it against an isolated config and data dir, and called the\nRPC directly:\n\n```text\n{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"rows\":[{\"one\":1}],\"meta\":{\"count\":1}}}\n```\n\n`index.querySql` works from a packaged binary. **F22 is closed.**\n\n## F15 is NOT closed by this PR\n\nBeing explicit, because under-claiming is the whole point of the audit\nthis comes from. The\nembedding worker now **loads and executes** — the `ModuleNotFound\nresolving\n\"B:\\~BUN\\root\\embedding-worker.ts\"` is gone — and fails on a second,\ndistinct cause underneath:\n\n```text\n[gateway] embeddings: unavailable (ResolveMessage: Cannot find module\n  '../bin/napi-v3/win32/x64/onnxruntime_binding.node' from 'B:\\~BUN\\root\\embedding-worker-df0bgt75.js')\n```\n\nThat is a native `.node` addon, which cannot be embedded the way a JS\nbundle can — it needs a\nsidecar copy plus a resolution change, the shape `copy-vec0-sidecar.ts`\nalready solves for\n`vec0.dll`. Deliberately out of scope here: it is a separate problem\nacross three platforms, and\nfolding it in would make an already broad PR unreviewable. Semantic\nsearch remains unavailable in\ncompiled builds until that lands.\n\n`bun run preflight:fast` passes, including the new gate. 1,163 tests\nacross the touched scopes pass.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-21T20:47:01+03:00",
+          "tree_id": "71a9118ae4aea112deb346280c8d03b5ebf46db0",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/934779b29fcab02a7d234402e949a14b80264a92"
+        },
+        "date": 1787335119991,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 332.71293944999525,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 335.7845551999977,
             "unit": "ms"
           }
         ]
