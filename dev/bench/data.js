@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787374083485,
+  "lastUpdate": 1787374796152,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -14755,6 +14755,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 316.537979850002,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0407fb0c1410a15435c3e170b113a6163db8518e",
+          "message": "fix(ci): close the pre-push gaps behind most red PR checks (#1303)\n\n## Why\n\nMeasured over the last 152 `ci.yml` runs with `event == pull_request`:\n66 green, 18 red, and 68 cancelled by a newer push. That is a **21%\nfailure rate over concluded runs**, and the 45% cancellation rate is the\npush-and-see loop those failures produce.\n\nCutting the 18 failures down to failing steps:\n\n| Failing step | n | Catchable before push? |\n|---|---|---|\n| Unit tests with coverage — Linux | 6 | only in a Linux container |\n| Coverage floor, per-file 85 line / 80 branch | 3 | Docker |\n| Audit root overrides drift | 3 | **yes — `preflight:fast`** |\n| Setup Bun and install dependencies, lockfile drift | 2 | **yes —\n`preflight:fast`** |\n| Audit release-please manifest drift | 1 | **yes — `preflight:fast`** |\n\n**40% of failing steps were already catchable locally in two to three\nminutes.** Not races, not platform quirks — static audits nobody ran.\nThe repo ships `.githooks/pre-push`, which runs `preflight:fast` and\naborts the push on failure, and `core.hooksPath` was unset on the\nmaintainer machine, so it had never run once. That is a local config\nfix, not a code change, and it is recorded in the spec rather than\nshipped here.\n\nThis PR closes the gaps that *are* code.\n\n## What changed\n\n**`verify:pr` could report green on a PR that nothing was gating.** It\nlooped over reported checks only, so a PR whose merge-gating aggregator\nhad not been created yet looked identical to one that passed. That is\nthe exact shape of PR #1298, which merged at 17:47:15Z with `PR quality\n— required gates` not yet created; the check was created at 17:57:44Z\nand failed, putting two broken tests on `main`. `evaluatePrState` now\ntreats an absent required gate as its own failure reason.\n\n**`bun run verify:docker --changed`** — new. Runs the branch's changed\ntest files, plus the colocated `.test.ts` sibling of each changed source\nfile, inside the CI Linux image. Seconds once the image is cached,\nagainst roughly 12 minutes for a push. This targets the largest genuine\nfailure category above, which does not reproduce on Windows or macOS at\nall. Stated bound, printed by the tool itself: a narrow run cannot\nreproduce cross-file `mock.module` contamination, so a green result is\nevidence about those files and never about the suite. `--full` remains\nthe authority.\n\n**`bun run audit:platform-test-gaps`** — new, advisory, `soft`, inside\n`preflight:fast`. Names the tests in your diff that cannot run on your\nOS. A test gated on `skipIf` for `process.platform` never executes on\nthe matching dev box, so local green is silent about it. Measured here:\n`platform/sandbox/win32.test.ts` holds 4 tests that cannot run on\nWindows, including the one that reached `main` red. It exits 0 always\nand under-reports by design.\n\n**Stale CI facts corrected.** `CLAUDE.md`, `GEMINI.md`,\n`nimbus-preflight` and `nimbus-testing` all claimed PRs gate on Ubuntu\nonly. They have not for some time — `pr-quality-cross-platform` runs\nmacOS and Windows legs for gateway and cli, narrowed by changed paths.\nThat claim actively taught that cross-platform breakage surfaces only\nafter merge.\n\n**Merge discipline recorded** in `CLAUDE.md`, `GEMINI.md`, the\n`nimbus-preflight` skill, and as a Step 0 in the `nimbus-ci-doctor`\nagent: when `main` goes red, compare the merge timestamp to the required\ncheck `started_at` before assuming a flake. The ruleset's only bypass\nactor is `OrganizationAdmin` with bypass mode always, and using it\nleaves no annotation anywhere.\n\n**Two specs.** A new analysis doc, and a correction banner on the\nexisting critical-path doc whose central finding is now inverted: PR\n#1291 cut the Windows leg from 30m35s to 8m42s, so `Unit + Coverage` on\nUbuntu is now the longest job and 13 jobs wait on it. No workflow file\nis touched in this PR; the re-ranked pipeline proposals are written up\nfor review.\n\n## Verification\n\n- `bun run preflight:fast` — PASSED, 32 gates, including the new\nadvisory one.\n- `bun test scripts/ci scripts/lib/preflight-gates.test.ts` — 140 pass,\n0 fail.\n- `bash scripts/ci/verify-in-docker.sh --changed` — ran end to end\nagainst real Docker: exit 0 on green, and **exit 1 with a planted\nfailing test**, sentinel removed afterwards.\n- New logic red-proved by inverting it: flipping the skip-condition\nsense fails 3 tests, restoring it passes 14. The `verify:pr` change\nred-proved itself by breaking the pre-existing green-path test, which\nasserted on a placeholder check name.\n- The reporter's own test file produced 3 false positives on first run,\nfrom `skipIf` inside string literals. Fixed and covered.\n\n## Not included\n\nThe three tests currently red on `main` are being fixed in a separate\nchange. No `.github/workflows/` file is modified here.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-22T04:45:41Z",
+          "tree_id": "799a06b80b1df7ecc82e850bb7f37bb2af4218f4",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/0407fb0c1410a15435c3e170b113a6163db8518e"
+        },
+        "date": 1787374794092,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 333.48878074999413,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 325.8923572999982,
             "unit": "ms"
           }
         ]
