@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787374796152,
+  "lastUpdate": 1787375482988,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -14789,6 +14789,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 325.8923572999982,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fc6830ede890780987c43a4dd5c7b9d2c362da38",
+          "message": "chore: release main (#1304)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>2.13.1</summary>\n\n##\n[2.13.1](https://github.com/nimbus-agent/Nimbus/compare/v2.13.0...v2.13.1)\n(2026-08-22)\n\n\n### Bug Fixes\n\n* **agents:** strip a fabricated reserved section at any level, and in\nits non-heading form\n([#1302](https://github.com/nimbus-agent/Nimbus/issues/1302))\n([6742411](https://github.com/nimbus-agent/Nimbus/commit/6742411706b8c41b3730f93e91ba45bd5129fd75))\n* **build:** bundle the gateway workers so they exist in a compiled\nbinary ([#1299](https://github.com/nimbus-agent/Nimbus/issues/1299))\n([934779b](https://github.com/nimbus-agent/Nimbus/commit/934779b29fcab02a7d234402e949a14b80264a92))\n* **ci:** close the pre-push gaps behind most red PR checks\n([#1303](https://github.com/nimbus-agent/Nimbus/issues/1303))\n([0407fb0](https://github.com/nimbus-agent/Nimbus/commit/0407fb0c1410a15435c3e170b113a6163db8518e))\n* **ci:** make the sandbox spawn suite report why it failed, and gate it\non the platforms it is about\n([#1298](https://github.com/nimbus-agent/Nimbus/issues/1298))\n([344e217](https://github.com/nimbus-agent/Nimbus/commit/344e2173300bec92886d7f329ba6fe220360c234))\n* **preflight:** an unknown service must not pass the deploy gate\n([#1297](https://github.com/nimbus-agent/Nimbus/issues/1297))\n([6ae5a53](https://github.com/nimbus-agent/Nimbus/commit/6ae5a53fd3ca911373ca511dafa5ad48e29f1d69))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-22T04:58:21Z",
+          "tree_id": "eba49c5bb2c475762ae288c72ab8bc904f7ea139",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/fc6830ede890780987c43a4dd5c7b9d2c362da38"
+        },
+        "date": 1787375480833,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 308.7404796000006,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 308.44756384999346,
             "unit": "ms"
           }
         ]
