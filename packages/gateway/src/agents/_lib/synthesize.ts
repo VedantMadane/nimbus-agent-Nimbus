@@ -3,7 +3,11 @@ import { personaDirective } from "../../engine/persona.ts";
 import { wrapToolOutput } from "../../engine/tool-output-envelope.ts";
 import { contractViolations } from "./brief-contract.ts";
 import { assertNeverBrief, type SynthInput } from "./brief-kinds.ts";
-import { stripSections, stripSerializedGapEnvelope } from "./markdown-sections.ts";
+import {
+  stripMetaPreamble,
+  stripSections,
+  stripSerializedGapEnvelope,
+} from "./markdown-sections.ts";
 import {
   type RenderOpts,
   renderCatchup,
@@ -362,8 +366,13 @@ async function synthesizeInner(
   // block the model wrote as BODY TEXT — a plain `Gaps:` label, or no label at all, followed by
   // raw `category:`/`detail:`/`remediation:` lines — because there is no heading to parse. That
   // shape was observed shipping on `negotiate` and `janitor`, so it is stripped by field name.
+  // `stripMetaPreamble` runs FIRST (F4): the leading paragraph is where a model narrates its own
+  // instructions back at the reader — "a deterministic fallback rendering ... as a structural
+  // template, without copying verbatim" shipped verbatim from `nimbus glossary --refresh`. It is
+  // bounded to the text above the first heading and never touches a renderer-authored italic
+  // disclosure, which lives in the same position.
   const strippedBody = stripSerializedGapEnvelope(
-    stripSections(attempt.markdown, reservedHeadingsFor(brief)),
+    stripSections(stripMetaPreamble(attempt.markdown), reservedHeadingsFor(brief)),
   );
 
   // Re-check emptiness AFTER stripping, not just on the raw markdown above. A model that
@@ -414,6 +423,9 @@ function formatHeadingList(names: readonly string[]): string {
   const quoted = names.map((n) => `\`${n}\``);
   if (quoted.length <= 1) return quoted.join("");
   const last = quoted.at(-1) ?? "";
+  // No Oxford comma at two items: glossary reserves exactly two (`Terms`, `Gaps`) and read
+  // "a `Terms`, or `Gaps` section", which is not a sentence.
+  if (quoted.length === 2) return `${quoted[0] ?? ""} or ${last}`;
   return `${quoted.slice(0, -1).join(", ")}, or ${last}`;
 }
 

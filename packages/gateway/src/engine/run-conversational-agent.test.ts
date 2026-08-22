@@ -525,3 +525,165 @@ describe("negation disclosures", () => {
     });
   });
 });
+
+describe("context-truncation disclosure reaches the reply (F14)", () => {
+  /**
+   * The line builder is unit-tested next door; what is asserted here is the WIRE. `ask` served
+   * a numbered list of 8 CloudWatch log groups to a user who has 16, with no ellipsis and no
+   * caveat — an answer no reader can distinguish from a correct one. The disclosure is only
+   * worth anything if it survives the same path the model's text takes.
+   */
+  const agentReplying = (text: string): Agent =>
+    ({ generate: mock(async () => ({ text })) }) as unknown as Agent;
+
+  test("a truncated context appends the note to the returned reply", async () => {
+    const r = await runConversationalAgent({
+      agent: agentReplying("1. alpha\n2. beta"),
+      input: "list my log groups",
+      stream: false,
+      sendChunk: () => {},
+      localContext: "Indexed Nimbus context: ...",
+      localContextTruncation: { shown: 8, total: 16, atLeast: false },
+    });
+    expect(r.reply).toContain("1. alpha");
+    expect(r.reply).toContain("given 8 indexed items");
+    expect(r.reply).toContain("16 match");
+  });
+
+  test("a streaming turn gets the note as a chunk, not only in the return value", async () => {
+    // A streaming client renders chunks and never reads the returned string, so appending only
+    // to `reply` would leave exactly the interactive path — the one a human reads — undisclosed.
+    const chunks: string[] = [];
+    const streamingAgent = {
+      stream: mock(async () => ({ fullStream: mockAgentTextDeltaStream() })),
+    } as unknown as Agent;
+    await runConversationalAgent({
+      agent: streamingAgent,
+      input: "list my log groups",
+      stream: true,
+      sendChunk: (t) => chunks.push(t),
+      localContext: "Indexed Nimbus context: ...",
+      localContextTruncation: { shown: 8, total: 16, atLeast: false },
+    });
+    expect(chunks.join("")).toContain("sample, not the complete set");
+  });
+
+  test("an untruncated context appends nothing", async () => {
+    const r = await runConversationalAgent({
+      agent: agentReplying("1. alpha"),
+      input: "list my log groups",
+      stream: false,
+      sendChunk: () => {},
+      localContext: "Indexed Nimbus context: ...",
+      localContextTruncation: { shown: 3, total: 3, atLeast: false },
+    });
+    expect(r.reply).toBe("1. alpha");
+  });
+
+  test("no context at all appends nothing", async () => {
+    const r = await runConversationalAgent({
+      agent: agentReplying("plain answer"),
+      input: "hello",
+      stream: false,
+      sendChunk: () => {},
+    });
+    expect(r.reply).toBe("plain answer");
+  });
+});
+
+describe("the tool-less local path discloses that predicates never ran (F21)", () => {
+  /**
+   * The audit's sharpest row: `nimbus query --type deployment --no-downstream-incident` REFUSES
+   * with exit 1 because the substrate to answer it is not indexed, while `nimbus ask` replied
+   * "No downstream incidents found for any deployment" — the same product answering the same
+   * question two opposite ways, one of them a confident assertion nobody checked.
+   *
+   * The old suite could not catch this: every negation-disclosure test exercises the TOOL path,
+   * which this branch never enters.
+   */
+  const localRouter = (text: string): LlmRouter =>
+    ({
+      generate: mock(async () => ({
+        text,
+        modelUsed: "llama3.2",
+        isLocal: true,
+        provider: "ollama" as const,
+      })),
+      prefersLocal: () => true,
+    }) as unknown as LlmRouter;
+
+  test("a negation question answered locally carries the disclosure", async () => {
+    const r = await runConversationalAgent({
+      llmRouter: localRouter("No downstream incidents found for any deployment."),
+      input: "which deployments had no downstream incident?",
+      stream: false,
+      sendChunk: () => undefined,
+    });
+    expect(r.reply).toContain("No downstream incidents found");
+    expect(r.reply).toContain("negation predicates were NOT consulted");
+  });
+
+  test("an ordinary question answered locally does NOT", async () => {
+    // A disclosure on every local answer would be noise, and noise is what gets skimmed past on
+    // the one answer where it mattered.
+    const r = await runConversationalAgent({
+      llmRouter: localRouter("Three files changed."),
+      input: "what changed in packages/gateway last week?",
+      stream: false,
+      sendChunk: () => undefined,
+    });
+    expect(r.reply).toBe("Three files changed.");
+  });
+
+  test("a negation question answered by the TOOL-capable agent does NOT", async () => {
+    // The agent has the negation tools registered, so claiming they were unavailable would be
+    // false. This is why the flag tracks which path produced the answer rather than which
+    // branch was entered — the local branch can fall back to the agent.
+    const agent = {
+      generate: mock(async () => ({ text: "Two deployments had none." })),
+    } as unknown as Agent;
+    const r = await runConversationalAgent({
+      agent,
+      input: "which deployments had no downstream incident?",
+      stream: false,
+      sendChunk: () => undefined,
+    });
+    expect(r.reply).toBe("Two deployments had none.");
+  });
+
+  test("a local turn that FALLS BACK to the agent does not claim tools were missing", async () => {
+    // The fallback path is the subtle one: the turn starts local, the router throws, and the
+    // Mastra agent — which has the tools — produces the answer. Keying on "took the local
+    // branch" instead of "answered without tools" would attach a false disclosure here.
+    const throwingRouter = {
+      generate: mock(async () => {
+        throw new Error("ollama down");
+      }),
+      prefersLocal: () => true,
+    } as unknown as LlmRouter;
+    const agent = {
+      generate: mock(async () => ({ text: "Two deployments had none." })),
+    } as unknown as Agent;
+
+    const r = await runConversationalAgent({
+      agent,
+      llmRouter: throwingRouter,
+      input: "which deployments had no downstream incident?",
+      stream: false,
+      sendChunk: () => undefined,
+    });
+
+    expect(r.reply).toBe("Two deployments had none.");
+  });
+
+  test("a streaming local turn gets the disclosure as a chunk", async () => {
+    const chunks: string[] = [];
+    await runConversationalAgent({
+      llmRouter: localRouter("No one."),
+      input: "who has never reviewed anything?",
+      stream: true,
+      sendChunk: (t) => chunks.push(t),
+    });
+    expect(chunks.join("")).toContain("negation predicates were NOT consulted");
+  });
+});

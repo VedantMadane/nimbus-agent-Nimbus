@@ -4,9 +4,14 @@ import type { NimbusPersonaToml } from "../config/persona.ts";
 import { Config } from "../config.ts";
 import type { LlmRouter } from "../llm/router.ts";
 import type { LlmGenerateResult } from "../llm/types.ts";
+import { type ContextTruncation, contextTruncationLine } from "./context-truncation-disclosure.ts";
 import { applyDevilAdvocate } from "./devil-advocate.ts";
 import { agentErrorFromCaughtError } from "./gateway-agent-error.ts";
 import { drainNegationDisclosures } from "./negation-disclosure.ts";
+import {
+  isNegationShapedQuestion,
+  NEGATION_TOOLS_UNAVAILABLE_LINE,
+} from "./negation-shaped-question.ts";
 import { applyPersona } from "./persona.ts";
 import { sanitizeExternalError } from "./sanitize-external-error.ts";
 
@@ -23,6 +28,17 @@ export type RunConversationalAgentParams = {
   sendChunk: (text: string) => void;
   priorTurns?: ReadonlyArray<{ role: "user" | "assistant" | "tool"; text: string }>;
   localContext?: string;
+  /**
+   * What `buildLocalIndexedContext` had to leave out (F14). Present only when the index held
+   * more matches than the context budget allowed, and appended to the reply by the same
+   * deterministic path that carries negation disclosures — never asked of the model.
+   */
+  localContextTruncation?: ContextTruncation;
+  /**
+   * The exact index count for a "how many X" question (F23), appended after the model has run.
+   * A count is a `SELECT COUNT(*)`; asking a model to estimate it produced "3", then "2.2".
+   */
+  indexCountLine?: string;
   /**
    * Devil's-advocate mode (`nimbus ask --devil`). Injected into the prompt both execution
    * paths share — see `devil-advocate.ts` for why it is not in either system-prompt surface.
@@ -176,15 +192,22 @@ async function runViaAgent(
  * caller used to contain by anything other than its signature, the change is wrong: a feature
  * that appends a sentence must not alter which turns survive.
  */
+/**
+ * `toolless` reports that the answer came from `runViaLocalRouter`, which passes no tools —
+ * `LlmGenerateOptions` has no `tools` field at all. It is NOT the same as "took the local
+ * branch": the catch below falls back to the Mastra agent, which DOES have the negation tools,
+ * so a turn that started local and fell back must not carry a disclosure saying they were
+ * unavailable (F21).
+ */
 async function runTurn(
   p: RunConversationalAgentParams,
   promptArg: PromptArg,
   maxSteps: number,
-): Promise<{ reply: string; modelMeta?: LlmGenerateResult }> {
+): Promise<{ reply: string; modelMeta?: LlmGenerateResult; toolless: boolean }> {
   const llmRouter = p.llmRouter;
   if (llmRouter !== undefined && shouldUseLocalRouter(p)) {
     try {
-      return await runViaLocalRouter(llmRouter, promptArg, p);
+      return { ...(await runViaLocalRouter(llmRouter, promptArg, p)), toolless: true };
     } catch (e) {
       if (p.agent === undefined) {
         throw e;
@@ -195,7 +218,7 @@ async function runTurn(
   if (p.agent === undefined) {
     throw new Error("No conversational agent or local LLM router configured");
   }
-  return await runViaAgent(p.agent, promptArg, p, maxSteps);
+  return { ...(await runViaAgent(p.agent, promptArg, p, maxSteps)), toolless: false };
 }
 
 /**
@@ -206,11 +229,38 @@ async function runTurn(
  * The stream has already been sent by the time this runs, so the disclosure necessarily arrives
  * last. That is deliberate: it qualifies an answer the user has already begun reading.
  */
-function appendNegationDisclosures<T extends { reply: string }>(
+/**
+ * Append every disclosure this turn OWES the reader, as one deterministic block.
+ *
+ * Two sources, one path on purpose. The negation lines were already constructed here rather
+ * than requested of the model, and F14 needs exactly the same guarantee for context truncation:
+ * a note that the model was asked to add is a note it can drop, and the answer it would have
+ * dropped it from is a confident, well-formed, incomplete list that no reader can distinguish
+ * from a correct one. Streaming clients get the block as a final chunk, since the reply text
+ * they render came from chunks and never from the returned string.
+ */
+function appendDeterministicDisclosures<T extends { reply: string; toolless: boolean }>(
   res: T,
   p: RunConversationalAgentParams,
 ): T {
   const lines = drainNegationDisclosures();
+  // F21: the tool-less path records nothing, so an EMPTY `lines` there is ambiguous — the
+  // appender cannot tell "nothing to disclose" from "the disclosing component never ran". The
+  // three negation tools live on the Mastra agent only, and `runViaLocalRouter` passes none, so
+  // a negation-shaped question answered that way came from unconstrained generation. Left
+  // silent, `nimbus ask` replied "No one." to a question `nimbus query` REFUSES outright.
+  if (res.toolless && isNegationShapedQuestion(p.input)) {
+    lines.push(NEGATION_TOOLS_UNAVAILABLE_LINE);
+  }
+  const truncation =
+    p.localContextTruncation === undefined
+      ? undefined
+      : contextTruncationLine(p.localContextTruncation);
+  if (truncation !== undefined) lines.push(truncation);
+  // F23: the authoritative count, when the question asked for one. Appended rather than left to
+  // the model, which answered "how many PRs are in the index?" with 3, then 2.2, against a true
+  // 173 — it was describing the handful of retrieved items, not the index.
+  if (p.indexCountLine !== undefined) lines.push(p.indexCountLine);
   if (lines.length === 0) {
     return res;
   }
@@ -245,7 +295,14 @@ export async function runConversationalAgent(
   const promptArg = buildPromptArg(promptWithContext, p.priorTurns ?? []);
 
   try {
-    return appendNegationDisclosures(await runTurn(p, promptArg, maxSteps), p);
+    // `toolless` is internal bookkeeping for the disclosure decision, not part of this
+    // function's contract — dropped here so it cannot ride out through `runAsk` into an IPC
+    // response where a client might come to depend on it.
+    const { toolless: _toolless, ...out } = appendDeterministicDisclosures(
+      await runTurn(p, promptArg, maxSteps),
+      p,
+    );
+    return out;
   } catch (e) {
     // A step that recorded a disclosure and then threw must not leave it sitting in the
     // (possibly shared, e.g. workflow.run's one-store-per-workflow) request store for the

@@ -11,6 +11,8 @@ import type { LlmGenerateResult } from "../llm/types.ts";
 import type { SessionMemoryStore } from "../memory/session-memory-store.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
 import { getAgentRequestSessionId } from "./agent-request-context.ts";
+import { capPerService, stripInternalRankField } from "./context-fairness.ts";
+import type { ContextTruncation } from "./context-truncation-disclosure.ts";
 import {
   bindConsentChannel,
   type ExecutorDelegationDep,
@@ -19,7 +21,9 @@ import {
   ToolExecutor,
 } from "./executor.ts";
 import { GatewayAgentUnavailableError } from "./gateway-agent-error.ts";
+import { indexCountFor, indexCountLine } from "./index-count-question.ts";
 import { type PlanResult, planFromIntent } from "./planner.ts";
+import { fallbackSearchTerms, questionSearchTerms } from "./question-search-terms.ts";
 import { type ClassifiedIntent, classifyIntent } from "./router.ts";
 import { runConversationalAgent } from "./run-conversational-agent.ts";
 import { wrapToolOutput } from "./tool-output-envelope.ts";
@@ -162,6 +166,13 @@ async function answerConversationally(
     ? await buildLocalIndexedContext(p.localIndex, p.input)
     : undefined;
 
+  // Same guard as `countIndexedItems`: `localIndex.getDatabase` is optional on the interface, and
+  // a test stub without it must not take the whole turn down over a disclosure line.
+  const countDb =
+    typeof p.localIndex.getDatabase === "function" ? p.localIndex.getDatabase() : undefined;
+  const count = countDb === undefined ? undefined : indexCountFor(countDb, p.input);
+  const countLine = count === undefined ? undefined : indexCountLine(count);
+
   const result = await runConversationalAgent({
     input: p.input,
     stream: p.stream,
@@ -169,7 +180,10 @@ async function answerConversationally(
     priorTurns,
     ...(p.conversationalAgent === undefined ? {} : { agent: p.conversationalAgent }),
     ...(p.llmRouter === undefined ? {} : { llmRouter: p.llmRouter }),
-    ...(localContext === undefined ? {} : { localContext }),
+    ...(localContext === undefined
+      ? {}
+      : { localContext: localContext.text, localContextTruncation: localContext.truncation }),
+    ...(countLine === undefined ? {} : { indexCountLine: countLine }),
     ...(p.devil === true ? { devil: true } : {}),
     // Resolved here rather than at gateway boot so an edit to the active profile's toml is
     // picked up with no restart (D3). No logger: the boot-time resolution in
@@ -285,6 +299,19 @@ async function dispatchPlan(p: RunAskParams, plan: PlanResult): Promise<{ reply:
 }
 
 const LOCAL_CONTEXT_ITEM_LIMIT = 8;
+/**
+ * How far the primary ranked search looks before the context is sliced to
+ * {@link LOCAL_CONTEXT_ITEM_LIMIT}.
+ *
+ * The context budget stays 8; this exists only so the answer can SAY how much it left out.
+ * Before it, the search itself asked for 8, so nothing downstream could tell "8 matches" from
+ * "800 matches, of which you are seeing 8" — and `ask` served the second as the first.
+ *
+ * A ceiling rather than a full count because the ranked search fuses FTS with vector hits and
+ * has no cheap `COUNT(*)`. When the probe comes back full the total is reported as a FLOOR
+ * ("at least 100"), never as an exact number the query cannot support.
+ */
+const LOCAL_CONTEXT_TOTAL_PROBE_LIMIT = 100;
 const LOCAL_CONTEXT_PREVIEW_MAX_CHARS = 900;
 const LOCAL_CONTEXT_QUOTED_QUERY_LIMIT = 4;
 
@@ -373,15 +400,18 @@ function githubIssueContextItemsForRepo(
   localIndex: LocalIndex,
   repoSlug: string,
 ): Array<Omit<LocalContextItem, "rank">> {
-  const like = `${repoSlug}#issue-%`;
-  const urlLike = `%github.com/${repoSlug}/issues/%`;
+  // Issues AND PRs (F12a). This filtered to `type = 'issue'`, so asking about a repo silently
+  // excluded every pull request — and on the audited index `github`/`issue` held ZERO rows, so
+  // the path contributed nothing at all while 16 PRs sat unreachable.
+  const like = `${repoSlug}#%`;
+  const urlLike = `%github.com/${repoSlug}/%`;
   const rows = localIndex
     .getDatabase()
     .query(
       `SELECT id, service, type, title, body_preview, url
        FROM item
        WHERE service = 'github'
-         AND type = 'issue'
+         AND type IN ('issue', 'pr')
          AND (lower(external_id) LIKE ? OR lower(url) LIKE ?)
        ORDER BY modified_at DESC, synced_at DESC, title ASC
        LIMIT ?`,
@@ -403,10 +433,15 @@ function githubIssueContextItemsForRepo(
   });
 }
 
+interface LocalIndexedContext {
+  readonly text: string;
+  readonly truncation: ContextTruncation;
+}
+
 async function buildLocalIndexedContext(
   localIndex: LocalIndex,
   input: string,
-): Promise<string | undefined> {
+): Promise<LocalIndexedContext | undefined> {
   const query = input.trim();
   if (query === "") {
     return undefined;
@@ -427,12 +462,22 @@ async function buildLocalIndexedContext(
         }
       }
     };
-    addRankedResults(
-      await localIndex.searchRankedAsync(
-        { name: query, limit: LOCAL_CONTEXT_ITEM_LIMIT },
-        { semantic: true, contextChunks: 2 },
-      ),
+    // The SENTENCE is not a search term (F1). `ftsTitleMatchQuery` AND-joins every whitespace
+    // token and keeps punctuation, so "what does egressRowToItem do?" contains `"do?"` — a
+    // prefix term nothing matches — and the whole conjunction is unsatisfiable even though the
+    // symbol is indexed and trivially findable on its own.
+    const searchTerms = questionSearchTerms(query);
+    if (searchTerms === undefined) {
+      return undefined;
+    }
+    // Probe wide, serve narrow. `primary.length` is the only honest source for "how many
+    // match" — every other search below is itself capped, so counting `byId` would just
+    // re-measure the truncation instead of the substrate.
+    const primary = await localIndex.searchRankedAsync(
+      { name: searchTerms, limit: LOCAL_CONTEXT_TOTAL_PROBE_LIMIT },
+      { semantic: true, contextChunks: 2 },
     );
+    addRankedResults(primary.slice(0, LOCAL_CONTEXT_ITEM_LIMIT));
     for (const quotedQuery of extractQuotedSearchQueries(query)) {
       addRankedResults(
         localIndex.searchRanked({ name: quotedQuery, limit: LOCAL_CONTEXT_ITEM_LIMIT }),
@@ -442,21 +487,60 @@ async function buildLocalIndexedContext(
       addContextItems(githubIssueContextItemsForRepo(localIndex, repoSlug));
     }
     if (byId.size === 0) {
-      addRankedResults(localIndex.searchRanked({ name: query, limit: LOCAL_CONTEXT_ITEM_LIMIT }));
+      // The AND join is strict enough that three reasonable words routinely describe a document
+      // containing only two — "what should I do for the smoke test issue?" misses an item titled
+      // "add a smoke test" on `issue`, which is its TYPE and appears in neither its title nor
+      // its body. Retry with the single most distinctive term: the same question with the
+      // strictest part relaxed, not a different one.
+      for (const term of fallbackSearchTerms(searchTerms)) {
+        // The PROBE limit, not the context limit: `capPerService` below can only balance the pool
+        // it is handed, and fetching eight rows from a service holding 11,979 of them returns
+        // eight rows from that service. Widening here is what gives the cap something to choose
+        // between; the slice back to eight still happens after it.
+        addRankedResults(
+          localIndex.searchRanked({ name: term, limit: LOCAL_CONTEXT_TOTAL_PROBE_LIMIT }),
+        );
+        if (byId.size > 0) break;
+      }
     }
-    if (byId.size === 0) {
-      addRankedResults(localIndex.searchRanked({ limit: LOCAL_CONTEXT_ITEM_LIMIT }));
-    }
+    // The no-name fallback is GONE (F1, fix 2). `searchRanked` with no `name` sets
+    // `useFts = false` and returns arbitrary recent items, which were then handed to the model
+    // under an authoritative "Indexed Nimbus context:" header inside a `<tool_output>` envelope.
+    //
+    // That is how `ask` answered a question about the user's Fargate log groups with a list of
+    // `microsoft/winget-pkgs` CI runs: the term matched nothing, the fallback fetched whatever
+    // was recent, `github_actions` is the highest-volume service, and the model answered the
+    // question it was asked using the only data it was given — even tagging each row
+    // "(GitHub Actions)". It reported its source honestly; the retrieval layer had asserted a
+    // relevance it did not have. No prompt change fixes that, and no context is better than
+    // confident, specific, false claims about someone's production infrastructure.
     if (byId.size === 0) {
       return undefined;
     }
-    const contextItems = [...byId.values()]
-      .slice(0, LOCAL_CONTEXT_ITEM_LIMIT)
-      .map((item, idx) => ({ ...item, rank: idx + 1 }));
-    return `Indexed Nimbus context:\n${wrapToolOutput(
-      { service: "nimbus", tool: "localIndex.searchRanked" },
-      contextItems,
-    )}`;
+    // Round-robin across services before slicing (F12b): `github_actions` held 11,979 items to
+    // `github`'s 214 on the audited index, so the eight highest-ranked were all CI runs and a
+    // question about a repo never saw a PR.
+    const contextItems = capPerService([...byId.values()], LOCAL_CONTEXT_ITEM_LIMIT).map(
+      (item, idx) => ({ ...item, rank: idx + 1 }),
+    );
+    return {
+      // `rank` is stripped before serialising (F12c). It is internal relevance ordering, the
+      // envelope carries no schema to say so, and models reported it as data — "PR #414691 is
+      // ranked 1st" for GitHub, and for CloudWatch an invented "priority within the RequiemNexus
+      // infrastructure". Deleting the field works for every model; a prompt rule would not.
+      text: `Indexed Nimbus context:\n${wrapToolOutput(
+        { service: "nimbus", tool: "localIndex.searchRanked" },
+        stripInternalRankField(contextItems),
+      )}`,
+      truncation: {
+        shown: contextItems.length,
+        // `byId` can hold more than the probe found — the quoted-query and repo-slug passes
+        // add items the primary search missed — so the total is the larger of the two. It is
+        // still a floor, never an upper bound on what the index holds.
+        total: Math.max(primary.length, byId.size),
+        atLeast: primary.length >= LOCAL_CONTEXT_TOTAL_PROBE_LIMIT,
+      },
+    };
   } catch (e) {
     runAskLog.warn({ err: e }, "failed to build local indexed context for local LLM");
     return undefined;

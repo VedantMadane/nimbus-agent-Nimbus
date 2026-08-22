@@ -1700,3 +1700,222 @@ describe("persona (A2) is resolved from disk by runAsk itself", () => {
     }
   });
 });
+
+describe("buildLocalIndexedContext never fabricates relevance (F1)", () => {
+  /**
+   * The audit's most damaging observed instance. Asking for "Fargate" log groups returned a list
+   * of `microsoft/winget-pkgs` CI runs, each tagged "(GitHub Actions)" by the model — which was
+   * reporting its source honestly. The chain: the term matched nothing, `byId.size === 0`, and
+   * the no-name fallback fetched arbitrary recent items which `github_actions` (the highest-
+   * volume service) dominated. The retrieval layer asserted a relevance it did not have.
+   */
+  function indexWithUnrelatedItems(): LocalIndex {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    for (let i = 1; i <= 5; i++) {
+      db.run(
+        `INSERT INTO item (id, service, type, external_id, title, body_preview, url, modified_at, synced_at)
+         VALUES (?, 'github_actions', 'ci_run', ?, ?, 'a workflow run', '', ?, ?)`,
+        [`gha:run-${String(i)}`, `run-${String(i)}`, `Wingetbot PR Triage ${String(i)}`, i, i],
+      );
+    }
+    return new LocalIndex(db);
+  }
+
+  test("a term that matches nothing yields NO context, not arbitrary recent rows", async () => {
+    const localIndex = indexWithUnrelatedItems();
+    const prompts: string[] = [];
+
+    await runAsk({
+      input: 'In prose, list my "RequiemNexusFargate" log groups by name.',
+      stream: false,
+      clientId: "test-client",
+      paths: stubPaths,
+      consentCoordinator: stubConsent,
+      localIndex,
+      dispatcher: stubDispatcher,
+      egressSink: NULL_EGRESS_SINK,
+      sendChunk: () => {},
+      llmRouter: fakeLocalRouter(prompts, "I have no indexed context for that."),
+      classify: async () => {
+        throw new GatewayAgentUnavailableError({ reason: "no_api_key" });
+      },
+    });
+
+    expect(prompts[0]).not.toContain("Indexed Nimbus context");
+    expect(prompts[0]).not.toContain("Wingetbot");
+    localIndex.close();
+  });
+
+  test("a question that IS answerable still gets its context", async () => {
+    // The other direction, so the fix cannot be "never build context".
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    db.run(
+      `INSERT INTO item (id, service, type, external_id, title, body_preview, url, modified_at, synced_at)
+       VALUES ('nimbus:sym-1', 'nimbus', 'code_symbol', 'sym-1', 'egressRowToItem', 'maps EgressRow to SidebarItem', '', 1, 1)`,
+    );
+    const localIndex = new LocalIndex(db);
+    const prompts: string[] = [];
+
+    await runAsk({
+      input: "what does egressRowToItem do?",
+      stream: false,
+      clientId: "test-client",
+      paths: stubPaths,
+      consentCoordinator: stubConsent,
+      localIndex,
+      dispatcher: stubDispatcher,
+      egressSink: NULL_EGRESS_SINK,
+      sendChunk: () => {},
+      llmRouter: fakeLocalRouter(prompts, "It maps EgressRow to SidebarItem."),
+      classify: async () => {
+        throw new GatewayAgentUnavailableError({ reason: "no_api_key" });
+      },
+    });
+
+    // The whole sentence used to return zero rows here, because `"do?"` is a prefix term
+    // nothing matches and every token is AND-joined.
+    expect(prompts[0]).toContain("Indexed Nimbus context");
+    expect(prompts[0]).toContain("egressRowToItem");
+    localIndex.close();
+  });
+});
+
+describe("context is shared across services and carries no internal fields (F12)", () => {
+  test("a high-volume service does not crowd out the one the question is about", async () => {
+    // `github_actions` held 11,979 items to `github`'s 214 on the audited index, so the eight
+    // highest-ranked were all CI runs and a repo question never saw a PR.
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    for (let i = 1; i <= 20; i++) {
+      db.run(
+        `INSERT INTO item (id, service, type, external_id, title, body_preview, url, modified_at, synced_at)
+         VALUES (?, 'github_actions', 'ci_run', ?, 'billing workflow run', '', '', ?, ?)`,
+        [`gha:${String(i)}`, `r${String(i)}`, i, i],
+      );
+    }
+    db.run(
+      `INSERT INTO item (id, service, type, external_id, title, body_preview, url, modified_at, synced_at)
+       VALUES ('github:pr-1', 'github', 'pr', 'acme/app#1', 'billing retry fix', '', '', 1, 1)`,
+    );
+    const localIndex = new LocalIndex(db);
+    const prompts: string[] = [];
+
+    await runAsk({
+      input: "what changed in billing?",
+      stream: false,
+      clientId: "test-client",
+      paths: stubPaths,
+      consentCoordinator: stubConsent,
+      localIndex,
+      dispatcher: stubDispatcher,
+      egressSink: NULL_EGRESS_SINK,
+      sendChunk: () => {},
+      llmRouter: fakeLocalRouter(prompts, "ok"),
+      classify: async () => {
+        throw new GatewayAgentUnavailableError({ reason: "no_api_key" });
+      },
+    });
+
+    expect(prompts[0]).toContain("billing retry fix");
+    localIndex.close();
+  });
+
+  test("the internal rank field never reaches the model", async () => {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    db.run(
+      `INSERT INTO item (id, service, type, external_id, title, body_preview, url, modified_at, synced_at)
+       VALUES ('github:pr-1', 'github', 'pr', 'acme/app#1', 'billing retry fix', '', '', 1, 1)`,
+    );
+    const localIndex = new LocalIndex(db);
+    const prompts: string[] = [];
+
+    await runAsk({
+      input: "what changed in billing?",
+      stream: false,
+      clientId: "test-client",
+      paths: stubPaths,
+      consentCoordinator: stubConsent,
+      localIndex,
+      dispatcher: stubDispatcher,
+      egressSink: NULL_EGRESS_SINK,
+      sendChunk: () => {},
+      llmRouter: fakeLocalRouter(prompts, "ok"),
+      classify: async () => {
+        throw new GatewayAgentUnavailableError({ reason: "no_api_key" });
+      },
+    });
+
+    expect(prompts[0]).toContain("billing retry fix");
+    expect(prompts[0]).not.toContain('"rank"');
+    localIndex.close();
+  });
+});
+
+describe("a count question is answered from the index, not the model (F23)", () => {
+  function dbWithPrs(n: number): LocalIndex {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    for (let i = 1; i <= n; i++) {
+      db.run(
+        `INSERT INTO item (id, service, type, external_id, title, body_preview, url, modified_at, synced_at)
+         VALUES (?, 'github', 'pr', ?, 'a pull request', '', '', ?, ?)`,
+        [`github:pr-${String(i)}`, `acme/app#${String(i)}`, i, i],
+      );
+    }
+    return new LocalIndex(db);
+  }
+
+  test("the true count is appended even when the model says something else", async () => {
+    // Measured: three runs on an unchanged index answered 3, then "2.2 PRs", then nothing, against
+    // a true 173. `2.2` is the tell — no arithmetic over any set yields it.
+    const localIndex = dbWithPrs(12);
+    const prompts: string[] = [];
+
+    const out = await runAsk({
+      input: "how many PRs are in the index?",
+      stream: false,
+      clientId: "test-client",
+      paths: stubPaths,
+      consentCoordinator: stubConsent,
+      localIndex,
+      dispatcher: stubDispatcher,
+      egressSink: NULL_EGRESS_SINK,
+      sendChunk: () => {},
+      llmRouter: fakeLocalRouter(prompts, "There are 2.2 PRs in the index."),
+      classify: async () => {
+        throw new GatewayAgentUnavailableError({ reason: "no_api_key" });
+      },
+    });
+
+    expect(out.reply).toContain("**12**");
+    expect(out.reply).toContain("not the model's estimate");
+    localIndex.close();
+  });
+
+  test("an ordinary question gets no count line", async () => {
+    const localIndex = dbWithPrs(3);
+    const prompts: string[] = [];
+
+    const out = await runAsk({
+      input: "what changed in the pull requests?",
+      stream: false,
+      clientId: "test-client",
+      paths: stubPaths,
+      consentCoordinator: stubConsent,
+      localIndex,
+      dispatcher: stubDispatcher,
+      egressSink: NULL_EGRESS_SINK,
+      sendChunk: () => {},
+      llmRouter: fakeLocalRouter(prompts, "Some things changed."),
+      classify: async () => {
+        throw new GatewayAgentUnavailableError({ reason: "no_api_key" });
+      },
+    });
+
+    expect(out.reply).not.toContain("Counted from the index");
+    localIndex.close();
+  });
+});

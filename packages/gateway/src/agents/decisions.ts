@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 
-import { explainConfidence } from "../decisions/decision-confidence.ts";
+import { computeConfidence, explainConfidence } from "../decisions/decision-confidence.ts";
 import { loadDecisionCandidates } from "../decisions/decision-extract.ts";
 import { matchesService, type ServiceMatchRoute } from "../decisions/decision-service-scope.ts";
 import { countByStatus, listDecisions, readPassState } from "../decisions/decision-store.ts";
@@ -66,15 +66,31 @@ function toEntry(
   };
 }
 
-function buildGaps(
-  db: Database,
-  counts: { total: number; pending: number; extracted: number; vetoed: number },
-  lastPassAt: number | null,
-  entryCount: number,
-  serviceUnmatched: number,
-  snippetCount: number,
-  truncation: { totalSources: number; truncatedSources: number },
-): GapNote[] {
+/**
+ * One object rather than eight positionals (Sonar `S107`). At that arity the call site is a
+ * column of bare numbers whose meaning depends on order — `entryCount, serviceUnmatched,
+ * snippetCount` are three `number`s the compiler will happily let you transpose.
+ */
+interface GapInputs {
+  readonly counts: { total: number; pending: number; extracted: number; vetoed: number };
+  readonly lastPassAt: number | null;
+  readonly entryCount: number;
+  readonly serviceUnmatched: number;
+  readonly snippetCount: number;
+  readonly truncation: { totalSources: number; truncatedSources: number };
+  readonly staleScoreCount: number;
+}
+
+function buildGaps(db: Database, input: GapInputs): GapNote[] {
+  const {
+    counts,
+    lastPassAt,
+    entryCount,
+    serviceUnmatched,
+    snippetCount,
+    truncation,
+    staleScoreCount,
+  } = input;
   const gaps: GapNote[] = [];
   const anyItems = db.query("SELECT 1 FROM item LIMIT 1").get() !== null;
 
@@ -139,24 +155,28 @@ function buildGaps(
     });
   }
 
-  // Second standing honesty note, also unconditional: the score scale a reader
-  // sees is not the scale the pass can actually reach. The corroboration term
-  // reserves its full 1.0 for `migration`/`iac` evidence, but no connector
-  // indexes changed-file paths today, so that kind is specified and never
-  // emitted. Presenting a 0..1 score without saying 1.0 is unreachable would
-  // make every real decision look under-evidenced.
-  gaps.push({
-    category: "missing_relation_emit",
-    detail:
-      "Confidence tops out at 0.86, not 1.0. The corroboration term reserves its full score " +
-      "for migration/iac evidence — derived from a corroborating change's file paths — and no " +
-      "connector indexes changed-file paths, so that evidence is specified but never emitted. " +
-      "With only PR/commit corroboration reachable, corroboration caps at 0.6 and total " +
-      "confidence at 0.86.",
-    remediation:
-      "Read scores against a 0.86 ceiling, not a full-marks scale; a 0.86 decision is a " +
-      "maximally-corroborated one.",
-  });
+  // The standing "confidence tops out at 0.86" note is GONE (F25). It said the ceiling existed
+  // because no connector indexed changed-file paths — true when written, false since V55 — and
+  // the real cause was that `corroboration()` reserved its top score for `migration`/`iac`
+  // evidence that nothing emits. Those two dead branches were removed rather than re-explained,
+  // so the ceiling is 1.0 and there is nothing left to disclose.
+  //
+  // What IS disclosed is the transition. `listDecisions` filters on the STORED `confidence`
+  // column in SQL, so a row scored under the old formula reads low until a later pass
+  // re-verifies it — and a low score with no explanation is exactly the "under-evidenced"
+  // misreading the old note existed to prevent. Conditional and self-clearing: it names a count
+  // it measured, and says nothing once every row has been rescored.
+  if (staleScoreCount > 0) {
+    gaps.push({
+      category: "missing_relation_emit",
+      detail:
+        `${String(staleScoreCount)} decision(s) still carry a confidence scored on the previous ` +
+        "scale, which capped at 0.86, and read lower than the same evidence would score now.",
+      remediation:
+        "They are rescored automatically as later passes re-verify them; " +
+        "`nimbus decisions --refresh` does it immediately.",
+    });
+  }
 
   return gaps;
 }
@@ -237,20 +257,35 @@ export async function runDecisions(
   // response never shows.
   const snippetCount = entries.filter((e) => e.extractionSource === "snippet").length;
 
+  // A row whose STORED score disagrees with what its own evidence scores today was written by
+  // the pre-rescale formula. Recomputed from the record's own fields — the same inputs
+  // `explainConfidence` already uses — so this measures the actual disagreement rather than
+  // guessing from a timestamp.
+  const staleScoreCount = rows.filter((r) => {
+    const fresh = computeConfidence({
+      tier: r.cueTier,
+      serviceType: serviceTypeOf(ctx.db, r.sourceItemId),
+      evidenceKinds: r.evidence.map((e) => e.kind),
+      hasRationale: r.rationale !== null,
+      hasAlternatives: r.alternatives.length > 0,
+    });
+    return Math.abs(fresh - r.confidence) > 0.005;
+  }).length;
+
   return {
     kind: "decisions",
     agentVersion: 1,
     generatedAt: now,
     latencyMs: Math.round(performance.now() - start),
-    gaps: buildGaps(
-      ctx.db,
+    gaps: buildGaps(ctx.db, {
       counts,
-      passState.lastPassAt,
-      entries.length,
+      lastPassAt: passState.lastPassAt,
+      entryCount: entries.length,
       serviceUnmatched,
       snippetCount,
-      { totalSources, truncatedSources },
-    ),
+      truncation: { totalSources, truncatedSources },
+      staleScoreCount,
+    }),
     query: { sinceMs: cutoffMs, service, minConfidence, explain },
     entries,
     stats: { ...counts, lastPassAt: passState.lastPassAt, truncatedSources },

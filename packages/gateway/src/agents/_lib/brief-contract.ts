@@ -115,11 +115,22 @@ export function requiredPhrases(brief: SynthInput): readonly Disclosure[] {
   return assertNeverBrief(brief);
 }
 
+/**
+ * Which of `anchors` are absent from `haystack`, already normalized.
+ *
+ * EVERY anchor is checked, not the first (F27): one `line` can carry two independent
+ * disclosures, and checking one of them let a rewrite drop the other and ship.
+ */
+function missingAnchors(haystack: string, anchors: readonly string[]): string[] {
+  const normalized = normalizeSectionText(haystack);
+  return anchors.filter((a) => !normalized.includes(normalizeSectionText(a)));
+}
+
 export function contractViolations(brief: SynthInput, markdown: string): string[] {
   const out: string[] = [];
-  for (const { scope, anchor } of requiredPhrases(brief)) {
+  for (const { scope, anchors } of requiredPhrases(brief)) {
     if (scope.kind === "preamble") {
-      if (!normalizeSectionText(preambleBody(markdown)).includes(normalizeSectionText(anchor))) {
+      for (const anchor of missingAnchors(preambleBody(markdown), anchors)) {
         out.push(`the brief preamble dropped required phrase "${anchor}"`);
       }
       continue;
@@ -129,7 +140,7 @@ export function contractViolations(brief: SynthInput, markdown: string): string[
       out.push(`missing required section "${scope.heading}"`);
       continue;
     }
-    if (!normalizeSectionText(body).includes(normalizeSectionText(anchor))) {
+    for (const anchor of missingAnchors(body, anchors)) {
       out.push(`section "${scope.heading}" dropped required phrase "${anchor}"`);
     }
   }

@@ -1285,11 +1285,17 @@ function buildLlmRegistryFromToml(db: Database, activeTomlPath: string): LlmRegi
       enforceAirGap: llmToml.enforceAirGap,
     },
   });
-  llmRegistry.addProvider(new OllamaProvider("http://127.0.0.1:11434", llmToml.localModel));
+  llmRegistry.addProvider(
+    new OllamaProvider("http://127.0.0.1:11434", llmToml.localModel, llmToml.localContextTokens),
+  );
   const llamacppBaseUrl = llmToml.llamacppServerPath.trim();
   llmRegistry.addProvider(
     new LlamaCppProvider(llamacppBaseUrl === "" ? undefined : llamacppBaseUrl, llmToml.localModel),
   );
+  // Fill in `parameterCount` so `[llm] min_reasoning_params` can fire at all (F8). Fire-and-
+  // forget: it is one `/api/tags` call, nothing downstream blocks on it, and a provider that is
+  // down simply leaves the floor fail-open exactly as it was.
+  void llmRegistry.refreshProviderMeta(llmToml.localModel);
   return llmRegistry;
 }
 
