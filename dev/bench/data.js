@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787375482988,
+  "lastUpdate": 1787378534132,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -14823,6 +14823,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 308.44756384999346,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "576ba6e2d7d5fb4ea0cd8d81d0505b4c57f4f085",
+          "message": "fix(cli): a Gateway connection can always answer a HITL prompt (#1305)\n\nCloses F16 from the local-LLM audit — the last of that audit's four\nrelease-decision findings still open, and the only one rated critical.\n\n## The bug\n\n`nimbus vault set` and `nimbus vault delete` could never succeed. Both\nare in\nthe HITL frozen set, so `ipc/server/vault-dispatch.ts` runs them through\n`toolExecutor.gate` first; the gateway emits `consent.request` and\nblocks on\n`consent.respond`. `commands/vault.ts` called `withGatewayIpc` with no\n`onConnect`, so nothing on that connection could answer. Observed\nsymptom was a\nflat `IPC request timed out after 30000ms: vault.set` against a healthy\ngateway, with nothing stored.\n\n`ipc/consent.ts` has no timer at all. `requestConsent` settles on a\nresponse or\non client disconnect and on nothing else, so the client's own 30s\nrequest\ntimeout is the only bound and the gateway never recovers on its own.\n\nTwo docs strings and `nimbus help` all route users into this, and it is\nalso\nwhy the audit's suggested workaround for the dead embedding worker —\nstore an\nOpenAI key in the vault — was itself unreachable.\n\n## A third command, not in the audit\n\nWhile tracing which methods reach the consent broker I found\n`nimbus connector add --mcp` doing the same thing. `connector.addMcp` is\ngated\nin `ipc/connector-rpc.ts` — it asks the owner to authorize spawning an\narbitrary local process — and `runConnectorAddMcp` passes no `onConnect`\neither. Same 30s hang, same nothing-registered.\n\nI checked the rest of the HITL frozen set against real CLI call sites.\n`extension.install` and `teamvault.put` are NOT affected: neither RPC\nhandler\nconsults the gate, and `share.create` uses a deliberate out-of-band flow\nwhere\nthe owner answers separately with `nimbus share approve`. `data.*`,\n`connector.remove`, `connector.reindex` and `egress.prune` already\nregister\nhandlers.\n\n## The fix, and why it is the default and not one argument\n\nThe audit proposed passing `onConnect` from `commands/vault.ts`. That\ncloses\nthe reported case and leaves the shape intact, which matters here\nbecause this\nseam has now failed three times: the doc comment on `onConnect` already\nwarned\nthat `connector reindex --depth full` and `nimbus workflow run` had both\nshipped hanging on exactly this. A hazard documented beside its own\nhelper,\nwith two working mitigations available, that still recurs, is telling\nyou the\npolarity is wrong.\n\nSo `withGatewayIpc` now registers `registerDefaultConsentHandler`\nwhenever the\ncaller supplies no `onConnect`. Forgetting is no longer possible through\nthe\nshared helper; a caller has to pass an `onConnect` that omits consent in\norder\nto break, and none does. The default is consent only, with no\n`agent.chunk`\nsink — a connection not running an agent has no business writing agent\noutput\nto stdout, whereas every connection needs to be able to answer a prompt.\nIt\nhonours `NIMBUS_SCRIPT_CONSENT_SOURCE` the same way the interactive\nregistrar\ndoes.\n\n## Tests\n\nEvery one was red-proved by reverting the fix, not by observing green.\n\nGateway side, `ipc/server/vault-dispatch.test.ts`. Every existing test\nthere\npassed `undefined` for the ToolExecutor, so the blocking half was never\nexercised at all. Three new tests use the real `ConsentCoordinatorImpl`\nwith a\nreal writer: `vault.set` emits `consent.request` and does not settle\nuntil\nanswered, an unanswered request leaves it pending with nothing stored,\nand a\nrefusal leaves the vault untouched. Red-proved by short-circuiting the\ngate.\n\nCLI side, `commands/vault.test.ts` and `commands/connector.test.ts`. The\nexisting vault tests inject a client and call `runVaultSet` directly,\nwhich\nproves the CLI half against a fake and never observes that nothing on\nthe real\nconnection can answer. The new ones drive `runVault` and `runConnector`\nend to\nend against a fake gateway that blocks until consent is answered —\nmodelled on\nthe contract the gateway tests above now pin, rather than on what seemed\nplausible. Includes a refusal case, so the default cannot quietly become\nan\nauto-approver.\n\nSeam, `lib/with-gateway-ipc.test.ts`. The existing \"omitting it changes\nnothing\" test asserted the bug, so it is replaced by its inverse. Plus a\nstatic\nguard: any file passing `onConnect` must import a consent registrar.\n\nThat guard's first draft could not fail. Pointing `prove.ts` at a\ndo-nothing\nregistrar and deleting its import left it green, because a comment forty\nlines\naway mentions the registrar by name and a substring match found the\nprose. It\nnow strips comments and checks imports, and red-proves correctly. Its\nscope is\ndeliberately narrow and stated in the test: it covers the shared helper\nonly.\nAbout 20 commands build a bare `IPCClient` instead, and no gated method\nis\ncalled from any of them today — a checked fact, not a guarantee.\n\n## Verification\n\n`preflight:fast` green, all 31 gates. Full CLI suite 2396 pass and\ngateway IPC\nsuite 1805 pass, on Windows and again on Linux in the CI image, since\nthe\ncombined CLI run is the `mock.module` contamination surface.\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n* **New Features**\n  * Added default consent handling for gateway-connected CLI commands.\n  * Added support for scripted or interactive consent responses.\n\n* **Bug Fixes**\n  * Ensured vault changes remain pending until consent is approved.\n  * Prevented declined or unanswered requests from modifying vault data.\n\n* **Tests**\n* Expanded coverage for connector, vault, and gateway consent workflows,\nincluding approvals, refusals, and pending operations.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-22T05:51:43Z",
+          "tree_id": "5c03b4acf912add8a33a1f8f49409c1ae02b918a",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/576ba6e2d7d5fb4ea0cd8d81d0505b4c57f4f085"
+        },
+        "date": 1787378531063,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 311.4064592999974,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 312.3241215000024,
             "unit": "ms"
           }
         ]
