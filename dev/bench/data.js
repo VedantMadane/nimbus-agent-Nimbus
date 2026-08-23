@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787465065583,
+  "lastUpdate": 1787473438057,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -15027,6 +15027,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 315.00591305000853,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "25e2c3bdf8ba9b8718cf24994a31bffc36745899",
+          "message": "feat(exec): sandboxed code execution behind the I33 owner gate (S2 slice 1) (#1313)\n\nFirst delivery in Spine S2. `nimbus exec` runs code inside the three-OS\nsandbox from #1294, behind an approval prompt showing the **verbatim\nbody** — never a digest, because the human is the entire security\nboundary here. Invariant **I33**, static rule **D23**, no schema change.\n\n## The order inside the gate is the invariant\n\nEvery refusal decidable *without* the owner — the default-off\n`[code_execution]` kill-switch, the `[policy.capabilities.ai_v2]` org\nlockoff, runtime resolution from a registry rather than a caller argv,\nabsolute-path validation, the body-size bound — happens before the\nprompt, so a disabled capability never advertises its own existence by\nprompting. The sandbox posture is asserted before consent too, so the\nowner is never asked to approve something that could not have been\nconfined.\n\nThe body is passed **inline**, so no file exists to leak on a denial,\nrace the spawn, or be swapped between approval and execution. The\napproved bytes go straight to the interpreter.\n\n## \"No network\" includes loopback\n\nThe interesting target is not the internet but the Gateway's own IPC\nsocket and `127.0.0.1` HTTP API, with its `agents` / `resolve` scopes\nand the I13 write surface. That holds via three unrelated mechanisms —\nLinux `--unshare-net`, macOS `deny default` with no allow block\nemitted, Windows AppContainer without `internetClient` — which is the\nmost fragile way for a security property to be true, so it has a\nper-platform test asserting a script cannot reach the Gateway's own\nport.\n\nThe whole `exec` IPC namespace is LAN-forbidden, not merely `exec.run`:\nadmitting `exec.approvalRespond` would let a paired peer **approve**\ncode running on the owner's machine. `exec.*` is absent from the Tauri\nallowlist per I7.\n\n## Six defects only real-sandbox testing surfaced\n\nUnit tests could not have caught any of these. Four were invisible on\none platform or the other.\n\n1. The gate asked `isFullyActive()`, which on Linux reports a helper\n   used **solely** for per-host network filtering. This slice grants no\n   network, and `install-sandbox-deps.sh` installs bubblewrap but not\n   that helper — so the capability was unusable on every Linux machine\n   including CI, gated on a dependency it never uses. Now\n   `SandboxRunner.canConfine(policy)`, keeping per-platform reasoning in\n   the PAL.\n2. The connector-tuned seccomp filter omitted `ftruncate`, so\n   `fs.writeFileSync` and `Bun.write` were SIGSYS-killed with no stderr\n   — the sandbox permitting a write that then died silently. Isolated by\n   bisection, not added speculatively. **This widens a filter shared\n   with MCP connectors**; the 110 existing sandbox tests pass unchanged,\n   and `ftruncate` acts only on an already-open fd.\n3. The output cap counted UTF-16 code units against a byte budget, and\n   its truncation manufactured a U+FFFD that re-encoded **over** the cap\n   it had just enforced.\n4. The child inherited no environment, so on Windows `CreateProcessW`\n   failed with 203 before a line ran. Now uses `extensionProcessEnv`,\n   the same I1-governed allowlist every spawned MCP child uses.\n5. The policy never granted the interpreter's own directory. Linux hid\n   it; Windows AppContainer writes an ACE per path.\n6. Naming a file as bun's **entry point** dies under the AppContainer\n   with `CouldntReadCurrentDirectory`, even though the same sandbox lets\n   bun read, list and `import()` that very file. Ruled out by\n   measurement first: env completeness, 8.3 short names, and ancestor\n   traversal were each tested and eliminated.\n\n## Verified against real sandboxes\n\n| | Windows AppContainer | Linux bwrap |\n| --- | --- | --- |\n| Integration | 5/5 | 5/5 |\n| e2e | 5/5 | n/a |\n| Loopback blocked | yes | yes |\n\nPlus 325 unit / RPC / policy / CLI / invariant tests, and\n`preflight:fast` green.\n\n## Deliberately NOT shipped\n\nSo this is not read as more than it is: the agent-callable path — the\nLLM cannot trigger an execution, and that bound is what makes one human\napproval a sufficient boundary; `--allow-net`; `nimbus exec\n--interactive`; Deno and Python runtimes, though the registry exists;\nand remote sandbox adapters.\n\n`wrapToolOutput` I11 is correspondingly **not** exercised — nothing\nreaches the model — and `exec` appends no `egress_ledger` row, true by\nconstruction since no network is grantable rather than by an appender\nsomeone forgot.\n\nKnown bound: an inline body must fit 16,384 characters, refused with a\nnamed error before consent rather than truncated.\n\n## Reviewer notes\n\n- Item 2 above touches a **shared** security filter. That is the one\n  change worth a second opinion.\n- The sandbox integration suites go RED rather than skipping when their\n  platform dependency is missing, matching `sandbox-wrapper-spawn`. A\n  skip and a pass are indistinguishable in a CI summary.\n- Build the Windows helper locally with `bun run\n  build:sandbox-helper:win32` or those suites will skip and tell you\n  nothing.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n## Summary by CodeRabbit\n\n- **New Features**\n- Added opt-in `nimbus exec` for owner-approved, sandboxed code\nexecution.\n- Supports inline code and files, Bun runtime selection, filesystem\ngrants, output and time limits, and clear exit statuses.\n- Execution is audited, network access is denied, and remote LAN\nexecution is blocked.\n  - Added policy controls to disable capabilities.\n\n- **Bug Fixes**\n  - Improved platform-specific sandbox readiness and confinement checks.\n  - Fixed Linux compatibility for sandboxed filesystem operations.\n\n- **Documentation**\n- Added CLI guidance, architecture details, security invariants,\nchangelog, roadmap, and design documentation.\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-23T08:12:29Z",
+          "tree_id": "5afb42294ea0158ae3c41136fe0790ee81cb4c72",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/25e2c3bdf8ba9b8718cf24994a31bffc36745899"
+        },
+        "date": 1787473435285,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 310.6635563500011,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 312.4963266500014,
             "unit": "ms"
           }
         ]
