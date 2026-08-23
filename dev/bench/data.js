@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787427147723,
+  "lastUpdate": 1787449964399,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -14959,6 +14959,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 308.1243913000064,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f9c6f92ee2c2ef27b96c2df26b8a68ee4b8dd60d",
+          "message": "fix(test): re-home the F11 Google-spawn isolation tests off a process-global mock (#1311)\n\n`main` is red on the macOS `Unit + Coverage` leg — and only that leg.\nUbuntu and Windows are green in the same run, on both attempts of the\nretry.\n\n## What failed\n\nSeven tests in\n`packages/gateway/src/connectors/lazy-mesh/google-spawn-isolation.test.ts`,\nadded in #1307 (F11). They plant a malformed payload in\n`google_drive.oauth` and assert `ensureGoogleDriveMcp` skips Drive and\nstill boots Gmail. On macOS, Drive booted anyway, health stayed\n`not_configured`, and zero warnings were logged.\n\n## Root cause — a leaked `mock.module`, not a flake\n\n`mock.module` is process-global in Bun, and two test files replace\n`src/auth/google-access-token.ts`:\n\n- `test/unit/connectors/google-drive-sync.test.ts` —\n`getValidGoogleAccessToken` returns a fake token\n- `test/unit/connectors/lazy-mesh/connector-spawns.test.ts` — the\ncanonical `connector-spawns.ts` test, same\n\n`bun test` walks files in filesystem order, and the mock takes effect\nfrom the moment its file loads. On Ubuntu and Windows the src-tree twin\nran first and saw the real resolver. On macOS\n`google-drive-sync.test.ts` ran first (log group at position 1133; the\ntwin at 1294), so by the time the twin ran, `getValidGoogleAccessToken`\nwas a stub that never throws — the malformed payload resolved to\n`fake-google-google_drive-access-token` and Drive spawned.\n\nBun merges a factory's keys into an already-loaded module rather than\nreplacing it wholesale, which is why the symptom was so specific:\n`resolveGoogleOAuthVaultKey` stayed real, so `google_meet` (no key at\nall) was still correctly skipped, while every service with a *present*\nkey registered. That matches the observed diff exactly — expected\n`[\"gmail\"]`, received `[\"gmail\", \"google_drive\", \"google_photos\"]`.\n\nThis is 100% reproducible on macOS and 0% reproducible anywhere else.\nRe-running would never have cleared it.\n\nThe header of `connector-spawns.test.ts` already forbade exactly this:\n\n> Do NOT add a sibling real-resolver test (e.g. a src-tree\nconnector-spawns.test.ts that drives ensure\\*Mcp through the REAL\ngetValid\\*AccessToken) … One such twin was removed for exactly this\nreason.\n\n#1307 added a second one.\n\n## The fix\n\n**Re-home the seven assertions into the canonical test file**, driven by\nthat file's *own* mock. `connector-spawns.test.ts` installs its\n`mock.module` at its own load, so nothing that loaded earlier can\noutrace it — the coverage is order-independent by construction rather\nthan by luck.\n\n- Deleted `src/connectors/lazy-mesh/google-spawn-isolation.test.ts`.\n- Added `googleTokenFailure`, a per-service injected-error map, to the\nexisting Google mock in `connector-spawns.test.ts`, cleared in\n`beforeEach`.\n- Ported all seven assertions plus one new one (the *other* branch of\n`classifyGoogleCredentialFailure` — a refused refresh — was previously\nunexercised, and its \"no provider text in stored state\" property now has\na test).\n- `makeCtx` gained a warning capture and an optional `healthDb`, so\nhealth-row attribution is asserted against the real `LocalIndex` schema.\n\nWhat changes is *how* the credential fails, not *what* the test proves:\nthe failure is now an injected throw rather than a malformed payload\nparsed by the real resolver. F11 is about the loop's reaction to a\nthrow, and the parse itself is covered by `oauth-vault-payload`'s own\ntests.\n\n**Also removed a second, latent instance of the same hazard.**\n`classifyGoogleCredentialFailure` in `connector-spawns.ts` matched\nagainst `GOOGLE_OAUTH_PARSE_ERRORS` imported from\n`google-access-token.ts` — i.e. production classification read its SSoT\nout of a module that two test files replace. It survived only because\nBun happens to merge rather than replace. The constant now lives in its\nown `src/auth/google-oauth-parse-errors.ts`, which nobody mocks;\n`google-access-token.ts` re-exports it, so no caller changed.\n\n## Verification\n\n- `bun test packages/gateway/test/unit/connectors/` — 1772 pass, 0 fail\n(97 files, includes both mocking files in one process).\n- **Red-proved**: reverting the F11 guard in `connector-spawns.ts` to\nthe unguarded `await getValidGoogleAccessToken(...)` fails 7 of the new\ntests. The old src-tree tests could not do this on macOS — they were\ngreen against a stub.\n- `bun run preflight:fast` — all 32 gates pass, including\n`typecheck:tests`.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+          "timestamp": "2026-08-23T01:43:47Z",
+          "tree_id": "b16fc0afc188264bcf10c8803608abc2d3cf6aa8",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/f9c6f92ee2c2ef27b96c2df26b8a68ee4b8dd60d"
+        },
+        "date": 1787449961736,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 264.7231803999963,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 268.8181008000065,
             "unit": "ms"
           }
         ]
