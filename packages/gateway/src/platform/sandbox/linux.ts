@@ -83,6 +83,42 @@ export function buildBwrapArgv(policy: SandboxPolicy, opts: BuildArgvOpts): stri
   return argv;
 }
 
+/**
+ * Where `bwrap` is looked for, and why it is not looked up on `PATH`.
+ *
+ * Distinct from the helper probe below: `bwrap` IS the confinement on Linux, while the helper only
+ * adds per-host network filtering — so a missing helper degrades one feature, while a missing or
+ * substituted `bwrap` means no confinement at all.
+ *
+ * Both the probe and the real spawn use the SAME resolved absolute path, and it is resolved once at
+ * construction. That gives three things: `canConfine` can answer BEFORE the owner is asked to
+ * approve (without it a no-network policy reported "confinable", the owner approved, and only then
+ * did the spawn fail); nothing can substitute the sandbox binary by prepending a writable directory
+ * to `PATH`; and the binary that was checked is the binary that runs.
+ *
+ * The candidates are fixed, non-writable locations, plus an explicit override for unusual prefixes
+ * (Nix, a source build, a container image) — deliberately not a `PATH` scan, which would put the
+ * choice back in the hands of whatever can write to a directory on it.
+ */
+const BWRAP_CANDIDATES = ["/usr/bin/bwrap", "/bin/bwrap", "/usr/local/bin/bwrap"] as const;
+
+function resolveBwrapPath(): string | null {
+  const override = process.env["NIMBUS_BWRAP_PATH"];
+  if (override !== undefined && override !== "") {
+    return existsSync(override) ? override : null;
+  }
+  return BWRAP_CANDIDATES.find((p) => existsSync(p)) ?? null;
+}
+
+function probeBwrap(bwrapPath: string | null): string | null {
+  if (bwrapPath === null) {
+    return `bwrap not found at ${BWRAP_CANDIDATES.join(", ")} (set NIMBUS_BWRAP_PATH to override)`;
+  }
+  // Absolute path, no shell: nothing to inject into and nothing for PATH to redirect.
+  const r = spawnSync(bwrapPath, ["--version"], { encoding: "utf8" });
+  return r.error === undefined && r.status === 0 ? null : `bwrap at ${bwrapPath} is not executable`;
+}
+
 function probeHelper(): HelperState {
   if (!existsSync(HELPER_PATH)) {
     return {
@@ -130,6 +166,8 @@ export function createLinuxSandboxRunner(): SandboxRunner {
   const seccompPath = join(seccompDir, "seccomp.bpf");
   writeFileSync(seccompPath, seccompProgram, { mode: 0o600 });
 
+  const bwrapPath = resolveBwrapPath();
+  const bwrapMissing = probeBwrap(bwrapPath);
   const helper = probeHelper();
   if (!helper.available) {
     log.warn({ helper: helper.reason }, "sandbox: degraded mode (no per-host network gating)");
@@ -138,6 +176,13 @@ export function createLinuxSandboxRunner(): SandboxRunner {
   return {
     platform: "linux",
     spawn(cmd: string, args: string[], opts: SandboxSpawnOptions): ChildProcess {
+      // Fail closed rather than falling back to a bare `"bwrap"`, which would reintroduce the PATH
+      // lookup this resolution exists to remove -- and would spawn UNCONFINED-ish through whatever
+      // PATH found, at the one point where being wrong means no sandbox. The exec gate never gets
+      // here (canConfine refuses first); a connector spawn can, and should stop too.
+      if (bwrapPath === null) {
+        throw new Error(`refusing to spawn: ${bwrapMissing ?? "bwrap unavailable"}`);
+      }
       const mode = decideNetworkMode(opts.policy, { helperAvailable: helper.available });
       const bwrapArgv = buildBwrapArgv(opts.policy, { mode, cwd: opts.cwd });
       bwrapArgv.push("--seccomp", "3", cmd, ...args);
@@ -150,11 +195,11 @@ export function createLinuxSandboxRunner(): SandboxRunner {
         for (const host of opts.policy.permissions.network) {
           helperArgs.push("--allow", host);
         }
-        helperArgs.push("--", "bwrap", ...bwrapArgv);
+        helperArgs.push("--", bwrapPath, ...bwrapArgv);
         spawnCmd = HELPER_PATH;
         spawnArgs = helperArgs;
       } else {
-        spawnCmd = "bwrap";
+        spawnCmd = bwrapPath;
         spawnArgs = bwrapArgv;
       }
 
@@ -178,6 +223,17 @@ export function createLinuxSandboxRunner(): SandboxRunner {
     },
     degradedReason(): string | null {
       return helper.reason;
+    },
+    canConfine(policy): string | null {
+      // bwrap first: without it NOTHING is confinable here, network-bearing or not.
+      if (bwrapMissing !== null) return bwrapMissing;
+      // The helper is needed ONLY for per-host network filtering. With an empty network set the
+      // runner passes `--unshare-net`, giving the child its own network namespace — no helper
+      // involved — while bwrap's filesystem binds and the seccomp filter apply regardless. So a
+      // no-network policy is fully confined on a box with no helper at all, which is the common
+      // case: CI installs bubblewrap, not the helper.
+      if (policy.permissions.network.length === 0) return null;
+      return helper.available ? null : helper.reason;
     },
   };
 }

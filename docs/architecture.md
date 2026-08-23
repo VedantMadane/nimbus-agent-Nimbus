@@ -2,7 +2,7 @@
 
 **Version:** 1.0
 **Runtime:** Bun v1.2+ / TypeScript 7.x (strict)
-**Status + dated delivery log:** see [`CHANGELOG.md`](./CHANGELOG.md) (canonical) and [`roadmap.md`](./roadmap.md) (phases + acceptance criteria). Current invariants through I32 (I28 reserved); schema V56.
+**Status + dated delivery log:** see [`CHANGELOG.md`](./CHANGELOG.md) (canonical) and [`roadmap.md`](./roadmap.md) (phases + acceptance criteria). Current invariants through I33 (I28 reserved); schema V56.
 
 > **Authoring references for AI-assisted contributors:** the [`.claude/commands/nimbus-*.md`](../.claude/commands/) skill files are the load-bearing how-to references for every subsystem in this document. Treat this architecture doc as the *what + where* and the skills as the *how*. Pair them when adding new code:
 >
@@ -1428,6 +1428,18 @@ const streamReq: JSONRPCRequest = {
 // egress.verify      — offline BLAKE3-chain verify, timing-safe (I10); a degraded chain reports `indeterminate`, never a false 0 (read; renderer-exposed)
 // egress.proveWindow — rows + completeness tier backing `nimbus prove "<query>"` (read; renderer-exposed)
 // egress.prune       — the SOLE ledger mutation: HITL-gated continuing tombstone (I2 frozen set; CLI/owner-only, NOT renderer-exposed)
+//
+// Spine S2 slice 1 — sandboxed code execution (invariant I33 / static D23):
+// exec.run             — the ONLY transport to `exec/exec-gate.ts` runExecution(). Refuses (before any
+//   prompt) when disabled by `[code_execution] enabled` or by EnforcedPolicy.capabilitiesDisabled;
+//   resolves the runtime from a registry, never a caller argv; builds a SandboxPolicy with an empty
+//   network set; then blocks on the LOCAL owner's approval of the verbatim body. `cwd` is REQUIRED —
+//   never defaulted, since the gateway's cwd is not the caller's. RCE-class: NOT renderer-exposed (I7).
+// exec.approvalRespond — the owner's answer to exec.approvalRequest (broadcast).
+//   The WHOLE `exec` namespace is FORBIDDEN_OVER_LAN (I5), not just exec.run: admitting the respond
+//   verb would let a paired peer APPROVE code running on the owner's machine, defeating I33 without
+//   ever calling exec.run over the wire. Namespace-level, so a future exec.* verb is forbidden by
+//   default rather than by memory.
 //
 // Phase 6 S1 surfaces — why agent (six-lane provenance brief over the 1a graph edges; why-lens step 1b):
 // agents.why      — full six-lane brief (authorship/pull_request/ticket/discussion/driver/downstream);

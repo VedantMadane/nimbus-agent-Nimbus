@@ -312,6 +312,18 @@ describe("I5 — LAN method allowlist is intrinsic to LanServer", () => {
     expect(() => checkLanMethodAllowed("share.verify", peer)).not.toThrow();
   });
 
+  test("FORBIDDEN_OVER_LAN blocks the whole exec namespace (S2 slice 1 / I33)", async () => {
+    const { checkLanMethodAllowed } = await import("./ipc/lan-rpc.ts");
+    const peer = { peerId: "peer:x", writeAllowed: true };
+    // exec.run is the arbitrary-code-execution surface itself. exec.approvalRespond matters just
+    // as much: admitting it would let a paired peer APPROVE code running on the owner's machine,
+    // which defeats the I33 gate without ever calling exec.run over the wire.
+    expect(() => checkLanMethodAllowed("exec.run", peer)).toThrow();
+    expect(() => checkLanMethodAllowed("exec.approvalRespond", peer)).toThrow();
+    // Namespace-level, so a future exec.* verb is forbidden by default rather than by memory.
+    expect(() => checkLanMethodAllowed("exec.anythingAddedLater", peer)).toThrow();
+  });
+
   test("FORBIDDEN_OVER_LAN blocks filesystem.ensureRoot (Stage 2a)", async () => {
     const { checkLanMethodAllowed } = await import("./ipc/lan-rpc.ts");
     const peer = { peerId: "peer:x", writeAllowed: true };
@@ -1501,6 +1513,7 @@ describe("I22 — org policy applied only from a signature-verified bundle, mono
     retentionDays: 7,
     hitlRequired: new Set(["git.force_push_main"]),
     quorum: new Map(),
+    capabilitiesDisabled: new Set(),
   };
 
   function gateWith(toml: string, sig: string, pubkeyB64: string): PolicyGate {
@@ -1511,6 +1524,68 @@ describe("I22 — org policy applied only from a signature-verified bundle, mono
     store.persist({ toml, sig, org: "acme", version: 1, source: "peer", fetchedAt: 1 });
     return new PolicyGate(store, baseline);
   }
+
+  // The ai_v2 capability lockoff rides on I22's enforced view, so it needs I22's coverage too.
+  test("(cap-1) a SIGNATURE-VERIFIED policy disabling code_execution reaches EnforcedPolicy", () => {
+    const kp = generateEd25519Keypair();
+    const toml = `[policy]
+version=1
+org="acme"
+[policy.capabilities.ai_v2]
+code_execution=false
+`;
+    const gate = gateWith(
+      toml,
+      signPolicy(toml, encodeBase64(kp.privkey)),
+      encodeBase64(kp.pubkey),
+    );
+    expect(gate.enforced().capabilitiesDisabled.has("code_execution")).toBe(true);
+  });
+
+  test("(cap-2) a TAMPERED policy cannot disable a capability", () => {
+    // Same signature, body flipped. Rejected wholesale, so the gate falls back to the baseline
+    // rather than honouring any value the forged body carried.
+    const kp = generateEd25519Keypair();
+    const good = `[policy]
+version=1
+org="acme"
+[policy.capabilities.ai_v2]
+code_execution=false
+`;
+    const sig = signPolicy(good, encodeBase64(kp.privkey));
+    const forged = good.replace("version=1", "version=2");
+    const gate = gateWith(forged, sig, encodeBase64(kp.pubkey));
+    expect(gate.enforced().capabilitiesDisabled.has("code_execution")).toBe(false);
+  });
+
+  test("(cap-3) a capability disabled in the LOCAL baseline survives any policy", () => {
+    // Resolution is a union, so no value a policy can carry removes an entry -- including a validly
+    // signed `= true`, which parses to "disables nothing" rather than to a grant.
+    const kp = generateEd25519Keypair();
+    const toml = `[policy]
+version=1
+org="acme"
+[policy.capabilities.ai_v2]
+code_execution=true
+`;
+    const db = new Database(":memory:");
+    runIndexedSchemaMigrations(db, 36);
+    const store = new PolicyStore(db);
+    store.pinAnchorPubkey(encodeBase64(kp.pubkey), "manual", 1);
+    store.persist({
+      toml,
+      sig: signPolicy(toml, encodeBase64(kp.privkey)),
+      org: "acme",
+      version: 1,
+      source: "peer",
+      fetchedAt: 1,
+    });
+    const locked = new PolicyGate(store, {
+      ...baseline,
+      capabilitiesDisabled: new Set(["code_execution"]),
+    });
+    expect(locked.enforced().capabilitiesDisabled.has("code_execution")).toBe(true);
+  });
 
   test("(a) a tampered policy is rejected; the gate stays ungoverned (falls back to baseline)", () => {
     const kp = generateEd25519Keypair();
@@ -1618,6 +1693,68 @@ describe("I26 — connector writes (warehouse/BI ∪ GitOps/ML) are confined to 
     const audit = await read("scripts/structure-audit/check-nimbus-invariants.ts");
     expect(audit).toContain("D20-connector-write");
     expect(audit).toContain("D20-invoke-gate-predicate");
+  });
+});
+
+describe("I33 — user code executes only behind the exec gate", () => {
+  // The runtime complement to static rule D23. A second caller of `runConfined` would be a second
+  // path from user-supplied code to a running process, which is the whole of what I33 forbids.
+  test("runConfined is called only from exec-gate.ts (and defined in exec-run.ts)", async () => {
+    const files = await readDirFiles("packages/gateway/src");
+    const callers = files
+      .filter((f) => /\brunConfined\s*\(/.test(stripComments(f.contents)))
+      .map((f) => `packages/gateway/src/${f.rel}`)
+      .sort();
+    expect(callers).toEqual([
+      "packages/gateway/src/exec/exec-gate.ts",
+      "packages/gateway/src/exec/exec-run.ts",
+    ]);
+  });
+
+  // On Windows `degradedReason()` is non-null even when the runner is fully active -- it reports
+  // the accepted per-host-filtering caveat. A gate keyed on it would refuse every Windows
+  // execution forever: fail-closed, but total.
+  test("the gate keys confinement on canConfine(policy), not a policy-independent probe", async () => {
+    const code = stripComments(
+      await readFile(resolve(REPO_ROOT, "packages/gateway/src/exec/exec-gate.ts"), "utf8"),
+    );
+    // Ask "can you confine THIS policy?" -- neither policy-independent probe is correct.
+    // `isFullyActive()` is wrong on Linux, where it reports a helper used ONLY for per-host
+    // network filtering that a no-network policy never touches; gating on it made the capability
+    // unusable on every Linux box lacking that helper, CI included.
+    expect(code).toContain("canConfine(policy)");
+    expect(code).not.toMatch(/degradedReason\(\)\s*===\s*null/);
+    expect(code).not.toMatch(/!\s*deps\.runner\.isFullyActive\(\)/);
+  });
+
+  // The Linux relaxation must stay policy-AWARE in the direction that matters: a network-bearing
+  // policy still requires the helper. If canConfine collapses to `return null`, "no network needs
+  // no helper" has silently become "nothing is ever checked".
+  test("Linux still requires the helper for a network-bearing policy", async () => {
+    const code = stripComments(
+      await readFile(resolve(REPO_ROOT, "packages/gateway/src/platform/sandbox/linux.ts"), "utf8"),
+    );
+    expect(code).toMatch(/canConfine[\s\S]{0,400}permissions\.network\.length === 0/);
+    expect(code).toMatch(/canConfine[\s\S]{0,400}helper\.available/);
+  });
+
+  // Empty-by-construction is the property; a caller-supplied network list must be REFUSED, not
+  // quietly dropped, or "no network" becomes a convention rather than a guarantee.
+  test("exec-policy refuses a requested network grant rather than dropping it", async () => {
+    const { buildExecPolicy } = await import("./exec/exec-policy.ts");
+    const abs = process.platform === "win32" ? "C:\\tmp" : "/tmp";
+    expect(() =>
+      buildExecPolicy("i33", { fsRead: [abs], fsWrite: [], network: ["x.com"] }),
+    ).toThrow();
+    expect(buildExecPolicy("i33", { fsRead: [abs], fsWrite: [] }).permissions.network).toEqual([]);
+  });
+
+  // `not_required` on a code.execute row would read as "this ran without needing approval".
+  test("the gate never records a code.execute row as not_required", async () => {
+    const code = stripComments(
+      await readFile(resolve(REPO_ROOT, "packages/gateway/src/exec/exec-gate.ts"), "utf8"),
+    );
+    expect(code).not.toContain('"not_required"');
   });
 });
 
