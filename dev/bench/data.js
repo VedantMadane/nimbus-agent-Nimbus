@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787510449253,
+  "lastUpdate": 1787511769261,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -15197,6 +15197,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 216.19972459999917,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "306811640+nimbus-release-bot[bot]@users.noreply.github.com",
+            "name": "nimbus-release-bot[bot]",
+            "username": "nimbus-release-bot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9fc06bf2d4e14f6aa328f40670b0d9cfcb8ef872",
+          "message": "chore: release main (#1317)\n\n:robot: I have created a release *beep* *boop*\n---\n\n\n<details><summary>2.15.0</summary>\n\n##\n[2.15.0](https://github.com/nimbus-agent/Nimbus/compare/v2.14.0...v2.15.0)\n(2026-08-23)\n\n\n### Features\n\n* **connectors:** consent-gated standalone connectors, so writes cannot\nrun ungated off-gateway\n([#1318](https://github.com/nimbus-agent/Nimbus/issues/1318))\n([e4d948a](https://github.com/nimbus-agent/Nimbus/commit/e4d948aa3c03b4a22d603b0f816d3f98bf2c3fe6))\n\n\n### Bug Fixes\n\n* **test:** stop the Windows deploy.preflight hook timeout and clear the\nSonar backlog\n([#1316](https://github.com/nimbus-agent/Nimbus/issues/1316))\n([139aa40](https://github.com/nimbus-agent/Nimbus/commit/139aa40307d73083bfeb955d264858d1ad2e54c9))\n</details>\n\n---\nThis PR was generated with [Release\nPlease](https://github.com/googleapis/release-please). See\n[documentation](https://github.com/googleapis/release-please#release-please).\n\nCo-authored-by: nimbus-release-bot[bot] <306811640+nimbus-release-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-23T18:51:16Z",
+          "tree_id": "aada4fd0642fdb05a3229da39f090c8011e8e33c",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/9fc06bf2d4e14f6aa328f40670b0d9cfcb8ef872"
+        },
+        "date": 1787511766818,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 322.05440879999804,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 318.8825748999931,
             "unit": "ms"
           }
         ]
