@@ -54,6 +54,41 @@ const HITL_REQUIRED_BACKING = new Set<string>([
   "repo.branch.delete",
   "repo.tag.create",
   "repo.commit.push",
+  // Per-connector git-host action types. `repo.*` above stays: removing a generic type silently
+  // ungates anything still emitting it. The prefix is what `serviceOf()` records as I29's egress
+  // destination and scopes an I20 delegation by, so "github" beats a shared "repo".
+  "github.pr.merge",
+  "github.pr.close",
+  "github.issue.create",
+  "github.branch.delete",
+  "github.tag.create",
+  // Wave 7 — files + cloud.
+  "google_drive.file.create",
+  "google_drive.file.move",
+  "google_drive.file.rename",
+  "onedrive.item.delete",
+  "onedrive.item.move",
+  // Wave 6 — mail + calendar. Per-connector types so serviceOf names the actual mail service:
+  // the ledger records "gmail" or "outlook", never a shared "email".
+  "gmail.draft.create",
+  "gmail.draft.send",
+  "gmail.message.send",
+  "outlook.mail.send",
+  "outlook.calendar.create",
+  "outlook.calendar.delete",
+  "fastmail.mail.send",
+  "imap.mail.send",
+  "protonmail.mail.send",
+  "apple.mail.send",
+  "apple.mail.draft.create",
+  "apple.calendar.event.create",
+  "apple.calendar.event.delete",
+  // Wave 4 — comms.
+  "slack.chat.post",
+  "teams.chat.post",
+  // Wave 3 — repos + CI.
+  "bitbucket.pr.merge",
+  "gitlab.mr.merge",
   "pipeline.trigger",
   "pipeline.cancel",
   "pipeline.rerun",
