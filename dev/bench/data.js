@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787593546276,
+  "lastUpdate": 1787594262550,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -15435,6 +15435,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 318.9242422999938,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "68db7d63555782b7bb4f8c547c06e561fc8d75dd",
+          "message": "feat(egress): record how a targeted fetch ended (U3a) (#1325)\n\n## Summary\n\nThe egress ledger can now say **how a targeted fetch ended**, not just\nthat one was authorised.\n\n`targetedFetch` appends its row BEFORE calling the connector —\ndeliberately, because I29 is fail-closed: no row, no fetch. The\nconsequence is that `result_status` records the *authorisation\ndecision*, so a fetch that 404s, times out, or is refused by the\nprovider still reads `authorized`, and nothing in the ledger ever said\notherwise. A completed fetch now appends a second row carrying the\nstatus (`indexed` / `not_found` / `rate_limited`) and, on success, the\nitem id.\n\nThis closes the last unmet half of the web clipper's C4.1 done-when.\nFollows #1319 (the ledger's HTTP read surface) and #1322 (which client\nasked).\n\nFive commits, each TDD, plus the design, its review and the plan.\n\n## Related Issue\n\nNo tracking issue. Design, review and plan are committed here:\n\n- `docs/superpowers/specs/2026-08-24-egress-outcome-rows-design.md`\n-\n`docs/superpowers/specs/2026-08-24-egress-outcome-rows-design-review.md`\n- `docs/superpowers/plans/2026-08-24-egress-outcome-rows.md`\n\nThe consumer-side half (rendering the outcome column) is U3b in\n`nimbus-web-clipper`, not in this PR.\n\n## Type of Change\n\n- [x] New feature (non-breaking change that adds functionality)\n\n## Non-Negotiables Checklist\n\n- [x] `bun run typecheck` passes with zero errors\n- [x] Biome passes — clean across 3517 files. Run as `bunx biome check\npackages scripts`, because `bun run lint` reports \"0 files processed\"\nand exits 1 inside `.claude/worktrees/`\n- [x] All existing tests pass — `20215 pass / 161 skip / 0 fail` across\n1570 files, on the tree with `main` merged in\n- [x] New behaviour is covered by tests — 5 in `outcome-egress.test.ts`,\n4 in `targeted-fetch.test.ts`, 3 in `egress-source-type.test.ts`, 3\nacross the two appenders\n- [x] No `any` types introduced\n- [x] No credentials, tokens, or secret values in logs, IPC messages,\nconfig, or fixtures — the summary is redacted by key AND value pattern\nbefore storage; verified against `SENSITIVE_KEY` and\n`SENSITIVE_VALUE_PATTERNS` in the design doc\n- [x] Platform-specific code behind `PlatformServices` — N/A\n- [x] The HITL consent gate has not been weakened, bypassed, or made\nconfigurable — no gate is touched. `egress.prune` keeps its owner-HITL\ngate and gains nothing\n- [x] `docs/README.md` untouched\n\n## Coverage (if engine/ or vault/ was changed)\n\nNeither `engine/` nor `vault/` was modified.\n\n## Testing\n\nFull suite, typecheck, Biome and markdownlint above.\n`security-invariants.test.ts` passes **with no edit to it** — see the\nfirst reviewer note, which is the point.\n\n## Notes for Reviewers\n\n**1. The union gains an eleventh member, and the existing invariant\nvalidates the choice.** `egress-source-type.ts` says a new class \"needs\nan explicit decision recorded here; it is not a casual append\", so one\nis recorded. The argument is that `outcome` is a **MARKER**, not an\negress class: it is bookkeeping about an outbound call the ledger has\nalready counted, and counting it again would double every targeted fetch\n— inflating the exact number I29 exists to state honestly.\n\nThat framing is not just prose. Because `outcome` joins\n`MARKER_SOURCE_TYPES`, `COVERAGE_CLASSES` is untouched, and the existing\n`I29: COVERAGE_CLASSES is exactly the non-marker source types` test\npasses **unchanged**. Had it gone in as an egress class, that test would\nhave failed — which is precisely the silent mismatch the union's header\nwarns about. There is also a direct double-count guard:\n`countOutboundEgress` returns **1** for a fetch plus its outcome.\n\nThe freeze's own prescription — reuse a member with a reserved `method`\n— was rejected for a third time, here for a new reason: the natural\ncandidate is `sync`, which is not a marker, so every outcome row would\ncount as outbound unless the counting predicate grew a method-level\nspecial case. That reintroduces by hand the miscount\n`MARKER_SOURCE_TYPES` makes structural.\n\n**2. The two appends have deliberately opposite failure postures.** The\nauthorising append stays fail-closed — it throws, the fetch never\nhappens. The outcome append swallows and warns, because by the time it\nruns the request has already left the machine: propagating would turn a\nfetch that genuinely succeeded into a 500, and the caller would retry,\ncausing MORE egress than the failure it reports.\n`appendBootMarkerOrWarn` is the precedent, and its rule holds —\nswallowing is never silent.\n\nA reader seeing an authorising row with no outcome may conclude only\nthat the outcome was **not recorded**, never that the fetch is in\nflight: a row written by a gateway predating this change is\nindistinguishable from one whose outcome append was lost, and inferring\nfrom age would report a slow provider as a lost outcome.\n\n**3. `resultStatus` stays `authorized` on the outcome row.** Tempting to\nuse `blocked` to mean \"the fetch failed\", and wrong: the column means\n*was this allowed*, not *did it work*. Markers legitimately carry\n`authorized` — `pruneEgress` does — and overloading it would give one\ncolumn two meanings across row classes. The result lives in\n`payload_summary.status`, which is the field that actually has three\nvalues.\n\n**4. The correlation key is the authorising row's `row_hash`, in\n`source_id`.** Prune tombstones already carry an attested hash in that\ncolumn, so a marker using it this way is established rather than novel.\nIt is the value the chain commits to, so the key cannot drift from the\nrow it names, and every consumer of `GET /v1/egress` already receives it\nas `rowHash` — the join needs no new field on the wire.\n\n**5. `appendEgressEntry` now returns the hash it already computed.** One\nline; it was computing `rowHash` before its INSERT and discarding it.\n`EgressSink` is deliberately NOT widened — it is the executor's seam and\ntargeted fetch does not go through it, so changing it would touch every\nexecutor wiring site plus `NULL_EGRESS_SINK` to deliver a value nothing\non that path consumes.\n\n**What U3 replaces.** The originally-designed U2b — item identity on the\n*authorising* row — is dropped as superseded. It would have required\nexporting a normalised URL parser from five connectors and renegotiating\nthe no-raw-URL rule for `payload_summary`, because before the fetch the\nitem id does not exist. After the fetch it is simply there. The stated\ncost: a fetch whose outcome never lands names no item either — the same\nwindow in which the outcome is unavailable anyway.\n\n**A caveat worth knowing for the consumer.** An outcome row carries a\nHIGHER id than the row it describes, and `GET /v1/egress` reads\nnewest-first, so the outcome arrives *first* and a page boundary can\nfall between the pair. That is a client concern (U3b) and is written up\nin the design's \"The pair can straddle a page boundary\".\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-24T20:46:10+03:00",
+          "tree_id": "753c1dde554370549cdcf94006725551f0d74433",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/68db7d63555782b7bb4f8c547c06e561fc8d75dd"
+        },
+        "date": 1787594257373,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 317.67794524999664,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 304.88599199999516,
             "unit": "ms"
           }
         ]
