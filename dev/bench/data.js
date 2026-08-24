@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787589688418,
+  "lastUpdate": 1787592475047,
   "repoUrl": "https://github.com/nimbus-agent/Nimbus",
   "entries": {
     "Benchmark": [
@@ -15367,6 +15367,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "S11-b p95",
             "value": 323.5892520499976,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "asafgolombek@gmail.com",
+            "name": "Asaf",
+            "username": "asafgolombek"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bdc6abf2bc44ad53933191f35537fdf1ea56c737",
+          "message": "fix(docs): correct the standalone connector install path, and measure client support (#1323)\n\n## What this is\n\nOff-gateway consent rests entirely on the MCP `elicitation` capability.\nWhether real clients\nimplement it had never been checked — so Part 1 and Part 2 shipped a\nsecurity story whose central\nassumption was untested. It is tested now.\n\n## The measurement\n\n| Client | `elicitation` | A standalone connector gives you |\n| --- | --- | --- |\n| Claude Code | yes, form + URL mode | reads and writes |\n| Cursor | yes, since v1.5 | reads and writes |\n| **Claude Desktop** | **no** | **reads only** |\n\nMeasured against the `github` connector through the standalone launcher:\na client that supports\nelicitation is served **14 tools**; Claude Desktop was served **9**,\nwith `github_pr_merge`,\n`github_branch_delete`, `github_issue_create`, `github_pr_close` and\n`github_tag_create` correctly\nabsent. Claude Desktop's own log agrees — `Connected to nimbus-github [9\ntools]`.\n\nThat is the fail-closed design observed end to end in a third-party\nclient for the first time. The\ngate did exactly what it was built to do in a client we had never tested\nagainst.\n\nIt is now a support table in the `nimbus-mcp` README, because \"the write\ntools are missing\" is\notherwise a guaranteed bug report rather than the correct behaviour it\nactually is.\n\n## A count that had gone stale\n\nThe README still claimed **\"58 of 94 eligible ... plus `github`\"**. Part\n2 migrated everything, so\nthe real figure is **94 of 94** — 58 declare no mutating tools, 36 had\ntheir writes routed through\nthe consent kit. The doc understated the migration by 36 connectors.\n\nA drift test now derives all three numbers from the connector manifests,\nso the sentence cannot rot\nagain. It is red-proved: perturbing the README count fails it. The first\nversion of that test\nfailed on a hard-wrap falling mid-phrase, which is why it collapses\nwhitespace before matching.\n\nThe plan and spec also cite 58; those are dated design records that were\naccurate when written, so\nthey are left as history.\n\n## CHANGELOG\n\nNeither Part 1 nor Part 2 had an entry, despite shipping in `v2.15.0`\nand `v2.16.0`. That file\nclaims to be the single source for the delivery log, so both are\nrecorded here.\n\n## Not included\n\nClaude Desktop appears to proxy local MCP tools through a device bridge\nat\n`bridge.claudeusercontent.com`. If tool payloads cross it, that matters\nfor a local-first product.\nThe bridge connection and an authenticated device registration are\nverified; that MCP tool\narguments and results transit it is **not**, so no claim about it\nappears in any doc here.\n\n## Verification\n\n- `bun test packages/mcp-connectors/standalone` — 25 pass, 0 fail\n- `bun run preflight:fast` — PASSED\n- drift test red-proved by perturbing the count\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai\n-->\n\n## Summary by CodeRabbit\n\n- **Documentation**\n- Updated standalone connector setup instructions with the\ncheckout-based Bun launcher and new command name.\n- Clarified package naming, configuration, connector eligibility, and\nclient capability requirements.\n  - Documented read-only behavior when write approvals are unavailable.\n  - Corrected connector migration and GitHub tool counts.\n\n- **Chores**\n  - Renamed the standalone connector package and marked it private.\n- Added validation to keep documented connector totals aligned with\nrepository manifests.\n\n<!-- end of auto-generated comment: release notes by coderabbit.ai -->",
+          "timestamp": "2026-08-24T17:16:49Z",
+          "tree_id": "f6343e9a86d0b2bbdff2c774a08ddeac355447d0",
+          "url": "https://github.com/nimbus-agent/Nimbus/commit/bdc6abf2bc44ad53933191f35537fdf1ea56c737"
+        },
+        "date": 1787592472141,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "S11-a p95",
+            "value": 310.51077994999866,
+            "unit": "ms"
+          },
+          {
+            "name": "S11-b p95",
+            "value": 314.545744649988,
             "unit": "ms"
           }
         ]
