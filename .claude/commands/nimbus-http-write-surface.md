@@ -33,7 +33,7 @@ This skill is the rule a contributor consults **before** adding any HTTP `POST` 
 
 ## The Allowlist
 
-Fourteen entries (the CI deploy-annotation route + the SCIM provisioning surface added in Phase 6 Slice 3 + the admin-console anchor-policy write surface added in Phase 6 Slice 4 + the ChatOps Teams inbound surface added in Phase 6 Slice 5 + the two web-clipper routes added in Phase 6 Slice 9 + the four research-brief routes added in Spine S1):
+Fourteen entries (the CI deploy-annotation route + the SCIM provisioning surface added in Phase 6 Slice 3 + the admin-console anchor-policy write surface added in Phase 6 Slice 4 + the ChatOps Teams inbound surface added in Phase 6 Slice 5 + the two web-clipper routes added in Phase 6 Slice 9 + the four research-brief routes, the agent-invoke route and the targeted-fetch route added in Spine S1):
 
 ```typescript
 export const WRITE_ROUTE_ALLOWLIST: readonly string[] = Object.freeze([
@@ -49,6 +49,8 @@ export const WRITE_ROUTE_ALLOWLIST: readonly string[] = Object.freeze([
   "POST /v1/briefs/{id}/sources",
   "POST /v1/briefs/{id}/run",
   "POST /v1/briefs/{id}/save",
+  "POST /v1/agents/{agent}",
+  "POST /v1/items/fetch",
 ]);
 ```
 
@@ -64,8 +66,10 @@ The fourteen routes do **not** all share one auth model — see the block commen
 | `POST /v1/messaging/teams/events` (Slice 5) | Bot Framework JWT validated in-route — **not** a static bearer |
 | `POST /v1/clips` · `POST /v1/clips/pair/confirm` (Slice 9) | Web-clipper bearer minted only behind a live owner-opened pairing window (`I30`); the token is Vault-stored + revocable |
 | `POST /v1/briefs` · `…/{id}/sources` · `…/{id}/run` · `…/{id}/save` (S1) | The same labeled clipper token, verified in-route |
+| `POST /v1/agents/{agent}` (S1) | The same labeled clipper token, under the `agents` scope; path-param routed by `AGENT_INVOKE_RE` |
+| `POST /v1/items/fetch` (S1) | The same labeled clipper token, under its own `fetch` scope. A write, not a read with side effects: it makes an OUTBOUND request and writes a row into the local index |
 
-The deployment/SCIM/policy rows are the static-bearer routes; the teams-events route is the lone validated-JWT route; the clip and brief routes use the pairing-window one-time-token mint (`I30`).
+The deployment/SCIM/policy rows are the static-bearer routes; the teams-events route is the lone validated-JWT route; the clip, brief, agent-invoke and item-fetch routes use the pairing-window one-time-token mint (`I30`).
 
 ## Enforcement (the I13 test triple)
 
@@ -73,7 +77,7 @@ The deployment/SCIM/policy rows are the static-bearer routes; the teams-events r
 
 1. **`http-server.ts` imports `dispatchWriteRoute`** from `./http-write-routes.ts`. A second dispatcher cannot exist; the import is the proof.
 2. **`http-server.ts` opens at most one writable `Database` handle** — counted by source-grep. Any second writable handle is a structural regression because it bypasses the dispatcher.
-3. **`WRITE_ROUTE_ALLOWLIST.length === 14`** and contains exactly the deployment route + the three `/scim/v2/Users` routes + the admin-policy route + the teams-events route + the two `/v1/clips` routes + the four `/v1/briefs` routes (grep `toHaveLength(14)` in `security-invariants.test.ts` — the assertion moves as the file grows). Adding an entry **requires updating this assertion in the same commit** — the count is the integrity check, not just decoration.
+3. **`WRITE_ROUTE_ALLOWLIST.length === 14`** and contains exactly the deployment route + the three `/scim/v2/Users` routes + the admin-policy route + the teams-events route + the two `/v1/clips` routes + the four `/v1/briefs` routes + the agent-invoke route + the item-fetch route (grep `toHaveLength(14)` in `security-invariants.test.ts` — the assertion moves as the file grows). Adding an entry **requires updating this assertion in the same commit** — the count is the integrity check, not just decoration.
 
 ## Request Flow
 
