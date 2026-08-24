@@ -69,10 +69,27 @@ loaded gun; §9 disarms it.
   - `vault/*` — non-negotiable #3; credentials never leave the gateway.
 - The connector registry, secrets manifest, catalog, credential probe and spawner.
 
-## 5. The injection design — the heart of this document
+## 5. The narrowing design — the heart of this document
 
-The fat move's whole difficulty is that sync code calls gateway internals. Measured, the surface is
-small and dominated by two modules:
+> **Corrected 2026-08-24 after review.** The first draft of this section proposed *inventing* a
+> `SyncContext` and inverting the dependency. That was wrong in its central claim, and the error is
+> worth recording because it would have mis-sized the whole migration: **a `SyncContext` already
+> exists** (`sync/types.ts`), every `*-sync.ts` already takes it, and it already carries
+> `vault: NimbusVault` and `db: Database` outright. The draft measured *static imports* and so
+> missed every capability flowing through that object — undercounting vault users as 1 when it is
+> **83**, and raw-db users as 3 when it is **20**.
+>
+> The work is therefore **narrowing an existing context**, not inverting a dependency. That is
+> structurally far safer than the draft described — no call site changes shape — and larger in
+> volume. Both corrections matter; neither changes the decision.
+
+`SyncContext` today grants: `vault`, `db`, `logger`, `rateLimiter`, `sandboxCwd`, `credentialFor`,
+`runTeamList` (the I19 gate-routed team drain), `resolveServiceId`, `depth` (the V48/V49 index
+depth, enforced centrally in `upsertIndexedItemForSync`), `historyFloorMs` and
+`scheduleItemEmbedding`. Two of those are the problem: `vault` and `db` are raw handles, so a sync
+file can reach any secret and any table.
+
+The static import surface, for completeness — accurate, but not the whole coupling:
 
 | Imported by `*-sync.ts` | Count | Disposition |
 | --- | ---: | --- |
@@ -87,19 +104,38 @@ small and dominated by two modules:
 | `db/write.ts`, `vault/nimbus-vault.ts` | 3 files total | see §6 |
 | string helpers | ~7 | pure → move |
 
-**So: do not move the chokepoints. Invert the dependency by injection.** The connector repo
-declares the interface; the gateway supplies the implementation.
+**So: do not move the chokepoints, and do not hand out raw handles. Replace `vault` and `db` with
+scoped capabilities.** The connector repo declares the interface; the gateway implements it.
 
 ```ts
-// @nimbus-dev/sdk — declared in the connector repo's dependency, implemented by the gateway
+// @nimbus-dev/sdk — declared in the connector repo, implemented by the gateway
 export interface SyncContext {
-  /** V48/V49 body-depth chokepoint. The gateway's own upsertIndexedItemForSync, passed in. */
+  // --- unchanged, already safe to expose ---
+  logger: Logger;
+  rateLimiter: ProviderRateLimiter;
+  sandboxCwd: string;
+  depth: "metadata_only" | "summary" | "full";
+  historyFloorMs?: number;
+  credentialFor(service: string): { credential: "personal" | "team"; teamEntry?: string };
+  runTeamList(req: { entry: string; service: string; listToolId: string }): Promise<unknown[]>;
+
+  // --- REPLACES `vault` (83 files) ---
+  /**
+   * Scoped to the CALLING service by the gateway, which prefixes the key: the jira syncable's
+   * `getSecret("api_token")` resolves `jira.api_token` and cannot name `slack.token`. The service
+   * id is supplied by the gateway from the registry, never by the caller — a caller-supplied
+   * service id would make this a vault handle with extra steps.
+   */
+  getSecret(keyName: string): Promise<string | null>;
+
+  // --- REPLACES `db` (20 files) ---
+  /** V48/V49 body-depth chokepoint. The gateway's own upsertIndexedItemForSync. */
   upsertItem(item: IndexedItem, opts?: UpsertOptions): Promise<void>;
-  linkPeople(input: PersonLinkInput): Promise<void>;
-  /** I1 — env scoping stays the gateway's to decide. */
-  spawnEnv(extra?: Record<string, string>): Record<string, string>;
-  googleAccessToken(): Promise<string>;
-  microsoftAccessToken(): Promise<string>;
+  /** SYNCHRONOUS and returns the id — callers set it as `authorId` on the item they build. */
+  resolvePerson(hints: PersonSyncHints): string | null;
+  /** Local-only structured indexes; SQL and schema stay gateway-side. See §6. */
+  upsertObsidianNote(note: ObsidianNoteInput): Promise<void>;
+  upsertApiEndpoint(endpoint: ApiEndpointInput): Promise<void>;
 }
 
 export interface Syncable {
@@ -108,6 +144,11 @@ export interface Syncable {
   sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult>;
 }
 ```
+
+**`getSecret` scoping is the load-bearing detail.** Today any syncable holding `ctx.vault` can read
+any connector's credentials; afterwards the jira syncable can reach exactly `jira.*`. That is a
+genuine tightening of non-negotiable #3, delivered as a side effect of the extraction rather than
+despite it.
 
 Why this is the right shape, and not merely the convenient one:
 
@@ -121,18 +162,45 @@ Why this is the right shape, and not merely the convenient one:
 - It is the pattern the codebase already prefers: dependency injection over `mock.module`, which
   CLAUDE.md mandates for exactly this class of problem.
 
-## 6. The three exceptions
+## 6. The `ctx.db` users — 20 files, not three
 
-`jira-sync.ts`, `obsidian-sync.ts` and `openapi-indexer-sync.ts` reach `db/write.ts` or the vault
-directly. Each is designed individually rather than by rule:
+The first draft named three files, from a static-import count. The real figure is **20 files using
+`ctx.db`**. Most are expected to collapse into `upsertItem` and `resolvePerson`; the ones that will
+not are the custom-table writers, and those get named methods rather than a raw handle:
 
-- **jira** — audit what it writes; if it is item rows, it belongs behind `ctx.upsertItem`.
-- **obsidian** / **openapi-indexer** — both are `LOCAL_ONLY_SYNC_SERVICES` under I29, so they make
-  no outbound request. Their direct writes are the reason to check them first: a local-only
-  syncable with raw DB access is the least constrained thing in this migration.
+- **`obsidian-sync.ts`** — writes `obsidian_notes` and `obsidian_links`.
+- **`openapi-indexer-sync.ts`** — writes `api_endpoint`.
 
-**No file moves until each of the three has a named disposition.** Migrating them by pattern-match
-is how an invariant gets quietly relocated.
+Both are `LOCAL_ONLY_SYNC_SERVICES` under I29, so they make no outbound request. Their direct DB
+access is nonetheless the least constrained thing in this migration, which is why they get
+`upsertObsidianNote` / `upsertApiEndpoint` and the SQL stays gateway-side.
+
+**A raw-SQL escape hatch on the context is rejected.** It was considered — a scoped
+`runQuery(sql, params)` would be less work than enumerating structured methods — but it defeats the
+narrowing entirely: I9 (bound-param SQL, `escapeIdentifier`) and I14 (`dbRun`/`dbExec`) are
+enforced by *what the gateway will execute*, and an arbitrary-SQL method hands that judgement to a
+package outside the repo. The point of this exercise is that the connector cannot express an
+operation the gateway has not sanctioned.
+
+**No file moves until each of the 20 has a named disposition** — `upsertItem`, `resolvePerson`, a
+structured method, or an explicit new one. Migrating by pattern-match is how an invariant gets
+quietly relocated.
+
+## 6b. Standalone mode is a different program, and the SDK must say so
+
+A third party running `npx @nimbus-dev/connectors github` gets the **MCP tool server**, not the sync
+loop. Those two halves have entirely separate credential paths and must never be confused:
+
+| | Sync engine | MCP tool server |
+| --- | --- | --- |
+| Runs | inside the gateway only | standalone, or spawned by the gateway |
+| Credentials | `ctx.getSecret()`, Vault-backed | `process.env` (e.g. `GITHUB_PAT`) |
+| Consent | I2, in the executor | MCP elicitation, client-mediated |
+
+The SDK types must make the sync half unreachable outside the gateway — a `Syncable` with no
+gateway-supplied `SyncContext` simply cannot be invoked, which is the property to preserve. A
+third-party developer must not be able to configure or start a sync loop off-gateway, and the
+package README must say so rather than leaving it to be inferred from a type error.
 
 ## 7. The gates, the tests, and the 84 references
 
@@ -166,9 +234,21 @@ One package, so the sequence is short — but it is a two-repo sequence and that
 
 **Version skew is the known failure mode**, not a hypothetical: `@nimbus-dev/sdk` is pinned at four
 different floors inside this one repo today — gateway `^1.18.0`, root `^1.16.0`, cli `^1.11.1`,
-connectors `^1.8.1` — against a registry at 1.20.0. A drift gate that fails when the gateway's
-pinned connector version is behind the registry is **required**, not optional, and it should be
-authored before the migration rather than after the first skew incident.
+connectors `^1.8.1` (×94) — against a registry at 1.20.0.
+
+**`audit:connector-version-skew`** — a named, required gate, authored **before** the migration
+rather than after the first incident:
+
+- Compares the `@nimbus-dev/connectors` version pinned in `packages/gateway/package.json` against
+  the latest published version on the registry.
+- Fails CI on a **major or minor** gap; a patch gap warns. A minor gap means the gateway is missing
+  a connector capability that has already shipped, which is the state that produces "why is this
+  connector missing tools" reports.
+- Added to `scripts/lib/preflight-gates.ts` **and** to a workflow in the same commit — #1318 added
+  `audit:connector-consent` to the manifest and to no workflow, so it ran nowhere and the PR passed
+  because the gate never executed. `preflight-gates.test.ts` now guards that class; this gate must
+  satisfy it.
+- Wired before step 5 of §9, so the move happens with skew detection already live.
 
 ## 9. Sequencing
 
@@ -177,10 +257,14 @@ Each step ends green and independently reviewable. No step both moves files and 
 1. **Disarm** — `private: true` on all 94 connector packages. Nothing publishes them today; this
    removes the possibility that anything ever does by accident. Standalone, trivially reviewable.
 2. **Define** — land `SyncContext` and `Syncable` in `@nimbus-dev/sdk`, unused. Types only.
-3. **Invert, in place** — convert `<service>-sync.ts` files to take `ctx` instead of importing
-   gateway internals, **while they still live in the gateway**. This is the risky change and it
-   happens with every existing test still running against it. The three exceptions in §6 are
-   handled here.
+3. **Narrow, in place** — remove `vault` and `db` from `SyncContext` and replace them with
+   `getSecret`, `upsertItem`, `resolvePerson` and the two structured writers, **while every file
+   still lives in the gateway with its existing tests running against it**. 83 files lose
+   `ctx.vault`; 20 lose `ctx.db`. Call sites do not change shape — they already take `ctx` — so
+   this is mechanical per file and reviewable in batches by capability rather than by connector.
+   The §6 dispositions are settled here. **This step is independently valuable**: it tightens
+   non-negotiable #3 whether or not the extraction ever happens, which makes it the right thing to
+   land first even if A stalls.
 4. **Prove the seam** — `test:connector-boot` against a locally-packed tarball of the new package,
    before any repo exists.
 5. **Move** — create the repo, move files, rewrite the 84 references and five gates.
@@ -193,7 +277,9 @@ by the existing test suite.
 ## 10. Open questions
 
 1. **Does the fat move include connector-owned mapping tests?** 209 test files move; the sync tests
-   currently exercise gateway internals directly and will need the injected context as a fake.
+   currently exercise gateway internals directly and will need a fake context. Narrowing the context
+   first (§9 step 3) makes that fake far smaller — a fake `getSecret` is a map lookup, a fake
+   `vault` is not — which is a second reason step 3 precedes the move.
 2. **What does the gateway do when the published package is missing or a version behind?** Fail
    startup, or degrade to no connectors? Fail-closed is consistent with the rest of the codebase.
 3. **Does the standalone launcher stay in this package** or become its own entry point? It is
@@ -202,12 +288,18 @@ by the existing test suite.
    `bridge.claudeusercontent.com`, third-party distribution to that client conflicts with
    non-negotiable #1. Unresolved; it does not block this design, but it bounds goal 1's value and
    should be settled before the package is promoted anywhere.
+5. **Does `credentialFor` / `runTeamList` survive narrowing unchanged?** `runTeamList` is the I19
+   gate-routed team drain and is already a scoped method rather than a handle, so it looks safe —
+   but it is the one remaining context member that reaches a *credential* path, and it should be
+   re-read against I19 during step 3 rather than assumed.
 
 ## 11. What would make this the wrong call
 
 Recorded so the decision can be revisited on evidence rather than sentiment:
 
 - If step 3 shows `SyncContext` needs more than roughly a dozen members, the sync code is more
-  entangled with the gateway than the import census suggests, and the thin move becomes correct.
+  entangled with the gateway than the census suggests, and the thin move becomes correct. Note the
+  first census was wrong in exactly this direction — it read static imports and missed the context —
+  so the bar for "one more member" should be suspicion, not accommodation.
 - If the two-repo release sequence produces skew incidents in its first quarter despite the §8 gate,
   the single-repo property was worth more than contributor velocity.
