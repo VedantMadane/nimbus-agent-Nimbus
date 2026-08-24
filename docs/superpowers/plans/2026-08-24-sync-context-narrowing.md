@@ -33,8 +33,8 @@
 | `packages/gateway/src/platform/assemble.ts` | `syncBase` construction site | 3 |
 | `packages/gateway/src/sync/scheduler.ts` | `runJob`'s per-job `runCtx` — where scoping binds | 3 |
 | `packages/gateway/src/connectors/*-sync.ts` | 73 secret readers, 10 OAuth, 20 db users | 4, 4b, 5, 6 |
-| `packages/gateway/src/connectors/obsidian-store.ts` **(new)** | `obsidian_notes` / `obsidian_links` SQL | 6 |
-| `packages/gateway/src/connectors/openapi-store.ts` **(new)** | `api_endpoint` SQL | 6 |
+| `packages/gateway/src/index/obsidian-notes-store.ts` **(new)** | `obsidian_notes` / `obsidian_links` writes, beside the existing `obsidian-notes-v26-sql.ts` | 6 |
+| `packages/gateway/src/index/api-endpoint-store.ts` **(new)** | `api_endpoint` writes, beside the existing `api-endpoint-v25-sql.ts` | 6 |
 | `scripts/structure-audit/check-nimbus-invariants.ts` | static rule: no raw handles on the context | 7 |
 
 ---
@@ -396,6 +396,13 @@ await getValidWorkdayAccessToken(ctx.vault)            // workday
 await options.loadAccessToken(ctx.vault)               // workday, bitrise, codemagic
 ```
 
+**A FOURTH shape exists and is not in that list.** `mendeley-sync.ts` defines its own module-private
+`loadAccessToken(ctx, options)` which calls BOTH `readConnectorSecret(ctx.vault, "mendeley",
+"oauth")` and `getValidMendeleyAccessToken(ctx.vault)`. Mendeley therefore appears in Task 4's 73
+*and* needs a token capability — Task 4's mechanical rewrite would convert the `readConnectorSecret`
+call and silently leave `getValidMendeleyAccessToken(ctx.vault)` behind, which Task 7 would then
+turn into a compile error at the worst moment. **Handle mendeley here, in Task 4b, not in Task 4.**
+
 **Files:**
 
 - Modify: `packages/gateway/src/sync/sync-capabilities.ts`, plus the 10 connectors
@@ -426,12 +433,39 @@ out of `getSecret`'s parameters.
 accessToken: () => resolveAccessTokenForService(deps.vault, serviceId),
 ```
 
-- [ ] **Step 3: The fourth shape needs a decision, not a refactor**
+- [ ] **Step 3: Drop the vault parameter from `loadAccessToken` entirely**
 
-`options.loadAccessToken(ctx.vault)` is a **caller-injected function that takes the vault**, so it
-cannot be mechanically rewritten — whoever passes it must also be narrowed, or the vault leaks
-through the parameter. Give it a named disposition before touching it, exactly as spec §6 requires
-for the `ctx.db` users. This is the one place in Plan 1 where the answer is not already known.
+The plan previously flagged this as an open design question. It is not one — the codebase answers
+it. `WorkdaySyncableOptions.loadAccessToken` is **never passed in production**
+(`assemble-sync-registrations.ts` does not set it), and all 11 test usages are zero-argument mocks
+of the form `loadAccessToken: async () => "tok"` that never inspect the vault. So narrow the option
+rather than threading a capability through it:
+
+```ts
+// packages/gateway/src/connectors/workday-sync.ts
+loadAccessToken?: () => Promise<string>;
+```
+
+The production path keeps using `ctx.accessToken()`; the option stays a test seam and no longer
+carries a vault handle. Confirm both facts before editing — they are the entire justification:
+
+```bash
+grep -rn "loadAccessToken" packages/gateway/src/platform/assemble-sync-registrations.ts   # expect: no output
+grep -rn "loadAccessToken:" packages/gateway/src/connectors/workday-sync.test.ts          # expect: all `async () => ...`
+```
+
+- [ ] **Step 3b: Migrate mendeley's own helper**
+
+`mendeley-sync.ts`'s module-private `loadAccessToken(ctx, options)` takes the whole context. Convert
+it to take the two capabilities it actually uses, so the narrowing is not defeated by a local
+function passing `ctx` around:
+
+```ts
+async function loadAccessToken(
+  ctx: Pick<SyncContext, "getSecret" | "accessToken">,
+  options: MendeleySyncableOptions,
+): Promise<string | null>
+```
 
 - [ ] **Step 4: Verify**
 
@@ -492,35 +526,60 @@ git commit -am "refactor(connectors): reach the index and people linker through 
 
 ### Task 6: Structured writers for the two custom-table connectors
 
+**These belong in `index/`, not `connectors/`.** Both tables already have canonical schema modules
+there — `index/obsidian-notes-v26-sql.ts` and `index/api-endpoint-v25-sql.ts`, each with its own
+tests — so putting writers under `connectors/` would duplicate schema knowledge and, worse, place
+gateway-only SQL inside the directory Plan 2 moves out wholesale. The writers go beside the schema
+they serve.
+
 **Files:**
 
-- Create: `packages/gateway/src/connectors/obsidian-store.ts`
-- Create: `packages/gateway/src/connectors/openapi-store.ts`
+- Create: `packages/gateway/src/index/obsidian-notes-store.ts` (beside `obsidian-notes-v26-sql.ts`)
+- Create: `packages/gateway/src/index/api-endpoint-store.ts` (beside `api-endpoint-v25-sql.ts`)
 - Modify: `packages/gateway/src/sync/sync-capabilities.ts`, `obsidian-sync.ts`, `openapi-indexer-sync.ts`
 
 **Interfaces:**
 
-- Produces: `upsertObsidianNote(note)`, `upsertApiEndpoint(endpoint)` on `SyncCapabilities`.
+- Produces: `upsertObsidianNotes(notes)` — **plural**, and `upsertApiEndpoints(endpoints)` on
+  `SyncCapabilities`.
+
+**The plural is load-bearing.** `obsidian-sync.ts:243` wraps its writes in
+`ctx.db.transaction(() => …)`, and `deleteNotesAbsentFromVault` runs inside the same transaction. A
+per-note capability would issue N autocommitted writes and lose atomicity silently — a partial sync
+would leave the table half-updated with no error. The writer owns the transaction, so the batch is
+the unit.
 
 Both connectors are `LOCAL_ONLY_SYNC_SERVICES` under I29 — they make no outbound request — but they hold the least constrained DB access in the migration, which is why the SQL moves into the gateway rather than travelling with them.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `packages/gateway/src/connectors/obsidian-store.test.ts`:
+Create `packages/gateway/src/index/obsidian-notes-store.test.ts`:
 
 ```ts
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 
-import { upsertObsidianNote } from "./obsidian-store.ts";
+import { upsertObsidianNotes } from "./obsidian-notes-store.ts";
 
-describe("upsertObsidianNote", () => {
-  test("writes through dbRun and is idempotent on the same path", async () => {
+describe("upsertObsidianNotes", () => {
+  test("is idempotent on the same path", async () => {
     const db = new Database(":memory:");
     applyMigrations(db);
-    const note = { path: "a/b.md", title: "B", body: "x", links: ["c.md"], mtimeMs: 1 };
-    await upsertObsidianNote(db, note);
-    await upsertObsidianNote(db, note);
+    const notes = [{ path: "a/b.md", title: "B", body: "x", links: ["c.md"], mtimeMs: 1 }];
+    await upsertObsidianNotes(db, "vault-1", notes);
+    await upsertObsidianNotes(db, "vault-1", notes);
+    expect(db.query("select count(*) as n from obsidian_notes").get()).toEqual({ n: 1 });
+  });
+
+  test("a throw mid-batch leaves the table unchanged", async () => {
+    // The transaction is why this capability is PLURAL. Without it a partial sync leaves
+    // obsidian_notes half-updated and still reports success.
+    const db = new Database(":memory:");
+    applyMigrations(db);
+    await upsertObsidianNotes(db, "vault-1", [validNote()]);
+    await expect(
+      upsertObsidianNotes(db, "vault-1", [validNote("c.md"), brokenNote()]),
+    ).rejects.toThrow();
     expect(db.query("select count(*) as n from obsidian_notes").get()).toEqual({ n: 1 });
   });
 });
@@ -528,30 +587,30 @@ describe("upsertObsidianNote", () => {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `bun test packages/gateway/src/connectors/obsidian-store.test.ts`
+Run: `bun test packages/gateway/src/index/obsidian-notes-store.test.ts`
 Expected: FAIL — module not found.
 
 - [ ] **Step 3: Move the SQL**
 
-Lift the existing statements out of `obsidian-sync.ts` verbatim into `obsidian-store.ts`, keeping every `dbRun` call (I14) and every bound parameter (I9). **Do not rewrite the SQL while moving it** — a move and a change in one step makes a regression unattributable. Repeat for `openapi-store.ts` / `api_endpoint`.
+Lift the existing statements out of `obsidian-sync.ts` verbatim into `index/obsidian-notes-store.ts`, keeping every `dbRun` call (I14), every bound parameter (I9), **and the `ctx.db.transaction(...)` wrapper at `obsidian-sync.ts:243`** — `deleteNotesAbsentFromVault` runs inside it and must stay inside it. **Do not rewrite the SQL while moving it** — a move and a change in one step makes a regression unattributable. Repeat for `index/api-endpoint-store.ts` / `api_endpoint`.
 
 - [ ] **Step 4: Expose on the capability set**
 
 ```ts
-upsertObsidianNote: (note) => upsertObsidianNote(deps.db, note),
-upsertApiEndpoint: (endpoint) => upsertApiEndpoint(deps.db, endpoint),
+upsertObsidianNotes: (vaultId, notes) => upsertObsidianNotes(deps.db, vaultId, notes),
+upsertApiEndpoints: (endpoints) => upsertApiEndpoints(deps.db, endpoints),
 ```
 
 - [ ] **Step 5: Verify**
 
-Run: `bun test packages/gateway/src/connectors/obsidian-store.test.ts packages/gateway/src/connectors/obsidian-sync.test.ts packages/gateway/src/connectors/openapi-indexer-sync.test.ts`
+Run: `bun test packages/gateway/src/index/obsidian-notes-store.test.ts packages/gateway/src/connectors/obsidian-sync.test.ts packages/gateway/src/connectors/openapi-indexer-sync.test.ts`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add packages/gateway/src/connectors packages/gateway/src/sync
-git commit -m "refactor(connectors): structured writers for obsidian and openapi tables"
+git add packages/gateway/src/index packages/gateway/src/connectors packages/gateway/src/sync
+git commit -m "refactor(index): structured writers for obsidian and openapi tables"
 ```
 
 ---
@@ -602,6 +661,13 @@ export interface SyncContext<S extends ConnectorServiceId = ConnectorServiceId>
 - [ ] **Step 4: Add the static rule**
 
 Forbid `ctx.vault` / `ctx.db` in `connectors/*-sync.ts`, with `sync/sync-capabilities.ts` the sole exemption.
+
+**Rule id convention:** existing ids in `check-nimbus-invariants.ts` are short kebab-case naming the
+property — `db-run`, `wrap-spec`, `vault-key`, `graph-entity-flat-coowned` — never the `D<N>` label.
+`sync-context-no-raw-handles` follows that. The `D24` number is the docs-side label in
+`SECURITY-INVARIANTS.md` and `CLAUDE.md`; the two coexist by design, exactly as D12 does with
+`db-run`. Add a one-line comment at the rule table stating that split, since the plan review had to
+ask.
 
 - [ ] **Step 5: Verify the whole suite, not just the touched files**
 
