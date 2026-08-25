@@ -1,8 +1,18 @@
-import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { rmSync } from "node:fs";
+import { describe, expect, test, afterEach} from "bun:test";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } ;
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { packBundle, unpackBundle } from "./tar-bundle.ts";
+
+const __nimbusTestDirs: string[] = [];
+function __cleanupNimbusTestDirs() {
+  for (const d of __nimbusTestDirs.splice(0)) {
+    try { rmSync(d, { recursive: true, force: true }); } catch { /* best-effort */ }
+  }
+}
+afterEach(() => { __cleanupNimbusTestDirs(); });
+
 
 describe("tar bundle", () => {
   test("packs and unpacks a directory round-trip", async () => {
