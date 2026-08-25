@@ -1,5 +1,3 @@
-import { getValidFigmaAccessToken } from "../auth/figma-access-token.ts";
-import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import {
   syncPassCursorHttpEmpty,
   syncPassCursorParseEmpty,
@@ -7,7 +5,6 @@ import {
 } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { connectorFetch, type FetchOutcome } from "./_lib/fetch-outcome.ts";
-import { readConnectorSecret } from "./connector-vault.ts";
 import { mapFigmaFileToItem } from "./figma-file-mapping.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, stringField } from "./unknown-record.ts";
@@ -91,7 +88,7 @@ function upsertFiles(
     if (mapped === null) {
       continue;
     }
-    upsertIndexedItemForSync(ctx, mapped);
+    ctx.upsertItem(mapped);
     upserted += 1;
     budget.remaining -= 1;
   }
@@ -109,14 +106,14 @@ export function createFigmaSyncable(options: FigmaSyncableOptions): Syncable {
 
       // Both keys must be present for the connector to sync: the OAuth token and
       // the non-secret team id selecting which team's files to index.
-      const oauthRaw = await readConnectorSecret(ctx.vault, "figma", "oauth");
-      const teamId = (await readConnectorSecret(ctx.vault, "figma", "team_id"))?.trim() ?? "";
+      const oauthRaw = await ctx.getSecret("oauth");
+      const teamId = (await ctx.getSecret("team_id"))?.trim() ?? "";
       if (oauthRaw === null || oauthRaw === "" || teamId === "") {
         return syncNoopResult(cursor, t0);
       }
       let token: string;
       try {
-        token = await getValidFigmaAccessToken(ctx.vault);
+        token = await ctx.accessToken();
       } catch {
         return syncNoopResult(cursor, t0);
       }

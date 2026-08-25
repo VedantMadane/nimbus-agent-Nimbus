@@ -1,4 +1,3 @@
-import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import {
   syncPassCursorHttpEmpty,
   syncPassCursorParseEmpty,
@@ -6,7 +5,6 @@ import {
 } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { connectorFetch } from "./_lib/fetch-outcome.ts";
-import { readConnectorSecret } from "./connector-vault.ts";
 import { mapLaunchDarklyFlagToItem } from "./launchdarkly-flag-mapping.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, stringField } from "./unknown-record.ts";
@@ -34,13 +32,12 @@ interface LaunchdarklyCreds {
 }
 
 async function loadCreds(ctx: SyncContext): Promise<LaunchdarklyCreds | null> {
-  const token = (await readConnectorSecret(ctx.vault, "launchdarkly", "token"))?.trim() ?? "";
+  const token = (await ctx.getSecret("token"))?.trim() ?? "";
   if (token === "") {
     return null;
   }
-  const baseRaw = (await readConnectorSecret(ctx.vault, "launchdarkly", "base_url"))?.trim() ?? "";
-  const projectRaw =
-    (await readConnectorSecret(ctx.vault, "launchdarkly", "project_key"))?.trim() ?? "";
+  const baseRaw = (await ctx.getSecret("base_url"))?.trim() ?? "";
+  const projectRaw = (await ctx.getSecret("project_key"))?.trim() ?? "";
   return {
     token,
     baseUrl: baseRaw === "" ? DEFAULT_BASE : baseRaw,
@@ -101,7 +98,7 @@ function upsertFlags(
     if (mapped === null) {
       continue;
     }
-    upsertIndexedItemForSync(ctx, mapped);
+    ctx.upsertItem(mapped);
     upserted += 1;
   }
   return upserted;

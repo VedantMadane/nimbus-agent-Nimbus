@@ -1,10 +1,4 @@
-import { getValidMicrosoftAccessToken } from "../auth/microsoft-access-token.ts";
-import {
-  deleteItemByServiceExternal,
-  type IndexedItemBodyInput,
-  upsertIndexedItemForSync,
-} from "../index/item-store.ts";
-import { resolvePersonForSync } from "../people/linker.ts";
+import type { IndexedItemBodyInput } from "../index/item-store.ts";
 import { stripQuotedTail } from "../string/email-quoted-text.ts";
 import { plainTextFromHtmlLines } from "../string/html-plain-text-lines.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
@@ -86,13 +80,13 @@ function upsertMessage(ctx: SyncContext, m: GraphMessage, now: number): void {
   const fromName = m.from?.emailAddress?.name;
   const authorId =
     addr !== undefined && addr !== ""
-      ? resolvePersonForSync(ctx.db, {
+      ? ctx.resolvePerson({
           canonicalEmail: addr,
           displayName: fromName !== undefined && fromName !== "" ? fromName : addr,
         })
       : null;
 
-  upsertIndexedItemForSync(ctx, {
+  ctx.upsertItem({
     service: SERVICE_ID,
     type: "email",
     externalId: id,
@@ -122,7 +116,7 @@ export function createOutlookSyncable(options: OutlookSyncableOptions): Syncable
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();
       await options.ensureMicrosoftMcpRunning();
-      const token = await getValidMicrosoftAccessToken(ctx.vault);
+      const token = await ctx.accessToken();
 
       let nextUrl: string | null = null;
       if (cursor !== null && cursor !== "") {
@@ -148,7 +142,7 @@ export function createOutlookSyncable(options: OutlookSyncableOptions): Syncable
         const removed = msg["@removed"] !== undefined && msg["@removed"] !== null;
         const id = msg.id;
         if (removed && id !== undefined && id !== "") {
-          deleteItemByServiceExternal(ctx.db, SERVICE_ID, id);
+          ctx.deleteItem(SERVICE_ID, id);
           deleted += 1;
           continue;
         }

@@ -1,5 +1,4 @@
 import { extensionProcessEnv } from "../extensions/spawn-env.ts";
-import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import {
   clampSyncTitle,
   syncPassCursorHttpEmpty,
@@ -7,7 +6,6 @@ import {
   syncPassCursorSuccess,
 } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
-import { readConnectorSecret } from "./connector-vault.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, stringField } from "./unknown-record.ts";
 
@@ -28,8 +26,7 @@ async function gcloudJson(
   ctx: SyncContext,
   args: string[],
 ): Promise<{ ok: boolean; text: string }> {
-  const credPath =
-    (await readConnectorSecret(ctx.vault, "gcp", "credentials_json_path"))?.trim() ?? "";
+  const credPath = (await ctx.getSecret("credentials_json_path"))?.trim() ?? "";
   if (credPath === "") {
     return { ok: false, text: "" };
   }
@@ -56,11 +53,11 @@ export function createGcpSyncable(options: GcpSyncableOptions): Syncable {
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();
       await options.ensureGcpMcpRunning();
-      const credPath = await readConnectorSecret(ctx.vault, "gcp", "credentials_json_path");
+      const credPath = await ctx.getSecret("credentials_json_path");
       if (credPath === null || credPath.trim() === "") {
         return syncNoopResult(cursor, t0);
       }
-      const projectRaw = await readConnectorSecret(ctx.vault, "gcp", "project_id");
+      const projectRaw = await ctx.getSecret("project_id");
       const projectId = projectRaw !== null && projectRaw.trim() !== "" ? projectRaw.trim() : null;
       if (projectId === null) {
         return syncNoopResult(cursor, t0);
@@ -81,7 +78,7 @@ export function createGcpSyncable(options: GcpSyncableOptions): Syncable {
       const rec = asRecord(root);
       const name = stringField(rec ?? {}, "name") ?? projectId;
       const now = Date.now();
-      upsertIndexedItemForSync(ctx, {
+      ctx.upsertItem({
         service: SERVICE_ID,
         type: "project",
         externalId: projectId,

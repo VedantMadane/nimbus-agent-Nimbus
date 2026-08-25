@@ -166,7 +166,7 @@ export function upsertIndexedItem(
   );
 }
 
-type BodyRow = Parameters<typeof upsertIndexedItem>[1];
+export type BodyRow = Parameters<typeof upsertIndexedItem>[1];
 
 /**
  * Coerce a connector's body input to the connector's configured depth.
@@ -205,7 +205,20 @@ function applyDepth(depth: SyncContext["depth"], row: BodyRow): BodyRow {
   return { ...rest, bodyPreview: text } as BodyRow;
 }
 
-export function upsertIndexedItemForSync(ctx: SyncContext, row: BodyRow): void {
+/**
+ * Exactly what the V48/V49 body-depth chokepoint needs, declared standalone rather than as
+ * `Pick<SyncContext, ...>`. `SyncContext` is losing its `db` handle to the narrowing (spec §5), so
+ * picking from it would make this signature circular on a field that is about to disappear. A
+ * `SyncContext` still satisfies this structurally, so every existing caller compiles unchanged.
+ */
+export interface UpsertSyncDeps {
+  db: Database;
+  depth: "metadata_only" | "summary" | "full";
+  resolveServiceId?: ResolveServiceId;
+  scheduleItemEmbedding?: (itemId: string) => void;
+}
+
+export function upsertIndexedItemForSync(ctx: UpsertSyncDeps, row: BodyRow): void {
   upsertIndexedItem(ctx.db, applyDepth(ctx.depth, row), ctx.resolveServiceId);
   const id = itemPrimaryKey(row.service, row.externalId);
   ctx.scheduleItemEmbedding?.(id);
@@ -299,4 +312,76 @@ export function selectItemBodyFetchState(db: Database, id: string): ItemBodyFetc
     )
     .get(id);
   return row === null ? null : { modifiedAt: row.modified_at, bodyFetch: row.body_fetch };
+}
+
+/**
+ * How many indexed items a service holds of one type.
+ *
+ * Exists so `iac-sync.ts` can stop issuing its own `SELECT COUNT(*)` through a raw `db` handle.
+ * The SQL lives here, beside every other statement against `item`, which is the point: a connector
+ * that can write arbitrary SQL is a connector that can bypass I9's bound-parameter rule.
+ */
+export function countIndexedItems(db: Database, service: string, type: string): number {
+  const row = db
+    .query<{ c: number }, [string, string]>(
+      "SELECT COUNT(*) AS c FROM item WHERE service = ? AND type = ?",
+    )
+    .get(service, type);
+  return row?.c ?? 0;
+}
+
+/** Whether an item id is present. Replaces a raw `SELECT 1 ... LIMIT 1` in `zoom-sync.ts`. */
+export function indexedItemExists(db: Database, itemId: string): boolean {
+  const row = db
+    .query<{ one: number }, [string]>("SELECT 1 AS one FROM item WHERE id = ? LIMIT 1")
+    .get(itemId);
+  return row !== null && row !== undefined;
+}
+
+/** The raw `metadata` JSON column for one item, or null when absent. Parsing stays with the caller. */
+export function selectItemMetadataJson(db: Database, itemId: string): string | null {
+  const row = db
+    .query<{ metadata: string | null }, [string]>("SELECT metadata FROM item WHERE id = ?")
+    .get(itemId);
+  return row?.metadata ?? null;
+}
+
+/**
+ * Distinct non-empty values of one `metadata` key across a service's indexed items.
+ *
+ * Generalises two byte-identical queries — GitHub's `$.repo` and GitLab's `$.project` — that
+ * existed as separate module-private helpers. One capability serves both, and a third connector
+ * wanting the same shape needs no new member.
+ *
+ * `metadataKey` is interpolated into a JSON path, so it is restricted to a conservative identifier
+ * charset. It is never caller-supplied at runtime — every call site passes a literal — but the
+ * guard is here rather than in a comment, because a JSON path is the one place in this file where
+ * a bound parameter cannot do the job.
+ */
+export function listDistinctMetadataValues(
+  db: Database,
+  service: string,
+  metadataKey: string,
+): string[] {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(metadataKey)) {
+    throw new Error(`unsafe metadata key ${JSON.stringify(metadataKey)}`);
+  }
+  const path = `$.${metadataKey}`;
+  const rows = db
+    .query<{ v: string | null }, [string, string, string, string]>(
+      `SELECT DISTINCT json_extract(metadata, ?) AS v
+       FROM item
+       WHERE service = ?
+         AND json_extract(metadata, ?) IS NOT NULL
+         AND length(trim(json_extract(metadata, ?))) > 0`,
+    )
+    .all(path, service, path, path);
+  const out: string[] = [];
+  for (const r of rows) {
+    const v = r.v?.trim() ?? "";
+    if (v !== "") {
+      out.push(v);
+    }
+  }
+  return out;
 }

@@ -1,5 +1,3 @@
-import { getValidGoogleAccessToken } from "../auth/google-access-token.ts";
-import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
 import { UnauthenticatedError } from "../sync/types.ts";
 import {
@@ -149,7 +147,7 @@ export function createGoogleMeetSyncable(options: GoogleMeetSyncableOptions): Sy
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();
       await options.ensureGoogleMcpRunning();
-      const token = await getValidGoogleAccessToken(ctx.vault, "google_meet");
+      const token = await ctx.accessToken();
 
       let pageToken: string | null;
       if (cursor === null || cursor === "") {
@@ -180,7 +178,7 @@ export function createGoogleMeetSyncable(options: GoogleMeetSyncableOptions): Sy
         if (mapped === null) {
           continue;
         }
-        upsertIndexedItemForSync(ctx, mapped);
+        ctx.upsertItem(mapped);
         upserted += 1;
       }
 

@@ -1,8 +1,5 @@
-import { upsertIndexedItemForSync } from "../index/item-store.ts";
-import { resolvePersonForSync } from "../people/linker.ts";
 import type { PersonSyncHints } from "../people/person-types.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
-import { readConnectorSecret } from "./connector-vault.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { msFromIso, normalizeLinearStateType, TICKET_META_VERSION } from "./ticket-depth.ts";
 import { asRecord, stringField } from "./unknown-record.ts";
@@ -147,10 +144,10 @@ function resolveLinearIssueAuthorId(
     if (creatorId !== undefined) {
       hints.linearMemberId = creatorId;
     }
-    return resolvePersonForSync(ctx.db, hints);
+    return ctx.resolvePerson(hints);
   }
   if (creatorId !== undefined && creatorId !== "") {
-    return resolvePersonForSync(ctx.db, {
+    return ctx.resolvePerson({
       linearMemberId: creatorId,
       displayName: creatorName ?? creatorId,
     });
@@ -234,7 +231,7 @@ function linearUpsertSingleIssue(
   const creatorEmail = creator === undefined ? undefined : stringField(creator, "email");
   const creatorName = creator === undefined ? undefined : stringField(creator, "name");
   const authorId = resolveLinearIssueAuthorId(ctx, creatorEmail, creatorId, creatorName);
-  upsertIndexedItemForSync(ctx, {
+  ctx.upsertItem({
     service: SERVICE_ID,
     type: "issue",
     externalId: identifier,
@@ -284,7 +281,7 @@ export function createLinearSyncable(options: LinearSyncableOptions): Syncable {
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();
       await options.ensureLinearMcpRunning();
-      const apiKey = await readConnectorSecret(ctx.vault, "linear", "api_key");
+      const apiKey = await ctx.getSecret("api_key");
       if (apiKey === null || apiKey === "") {
         return syncNoopResult(cursor, t0);
       }

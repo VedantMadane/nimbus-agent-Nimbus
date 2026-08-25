@@ -1,5 +1,4 @@
-import { type IndexedItemBodyInput, upsertIndexedItemForSync } from "../index/item-store.ts";
-import { resolvePersonForSync } from "../people/linker.ts";
+import type { IndexedItemBodyInput } from "../index/item-store.ts";
 import { plainTextFromHtml } from "../string/html-plain-text.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import {
@@ -8,7 +7,6 @@ import {
   normalizeAtlassianSiteBaseUrl,
   stringField,
 } from "./atlassian-api-sync-helpers.ts";
-import { readConnectorSecret } from "./connector-vault.ts";
 import { isoMs, maxIso } from "./sync-iso-helpers.ts";
 import {
   decodeWatermarkCursorV1,
@@ -75,13 +73,13 @@ function resolveConfluenceAuthorId(ctx: SyncContext, by: Record<string, unknown>
   const email = stringField(by, "email");
   const displayName = stringField(by, "displayName");
   if (email !== undefined && email !== "" && email.includes("@")) {
-    return resolvePersonForSync(ctx.db, {
+    return ctx.resolvePerson({
       jiraAccountId: accountId,
       canonicalEmail: email,
       displayName: displayName ?? email,
     });
   }
-  return resolvePersonForSync(ctx.db, {
+  return ctx.resolvePerson({
     jiraAccountId: accountId,
     displayName: displayName ?? accountId,
   });
@@ -148,7 +146,7 @@ function confluenceUpsertOneSearchHit(
   const authorId = by === null ? null : resolveConfluenceAuthorId(ctx, by);
   const text = confluenceBodyText(row);
   const bodyInput: IndexedItemBodyInput = text === null ? { bodyPreview: "" } : { body: text };
-  upsertIndexedItemForSync(ctx, {
+  ctx.upsertItem({
     service: SERVICE_ID,
     type: "page",
     externalId: id,
@@ -274,9 +272,9 @@ export function createConfluenceSyncable(options: ConfluenceSyncableOptions): Sy
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();
       await options.ensureConfluenceMcpRunning();
-      const token = await readConnectorSecret(ctx.vault, "confluence", "api_token");
-      const email = await readConnectorSecret(ctx.vault, "confluence", "email");
-      const baseRaw = await readConnectorSecret(ctx.vault, "confluence", "base_url");
+      const token = await ctx.getSecret("api_token");
+      const email = await ctx.getSecret("email");
+      const baseRaw = await ctx.getSecret("base_url");
       if (
         token === null ||
         token === "" ||

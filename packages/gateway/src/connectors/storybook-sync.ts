@@ -1,9 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { syncPassCursorSuccess } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
-import { readConnectorSecret } from "./connector-vault.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { mapStorybookStoryToItem, parseStorybookIndex } from "./storybook-story-mapping.ts";
 
@@ -26,7 +24,7 @@ export type StorybookSyncableOptions = {
 };
 
 async function loadDir(ctx: SyncContext): Promise<string | null> {
-  const raw = (await readConnectorSecret(ctx.vault, "storybook", "dir"))?.trim() ?? "";
+  const raw = (await ctx.getSecret("dir"))?.trim() ?? "";
   return raw === "" ? null : resolve(raw);
 }
 
@@ -88,7 +86,7 @@ export function createStorybookSyncable(options: StorybookSyncableOptions): Sync
           modifiedAtMs: manifest.modifiedAtMs,
         });
         if (mapped !== null) {
-          upsertIndexedItemForSync(ctx, mapped);
+          ctx.upsertItem(mapped);
           upserted += 1;
         }
       }

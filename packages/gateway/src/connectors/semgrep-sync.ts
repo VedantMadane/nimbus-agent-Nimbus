@@ -1,4 +1,3 @@
-import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import {
   syncPassCursorHttpEmpty,
   syncPassCursorParseEmpty,
@@ -6,7 +5,6 @@ import {
 } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { connectorFetch } from "./_lib/fetch-outcome.ts";
-import { readConnectorSecret } from "./connector-vault.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { mapSemgrepFindingToItem } from "./semgrep-finding-mapping.ts";
 import { asRecord, stringField } from "./unknown-record.ts";
@@ -73,11 +71,11 @@ interface SemgrepCreds {
 }
 
 async function loadSemgrepCreds(ctx: SyncContext): Promise<SemgrepCreds | null> {
-  const token = (await readConnectorSecret(ctx.vault, "semgrep", "token"))?.trim() ?? "";
+  const token = (await ctx.getSecret("token"))?.trim() ?? "";
   if (token === "") {
     return null;
   }
-  const slugRaw = await readConnectorSecret(ctx.vault, "semgrep", "deployment_slug");
+  const slugRaw = await ctx.getSecret("deployment_slug");
   const slug = (slugRaw ?? "").trim();
   return { token, deploymentSlug: slug === "" ? null : slug };
 }
@@ -119,7 +117,7 @@ function upsertSemgrepFindings(
     if (mapped === null) {
       continue;
     }
-    upsertIndexedItemForSync(ctx, mapped);
+    ctx.upsertItem(mapped);
     upserted += 1;
   }
   return upserted;

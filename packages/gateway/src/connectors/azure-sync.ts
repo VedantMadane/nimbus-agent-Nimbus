@@ -1,5 +1,4 @@
 import { extensionProcessEnv } from "../extensions/spawn-env.ts";
-import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import {
   clampSyncTitle,
   syncPassCursorHttpEmpty,
@@ -7,7 +6,6 @@ import {
   syncPassCursorSuccess,
 } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
-import { readConnectorSecret } from "./connector-vault.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, stringField } from "./unknown-record.ts";
 
@@ -28,9 +26,9 @@ async function azureCliJson(
   ctx: SyncContext,
   args: string[],
 ): Promise<{ ok: boolean; text: string }> {
-  const tenant = (await readConnectorSecret(ctx.vault, "azure", "tenant_id"))?.trim() ?? "";
-  const clientId = (await readConnectorSecret(ctx.vault, "azure", "client_id"))?.trim() ?? "";
-  const secret = (await readConnectorSecret(ctx.vault, "azure", "client_secret"))?.trim() ?? "";
+  const tenant = (await ctx.getSecret("tenant_id"))?.trim() ?? "";
+  const clientId = (await ctx.getSecret("client_id"))?.trim() ?? "";
+  const secret = (await ctx.getSecret("client_secret"))?.trim() ?? "";
   if (tenant === "" || clientId === "" || secret === "") {
     return { ok: false, text: "" };
   }
@@ -61,7 +59,7 @@ export function createAzureSyncable(options: AzureSyncableOptions): Syncable {
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();
       await options.ensureAzureMcpRunning();
-      const tenant = await readConnectorSecret(ctx.vault, "azure", "tenant_id");
+      const tenant = await ctx.getSecret("tenant_id");
       if (tenant === null || tenant.trim() === "") {
         return syncNoopResult(cursor, t0);
       }
@@ -84,7 +82,7 @@ export function createAzureSyncable(options: AzureSyncableOptions): Syncable {
       const id = subId ?? "default";
       const now = Date.now();
       const titleRaw = name ?? id;
-      upsertIndexedItemForSync(ctx, {
+      ctx.upsertItem({
         service: SERVICE_ID,
         type: "subscription",
         externalId: id,

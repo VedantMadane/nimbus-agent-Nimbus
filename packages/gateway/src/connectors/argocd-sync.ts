@@ -1,4 +1,3 @@
-import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import {
   syncPassCursorHttpEmpty,
   syncPassCursorParseEmpty,
@@ -7,7 +6,6 @@ import {
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { connectorFetch } from "./_lib/fetch-outcome.ts";
 import { mapArgocdApplicationToItem } from "./argocd-application-mapping.ts";
-import { readConnectorSecret } from "./connector-vault.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord } from "./unknown-record.ts";
 
@@ -34,8 +32,8 @@ function trimTrailingSlash(s: string): string {
 }
 
 async function loadCreds(ctx: SyncContext): Promise<ArgocdCreds | null> {
-  const url = (await readConnectorSecret(ctx.vault, "argocd", "url"))?.trim() ?? "";
-  const token = (await readConnectorSecret(ctx.vault, "argocd", "token"))?.trim() ?? "";
+  const url = (await ctx.getSecret("url"))?.trim() ?? "";
+  const token = (await ctx.getSecret("token"))?.trim() ?? "";
   if (url === "" || token === "") {
     return null;
   }
@@ -59,7 +57,7 @@ function upsertApplications(
     if (mapped === null) {
       continue;
     }
-    upsertIndexedItemForSync(ctx, mapped);
+    ctx.upsertItem(mapped);
     upserted += 1;
   }
   return upserted;

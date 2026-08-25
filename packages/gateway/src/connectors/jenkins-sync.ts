@@ -1,4 +1,4 @@
-import { itemPrimaryKey, upsertIndexedItemForSync } from "../index/item-store.ts";
+import { itemPrimaryKey } from "../index/item-store.ts";
 import { stripTrailingSlashes } from "../string/strip-trailing-slashes.ts";
 import { clampSyncTitle } from "../sync/pass-cursor-sync-result.ts";
 import {
@@ -9,7 +9,6 @@ import {
   type SyncResult,
   syncNoopResult,
 } from "../sync/types.ts";
-import { readConnectorSecret } from "./connector-vault.ts";
 import { fetchOneMissForResponse } from "./fetch-miss-reason.ts";
 import {
   flattenJenkinsApiJobs,
@@ -177,7 +176,7 @@ function upsertJenkinsBuildRowIfNew(
     building,
     duration_ms: duration ?? null,
   };
-  upsertIndexedItemForSync(ctx, {
+  ctx.upsertItem({
     service: SERVICE_ID,
     type: "ci_run",
     externalId,
@@ -431,9 +430,9 @@ async function fetchOneBuild(ctx: SyncContext, url: string): Promise<FetchOneRes
   }
   const { jobFullName, num: requestedNum } = parsedUrl;
 
-  const baseRaw = await readConnectorSecret(ctx.vault, "jenkins", "base_url");
-  const user = await readConnectorSecret(ctx.vault, "jenkins", "username");
-  const token = await readConnectorSecret(ctx.vault, "jenkins", "api_token");
+  const baseRaw = await ctx.getSecret("base_url");
+  const user = await ctx.getSecret("username");
+  const token = await ctx.getSecret("api_token");
   if (
     baseRaw === null ||
     baseRaw.trim() === "" ||
@@ -527,9 +526,9 @@ export function createJenkinsSyncable(options: JenkinsSyncableOptions): Syncable
       const t0 = performance.now();
       await options.ensureJenkinsMcpRunning();
 
-      const baseRaw = await readConnectorSecret(ctx.vault, "jenkins", "base_url");
-      const user = await readConnectorSecret(ctx.vault, "jenkins", "username");
-      const token = await readConnectorSecret(ctx.vault, "jenkins", "api_token");
+      const baseRaw = await ctx.getSecret("base_url");
+      const user = await ctx.getSecret("username");
+      const token = await ctx.getSecret("api_token");
       if (
         baseRaw === null ||
         baseRaw.trim() === "" ||

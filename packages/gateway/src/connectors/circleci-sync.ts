@@ -1,8 +1,5 @@
-import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { clampSyncTitle } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
-import { readConnectorSecret } from "./connector-vault.ts";
-import { listGithubReposFromIndex } from "./github-index-repos.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, numberField, stringField } from "./unknown-record.ts";
 
@@ -140,7 +137,7 @@ function tryUpsertCircleciPipeline(
     revision,
     githubRepo: full,
   };
-  upsertIndexedItemForSync(ctx, {
+  ctx.upsertItem({
     service: SERVICE_ID,
     type: "ci_run",
     externalId,
@@ -213,12 +210,12 @@ export function createCircleciSyncable(options: CircleciSyncableOptions): Syncab
       const t0 = performance.now();
       await options.ensureCircleciMcpRunning();
 
-      const apiTok = await readConnectorSecret(ctx.vault, "circleci", "api_token");
+      const apiTok = await ctx.getSecret("api_token");
       if (apiTok === null || apiTok.trim() === "") {
         return syncNoopResult(cursor, t0);
       }
 
-      const repos = listGithubReposFromIndex(ctx.db);
+      const repos = ctx.listIndexedMetadataValues("github", "repo");
       if (repos.length === 0) {
         return syncNoopResult(cursor, t0);
       }

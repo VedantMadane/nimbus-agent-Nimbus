@@ -1,10 +1,8 @@
 import type { FileHandle } from "node:fs/promises";
 import { open, readdir } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
-import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { syncPassCursorSuccess } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
-import { readConnectorSecret } from "./connector-vault.ts";
 import {
   type DataColumn,
   type DataFileFormat,
@@ -66,7 +64,7 @@ export type DataProfileSyncableOptions = {
 };
 
 async function loadDir(ctx: SyncContext): Promise<string | null> {
-  const raw = (await readConnectorSecret(ctx.vault, "dataprofile", "dir"))?.trim() ?? "";
+  const raw = (await ctx.getSecret("dir"))?.trim() ?? "";
   return raw === "" ? null : resolve(raw);
 }
 
@@ -288,7 +286,7 @@ export function createDataProfileSyncable(options: DataProfileSyncableOptions): 
         }
         const mapped = mapDataModelToItem(profile, { syncedAt: now });
         if (mapped !== null) {
-          upsertIndexedItemForSync(ctx, mapped);
+          ctx.upsertItem(mapped);
           upserted += 1;
         }
       }
