@@ -2,7 +2,7 @@ import { afterEach } from "bun:test";
 import { rmSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, writeFileSync } ;
+import {mkdirSync, mkdtempSync, writeFileSync} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -28,6 +28,7 @@ export function setupFreshExtensionDb(): { db: Database; extensionsDir: string }
   const db = new Database(":memory:");
   runIndexedSchemaMigrations(db, CURRENT_SCHEMA_VERSION);
   const extensionsDir = mkdtempSync(join(tmpdir(), "nimbus-ext-test-"));
+  __nimbusTestDirs.push(extensionsDir);
   return { db, extensionsDir };
 }
 
