@@ -30,6 +30,7 @@ import { PairingWindowController } from "../clips/pairing-window.ts";
 import { loadNimbusFilesystemRootsFromConfigDir } from "../config/filesystem-toml.ts";
 import {
   type ConnectorsConfig,
+  DEFAULT_NIMBUS_LLM_TOML,
   loadNimbusAuditFromConfigDir,
   loadNimbusAutomationFromConfigDir,
   loadNimbusBriefsFromPath,
@@ -56,6 +57,7 @@ import {
   loadNimbusTribalFromConfigDir,
   loadNimbusUpdaterFromConfigDir,
   type NimbusChatopsToml,
+  type NimbusLlmLocalRoute,
   type NimbusTribalToml,
   resolveNimbusTomlForProfile,
   type TeamCredentialConnector,
@@ -177,9 +179,11 @@ import { startMetricsServer } from "../ipc/metrics-server.ts";
 import type { PolicyRpcCtx } from "../ipc/policy-rpc.ts";
 import { extractKbPageRef } from "../ipc/server/dispatchers.ts";
 import type { TribalSubmitAction } from "../ipc/tribal-rpc.ts";
+import { isLoopbackBaseUrl } from "../llm/base-url-locality.ts";
 import { LlamaCppProvider } from "../llm/llamacpp-provider.ts";
 import { OllamaProvider } from "../llm/ollama-provider.ts";
 import { LlmRegistry } from "../llm/registry.ts";
+import { makeRouteId, parseRouteRef } from "../llm/route-id.ts";
 import { SessionMemoryStore } from "../memory/session-memory-store.ts";
 import { buildServiceIdentityResolver } from "../metrics/service-identity.ts";
 import { runOwnershipPass } from "../ownership/ownership-pass.ts";
@@ -1272,9 +1276,217 @@ function bootPolicyGateWithConnectorAllowlist(
   return { policyStore, policyGate, isConnectorAllowed };
 }
 
+const OLLAMA_DEFAULT_BASE_URL = "http://127.0.0.1:11434";
+const LLAMACPP_DEFAULT_BASE_URL = "http://127.0.0.1:8080";
+
+/** A minimal logging seam so `buildLlmRegistryFromToml` stays independently callable (the
+ *  integration test constructs it with no logger at all) while production wiring passes the real
+ *  `syncLogger.warn`, matching the `log: (m) => syncLogger.warn(m)` adapter shape already used
+ *  elsewhere in this file. The default is a no-op — production always supplies `syncLogger`
+ *  explicitly (see the call in `assemblePlatformServices`), so a dropped-entry warning is never
+ *  actually silent at boot; this default only covers callers (e.g. tests) that don't need one. */
+type RouteValidationLogger = { warn: (msg: string) => void };
+const defaultRouteValidationLogger: RouteValidationLogger = { warn: () => {} };
+
+/** Resolves what base URL a `[llm.local.*]` entry actually talks to, applying the runtime's
+ *  default when `base_url` is omitted and stripping a trailing slash — the form two entries must
+ *  be compared in. Comparing the raw, unresolved field misses the case where BOTH entries omit
+ *  `base_url`: both fields are `undefined`, but both resolve to the SAME real endpoint. */
+function resolveBaseUrl(runtime: string, baseUrl: string | undefined): string {
+  const explicit = baseUrl?.trim() ?? "";
+  if (explicit !== "") return explicit.replace(/\/$/, "");
+  return runtime === "llamacpp" ? LLAMACPP_DEFAULT_BASE_URL : OLLAMA_DEFAULT_BASE_URL;
+}
+
+const KNOWN_LOCAL_RUNTIMES = new Set(["ollama", "llamacpp"]);
+
+/**
+ * Drops (and names, via `logger.warn`) any `[llm.local.*]` entry whose `runtime` is neither
+ * `"ollama"` nor `"llamacpp"` — the only two runtimes this build knows how to construct a
+ * provider for. `NimbusLlmLocalRoute.runtime` is an intentionally open string at the parser layer
+ * (Task 8), so a typo or a not-yet-supported runtime (e.g. `"vllm"`) must not silently fall
+ * through to the `runtime === "llamacpp" ? llamacpp : ollama` branches below and get constructed
+ * as an Ollama route pointed at a port that entry never asked for.
+ */
+function dropUnknownRuntimeEntries(
+  localRoutes: ReadonlyMap<string, NimbusLlmLocalRoute>,
+  logger: RouteValidationLogger,
+): Map<string, NimbusLlmLocalRoute> {
+  const kept = new Map<string, NimbusLlmLocalRoute>();
+  for (const [name, route] of localRoutes) {
+    if (!KNOWN_LOCAL_RUNTIMES.has(route.runtime)) {
+      logger.warn(
+        `[llm] dropping [llm.local.${name}]: unknown runtime "${route.runtime}" — expected ` +
+          '"ollama" or "llamacpp"',
+      );
+      continue;
+    }
+    kept.set(name, route);
+  }
+  return kept;
+}
+
+/**
+ * Task 9's validation stage — deliberately NOT in the Task 8 parser, because a throw there is
+ * swallowed by `loadTomlSection`'s bare catch and silently reverts the WHOLE `[llm]` section to
+ * defaults (including `enforce_air_gap`). Here a bad entry is logged and dropped; nothing else in
+ * `[llm]` is affected.
+ *
+ * Only a `llamacpp` base URL claimed twice is an error: `LlamaCppProvider.generate()` sends no
+ * model field, so the server answers with whatever weights it was launched with — two llama.cpp
+ * routes at one URL would report two different model names against IDENTICAL weights, a route
+ * table that lies. Ollama is exempt: `generate()` sends `this.modelName` per request to a shared
+ * daemon, so many routes at one base URL is the normal, correct case.
+ *
+ * First occurrence (file order — `localRoutes` preserves it) wins; every later collider is
+ * dropped and logged by name.
+ */
+function dropLlamacppBaseUrlCollisions(
+  localRoutes: ReadonlyMap<string, NimbusLlmLocalRoute>,
+  logger: RouteValidationLogger,
+): Map<string, NimbusLlmLocalRoute> {
+  const kept = new Map<string, NimbusLlmLocalRoute>();
+  const claimedBy = new Map<string, string>(); // resolved llamacpp base URL -> first entry name
+  for (const [name, route] of localRoutes) {
+    if (route.runtime === "llamacpp") {
+      const resolved = resolveBaseUrl(route.runtime, route.baseUrl);
+      const existing = claimedBy.get(resolved);
+      if (existing !== undefined) {
+        logger.warn(
+          `[llm] dropping [llm.local.${name}]: llamacpp base URL "${resolved}" is already ` +
+            `claimed by [llm.local.${existing}] — a llama.cpp server reports one model for the ` +
+            "whole process, so two routes at the same URL would report different model names " +
+            "against identical weights",
+        );
+        continue;
+      }
+      claimedBy.set(resolved, name);
+    }
+    kept.set(name, route);
+  }
+  return kept;
+}
+
+/**
+ * Drops (and names) any `[llm.local.*]` entry whose derived route id — `<runtime>/<model>` — was
+ * already claimed by an earlier entry. `LlmRouter.registerRoute` keys on that id and uses
+ * `Map.set`, so without this stage a second entry naming the same runtime AND model at a
+ * different `base_url` (a plausible failover pairing: the same model on a laptop and on a
+ * workstation) silently REPLACES the first, and `nimbus llm status` shows one row pointing at the
+ * second URL with nothing to explain where the other went.
+ *
+ * FIRST occurrence wins, matching `dropLlamacppBaseUrlCollisions` above — the two drop rules must
+ * not disagree about which entry survives, or which one you get depends on which check fired.
+ * Every other drop path in this slice names the offending entry; a route that vanishes without a
+ * word is the exact shape `dropUnresolvableRoutePriorityEntries` refuses to allow.
+ */
+function dropDuplicateRouteIds(
+  localRoutes: ReadonlyMap<string, NimbusLlmLocalRoute>,
+  logger: RouteValidationLogger,
+): Map<string, NimbusLlmLocalRoute> {
+  const kept = new Map<string, NimbusLlmLocalRoute>();
+  const claimedBy = new Map<string, string>(); // route id -> first entry name
+  for (const [name, route] of localRoutes) {
+    const routeId = makeRouteId(route.runtime === "llamacpp" ? "llamacpp" : "ollama", route.model);
+    const existing = claimedBy.get(routeId);
+    if (existing !== undefined) {
+      logger.warn(
+        `[llm] dropping [llm.local.${name}]: route id "${routeId}" is already claimed by ` +
+          `[llm.local.${existing}] — a route is keyed on (runtime, model), so two entries ` +
+          "naming the same pair are one route; keeping the first, and the later entry's " +
+          "base_url is NOT used",
+      );
+      continue;
+    }
+    claimedBy.set(routeId, name);
+    kept.set(name, route);
+  }
+  return kept;
+}
+
+/**
+ * Names — in the boot log, by entry name — every `[llm.local.*]` entry whose resolved base URL is
+ * NOT loopback, and is therefore registered as a REMOTE route.
+ *
+ * Nothing is dropped here. The reclassification itself happens in the provider constructors
+ * (`OllamaProvider`/`LlamaCppProvider` derive `isLocal` from the resolved base URL — see
+ * `llm/base-url-locality.ts`), which is what actually stops `[llm] enforce_air_gap` from treating
+ * a LAN daemon as air-gap-eligible. This stage exists so the reclassification is never SILENT: a
+ * route configured under a heading that reads `[llm.local.ws]` and then excluded by air-gap, or
+ * ledgered as egress, would otherwise be inexplicable from the user's seat.
+ *
+ * Dropping instead of warning was the other option and is wrong: a deliberately-configured LAN
+ * llama.cpp box is a legitimate setup, and it stays usable with air-gap off. What must not happen
+ * is it counting as local.
+ */
+function warnRemoteClassifiedLocalRoutes(
+  localRoutes: ReadonlyMap<string, NimbusLlmLocalRoute>,
+  logger: RouteValidationLogger,
+): void {
+  for (const [name, route] of localRoutes) {
+    const resolved = resolveBaseUrl(route.runtime, route.baseUrl);
+    if (isLoopbackBaseUrl(resolved)) continue;
+    logger.warn(
+      `[llm] [llm.local.${name}] base URL "${resolved}" is not loopback — registering it as a ` +
+        "REMOTE route: prompts sent to it leave this machine, so it is excluded when " +
+        "[llm] enforce_air_gap is set and its use is recorded in the egress ledger",
+    );
+  }
+}
+
+/**
+ * Resolves `[llm] route_priority` entries against the route ids that are ACTUALLY about to be
+ * registered, dropping (with a named log line) any entry that fails `parseRouteRef` or names no
+ * registered route. Silence is not acceptable here: a vanished priority entry changes which model
+ * answers with no outward sign.
+ *
+ * LIMITATION (stated, not papered over): a malformed `route_priority` VALUE — e.g.
+ * `route_priority = "ollama"`, a string rather than an array — is swallowed by
+ * `parseNimbusTomlLlmSection` (Task 8) with no diagnostic, and arrives here as simply unset. This
+ * function only ever sees entries that PARSED as an array of strings, so it cannot distinguish
+ * "not configured" from "malformed", and cannot name that entry — it validates only well-formed
+ * strings that fail `parseRouteRef` or resolve to no registered route.
+ */
+function dropUnresolvableRoutePriorityEntries(
+  routePriority: readonly string[],
+  registeredRouteIds: ReadonlySet<string>,
+  logger: RouteValidationLogger,
+): string[] {
+  const kept: string[] = [];
+  for (const entry of routePriority) {
+    let parsed: { providerId: string; modelName: string };
+    try {
+      parsed = parseRouteRef(entry);
+    } catch (err) {
+      logger.warn(
+        `[llm] dropping route_priority entry "${entry}": malformed — ${String(err instanceof Error ? err.message : err)}`,
+      );
+      continue;
+    }
+    const routeId = makeRouteId(parsed.providerId, parsed.modelName);
+    if (!registeredRouteIds.has(routeId)) {
+      logger.warn(
+        `[llm] dropping route_priority entry "${entry}": does not name a registered route`,
+      );
+      continue;
+    }
+    kept.push(routeId);
+  }
+  return kept;
+}
+
 /** Load the [llm] config from the active TOML, apply the model overrides, and build the provider
- *  registry (Ollama + llama.cpp local providers). */
-function buildLlmRegistryFromToml(db: Database, activeTomlPath: string): LlmRegistry {
+ *  registry — one route per `[llm.local.<name>]` entry when any are configured, else today's two
+ *  built-in Ollama + llama.cpp providers (unchanged behaviour). Also runs the validation Task 8
+ *  deliberately does not: dropping (never aborting boot on) a duplicate llamacpp base URL or an
+ *  unresolvable `route_priority` entry. `logger` defaults to a no-op so this stays independently
+ *  callable (e.g. from a test) without a real Gateway logger; production wiring always supplies
+ *  `syncLogger`, so a dropped-entry warning is never actually silent at boot. */
+export function buildLlmRegistryFromToml(
+  db: Database,
+  activeTomlPath: string,
+  logger: RouteValidationLogger = defaultRouteValidationLogger,
+): LlmRegistry {
   const llmToml = loadNimbusLlmFromPath(activeTomlPath);
   const llmTomlPartial = loadNimbusLlmPartialFromPath(activeTomlPath);
   const llmOverrides: { agentModel?: string; classifierModel?: string } = {};
@@ -1285,27 +1497,100 @@ function buildLlmRegistryFromToml(db: Database, activeTomlPath: string): LlmRegi
     llmOverrides.classifierModel = llmTomlPartial.classifierModel;
   }
   applyLlmTomlOverrides(llmOverrides);
+
+  const knownRuntimeLocalRoutes = dropUnknownRuntimeEntries(llmToml.localRoutes, logger);
+  const uncollidedLocalRoutes = dropLlamacppBaseUrlCollisions(knownRuntimeLocalRoutes, logger);
+  const validatedLocalRoutes = dropDuplicateRouteIds(uncollidedLocalRoutes, logger);
+  warnRemoteClassifiedLocalRoutes(validatedLocalRoutes, logger);
+
+  // `local_model = ""` parses to the empty string and survives `loadNimbusLlmFromPath` (the
+  // `[llm]` parser assigns `parseString(valRaw)` unconditionally). It then reaches
+  // `makeRouteId`, which THROWS on an empty model name — and this function is called from
+  // `assemblePlatformServices` with nothing between it and boot, so a one-character config typo
+  // took the whole Gateway down with `modelName must not be empty`. Nothing in assembly may
+  // abort boot: keep the shipped default and say so by name.
+  const localModel = llmToml.localModel.trim();
+  const effectiveLocalModel =
+    localModel === "" ? DEFAULT_NIMBUS_LLM_TOML.localModel : llmToml.localModel;
+  if (localModel === "") {
+    logger.warn(
+      `[llm] local_model is empty — keeping the default "${DEFAULT_NIMBUS_LLM_TOML.localModel}"; ` +
+        "an empty model name cannot name a route",
+    );
+  }
+
+  // The route ids that WILL be registered below — computed up front (without touching the
+  // registry) so route_priority can be validated against the real, post-collision-check set
+  // before the router is constructed, since `LlmRouterConfig.routePriority` is set at
+  // construction time.
+  const routeIdsToRegister: string[] =
+    validatedLocalRoutes.size > 0
+      ? [...validatedLocalRoutes.values()].map((route) =>
+          makeRouteId(route.runtime === "llamacpp" ? "llamacpp" : "ollama", route.model),
+        )
+      : [makeRouteId("ollama", effectiveLocalModel), makeRouteId("llamacpp", effectiveLocalModel)];
+
+  const validatedRoutePriority = dropUnresolvableRoutePriorityEntries(
+    llmToml.routePriority,
+    new Set(routeIdsToRegister),
+    logger,
+  );
+
   const llmRegistry = new LlmRegistry({
     db,
     config: {
       preferLocal: llmToml.preferLocal,
       remoteModel: llmToml.remoteModel,
-      localModel: llmToml.localModel,
+      localModel: effectiveLocalModel,
       minReasoningParams: llmToml.minReasoningParams,
       enforceAirGap: llmToml.enforceAirGap,
+      routePriority: validatedRoutePriority,
     },
   });
-  llmRegistry.addProvider(
-    new OllamaProvider("http://127.0.0.1:11434", llmToml.localModel, llmToml.localContextTokens),
-  );
-  const llamacppBaseUrl = llmToml.llamacppServerPath.trim();
-  llmRegistry.addProvider(
-    new LlamaCppProvider(llamacppBaseUrl === "" ? undefined : llamacppBaseUrl, llmToml.localModel),
-  );
+
+  if (validatedLocalRoutes.size > 0) {
+    for (const route of validatedLocalRoutes.values()) {
+      const baseUrl = resolveBaseUrl(route.runtime, route.baseUrl);
+      if (route.runtime === "llamacpp") {
+        llmRegistry.addRoute(new LlamaCppProvider(baseUrl, route.model), route.model);
+      } else {
+        llmRegistry.addRoute(
+          new OllamaProvider(baseUrl, route.model, llmToml.localContextTokens),
+          route.model,
+        );
+      }
+    }
+  } else {
+    llmRegistry.addRoute(
+      new OllamaProvider(OLLAMA_DEFAULT_BASE_URL, effectiveLocalModel, llmToml.localContextTokens),
+      effectiveLocalModel,
+    );
+    const llamacppBaseUrl = llmToml.llamacppServerPath.trim();
+    // The legacy single-route path reaches the same hazard through a different key: an
+    // `[llm] llamacpp_server_path` pointed at a LAN box also produces a non-local provider now,
+    // and that must be as visible here as it is for a `[llm.local.*]` entry.
+    if (llamacppBaseUrl !== "" && !isLoopbackBaseUrl(llamacppBaseUrl)) {
+      logger.warn(
+        `[llm] llamacpp_server_path "${llamacppBaseUrl}" is not loopback — registering the ` +
+          "llama.cpp route as REMOTE: it is excluded when [llm] enforce_air_gap is set",
+      );
+    }
+    llmRegistry.addRoute(
+      new LlamaCppProvider(
+        llamacppBaseUrl === "" ? undefined : llamacppBaseUrl,
+        effectiveLocalModel,
+      ),
+      effectiveLocalModel,
+    );
+  }
   // Fill in `parameterCount` so `[llm] min_reasoning_params` can fire at all (F8). Fire-and-
-  // forget: it is one `/api/tags` call, nothing downstream blocks on it, and a provider that is
-  // down simply leaves the floor fail-open exactly as it was.
-  void llmRegistry.refreshProviderMeta(llmToml.localModel);
+  // forget: nothing downstream blocks on it, and a provider that is down simply leaves the floor
+  // fail-open exactly as it was. Called with NO argument — one pass over every registered local
+  // route, each matched against its OWN `route.modelName` inside `refreshProviderMeta` — never a
+  // single shared name looped across all routes (Task 9 review, finding 1: that shape cross-
+  // assigned one route's parameterCount onto another route sharing the same daemon). One
+  // `listModels()` call per local route, not per route × distinct model name.
+  void llmRegistry.refreshProviderMeta();
   return llmRegistry;
 }
 
@@ -2313,7 +2598,9 @@ export async function assemblePlatformServices(
   // design review raised (Q2).
   resolvePersona(paths.configDir, syncLogger);
   const sessionToml = loadNimbusSessionFromPath(activeTomlPath);
-  const llmRegistry = buildLlmRegistryFromToml(db, activeTomlPath);
+  const llmRegistry = buildLlmRegistryFromToml(db, activeTomlPath, {
+    warn: (m) => syncLogger.warn(m),
+  });
 
   const { localIndex, scheduleItemEmbedding, rt } = createLocalIndexWithEmbeddingRuntime(
     db,

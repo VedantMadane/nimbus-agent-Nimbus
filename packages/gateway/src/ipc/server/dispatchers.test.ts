@@ -195,8 +195,14 @@ const FAKE_LLM_ROUTER_CONFIG = {
 function fakeLocalOllamaProvider(markdown: string): LlmProvider {
   return {
     providerId: "ollama",
+    isLocal: true,
     isAvailable: async () => true,
-    listModels: async () => [],
+    // Must report the model it is registered under (`FAKE_LLM_ROUTER_CONFIG.localModel`,
+    // "local-model", matching the `addRoute` call in `makeLlmRegistry` below) — route
+    // availability (Task 5) requires the daemon reachable AND the route's own modelName
+    // among the models it reports, so an empty listing here makes every route
+    // `model_absent` regardless of `isAvailable()`.
+    listModels: async () => [{ provider: "ollama", modelName: "local-model" }],
     generate: async () => ({
       text: markdown,
       tokensIn: 0,
@@ -212,8 +218,14 @@ function fakeLocalOllamaProvider(markdown: string): LlmProvider {
 function fakeRemoteProvider(): LlmProvider {
   return {
     providerId: "remote",
+    isLocal: false,
     isAvailable: async () => true,
-    listModels: async () => [],
+    // Must report the model it registers under (FAKE_LLM_ROUTER_CONFIG.remoteModel,
+    // "remote-model") so the route genuinely RESOLVES as available — otherwise it reads
+    // model_absent, resolveForSynthesis() returns undefined, and the test below passes via
+    // no_eligible_provider from the EARLY branch rather than exercising the "local"-mode
+    // refusal (synthesis-llm.ts) it exists to guard.
+    listModels: async () => [{ provider: "remote", modelName: "remote-model" }],
     generate: async () => ({
       text: "SHOULD-NEVER-BE-USED",
       tokensIn: 0,
@@ -227,7 +239,10 @@ function fakeRemoteProvider(): LlmProvider {
 
 function makeLlmRegistry(provider: LlmProvider): LlmRegistry {
   const registry = new LlmRegistry({ config: FAKE_LLM_ROUTER_CONFIG });
-  registry.addProvider(provider);
+  registry.addRoute(
+    provider,
+    provider.isLocal ? FAKE_LLM_ROUTER_CONFIG.localModel : FAKE_LLM_ROUTER_CONFIG.remoteModel,
+  );
   return registry;
 }
 

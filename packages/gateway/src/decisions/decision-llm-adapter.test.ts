@@ -1,7 +1,7 @@
 import { describe, expect, it, test } from "bun:test";
 
 import { LlmRouter } from "../llm/router.ts";
-import type { LlmProvider, LlmProviderKind } from "../llm/types.ts";
+import type { LlmProvider, ProviderId } from "../llm/types.ts";
 import {
   buildExtractionPrompt,
   createDecisionLlm,
@@ -14,14 +14,20 @@ function fakeLlm(reply: string): DecisionLlm {
   return { complete: async () => reply };
 }
 
-function fakeProvider(
-  id: LlmProviderKind,
-  opts: { available: boolean; text?: string },
-): LlmProvider {
+function fakeProvider(id: ProviderId, opts: { available: boolean; text?: string }): LlmProvider {
+  // The model this route registers under — `routerWith` below registers each provider
+  // under `local-model`/`remote-model` based on `isLocal`, matching this listing.
+  const modelName = id === "remote" ? "remote-model" : "local-model";
   return {
     providerId: id,
+    isLocal: id !== "remote",
     isAvailable: () => Promise.resolve(opts.available),
-    listModels: () => Promise.resolve([]),
+    // Must report the model it registers under — route availability (Task 5) requires the
+    // daemon reachable AND the route's own modelName among the reported models; an empty
+    // listing here makes the route model_absent regardless of isAvailable(). Harmless when
+    // `opts.available` is false: `probeProvider` short-circuits on an unreachable daemon
+    // before ever consulting the model list.
+    listModels: () => Promise.resolve([{ provider: id, modelName }]),
     generate: () =>
       Promise.resolve({
         text: opts.text ?? "{}",
@@ -42,7 +48,7 @@ function routerWith(...providers: LlmProvider[]): LlmRouter {
     minReasoningParams: 0,
     enforceAirGap: false,
   });
-  for (const p of providers) r.registerProvider(p);
+  for (const p of providers) r.registerRoute(p, p.isLocal ? "local-model" : "remote-model");
   return r;
 }
 

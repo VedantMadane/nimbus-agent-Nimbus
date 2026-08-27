@@ -6,6 +6,7 @@ import type { NimbusAgentsToml } from "../../config/nimbus-toml.ts";
 import type { NimbusPersonaToml } from "../../config/persona.ts";
 import { recordSynthesisEgress } from "../../egress/synthesis-egress.ts";
 import type { ResolvedSynthesisProvider } from "../../llm/router.ts";
+import type { ProviderId } from "../../llm/types.ts";
 
 export type SynthesisAttempt =
   | { ok: true; markdown: string; model: string; remote: boolean }
@@ -51,7 +52,11 @@ export type SynthesisEgressRecorder = (
   db: Database,
   args: {
     readonly briefKind: string;
-    readonly provider: { readonly modelName: string; readonly isLocal: boolean };
+    readonly provider: {
+      readonly providerId: ProviderId;
+      readonly modelName: string;
+      readonly isLocal: boolean;
+    };
     readonly now: number;
   },
 ) => void;
@@ -211,7 +216,7 @@ export function buildSynthesisRunner(deps: SynthesisLlmDeps): SynthesisRunner | 
 
       // Deliberately `generateMarkdown(prompt, resolved)` — the EXACT provider `resolveForSynthesis`
       // already resolved and classified above — never `LlmRouter.generate()`. `generate()` routes
-      // through `fitPromptOrFallback`, whose private `tryRemoteFallback` method (`llm/router.ts` —
+      // through `fitPromptOrFallback`, whose private `findFallbackRoute` method (`llm/router.ts` —
       // cited by name, not a line number, since this exact comment's own line-number citation
       // already drifted once) can reach a REMOTE provider on context overflow with NO egress row
       // appended and NO `[agents] synthesis` mode check — exactly the two guarantees this function

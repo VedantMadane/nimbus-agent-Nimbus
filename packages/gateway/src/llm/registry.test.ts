@@ -8,7 +8,7 @@ import { LLM_MODELS_V16_SQL } from "../index/llm-models-v16-sql.ts";
 import { LLM_TASK_DEFAULTS_V20_SQL } from "../index/llm-task-defaults-v20-sql.ts";
 import { LlmRegistry } from "./registry.ts";
 import type { LlmRouterConfig } from "./router.ts";
-import type { LlmModelInfo, LlmProvider, LlmProviderKind, PullProgressChunk } from "./types.ts";
+import type { LlmModelInfo, LlmProvider, ProviderId, PullProgressChunk } from "./types.ts";
 
 const DEFAULT_CONFIG: LlmRouterConfig = {
   preferLocal: true,
@@ -31,9 +31,10 @@ type ProviderOpts = {
   throwOnList?: boolean;
 };
 
-function makeProvider(id: LlmProviderKind, opts: ProviderOpts): LlmProvider {
+function makeProvider(id: ProviderId, opts: ProviderOpts): LlmProvider {
   const base = {
     providerId: id,
+    isLocal: id !== "remote",
     isAvailable: async () => {
       if (opts.throwOnAvailable === true) throw new Error("availability check failed");
       return opts.available;
@@ -80,9 +81,17 @@ describe("LlmRegistry — construction + provider registration", () => {
     expect(typeof reg.llmRouter.selectProvider).toBe("function");
   });
 
-  test("addProvider forwards to LlmRouter.registerProvider", () => {
+  test("addRoute registers a provider that selectProvider can then resolve", () => {
     const reg = new LlmRegistry({ config: DEFAULT_CONFIG });
-    reg.addProvider(makeProvider("ollama", { available: true }));
+    // The model-aware availability probe (Task 5) needs the fake to report the model it is
+    // registered under, or it reads as unavailable.
+    reg.addRoute(
+      makeProvider("ollama", {
+        available: true,
+        models: [{ provider: "ollama", modelName: DEFAULT_CONFIG.localModel }],
+      }),
+      DEFAULT_CONFIG.localModel,
+    );
     return reg.llmRouter.selectProvider("agent_step").then((p) => {
       expect(p?.providerId).toBe("ollama");
     });
@@ -107,23 +116,26 @@ describe("LlmRegistry.listAllModels", () => {
   test("returns models from all registered + available providers", async () => {
     env = makeDbWithSchema();
     const reg = new LlmRegistry({ config: DEFAULT_CONFIG, db: env.db });
-    reg.addProvider(
+    reg.addRoute(
       makeProvider("ollama", {
         available: true,
         models: [{ provider: "ollama", modelName: "llama3.2", parameterCount: 3 }],
       }),
+      DEFAULT_CONFIG.localModel,
     );
-    reg.addProvider(
+    reg.addRoute(
       makeProvider("llamacpp", {
         available: true,
         models: [{ provider: "llamacpp", modelName: "qwen", contextWindow: 8192 }],
       }),
+      DEFAULT_CONFIG.localModel,
     );
-    reg.addProvider(
+    reg.addRoute(
       makeProvider("remote", {
         available: true,
         models: [{ provider: "remote", modelName: "claude-sonnet-4-6" }],
       }),
+      DEFAULT_CONFIG.remoteModel,
     );
     const models = await reg.listAllModels();
     expect(models).toHaveLength(3);
@@ -137,17 +149,19 @@ describe("LlmRegistry.listAllModels", () => {
   test("skips a provider when isAvailable returns false", async () => {
     env = makeDbWithSchema();
     const reg = new LlmRegistry({ config: DEFAULT_CONFIG, db: env.db });
-    reg.addProvider(
+    reg.addRoute(
       makeProvider("ollama", {
         available: true,
         models: [{ provider: "ollama", modelName: "m1" }],
       }),
+      DEFAULT_CONFIG.localModel,
     );
-    reg.addProvider(
+    reg.addRoute(
       makeProvider("llamacpp", {
         available: false,
         models: [{ provider: "llamacpp", modelName: "m2" }],
       }),
+      DEFAULT_CONFIG.localModel,
     );
     const models = await reg.listAllModels();
     expect(models).toHaveLength(1);
@@ -157,12 +171,16 @@ describe("LlmRegistry.listAllModels", () => {
   test("a thrown provider error is swallowed (skip silently)", async () => {
     env = makeDbWithSchema();
     const reg = new LlmRegistry({ config: DEFAULT_CONFIG, db: env.db });
-    reg.addProvider(makeProvider("ollama", { available: true, throwOnList: true }));
-    reg.addProvider(
+    reg.addRoute(
+      makeProvider("ollama", { available: true, throwOnList: true }),
+      DEFAULT_CONFIG.localModel,
+    );
+    reg.addRoute(
       makeProvider("remote", {
         available: true,
         models: [{ provider: "remote", modelName: "good" }],
       }),
+      DEFAULT_CONFIG.remoteModel,
     );
     const models = await reg.listAllModels();
     expect(models).toHaveLength(1);
@@ -172,7 +190,7 @@ describe("LlmRegistry.listAllModels", () => {
   test("syncs models to llm_models table on each listAllModels call", async () => {
     env = makeDbWithSchema();
     const reg = new LlmRegistry({ config: DEFAULT_CONFIG, db: env.db });
-    reg.addProvider(
+    reg.addRoute(
       makeProvider("ollama", {
         available: true,
         models: [
@@ -186,6 +204,7 @@ describe("LlmRegistry.listAllModels", () => {
           },
         ],
       }),
+      DEFAULT_CONFIG.localModel,
     );
     await reg.listAllModels();
     const row = env.db
@@ -211,11 +230,12 @@ describe("LlmRegistry.listAllModels", () => {
 
   test("no-DB mode skips sync without throwing", async () => {
     const reg = new LlmRegistry({ config: DEFAULT_CONFIG });
-    reg.addProvider(
+    reg.addRoute(
       makeProvider("ollama", {
         available: true,
         models: [{ provider: "ollama", modelName: "x" }],
       }),
+      DEFAULT_CONFIG.localModel,
     );
     await expect(reg.listAllModels()).resolves.toBeDefined();
   });
@@ -224,8 +244,8 @@ describe("LlmRegistry.listAllModels", () => {
 describe("LlmRegistry.checkAvailability", () => {
   test("returns per-provider booleans for registered providers", async () => {
     const reg = new LlmRegistry({ config: DEFAULT_CONFIG });
-    reg.addProvider(makeProvider("ollama", { available: true }));
-    reg.addProvider(makeProvider("remote", { available: false }));
+    reg.addRoute(makeProvider("ollama", { available: true }), DEFAULT_CONFIG.localModel);
+    reg.addRoute(makeProvider("remote", { available: false }), DEFAULT_CONFIG.remoteModel);
     const out = await reg.checkAvailability();
     expect(out["ollama"]).toBe(true);
     expect(out["remote"]).toBe(false);
@@ -234,7 +254,10 @@ describe("LlmRegistry.checkAvailability", () => {
 
   test("isAvailable throw → false for that provider", async () => {
     const reg = new LlmRegistry({ config: DEFAULT_CONFIG });
-    reg.addProvider(makeProvider("ollama", { available: false, throwOnAvailable: true }));
+    reg.addRoute(
+      makeProvider("ollama", { available: false, throwOnAvailable: true }),
+      DEFAULT_CONFIG.localModel,
+    );
     const out = await reg.checkAvailability();
     expect(out["ollama"]).toBe(false);
   });
@@ -244,13 +267,14 @@ describe("LlmRegistry.loadModel / unloadModel", () => {
   test("loadModel invokes the provider's loadModel when defined", async () => {
     const reg = new LlmRegistry({ config: DEFAULT_CONFIG });
     let captured = "";
-    reg.addProvider(
+    reg.addRoute(
       makeProvider("llamacpp", {
         available: true,
         loadModel: async (m) => {
           captured = m;
         },
       }),
+      DEFAULT_CONFIG.localModel,
     );
     await reg.loadModel("llamacpp", "qwen.gguf");
     expect(captured).toBe("qwen.gguf");
@@ -258,7 +282,7 @@ describe("LlmRegistry.loadModel / unloadModel", () => {
 
   test("loadModel is a no-op when the provider does not implement it", async () => {
     const reg = new LlmRegistry({ config: DEFAULT_CONFIG });
-    reg.addProvider(makeProvider("ollama", { available: true }));
+    reg.addRoute(makeProvider("ollama", { available: true }), DEFAULT_CONFIG.localModel);
     await expect(reg.loadModel("ollama", "any-model")).resolves.toBeUndefined();
   });
 
@@ -270,13 +294,14 @@ describe("LlmRegistry.loadModel / unloadModel", () => {
   test("unloadModel invokes the provider's unloadModel when defined", async () => {
     const reg = new LlmRegistry({ config: DEFAULT_CONFIG });
     let captured = "";
-    reg.addProvider(
+    reg.addRoute(
       makeProvider("llamacpp", {
         available: true,
         unloadModel: async (m) => {
           captured = m;
         },
       }),
+      DEFAULT_CONFIG.localModel,
     );
     await reg.unloadModel("llamacpp", "qwen.gguf");
     expect(captured).toBe("qwen.gguf");
@@ -294,13 +319,14 @@ describe("LlmRegistry.pullModel", () => {
   test("dispatches to provider.pullModel when supported", async () => {
     const reg = new LlmRegistry({ config: DEFAULT_CONFIG });
     let captured = "";
-    reg.addProvider(
+    reg.addRoute(
       makeProvider("ollama", {
         available: true,
         pullModel: async (m) => {
           captured = m;
         },
       }),
+      DEFAULT_CONFIG.localModel,
     );
     await reg.pullModel("ollama", "llama3.2");
     expect(captured).toBe("llama3.2");
@@ -308,7 +334,7 @@ describe("LlmRegistry.pullModel", () => {
 
   test("rejects with TypeError when provider lacks pullModel", async () => {
     const reg = new LlmRegistry({ config: DEFAULT_CONFIG });
-    reg.addProvider(makeProvider("llamacpp", { available: true }));
+    reg.addRoute(makeProvider("llamacpp", { available: true }), DEFAULT_CONFIG.localModel);
     await expect(reg.pullModel("llamacpp", "x")).rejects.toThrow(
       "Provider llamacpp does not support pullModel",
     );
@@ -368,10 +394,157 @@ describe("LlmRegistry.setDefault / getDefault", () => {
   });
 });
 
+describe("LlmRegistry.addRoute + providerId-keyed lifecycle (Task 6)", () => {
+  test("pullModel works for a model that has NO route", async () => {
+    // The primary use of pull: fetch a model BEFORE configuring a route for it. Keying
+    // lifecycle on routeId would make this impossible — see Task 6 brief.
+    const pulled: string[] = [];
+    const provider = makeProvider("ollama", {
+      available: true,
+      pullModel: async (m) => {
+        pulled.push(m);
+      },
+    });
+    const registry = new LlmRegistry({ config: DEFAULT_CONFIG });
+    registry.addRoute(provider, "qwen3:8b");
+    await registry.pullModel("ollama", "a-model-with-no-route");
+    expect(pulled).toEqual(["a-model-with-no-route"]);
+  });
+
+  test("listAllModels covers a vendor id the registry has never heard of", async () => {
+    const registry = new LlmRegistry({ config: DEFAULT_CONFIG });
+    registry.addRoute(
+      makeProvider("gemini", {
+        available: true,
+        models: [{ provider: "gemini", modelName: "gemini-2.5-pro" }],
+      }),
+      "gemini-2.5-pro",
+    );
+    const models = await registry.listAllModels();
+    expect(models.some((m) => m.provider === "gemini")).toBe(true);
+  });
+
+  test("a successful pullModel invalidates the route-availability cache for that providerId", async () => {
+    // Without invalidate(), a freshly-pulled model reports model_absent for up to the
+    // positive TTL — indistinguishable from the pull having failed.
+    let reportedModels: string[] = [];
+    const provider = makeProvider("ollama", {
+      available: true,
+      models: [],
+      pullModel: async (m) => {
+        reportedModels = [m];
+      },
+    });
+    (provider as unknown as { listModels: () => Promise<LlmModelInfo[]> }).listModels = async () =>
+      reportedModels.map((m) => ({ provider: "ollama", modelName: m }));
+    const registry = new LlmRegistry({ config: DEFAULT_CONFIG });
+    registry.addRoute(provider, "fresh-model");
+    // Prime the negative cache: at this point the daemon does not yet report the model.
+    const before = await registry.llmRouter.selectProvider("agent_step");
+    expect(before).toBeUndefined();
+    await registry.pullModel("ollama", "fresh-model");
+    const after = await registry.llmRouter.selectProvider("agent_step");
+    expect(after?.providerId).toBe("ollama");
+  });
+
+  test("a FAILED pullModel does not invalidate the cache", async () => {
+    // Same technique as the success test above, but the pull rejects: prime the
+    // negative cache, fail the pull, THEN flip listModels() to report the model, and
+    // assert the route STILL reads as unavailable — because a failed pull must not
+    // have cleared the cache, and the stale (positive-TTL) entry should still be in
+    // effect. This assertion is what actually distinguishes "invalidate was correctly
+    // skipped" from "invalidate ran anyway" — a bare `rejects.toThrow` on the pull
+    // call cannot: it stays green whether or not invalidate() runs on failure.
+    let reportedModels: string[] = [];
+    const provider = makeProvider("ollama", {
+      available: true,
+      models: [],
+      pullModel: async () => {
+        throw new Error("pull failed");
+      },
+    });
+    (provider as unknown as { listModels: () => Promise<LlmModelInfo[]> }).listModels = async () =>
+      reportedModels.map((m) => ({ provider: "ollama", modelName: m }));
+    const registry = new LlmRegistry({ config: DEFAULT_CONFIG });
+    registry.addRoute(provider, "fresh-model");
+    // Prime the negative cache: at this point the daemon does not report the model.
+    const before = await registry.llmRouter.selectProvider("agent_step");
+    expect(before).toBeUndefined();
+    await expect(registry.pullModel("ollama", "fresh-model")).rejects.toThrow("pull failed");
+    // The daemon now DOES report the model (as if it landed some other way) — but the
+    // cache must still be serving its stale, pre-pull answer, because invalidate()
+    // must not have run on this failed pull.
+    reportedModels = ["fresh-model"];
+    const after = await registry.llmRouter.selectProvider("agent_step");
+    expect(after).toBeUndefined();
+  });
+
+  test(
+    "refreshProviderMeta does not mint a spurious route from config.localModel " +
+      "(Task 3 predicted bug)",
+    async () => {
+      const provider = makeProvider("ollama", {
+        available: true,
+        models: [{ provider: "ollama", modelName: "qwen3:8b", parameterCount: 8 }],
+      });
+      // DEFAULT_CONFIG.localModel is "llama3.2" — distinct from the route's own model,
+      // so the old registerProvider-shim re-registration would mint a second route
+      // "ollama/llama3.2" alongside "ollama/qwen3:8b".
+      const registry = new LlmRegistry({ config: DEFAULT_CONFIG });
+      registry.addRoute(provider, "qwen3:8b");
+      await registry.refreshProviderMeta("qwen3:8b");
+      const routes = registry.llmRouter.routes();
+      expect(routes).toHaveLength(1);
+      expect(routes[0]?.modelName).toBe("qwen3:8b");
+      expect(routes[0]?.meta.parameterCount).toBe(8);
+    },
+  );
+
+  test(
+    "refreshProviderMeta does not cross-assign parameterCount between routes sharing a " +
+      "daemon (Task 9 review, finding 1)",
+    async () => {
+      // Two DISTINCT provider instances (as `buildLlmRegistryFromToml` constructs, one per
+      // [llm.local.*] entry) both pointed at the same shared Ollama daemon — so both report
+      // the daemon's FULL model list, exactly as a real shared daemon would.
+      const sharedDaemonListing: LlmModelInfo[] = [
+        { provider: "ollama", modelName: "qwen3:8b", parameterCount: 8 },
+        { provider: "ollama", modelName: "gemma3:12b", parameterCount: 12 },
+      ];
+      const qwenProvider = makeProvider("ollama", {
+        available: true,
+        models: sharedDaemonListing,
+      });
+      const gemmaProvider = makeProvider("ollama", {
+        available: true,
+        models: sharedDaemonListing,
+      });
+      const registry = new LlmRegistry({ config: DEFAULT_CONFIG });
+      registry.addRoute(qwenProvider, "qwen3:8b");
+      registry.addRoute(gemmaProvider, "gemma3:12b");
+
+      // Mirrors the ACTUAL pre-fix production call pattern in assemble.ts: one call per
+      // distinct registered model name, looped across every route.
+      await registry.refreshProviderMeta("qwen3:8b");
+      await registry.refreshProviderMeta("gemma3:12b");
+
+      const routes = registry.llmRouter.routes();
+      const qwenRoute = routes.find((r) => r.modelName === "qwen3:8b");
+      const gemmaRoute = routes.find((r) => r.modelName === "gemma3:12b");
+      // Each route must get its OWN parameterCount — never the other route's, which is
+      // exactly what a caller-supplied `modelName` search applied indiscriminately to every
+      // route (rather than matched against that route's own modelName) produced: whichever
+      // name was refreshed LAST won for every route on the shared daemon.
+      expect(qwenRoute?.meta.parameterCount).toBe(8);
+      expect(gemmaRoute?.meta.parameterCount).toBe(12);
+    },
+  );
+});
+
 describe("LlmRegistry.getRouterStatus", () => {
   test("delegates to LlmRouter.getStatus and returns a shape with the four task types", async () => {
     const reg = new LlmRegistry({ config: DEFAULT_CONFIG });
-    reg.addProvider(makeProvider("ollama", { available: true }));
+    reg.addRoute(makeProvider("ollama", { available: true }), DEFAULT_CONFIG.localModel);
     const status = await reg.getRouterStatus();
     expect(status).toBeDefined();
     // The exact shape lives in LlmRouter; just confirm the call doesn't throw
@@ -393,6 +566,12 @@ describe("min_reasoning_params can actually fire (F8)", () => {
   function providerReporting(parameterCount: number | undefined): LlmProvider {
     return {
       providerId: "ollama",
+      // Required so `refreshProviderMeta`'s `if (!route.provider.isLocal) continue` does not
+      // skip this route — without it, parameterCount is never propagated to route.meta at
+      // all, and the test below passed for the wrong reason (the route read as unavailable
+      // via a route-id/modelName mismatch in the now-deleted `registerProvider` shim, not
+      // because the capability floor actually rejected the reported parameter count).
+      isLocal: true,
       isAvailable: async () => true,
       listModels: async () => [
         {
@@ -416,7 +595,7 @@ describe("min_reasoning_params can actually fire (F8)", () => {
     const registry = new LlmRegistry({
       config: { preferLocal: true, localModel: "llama3.2", minReasoningParams: 7 } as never,
     });
-    registry.addProvider(providerReporting(3.2));
+    registry.addRoute(providerReporting(3.2), DEFAULT_CONFIG.localModel);
     await registry.refreshProviderMeta("llama3.2");
 
     // 3.2B against a floor of 7 — the floor must now see the number it never used to get, so the
@@ -431,14 +610,168 @@ describe("min_reasoning_params can actually fire (F8)", () => {
     const registry = new LlmRegistry({
       config: { preferLocal: true, localModel: "llama3.2", minReasoningParams: 7 } as never,
     });
-    registry.addProvider({
-      providerId: "ollama",
-      isAvailable: async () => false,
-      listModels: async () => {
-        throw new Error("connection refused");
-      },
-    } as unknown as LlmProvider);
+    registry.addRoute(
+      {
+        providerId: "ollama",
+        isLocal: true,
+        isAvailable: async () => false,
+        listModels: async () => {
+          throw new Error("connection refused");
+        },
+      } as unknown as LlmProvider,
+      DEFAULT_CONFIG.localModel,
+    );
 
     await expect(registry.refreshProviderMeta("llama3.2")).resolves.toBeUndefined();
+  });
+});
+
+describe("LlmRegistry lifecycle — two daemons behind one vendor id (Fix I)", () => {
+  test("an unambiguous vendor id still resolves with no discriminator", async () => {
+    // The constraint that shapes this whole design: pulling a model that has NO route yet
+    // must keep working, so lifecycle cannot key on routeId. One instance → no ambiguity.
+    const pulled: string[] = [];
+    const provider = makeProvider("ollama", {
+      available: true,
+      pullModel: async (m) => {
+        pulled.push(m);
+      },
+    });
+    const registry = new LlmRegistry({ config: DEFAULT_CONFIG });
+    // Two ROUTES, one provider INSTANCE — the ordinary two-models-on-one-daemon setup.
+    registry.addRoute(provider, "qwen3:8b");
+    registry.addRoute(provider, "gemma3:12b");
+    await registry.pullModel("ollama", "a-model-with-no-route");
+    expect(pulled).toEqual(["a-model-with-no-route"]);
+  });
+
+  test("two distinct daemons under one vendor id REFUSE to guess, and name the candidates", async () => {
+    // The bug: `.find(...)` on providerId sent the pull to whichever daemon was configured
+    // FIRST — a multi-gigabyte download onto the wrong machine, reported as success.
+    const laptopPulls: string[] = [];
+    const workstationPulls: string[] = [];
+    const laptop = makeProvider("ollama", {
+      available: true,
+      pullModel: async (m) => {
+        laptopPulls.push(m);
+      },
+    });
+    const workstation = makeProvider("ollama", {
+      available: true,
+      pullModel: async (m) => {
+        workstationPulls.push(m);
+      },
+    });
+    const registry = new LlmRegistry({ config: DEFAULT_CONFIG });
+    registry.addRoute(laptop, "qwen3:8b");
+    registry.addRoute(workstation, "gemma3:12b");
+
+    await expect(registry.pullModel("ollama", "new-model")).rejects.toThrow(/2 distinct endpoints/);
+    // Naming the candidates is the point — an error the user cannot act on is barely better
+    // than the silent wrong answer it replaced.
+    await expect(registry.pullModel("ollama", "new-model")).rejects.toThrow(/ollama\/qwen3:8b/);
+    await expect(registry.pullModel("ollama", "new-model")).rejects.toThrow(/ollama\/gemma3:12b/);
+    // And NOTHING was downloaded anywhere: refusing means refusing, not "tried the first one".
+    expect(laptopPulls).toEqual([]);
+    expect(workstationPulls).toEqual([]);
+  });
+
+  test("routeId names which daemon the operation reaches", async () => {
+    const laptopPulls: string[] = [];
+    const workstationPulls: string[] = [];
+    const laptop = makeProvider("ollama", {
+      available: true,
+      pullModel: async (m) => {
+        laptopPulls.push(m);
+      },
+    });
+    const workstation = makeProvider("ollama", {
+      available: true,
+      pullModel: async (m) => {
+        workstationPulls.push(m);
+      },
+    });
+    const registry = new LlmRegistry({ config: DEFAULT_CONFIG });
+    registry.addRoute(laptop, "qwen3:8b");
+    registry.addRoute(workstation, "gemma3:12b");
+
+    await registry.pullModel("ollama", "new-model", { routeId: "ollama/gemma3:12b" });
+    expect(workstationPulls).toEqual(["new-model"]);
+    expect(laptopPulls).toEqual([]);
+  });
+
+  test("loadModel/unloadModel resolve through the same rule", async () => {
+    const loaded: string[] = [];
+    const unloaded: string[] = [];
+    const laptop = makeProvider("ollama", { available: true, loadModel: async () => {} });
+    const workstation = makeProvider("ollama", {
+      available: true,
+      loadModel: async (m) => {
+        loaded.push(m);
+      },
+      unloadModel: async (m) => {
+        unloaded.push(m);
+      },
+    });
+    const registry = new LlmRegistry({ config: DEFAULT_CONFIG });
+    registry.addRoute(laptop, "qwen3:8b");
+    registry.addRoute(workstation, "gemma3:12b");
+
+    await expect(registry.loadModel("ollama", "x")).rejects.toThrow(/2 distinct endpoints/);
+    await registry.loadModel("ollama", "x", { routeId: "ollama/gemma3:12b" });
+    expect(loaded).toEqual(["x"]);
+    await registry.unloadModel("ollama", "x", { routeId: "ollama/gemma3:12b" });
+    expect(unloaded).toEqual(["x"]);
+  });
+
+  test("an unregistered routeId is rejected rather than silently ignored", async () => {
+    const provider = makeProvider("ollama", { available: true, pullModel: async () => {} });
+    const registry = new LlmRegistry({ config: DEFAULT_CONFIG });
+    registry.addRoute(provider, "qwen3:8b");
+    await expect(
+      registry.pullModel("ollama", "x", { routeId: "ollama/not-registered" }),
+    ).rejects.toThrow("Route not registered: ollama/not-registered");
+  });
+
+  test("a routeId belonging to a DIFFERENT provider is rejected, never used as an override", async () => {
+    const registry = new LlmRegistry({ config: DEFAULT_CONFIG });
+    registry.addRoute(makeProvider("ollama", { available: true }), "qwen3:8b");
+    registry.addRoute(makeProvider("llamacpp", { available: true }), "a.gguf");
+    await expect(registry.loadModel("ollama", "x", { routeId: "llamacpp/a.gguf" })).rejects.toThrow(
+      /belongs to provider "llamacpp", not "ollama"/,
+    );
+  });
+});
+
+describe("LlmRegistry.checkRoute — the registry owns the probe (Fix E)", () => {
+  test("checkRoute answers from the SAME probe route selection consults", async () => {
+    // The property `llm.status` needs: one probe, one answer. A `RouteAvailabilityProbe`
+    // constructed at the IPC layer had its own cache, so status could report a route
+    // available while the router had already routed past it.
+    let listCalls = 0;
+    let reportedModels: string[] = [];
+    const provider = makeProvider("ollama", { available: true, models: [] });
+    (provider as unknown as { listModels: () => Promise<LlmModelInfo[]> }).listModels =
+      async () => {
+        listCalls += 1;
+        return reportedModels.map((m) => ({ provider: "ollama", modelName: m }));
+      };
+    const registry = new LlmRegistry({ config: DEFAULT_CONFIG });
+    registry.addRoute(provider, "fresh-model");
+    const route = registry.llmRouter.routes()[0];
+    expect(route).toBeDefined();
+
+    // Prime the shared cache through the ROUTER.
+    expect(await registry.llmRouter.selectProvider("agent_step")).toBeUndefined();
+    const callsAfterRouting = listCalls;
+    // The daemon now reports the model — but the shared cache has not expired, so a probe
+    // reading the same cache must still say `model_absent`. A freshly-constructed probe
+    // would re-list and answer `ok`, which is exactly the divergence this closes.
+    reportedModels = ["fresh-model"];
+    expect(await registry.checkRoute(route as NonNullable<typeof route>)).toEqual({
+      available: false,
+      reason: "model_absent",
+    });
+    expect(listCalls).toBe(callsAfterRouting);
   });
 });
