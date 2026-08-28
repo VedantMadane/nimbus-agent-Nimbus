@@ -12,7 +12,15 @@ export type AgentUnavailableReason =
   | "air_gap"
   | "unknown";
 
-export type AgentProviderName = "anthropic" | "openai";
+/**
+ * A vendor that can appear in a user-facing agent error.
+ *
+ * Kept in step with `REMOTE_VENDOR_IDS` (`platform/assemble.ts`). Slice 2b added `gemini` and
+ * `xai` as registrable vendors but not here, so their failures rendered as the generic "the LLM
+ * provider" — and on a Gemini-only install a classifier 401 read as an *Anthropic* problem,
+ * which sent diagnosis in the wrong direction.
+ */
+export type AgentProviderName = "anthropic" | "openai" | "gemini" | "xai";
 
 export type AgentUnavailableInit = {
   reason: AgentUnavailableReason;
@@ -67,10 +75,21 @@ export class GatewayAgentUnavailableError extends Error {
   }
 }
 
+/**
+ * TOTAL over `AgentProviderName`, so adding a vendor id without a label is a COMPILE error rather
+ * than a silent downgrade to the generic string — the failure mode that made a Gemini error read
+ * as an anonymous one. `undefined` still maps to the generic label, which is the honest answer
+ * when the provider genuinely is not known.
+ */
+const PROVIDER_LABELS: Record<AgentProviderName, string> = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  gemini: "Gemini",
+  xai: "xAI",
+};
+
 function providerLabel(provider: AgentProviderName | undefined): string {
-  if (provider === "anthropic") return "Anthropic";
-  if (provider === "openai") return "OpenAI";
-  return "the LLM provider";
+  return provider === undefined ? "the LLM provider" : PROVIDER_LABELS[provider];
 }
 
 function buildAgentErrorMessage(init: AgentUnavailableInit): string {
@@ -85,7 +104,7 @@ function buildAgentErrorMessage(init: AgentUnavailableInit): string {
     case "rate_limited":
       return `${provider} rate limit hit. Wait a moment and retry, or upgrade your usage tier.`;
     case "model_not_found":
-      return `${provider} returned 404 for the configured model. Check NIMBUS_AGENT_MODEL / NIMBUS_CLASSIFIER_MODEL (or NIMBUS_OPENAI_CLASSIFIER_MODEL when using OpenAI) or your access tier.`;
+      return `${provider} returned 404 for the configured model. Check the model name in your [llm.remote.*] block (or NIMBUS_AGENT_MODEL) and your access tier.`;
     case "provider_error": {
       const detail = init.detail !== undefined && init.detail !== "" ? ` ${init.detail}` : "";
       return `${provider} request failed.${detail}`;
