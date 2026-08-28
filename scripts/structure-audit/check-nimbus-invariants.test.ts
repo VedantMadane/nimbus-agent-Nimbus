@@ -20,6 +20,7 @@ import {
   DB_RUN_EXEC_ALLOW_LIST,
   type FileEntry,
   findDirectDbRunExec,
+  PLATFORM_VAULT_KEYS,
   RULE_ANCHORS,
   VAULT_KEY_ALLOW_LIST,
 } from "./check-nimbus-invariants.ts";
@@ -221,8 +222,31 @@ describe("D11 — checkVaultKeyAllowList", () => {
 });
 
 describe("D11 — VAULT_KEY_ALLOW_LIST is frozen at structural entries", () => {
-  test("VAULT_KEY_ALLOW_LIST has exactly 9 entries", () => {
-    expect(VAULT_KEY_ALLOW_LIST).toHaveLength(9);
+  test("VAULT_KEY_ALLOW_LIST has exactly 10 entries", () => {
+    // 9 → 10: slice 2b adds ONLY `llm/vendor-vault-keys.ts`, which owns the vendor keyspace. The
+    // `<vendor>.api_key` when resolving the credential per call. The count is frozen ON PURPOSE —
+    // a file gaining permission to construct a vault key is a decision, so it must be made
+    // deliberately in a commit that also explains it, never absorbed silently.
+    expect(VAULT_KEY_ALLOW_LIST).toHaveLength(10);
+  });
+});
+
+describe("platform keyspace — slice 2b cloud vendors", () => {
+  test("the four vendor api_key entries are registered", () => {
+    // Registration is what keeps the keyspace documented in ONE place. A key an adapter reads
+    // but that is absent here is a key nobody can audit.
+    //
+    // `openai.api_key` is DELIBERATELY REUSED from the embedding runtime rather than minted as a
+    // second OpenAI key: same credential, same vendor, and a second key for one vendor invites
+    // drift. It is also the sharpest available test of the per-vendor opt-in — an existing
+    // embeddings user already has this key present, and `[llm.remote.openai] enabled = false`
+    // must still produce zero chat calls.
+    // Spread to a widened `string[]`: `PLATFORM_VAULT_KEYS` is `as const`, so `toContain` would
+    // otherwise demand one of its own literal members and reject a plain `string`.
+    const keys: string[] = [...PLATFORM_VAULT_KEYS];
+    for (const k of ["anthropic.api_key", "openai.api_key", "gemini.api_key", "xai.api_key"]) {
+      expect(keys).toContain(k);
+    }
   });
 });
 
