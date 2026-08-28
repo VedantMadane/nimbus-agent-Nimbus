@@ -147,7 +147,14 @@ describe("runConversationalAgent", () => {
       isLocal: true,
       provider: "ollama" as const,
     }));
-    const router = { generate, prefersLocal: () => false } as unknown as LlmRouter;
+    // `enforcesAirGap` is REQUIRED on any stub whose `prefersLocal` is false: the `||` in
+    // `shouldUseLocalRouter` only reaches it on that branch. The `as unknown as` cast
+    // silences the compiler, so a missing method fails at runtime, not at typecheck.
+    const router = {
+      generate,
+      prefersLocal: () => false,
+      enforcesAirGap: () => false,
+    } as unknown as LlmRouter;
     const r = await runConversationalAgent({
       agent,
       llmRouter: router,
@@ -476,6 +483,7 @@ describe("negation disclosures", () => {
       generate: mock(async () => {
         throw new Error("router down");
       }),
+      enforcesAirGap: () => false,
     } as unknown as LlmRouter;
     const agent = { generate: mock(async () => ({ text: "from agent" })) } as unknown as Agent;
     const r = await runConversationalAgent({
@@ -660,6 +668,7 @@ describe("the tool-less local path discloses that predicates never ran (F21)", (
         throw new Error("ollama down");
       }),
       prefersLocal: () => true,
+      enforcesAirGap: () => false,
     } as unknown as LlmRouter;
     const agent = {
       generate: mock(async () => ({ text: "Two deployments had none." })),
@@ -674,6 +683,98 @@ describe("the tool-less local path discloses that predicates never ran (F21)", (
     });
 
     expect(r.reply).toBe("Two deployments had none.");
+  });
+
+  test("air-gap refuses the Mastra fallback when the local router throws", async () => {
+    // #1334's shape: `enforce_air_gap` is a REFUSAL setting, so a local model dying
+    // mid-turn must surface the failure, never downgrade to a cloud vendor. Counting
+    // agent invocations is the assertion that matters -- "an error was returned" would
+    // also pass if the agent ran first and then something else threw.
+    const throwingRouter = {
+      generate: mock(async () => {
+        throw new Error("ollama down");
+      }),
+      prefersLocal: () => true,
+      enforcesAirGap: () => true,
+    } as unknown as LlmRouter;
+    const agentGenerate = mock(async () => ({ text: "leaked to the cloud" }));
+    const agent = { generate: agentGenerate } as unknown as Agent;
+
+    await expect(
+      runConversationalAgent({
+        agent,
+        llmRouter: throwingRouter,
+        input: "which deployments had no downstream incident?",
+        stream: false,
+        sendChunk: () => undefined,
+      }),
+    ).rejects.toThrow("ollama down");
+
+    expect(agentGenerate).toHaveBeenCalledTimes(0);
+  });
+
+  test("air-gap forces the local router even when prefer_local is false", async () => {
+    // The SECOND door. The test above closes the fallback AFTER the router throws; this
+    // one closes the case where the router is never consulted at all. With
+    // `prefer_local = false`, `shouldUseLocalRouter()` used to return false and `runTurn`
+    // went straight to the Mastra agent -- a cloud-backed model resolved through
+    // `@mastra/core`, outside the route table and so outside the I29 wrapper: no air-gap
+    // check, no ledger row. `enforce_air_gap` is a REFUSAL, so it must not be conditional
+    // on a PREFERENCE being set a particular way.
+    const routerGenerate = mock(async () => ({
+      text: "answered locally",
+      tokensIn: 1,
+      tokensOut: 1,
+      modelUsed: "qwen3:8b",
+      isLocal: true,
+      provider: "ollama",
+    }));
+    const localRouter = {
+      generate: routerGenerate,
+      prefersLocal: () => false,
+      enforcesAirGap: () => true,
+    } as unknown as LlmRouter;
+    const agentGenerate = mock(async () => ({ text: "leaked to the cloud" }));
+    const agent = { generate: agentGenerate } as unknown as Agent;
+
+    const r = await runConversationalAgent({
+      agent,
+      llmRouter: localRouter,
+      input: "which deployments had no downstream incident?",
+      stream: false,
+      sendChunk: () => undefined,
+    });
+
+    expect(routerGenerate).toHaveBeenCalledTimes(1);
+    expect(agentGenerate).toHaveBeenCalledTimes(0);
+    // `toContain`, not `toBe`: this describe block's whole subject is that the tool-less
+    // local path APPENDS an F21 disclosure to the model's text. The point here is only that
+    // the answer came from the local router.
+    expect(r.reply).toContain("answered locally");
+  });
+
+  test("without air-gap the Mastra fallback still runs", async () => {
+    // The guard must be air-gap-specific, not a blanket removal of the fallback.
+    const throwingRouter = {
+      generate: mock(async () => {
+        throw new Error("ollama down");
+      }),
+      prefersLocal: () => true,
+      enforcesAirGap: () => false,
+    } as unknown as LlmRouter;
+    const agentGenerate = mock(async () => ({ text: "answered by the agent" }));
+    const agent = { generate: agentGenerate } as unknown as Agent;
+
+    const r = await runConversationalAgent({
+      agent,
+      llmRouter: throwingRouter,
+      input: "which deployments had no downstream incident?",
+      stream: false,
+      sendChunk: () => undefined,
+    });
+
+    expect(r.reply).toBe("answered by the agent");
+    expect(agentGenerate).toHaveBeenCalledTimes(1);
   });
 
   test("a streaming local turn gets the disclosure as a chunk", async () => {
