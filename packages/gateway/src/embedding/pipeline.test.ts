@@ -21,6 +21,7 @@ function mockEmbedder(dim: number, model: string): Embedder {
   return {
     model,
     dims: dim,
+    isLocal: true,
     async embed(texts: string[]) {
       return texts.map(() => new Float32Array(dim).fill(0.01));
     },
@@ -130,10 +131,15 @@ describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline", () => {
   });
 });
 
-function stubEmbedder(model: string, dims: number): Embedder {
+// `isLocal` is DECLARED here, never inferred from the model string -- inference (e.g.
+// `!model.startsWith("openai:")`) is exactly the shape this branch's invariant forbids in
+// production code (locality must be declared, not guessed from a vendor name), and a fixture
+// that infers it would silently misclassify a future non-OpenAI remote model as local.
+function stubEmbedder(model: string, dims: number, isLocal: boolean): Embedder {
   return {
     model,
     dims,
+    isLocal,
     async embed(texts) {
       return texts.map(() => new Float32Array(dims));
     },
@@ -156,7 +162,7 @@ describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline — dim awareness", () 
       () =>
         new SqliteEmbeddingPipeline({
           db,
-          embedder: stubEmbedder("bogus", 512),
+          embedder: stubEmbedder("bogus", 512, true),
         }),
     ).toThrow(/unsupported embedding dim/);
   });
@@ -171,7 +177,7 @@ describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline — dim awareness", () 
     );
     const pipeline = new SqliteEmbeddingPipeline({
       db,
-      embedder: stubEmbedder("openai:text-embedding-3-small", 1536),
+      embedder: stubEmbedder("openai:text-embedding-3-small", 1536, false),
     });
     await pipeline.embedItem({
       id: "slack:e1",
@@ -206,7 +212,7 @@ describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline — dim awareness", () 
 
     const pipeline = new SqliteEmbeddingPipeline({
       db,
-      embedder: stubEmbedder("openai:text-embedding-3-small", 1536),
+      embedder: stubEmbedder("openai:text-embedding-3-small", 1536, false),
     });
     await pipeline.backfillForRoutingKeys({
       in: ["slack:message", "obsidian:obsidian_note"],
@@ -235,7 +241,7 @@ describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline — dim awareness", () 
     );
     const pipeline = new SqliteEmbeddingPipeline({
       db,
-      embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384),
+      embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384, true),
     });
     await pipeline.backfillForRoutingKeys({ notIn: ["slack:message"] });
     const ids = db.query(`SELECT DISTINCT item_id FROM embedding_chunk`).all() as Array<{
@@ -251,7 +257,7 @@ describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline — dim awareness", () 
     // title and body_preview both empty → itemTextForEmbedding returns "" → chunkText returns []
     const pipeline = new SqliteEmbeddingPipeline({
       db,
-      embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384),
+      embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384, true),
     });
     // No item in DB needed — the early return fires before any DB write
     await pipeline.embedItem({
@@ -277,6 +283,7 @@ describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline — dim awareness", () 
     const badEmbedder: Embedder = {
       model: "Xenova/all-MiniLM-L6-v2",
       dims: 384,
+      isLocal: true,
       async embed(_texts) {
         // Always return exactly 1 vector regardless of how many chunks were produced
         return [new Float32Array(384)];
@@ -308,6 +315,7 @@ describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline — dim awareness", () 
     const wrongDimEmbedder: Embedder = {
       model: "Xenova/all-MiniLM-L6-v2",
       dims: 384,
+      isLocal: true,
       async embed(texts) {
         // Return the right count but wrong dims
         return texts.map(() => new Float32Array(128));
@@ -335,7 +343,7 @@ describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline — dim awareness", () 
     );
     const pipeline = new SqliteEmbeddingPipeline({
       db,
-      embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384),
+      embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384, true),
     });
     // Should not throw — onProgress is undefined, the optional call branch is taken
     await pipeline.backfillAll();
@@ -365,6 +373,7 @@ describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline — dim awareness", () 
     const flakyEmbedder: Embedder = {
       model: "Xenova/all-MiniLM-L6-v2",
       dims: 384,
+      isLocal: true,
       async embed(texts) {
         embedCallCount += 1;
         if (embedCallCount === 2) {
@@ -412,7 +421,7 @@ describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline — dim awareness", () 
     );
     const pipeline = new SqliteEmbeddingPipeline({
       db,
-      embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384),
+      embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384, true),
     });
     // Empty `in` list → early return, nothing embedded
     await pipeline.backfillForRoutingKeys({ in: [] });
@@ -430,7 +439,7 @@ describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline — dim awareness", () 
     );
     const pipeline = new SqliteEmbeddingPipeline({
       db,
-      embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384),
+      embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384, true),
     });
     // Empty `notIn` list → calls backfillAll (all items match)
     await pipeline.backfillForRoutingKeys({ notIn: [] });
@@ -448,7 +457,7 @@ describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline — dim awareness", () 
     );
     const pipeline = new SqliteEmbeddingPipeline({
       db,
-      embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384),
+      embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384, true),
     });
     // No onProgress — exercises the `onProgress?.()` branch where the call is skipped
     await pipeline.backfillForRoutingKeys({ in: ["slack:message"] });
@@ -476,6 +485,7 @@ describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline — dim awareness", () 
     const flakyEmbedder: Embedder = {
       model: "Xenova/all-MiniLM-L6-v2",
       dims: 384,
+      isLocal: true,
       async embed(texts) {
         callIdx += 1;
         if (callIdx === 2) {
@@ -517,7 +527,7 @@ describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline — dim awareness", () 
     // No backfillBatchSize provided → uses DEFAULT_BACKFILL_BATCH (50)
     const pipeline = new SqliteEmbeddingPipeline({
       db,
-      embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384),
+      embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384, true),
     });
     // embeddingModel / embeddingDims accessors
     expect(pipeline.embeddingModel).toBe("Xenova/all-MiniLM-L6-v2");
@@ -529,7 +539,7 @@ describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline — dim awareness", () 
     // Math.max(1, 0) = 1 — exercises the clamping branch
     const pipeline = new SqliteEmbeddingPipeline({
       db,
-      embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384),
+      embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384, true),
       backfillBatchSize: 0,
     });
     expect(pipeline.embeddingDims).toBe(384);
@@ -539,7 +549,7 @@ describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline — dim awareness", () 
     const db = freshDb();
     const pipeline = new SqliteEmbeddingPipeline({
       db,
-      embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384),
+      embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384, true),
     });
     const result = await pipeline.embedTexts(["hello", "world"]);
     expect(result).toHaveLength(2);
@@ -552,7 +562,7 @@ describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline — dim awareness", () 
     // Math.max(1, 0) = 1 — exercises the concurrency clamping branch
     const pipeline = new SqliteEmbeddingPipeline({
       db,
-      embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384),
+      embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384, true),
       backfillConcurrency: 0,
     });
     expect(pipeline.embeddingDims).toBe(384);
@@ -568,7 +578,7 @@ describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline — dim awareness", () 
     );
     const pipeline = new SqliteEmbeddingPipeline({
       db,
-      embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384),
+      embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384, true),
     });
 
     // Full-depth embed: chunks + vectors exist, derived from the body.
@@ -620,7 +630,7 @@ describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline — dim awareness", () 
     );
     const pipeline = new SqliteEmbeddingPipeline({
       db,
-      embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384),
+      embedder: stubEmbedder("Xenova/all-MiniLM-L6-v2", 384, true),
     });
 
     await pipeline.embedItem({
@@ -685,6 +695,7 @@ describe.skipIf(!VEC_AVAILABLE)("SqliteEmbeddingPipeline — dim awareness", () 
     const trackingEmbedder: Embedder = {
       model: "Xenova/all-MiniLM-L6-v2",
       dims: 384,
+      isLocal: true,
       async embed(texts) {
         inFlight += 1;
         maxInFlight = Math.max(maxInFlight, inFlight);

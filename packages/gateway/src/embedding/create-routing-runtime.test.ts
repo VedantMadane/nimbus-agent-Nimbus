@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import pino from "pino";
 import { openSeededDbFile } from "../../test/helpers/migrated-db-seed.ts";
 import { requestUrl } from "../../test/helpers/request-url.ts";
+import { listEgress } from "../egress/egress-verify.ts";
 import { isVecLoaded, tryLoadSqliteVec } from "../index/sqlite-vec-load.ts";
 import { processEnvDelete, processEnvSet } from "../platform/env-access.ts";
 import type { PlatformPaths } from "../platform/paths.ts";
@@ -41,6 +42,7 @@ function fakeEmbedder(model: string, dims: number): Embedder {
   return {
     model,
     dims,
+    isLocal: true,
     async embed(texts: string[]): Promise<Float32Array[]> {
       return texts.map((_, i) => {
         const v = new Float32Array(dims);
@@ -353,7 +355,10 @@ describe.skipIf(!VEC_AVAILABLE)(
     });
 
     test("embedQueryDual returns both vectors with both model tags", async () => {
-      const h = makeHarness({ migrateTo: 30, setApiKey: true });
+      // migrateTo: 44, not the block's usual 30 — this is the one test in the block that
+      // actually calls the OpenAI leg's embed(), which now goes through wrapLedgeredEmbedder
+      // (I29 D22(f)) and needs the V44 egress_ledger table to append into.
+      const h = makeHarness({ migrateTo: 44, setApiKey: true });
       try {
         const factory = await importFactory();
         const runtime = await factory(h.db, h.paths, silentLogger, h.toml, h.vault);
@@ -364,6 +369,11 @@ describe.skipIf(!VEC_AVAILABLE)(
         expect(out?.vec1536).toHaveLength(1536);
         expect(out?.model384).toBe("local:all-MiniLM-L6-v2");
         expect(out?.model1536).toBe("openai:text-embedding-3-small");
+        // The positive end-to-end proof, not just a static trace: the remote (OpenAI) leg of
+        // this dual embed went through `wrapLedgeredEmbedder` and landed exactly ONE row in the
+        // REAL egress ledger at this REAL wiring site -- the local (MiniLM) leg appends nothing,
+        // so the count stays at one rather than two.
+        expect(listEgress(h.db, {})).toHaveLength(1);
       } finally {
         h.cleanup();
       }
@@ -435,6 +445,7 @@ describe.skipIf(!VEC_AVAILABLE)(
         return {
           model: "local:all-MiniLM-L6-v2",
           dims: 384,
+          isLocal: true,
           async embed(_texts: string[]): Promise<Float32Array[]> {
             return [];
           },
@@ -458,12 +469,15 @@ describe.skipIf(!VEC_AVAILABLE)(
         return {
           model: "local:all-MiniLM-L6-v2",
           dims: 384,
+          isLocal: true,
           async embed(_texts: string[]): Promise<Float32Array[]> {
             return [];
           },
         };
       }
-      const h = makeHarness({ migrateTo: 30, setApiKey: true });
+      // migrateTo: 44 — this test also drives the OpenAI leg's embed() (wrapLedgeredEmbedder,
+      // I29 D22(f)), which needs the V44 egress_ledger table.
+      const h = makeHarness({ migrateTo: 44, setApiKey: true });
       try {
         const factory = await importFactory(emptyLocalEmbedder);
         const runtime = await factory(h.db, h.paths, silentLogger, h.toml, h.vault);
@@ -493,6 +507,7 @@ describe.skipIf(!VEC_AVAILABLE)(
         return {
           model: "local:all-MiniLM-L6-v2",
           dims: 384,
+          isLocal: true,
           async embed(_texts: string[]): Promise<Float32Array[]> {
             throw new Error("synthetic embed failure");
           },

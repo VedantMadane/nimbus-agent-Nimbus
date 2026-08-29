@@ -8,6 +8,8 @@ import {
   checkConnectorSpawnIsHidden,
   checkConnectorWriteConfinement,
   checkEgressChokepointConfinement,
+  checkEmbeddingAppenderConfinement,
+  checkEmbeddingConstructorConfinement,
   checkFlatUpsertGraphEntityCoOwnedTypes,
   checkForwardShareConfinement,
   checkRunConfinedConfinement,
@@ -842,6 +844,162 @@ describe("D22(d) — agent emitter import confinement", () => {
         },
       ]),
     ).toBe(false);
+  });
+});
+
+describe("D22(f) — the embedding appender is confined", () => {
+  const file = (relPath: string, contents: string) => [{ relPath, contents }];
+
+  test("flags wrapLedgeredEmbedder called outside the allowed sites", () => {
+    const v = checkEmbeddingAppenderConfinement(
+      file("packages/gateway/src/agents/rogue.ts", "wrapLedgeredEmbedder(db, e);\n"),
+    );
+    expect(v.map((x) => x.rule)).toEqual(["embedding-appender-confined"]);
+  });
+
+  test("the three construction sites and the definition are allowed", () => {
+    const allowed = [
+      "packages/gateway/src/embedding/create-routing-runtime.ts",
+      "packages/gateway/src/embedding/create-embedding-runtime.ts",
+      "packages/gateway/src/ipc/index-reembed-rpc.ts",
+      "packages/gateway/src/egress/embedding-egress.ts",
+    ];
+    for (const relPath of allowed) {
+      expect(
+        checkEmbeddingAppenderConfinement(file(relPath, "wrapLedgeredEmbedder(db, e);\n")),
+      ).toEqual([]);
+    }
+  });
+
+  // No "split across lines" test here, unlike D25's checkConnectorSpawnIsHidden. D25's regex is
+  // /\bBun\s*\.\s*spawn\b/ -- the `\s*` legitimately spans a newline inserted between `Bun` and
+  // `.spawn`, so a naive per-line loop misses `Bun\n  .spawn(...)` and only a whole-source scan
+  // catches it; that is a real property to test. D22_EMBED_WRAP_RE is the bare identifier
+  // /\bwrapLedgeredEmbedder\b/: a JS/TS identifier token cannot itself contain a newline, so
+  // `wrapLedgeredEmbedder` always sits fully on one line even when the CALL that follows it is
+  // split (`wrapLedgeredEmbedder\n  (db, e)`) -- a naive per-line loop matches that line just as
+  // well as a whole-source scan does. There is no input on which the two implementations
+  // disagree, so no test can discriminate them; a test asserting they do would look like coverage
+  // of a gap it does not actually cover. The whole-source scan is kept anyway, for consistency
+  // with D25 and D22(e) and in case this regex ever grows a `\s*` of its own.
+});
+
+describe("D22(f) second allow-list — the embedding CONSTRUCTOR is confined", () => {
+  const file = (relPath: string, contents: string) => [{ relPath, contents }];
+
+  // The gap this closes: a bare `createOpenAIEmbedder(...)` call, with no mention of
+  // `wrapLedgeredEmbedder` anywhere in the file, spells nothing `checkEmbeddingAppenderConfinement`
+  // matches -- that rule only sees a file that ALREADY calls the decorator. A fourth construction
+  // site written without it is exactly the I29 regression both rules exist to prevent.
+  test("flags createOpenAIEmbedder constructed outside the allowed sites, even with no wrapLedgeredEmbedder mention", () => {
+    const v = checkEmbeddingConstructorConfinement(
+      file("packages/gateway/src/agents/rogue.ts", "const e = createOpenAIEmbedder({ apiKey });\n"),
+    );
+    expect(v.map((x) => x.rule)).toEqual(["embedding-constructor-confined"]);
+  });
+
+  // The definition site is exempt outright -- there is no wrapping to check on a declaration.
+  test("the definition site is allowed unconditionally", () => {
+    expect(
+      checkEmbeddingConstructorConfinement(
+        file(
+          "packages/gateway/src/embedding/openai-embedder.ts",
+          "export async function createOpenAIEmbedder(options) {}\n",
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  // The three real construction sites pass ONLY when the call is actually nested inside a
+  // wrapLedgeredEmbedder(...) argument list -- proving association, not mere file membership.
+  test("the three construction sites pass when the call is wrapped", () => {
+    const sites = [
+      "packages/gateway/src/embedding/create-routing-runtime.ts",
+      "packages/gateway/src/embedding/create-embedding-runtime.ts",
+      "packages/gateway/src/ipc/index-reembed-rpc.ts",
+    ];
+    for (const relPath of sites) {
+      expect(
+        checkEmbeddingConstructorConfinement(
+          file(relPath, "wrapLedgeredEmbedder(db, await createOpenAIEmbedder({ apiKey }));\n"),
+        ),
+      ).toEqual([]);
+    }
+  });
+
+  // The regression this rule now closes: being on the allow-list used to skip the whole file, so
+  // a SECOND, bare construction beside a real wrapped one was invisible. Same file, same allowed
+  // path, one wrapped call and one bare call -- only the bare one should be flagged.
+  test("an unwrapped createOpenAIEmbedder call inside an approved file is still flagged", () => {
+    for (const relPath of [
+      "packages/gateway/src/embedding/create-routing-runtime.ts",
+      "packages/gateway/src/embedding/create-embedding-runtime.ts",
+      "packages/gateway/src/ipc/index-reembed-rpc.ts",
+    ]) {
+      const contents = [
+        "wrapLedgeredEmbedder(db, await createOpenAIEmbedder({ apiKey }));",
+        "const rogue = await createOpenAIEmbedder({ apiKey: other });",
+      ].join("\n");
+      const v = checkEmbeddingConstructorConfinement(file(relPath, contents));
+      expect(v.map((x) => x.rule)).toEqual(["embedding-constructor-confined"]);
+      expect(v[0]?.snippet).toContain("rogue");
+    }
+  });
+
+  // A `${...}` substitution is executable code, and the embed request it issues is a real,
+  // unledgered outbound call no matter what the template does with the stringified result -- so a
+  // construction hidden in one is exactly the egress this rule exists to catch.
+  // `stripStringLiterals` used to blank substitution bodies along with the surrounding template
+  // text, which made this a one-line way to walk past the guard. Reported by CodeRabbit on #1384.
+  test("an unwrapped createOpenAIEmbedder inside a template substitution is flagged", () => {
+    const v = checkEmbeddingConstructorConfinement(
+      file(
+        "packages/gateway/src/agents/rogue.ts",
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: source-text fixture under audit
+        "const log = `vec=${await createOpenAIEmbedder({ apiKey }).embed(texts)}`;",
+      ),
+    );
+    expect(v.map((x) => x.rule)).toEqual(["embedding-constructor-confined"]);
+  });
+
+  test("an unwrapped construction inside a substitution in an APPROVED file is still flagged", () => {
+    const contents = [
+      "wrapLedgeredEmbedder(db, await createOpenAIEmbedder({ apiKey }));",
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: source-text fixture under audit
+      "const rogue = `vec=${await createOpenAIEmbedder({ apiKey: other }).embed(t)}`;",
+    ].join("\n");
+    const v = checkEmbeddingConstructorConfinement(
+      file("packages/gateway/src/embedding/create-routing-runtime.ts", contents),
+    );
+    expect(v.map((x) => x.rule)).toEqual(["embedding-constructor-confined"]);
+    expect(v[0]?.snippet).toContain("rogue");
+  });
+
+  // The counterpart bound: a construction WRAPPED inside a substitution is still association, not
+  // co-occurrence -- the paren match has to survive the substitution being preserved.
+  test("a wrapped construction inside a substitution passes", () => {
+    expect(
+      checkEmbeddingConstructorConfinement(
+        file(
+          "packages/gateway/src/embedding/create-routing-runtime.ts",
+          // biome-ignore lint/suspicious/noTemplateCurlyInString: source-text fixture under audit
+          "const e = `${wrapLedgeredEmbedder(db, await createOpenAIEmbedder({ apiKey }))}`;",
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  // Template PROSE must still be inert: the rule must not start matching a call-shaped sentence
+  // that merely sits in a message string.
+  test("the constructor named in template prose is NOT flagged", () => {
+    expect(
+      checkEmbeddingConstructorConfinement(
+        file(
+          "packages/gateway/src/agents/rogue.ts",
+          "throw new Error(`call createOpenAIEmbedder( only via the wrapper`);",
+        ),
+      ),
+    ).toEqual([]);
   });
 });
 

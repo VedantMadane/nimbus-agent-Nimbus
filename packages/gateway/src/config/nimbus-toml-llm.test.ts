@@ -93,6 +93,39 @@ describe("parseNimbusTomlLlmSection", () => {
     const src = `[llm]\nprefer_local = true\n[embedding]\nenabled = false\n`;
     expect(parseNimbusTomlLlmSection(src)).toEqual({ preferLocal: true });
   });
+
+  test("parses [llm.tasks] into a task -> routeId map", () => {
+    const src = `[llm.tasks]\nclassification = "ollama/llama3.2:latest"\nreasoning = "ollama/qwen3:14b"\n`;
+    const cfg = parseNimbusTomlLlmSection(src);
+    expect(cfg.taskPins?.get("classification")).toBe("ollama/llama3.2:latest");
+    expect(cfg.taskPins?.get("reasoning")).toBe("ollama/qwen3:14b");
+  });
+
+  test("an UNKNOWN task type is dropped, and the rest of the table survives", () => {
+    // Same posture as route_priority: a bad entry must never revert the whole section, because
+    // `loadTomlSection`'s bare catch would take `enforce_air_gap` down with it.
+    const src = `[llm.tasks]\nteleportation = "ollama/x"\nreasoning = "ollama/qwen3:14b"\n`;
+    const cfg = parseNimbusTomlLlmSection(src);
+    expect(cfg.taskPins?.has("teleportation" as never)).toBe(false);
+    expect(cfg.taskPins?.get("reasoning")).toBe("ollama/qwen3:14b");
+  });
+
+  test("absent [llm.tasks] leaves taskPins undefined, not an empty map", () => {
+    expect(parseNimbusTomlLlmSection(`[llm]\nprefer_local = true\n`).taskPins).toBeUndefined();
+  });
+
+  test("a malformed [llm.tasks] entry does not revert the rest of the [llm] section", () => {
+    // The hazard is specific and severe: a throw inside the [llm] parser is swallowed by
+    // `loadTomlSection`'s bare catch, which reverts the WHOLE section — so a typo in a task pin
+    // would silently switch `enforce_air_gap` back off while the owner believed it was on.
+    // Red-proved during implementation: forcing a throw here reverted enforce_air_gap true->false.
+    const src = `[llm]\nenforce_air_gap = true\nprefer_local = true\n[llm.tasks]\nteleportation = "ollama/x"\nreasoning = "ollama/qwen3:14b"\n`;
+    const cfg = parseNimbusTomlLlmSection(src);
+    expect(cfg.enforceAirGap).toBe(true); // the security control survives
+    expect(cfg.preferLocal).toBe(true); // and so does the rest of the section
+    expect(cfg.taskPins?.get("reasoning")).toBe("ollama/qwen3:14b"); // valid sibling kept
+    expect(cfg.taskPins?.has("teleportation" as never)).toBe(false); // bad key dropped
+  });
 });
 
 describe("DEFAULT_NIMBUS_LLM_TOML", () => {
