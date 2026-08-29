@@ -276,3 +276,116 @@ describe("setTomlValueInFile", () => {
     expect(readFileSync(sibling, "utf8")).toBe("keep me");
   });
 });
+
+describe("nested-table keys are refused, not silently mis-written (#1382)", () => {
+  // `setTomlValueInFile` split the dotted key on the FIRST dot, so `llm.tasks.classification`
+  // became section `llm`, key `tasks.classification` — written verbatim under `[llm]`, where
+  // `parseLlmTaskPins` (which reads only a literal `[llm.tasks]` table) never sees it. The command
+  // succeeded, the file changed, and the setting did nothing. Unreachable before `[llm.tasks]`
+  // existed, because no key had two dots; the per-task routing work made it the natural thing
+  // to type.
+  const NESTED = "llm.tasks.classification";
+
+  test("setTomlValueInFile throws on a key naming a nested table", () => {
+    writeFileSync(tomlPath, "[llm]\nprefer_local = true\n");
+    expect(() => setTomlValueInFile(tomlPath, NESTED, "ollama/llama3.2:latest")).toThrow(
+      /nested table/i,
+    );
+  });
+
+  // Fail-CLOSED is the property that matters: a throw that still wrote half a line would leave
+  // exactly the inert `tasks.classification = ...` line this guard exists to prevent.
+  test("the file is left completely untouched when it refuses", () => {
+    const before = "[llm]\nprefer_local = true\n";
+    writeFileSync(tomlPath, before);
+    expect(() => setTomlValueInFile(tomlPath, NESTED, "ollama/llama3.2:latest")).toThrow();
+    expect(readFileSync(tomlPath, "utf8")).toBe(before);
+  });
+
+  // The adjacent door. `getTomlValueFromFile` had the same first-dot split, so it read the inert
+  // line back and ECHOED it — set appeared to work, then get appeared to confirm it, while routing
+  // ignored the value entirely. A guard on the write path alone would leave that false
+  // confirmation in place for a hand-edited file.
+  test("getTomlValueFromFile throws rather than echoing an inert nested line", () => {
+    writeFileSync(tomlPath, '[llm]\nprefer_local = true\n\ntasks.classification = "x"\n');
+    expect(() => getTomlValueFromFile(tomlPath, NESTED)).toThrow(/nested table/i);
+  });
+
+  test("a deeply nested key is refused too, not just three segments", () => {
+    writeFileSync(tomlPath, "[llm]\n");
+    expect(() => setTomlValueInFile(tomlPath, "a.b.c.d", "v")).toThrow(/nested table/i);
+  });
+
+  // The bound in the other direction: ordinary single-dot keys must be untouched. Every existing
+  // call site is single-dot, so this is what proves the guard did not become a regression.
+  test("a plain section.key still round-trips", () => {
+    setTomlValueInFile(tomlPath, "telemetry.enabled", "true");
+    expect(getTomlValueFromFile(tomlPath, "telemetry.enabled")).toBe("true");
+  });
+
+  test("a dotless key still reports the flat-key usage error, not the nested one", () => {
+    expect(() => setTomlValueInFile(tomlPath, "telemetry", "true")).toThrow(/section\.name/);
+  });
+});
+
+describe("degenerate dotted keys are refused too (review of #1382 fix)", () => {
+  // `telemetry.` split into section `telemetry` + an EMPTY key, and the writer emitted ` = true` —
+  // a syntactically invalid TOML line written into the user's real config, which can break parsing
+  // of the whole file. Pre-existing rather than introduced by the nested-table guard, but the
+  // shared splitter is where a key is validated now, so it belongs here.
+  test("an empty key segment is refused, not written as ` = value`", () => {
+    writeFileSync(tomlPath, "[telemetry]\nenabled = false\n");
+    expect(() => setTomlValueInFile(tomlPath, "telemetry.", "true")).toThrow(/section\.name/);
+  });
+
+  test("the config file is untouched after that refusal", () => {
+    const before = "[telemetry]\nenabled = false\n";
+    writeFileSync(tomlPath, before);
+    expect(() => setTomlValueInFile(tomlPath, "telemetry.", "true")).toThrow();
+    expect(readFileSync(tomlPath, "utf8")).toBe(before);
+  });
+
+  test("an empty SECTION segment is refused as well", () => {
+    expect(() => setTomlValueInFile(tomlPath, ".enabled", "true")).toThrow(/section\.name/);
+  });
+
+  // The key was validated only AFTER the file was read, so the same nested key threw on an
+  // existing file and returned `undefined` on a missing one. Validating arguments before touching
+  // the filesystem makes the refusal a property of the KEY, not of whether the file happens to
+  // exist.
+  test("a nested key is refused even when the file does not exist", () => {
+    const missing = join(dir, "definitely-absent.toml");
+    expect(() => getTomlValueFromFile(missing, "llm.tasks.classification")).toThrow(
+      /nested table/i,
+    );
+  });
+
+  test("the same nested key throws identically whether or not the file exists", () => {
+    writeFileSync(tomlPath, "[llm]\n");
+    const missing = join(dir, "definitely-absent.toml");
+    const a = (() => {
+      try {
+        getTomlValueFromFile(tomlPath, "llm.tasks.classification");
+      } catch (e) {
+        return (e as Error).message;
+      }
+      return "did not throw";
+    })();
+    const b = (() => {
+      try {
+        getTomlValueFromFile(missing, "llm.tasks.classification");
+      } catch (e) {
+        return (e as Error).message;
+      }
+      return "did not throw";
+    })();
+    expect(a).toBe(b);
+  });
+
+  // The bound: a missing file is still a normal "not set" for a WELL-FORMED key. Only a malformed
+  // key throws — otherwise `nimbus config get` on a fresh machine would start erroring.
+  test("a well-formed key on a missing file still returns undefined", () => {
+    const missing = join(dir, "definitely-absent.toml");
+    expect(getTomlValueFromFile(missing, "telemetry.enabled")).toBeUndefined();
+  });
+});
