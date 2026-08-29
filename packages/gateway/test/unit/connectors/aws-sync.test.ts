@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { createAthenaSyncable } from "../../../src/connectors/athena-sync.ts";
 import { createAwsSyncable } from "../../../src/connectors/aws-sync.ts";
+import { createCloudwatchSyncable } from "../../../src/connectors/cloudwatch-sync.ts";
+import { createSagemakerSyncable } from "../../../src/connectors/sagemaker-sync.ts";
 import {
   type ConnectorSyncFixture,
   createConnectorSyncFixture,
@@ -414,5 +417,24 @@ describe("aws-sync — with shared fixture", () => {
         .all();
       expect(rows.map((r) => r.external_id)).toEqual(["arn:1", "arn:2", "arn:3"]);
     });
+  });
+});
+
+describe("AWS-CLI syncables share one sync cadence", () => {
+  // `aws` ran at 120 s while every sibling ran at 10 min — five times the outbound API traffic,
+  // indefinitely, on any machine with `aws.*` credentials in the Vault, and with no stated
+  // reason for the difference. Pinned as a GROUP rather than as `aws === 600_000`, so the next
+  // divergence fails here whichever member drifts.
+  test("aws, cloudwatch, sagemaker and athena all use the same defaultIntervalMs", () => {
+    // Each factory names its own ensure-running hook, so `ENSURE_MCP` is not reusable here.
+    const noop = async (): Promise<void> => {};
+    const intervals = {
+      aws: createAwsSyncable({ ensureAwsMcpRunning: noop }).defaultIntervalMs,
+      cloudwatch: createCloudwatchSyncable({ ensureCloudwatchMcpRunning: noop }).defaultIntervalMs,
+      sagemaker: createSagemakerSyncable({ ensureSagemakerMcpRunning: noop }).defaultIntervalMs,
+      athena: createAthenaSyncable({ ensureAthenaMcpRunning: noop }).defaultIntervalMs,
+    };
+    expect(new Set(Object.values(intervals)).size).toBe(1);
+    expect(intervals.aws).toBe(10 * 60 * 1000);
   });
 });
