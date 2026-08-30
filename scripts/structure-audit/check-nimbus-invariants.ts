@@ -47,6 +47,7 @@ export const PLATFORM_VAULT_KEYS = [
   "openai.api_key",
   "gemini.api_key",
   "xai.api_key",
+  "chatops.channel.salt",
 ] as const;
 
 const SPAWN_RE = /\b(?:Bun\.spawn|Bun\.spawnSync|child_process\.spawn|spawn)\s*\(/;
@@ -435,13 +436,13 @@ export function checkPolicyTomlImportInvariant(files: readonly FileEntry[]): Vio
 // referenced ONLY from `packages/gateway/src/chatops/reply-dispatcher.ts` and
 // `packages/gateway/src/chatops/transport/`. Any other module posting directly would bypass the
 // bounded-destination reply surface (I23) and could launder the HITL-gated `*.message.post` action.
-// The connector server modules are the tools' DEFINITION home (the `reg("slack_chat_post", …)`
-// registration) — exempt, since defining the tool is not the same as invoking it from the gateway.
+// The connector server modules that used to need a DEFINITION-home exemption here
+// (`packages/mcp-connectors/{slack,teams}/src/server.ts`) left this repo in the v3.0.0 extraction
+// to nimbus-mcp-servers — `git ls-files packages/mcp-connectors` returns nothing — so there is
+// nothing left in this repo to exempt them for.
 const CHATOPS_POST_ALLOWED_PREFIXES = [
   "packages/gateway/src/chatops/reply-dispatcher.ts",
   "packages/gateway/src/chatops/transport/",
-  "packages/mcp-connectors/slack/src/server.ts",
-  "packages/mcp-connectors/teams/src/server.ts",
 ];
 const CHATOPS_POST_RE = /\b(?:slack_chat_post|teams_chat_post)\b/;
 
@@ -462,6 +463,110 @@ export function checkChatopsReplySurfaceInvariant(files: readonly FileEntry[]): 
           snippet: (originalLines[i] ?? "").trim(),
         });
       }
+    }
+  }
+  return out;
+}
+
+// D17 (I23/I29) — `buildConnectorPost(...)` produces an UNLEDGERED post function. It may be
+// CALLED only as an argument to `buildLedgeredChatPosts(...)`, never bound to a name, so no
+// consumer can reach an unwrapped post. Without this the ledger covers the consumers that exist
+// and silently misses the next one added.
+//
+// PER OCCURRENCE, never per file. A file-level "does this file contain a wrapped call?"
+// early-return skips the whole file once BOTH forms are present — and `chatops-boot.ts` is the one
+// file that legitimately contains a wrapped call, so it is exactly the file where an added
+// unwrapped call would go unseen. Token COUNTING has the same weakness from the other direction:
+// `buildLedgeredChatPosts(db, somethingElse, salt)` keeps the counts equal while wrapping nothing.
+//
+// DIRECT CONTAINMENT, never ordinal pairing. An earlier version paired the Nth `buildConnectorPost(`
+// with the Nth `buildLedgeredChatPosts(` in the statement — positional, not "is this call actually
+// inside that one's argument list". That let a comma-separated statement with two wrapped calls
+// plus one raw call through: the raw call's ordinal happened to line up with the SECOND wrapper's,
+// which had already closed its own parens earlier in the same statement, so the raw call "paired"
+// with a wrapper it sat entirely outside of. Direct containment closes this: a raw call is safe
+// only when its offset falls strictly inside SOME wrapper's own balanced parenthesis span.
+const UNWRAPPED_POST_RE = /\bbuildConnectorPost\s*\(/g;
+const WRAPPER_RE = /\bbuildLedgeredChatPosts\s*\(/g;
+
+/** Byte offset -> 1-based line, so a per-offset finding can name a line. */
+function lineOfOffset(text: string, offset: number): number {
+  let line = 1;
+  for (let i = 0; i < offset && i < text.length; i++) if (text[i] === "\n") line++;
+  return line;
+}
+
+/**
+ * Every `buildLedgeredChatPosts(` call's own argument-list span in `stmt`, as `[open, close)`
+ * offsets of its opening and matching closing parenthesis. A balanced left-to-right scan over the
+ * STRIPPED text (comments + string/template bodies already blanked to spaces, length-preserving),
+ * so a stray `(`/`)` inside a blanked string or comment can never desync the depth count.
+ */
+function wrapperSpans(stmt: string): { open: number; close: number }[] {
+  const spans: { open: number; close: number }[] = [];
+  const re = new RegExp(WRAPPER_RE.source, "g");
+  for (let m = re.exec(stmt); m !== null; m = re.exec(stmt)) {
+    const open = m.index + m[0].length - 1; // offset of the call's own "(" (the match ends in it)
+    let depth = 1;
+    let i = open + 1;
+    for (; i < stmt.length && depth > 0; i++) {
+      if (stmt[i] === "(") depth++;
+      else if (stmt[i] === ")") depth--;
+    }
+    // An UNBALANCED span grants NO containment — it is dropped, not extended to end-of-statement.
+    //
+    // This is the fail direction that matters. `stripStringLiterals` has a documented KNOWN
+    // LIMITATION (`lib.ts`): it is not regex-literal aware, so a `(` inside a regex body — `/[(]/`
+    // — survives stripping and inflates `depth`, which then never returns to 0. Closing the span
+    // at `stmt.length` (the previous behaviour) made every later raw `buildConnectorPost(` in that
+    // statement land INSIDE the span and be accepted as wrapped: a silent false NEGATIVE in the
+    // one guard whose entire job is to catch an unledgered post.
+    //
+    // Dropping the span inverts that into a loud false POSITIVE: a real raw call in such a
+    // statement is flagged, and so is a legitimately wrapped one. That is the correct trade for a
+    // security guard, and it needs no `/`-as-regex-vs-division lexer heuristics — which `lib.ts`
+    // deliberately declines to hand-roll, since three other passing audits depend on that helper.
+    if (depth === 0) {
+      spans.push({ open, close: i - 1 });
+    }
+  }
+  return spans;
+}
+
+export function checkChatopsUnwrappedPost(files: readonly FileEntry[]): Violation[] {
+  const out: Violation[] = [];
+  for (const f of files) {
+    if (f.relPath.endsWith(".test.ts")) continue;
+    if (f.relPath.endsWith("chatops/transport/connector-post.ts")) continue; // definition site
+    // Comments AND string/template literals blanked (length-preserving, per stripStringLiterals's
+    // own contract), so a `;` inside a string argument (e.g. a channel name) cannot fragment one
+    // statement into two and produce a false positive. `${...}` substitutions stay live code, so
+    // a call written inside one is still visible to the regexes below.
+    const stripped = stripStringLiterals(stripComments(f.contents));
+    const original = f.contents.split("\n");
+
+    // Statement-scoped: a `;` ends the construct we care about, and the legal form is a single
+    // statement. Splitting keeps offsets recoverable by accumulating the consumed length.
+    let base = 0;
+    for (const stmt of stripped.split(";")) {
+      const spans = wrapperSpans(stmt);
+      for (const m of stmt.matchAll(UNWRAPPED_POST_RE)) {
+        const post = m.index ?? 0;
+        // Safe ONLY when directly contained in SOME wrapper's own argument list — not merely
+        // preceded by a wrapper opening earlier in the statement (see the D17 comment above).
+        const contained = spans.some((s) => post > s.open && post < s.close);
+        if (!contained) {
+          const off = base + post;
+          const line = lineOfOffset(stripped, off);
+          out.push({
+            rule: "D17-chatops-unwrapped-post",
+            file: f.relPath,
+            line,
+            snippet: (original[line - 1] ?? "").trim(),
+          });
+        }
+      }
+      base += stmt.length + 1; // + the `;` that split consumed
     }
   }
   return out;
@@ -1356,6 +1461,17 @@ export const RULE_ANCHORS: readonly string[] = [
   // rule SCANS (it is on the allow-list, so it is read and then permitted) rather than the
   // definition file the rule also permits. Same shape as the D23 anchor above.
   "packages/gateway/src/embedding/create-routing-runtime.ts",
+  // D17-chatops-unwrapped-post — anchored on `chatops-boot.ts`, the ONE file that legitimately
+  // contains a `buildLedgeredChatPosts(..., buildConnectorPost(...), ...)` call and so the one
+  // file whose content this rule must actually parse to enforce anything. The reply-dispatcher.ts
+  // anchor above is for the OLDER, separate D17-chatops-reply-surface rule (literal
+  // slack_chat_post/teams_chat_post tool-id references) — that rule allow-lists
+  // reply-dispatcher.ts, so its presence in the scanned set proves nothing about whether THIS
+  // rule (the unwrapped-`buildConnectorPost` check) can see anything, since reply-dispatcher.ts
+  // never calls buildConnectorPost. Without an anchor of its own, D17-chatops-unwrapped-post would
+  // report clean while scanning nothing the moment `iterateSourceFiles()` stopped loading
+  // `chatops/` — the exact inert-guard failure mode D22(f)/D23 exist to catch.
+  "packages/gateway/src/chatops/chatops-boot.ts",
 ];
 
 /** Fail loudly when the scanned set cannot support the rules about to run. */
@@ -1461,6 +1577,15 @@ async function run(): Promise<void> {
     for (const e of v) {
       console.error(
         `::error file=${e.file},line=${e.line}::D17 chatops post tool referenced outside reply-dispatcher/transport — bypasses I23: ${e.snippet}`,
+      );
+    }
+    if (v.length > 0) exit = 1;
+  }
+  if (mode === "binary-only" || mode === "all") {
+    const v = checkChatopsUnwrappedPost(files);
+    for (const e of v) {
+      console.error(
+        `::error file=${e.file},line=${e.line}::D17 buildConnectorPost called without buildLedgeredChatPosts — bypasses the I29 chatops egress ledger: ${e.snippet}`,
       );
     }
     if (v.length > 0) exit = 1;

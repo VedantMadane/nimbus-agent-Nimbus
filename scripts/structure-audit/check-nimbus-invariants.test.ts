@@ -5,6 +5,7 @@ import { CO_OWNED_ENTITY_TYPES } from "../../packages/gateway/src/graph/relation
 import {
   assertScanIsMeaningful,
   checkAgentEmitterImportConfinement,
+  checkChatopsUnwrappedPost,
   checkConnectorSpawnIsHidden,
   checkConnectorWriteConfinement,
   checkEgressChokepointConfinement,
@@ -1408,5 +1409,117 @@ describe("D25 — a connector cannot spawn without windowsHide", () => {
       { relPath: "packages/gateway/src/connectors/evil-sync.test.ts", contents: "Bun.spawn(x);\n" },
     ];
     expect(checkConnectorSpawnIsHidden(files)).toEqual([]);
+  });
+});
+
+describe("D17-chatops-unwrapped-post — buildConnectorPost may only appear as an argument to buildLedgeredChatPosts", () => {
+  test("D17 rejects a buildConnectorPost call that is not an argument to buildLedgeredChatPosts", () => {
+    const v = checkChatopsUnwrappedPost([
+      {
+        relPath: "packages/gateway/src/chatops/chatops-boot.ts",
+        contents: "const post = buildConnectorPost(runTool, fn);\n",
+      },
+    ]);
+    expect(v.map((x) => x.rule)).toEqual(["D17-chatops-unwrapped-post"]);
+  });
+
+  test("D17 accepts the inline form", () => {
+    const v = checkChatopsUnwrappedPost([
+      {
+        relPath: "packages/gateway/src/chatops/chatops-boot.ts",
+        contents:
+          "const posts = buildLedgeredChatPosts(db, buildConnectorPost(runTool, fn), salt);\n",
+      },
+    ]);
+    expect(v).toEqual([]);
+  });
+
+  // THE TEST THAT MATTERS. A file-level "does this file contain a wrapped call?" early-return
+  // skips the whole file when BOTH forms are present -- and the one file that legitimately
+  // contains a wrapped call is `chatops-boot.ts`, i.e. exactly the file where an added unwrapped
+  // call would be invisible. Counting the two tokens does not fix it either: a wrapped call whose
+  // argument is something else keeps the counts equal while the bypass survives.
+  // A `(` inside a REGEX body survives `stripStringLiterals` (its documented known limitation),
+  // so the wrapper's paren depth never closes. The span must then be DROPPED, not stretched to
+  // end-of-statement -- stretching it would swallow the later raw call and pass it as wrapped,
+  // which is a silent false negative in the one guard meant to catch an unledgered post.
+  test("D17 does not let an unclosed span (regex paren) launder a later raw call", () => {
+    const v = checkChatopsUnwrappedPost([
+      {
+        relPath: "packages/gateway/src/chatops/chatops-boot.ts",
+        contents:
+          "const posts = buildLedgeredChatPosts(db, /[(]/, buildConnectorPost(a, b), salt), " +
+          "sneaky = buildConnectorPost(c, d);\n",
+      },
+    ]);
+    expect(v.length).toBeGreaterThan(0);
+    expect(v[0]?.rule).toBe("D17-chatops-unwrapped-post");
+  });
+
+  test("D17 catches an unwrapped call in a file that ALSO has a wrapped one", () => {
+    const v = checkChatopsUnwrappedPost([
+      {
+        relPath: "packages/gateway/src/chatops/chatops-boot.ts",
+        contents:
+          "const posts = buildLedgeredChatPosts(db, buildConnectorPost(runTool, fn), salt);\n" +
+          "const sneaky = buildConnectorPost(runTool, fn);\n",
+      },
+    ]);
+    expect(v.length).toBe(1);
+    expect(v[0]?.line).toBe(2);
+  });
+
+  test("D17 catches a wrapper call whose argument is NOT buildConnectorPost", () => {
+    // Proves per-file token COUNTING is defeated here: both tokens appear once (1 wrapper, 1
+    // post), so a count-based check would see balanced totals and pass this. It does not exercise
+    // the within-statement positional-pairing logic above -- both calls here are separate
+    // `;`-terminated statements, so plain per-statement scoping already catches the second one on
+    // its own. A single statement that interleaves a wrapper and an unwrapped call in a passing
+    // order is the brief's explicitly accepted residual bound (a lexical guard, not a parser) and
+    // is deliberately not tested here.
+    const v = checkChatopsUnwrappedPost([
+      {
+        relPath: "packages/gateway/src/chatops/chatops-boot.ts",
+        contents:
+          "const posts = buildLedgeredChatPosts(db, somethingElse, salt);\n" +
+          "const post = buildConnectorPost(runTool, fn);\n",
+      },
+    ]);
+    expect(v.length).toBe(1);
+  });
+
+  // Regression: ordinal/positional pairing (the Nth post pairs with the Nth wrapper) let a
+  // comma-separated declaration with TWO wrapped calls plus ONE raw call through — the raw call's
+  // ordinal happened to line up with the SECOND wrapper, which had already closed its own
+  // parenthesis span earlier in the statement, so the raw call "paired" with a wrapper it sat
+  // entirely outside of. Direct containment must reject the raw call regardless of where it falls
+  // relative to an unrelated, already-closed wrapper call earlier in the same statement.
+  test("D17 rejects a raw call that ordinally lines up with an unrelated, already-closed wrapper (two wrapped + one raw in one statement)", () => {
+    const v = checkChatopsUnwrappedPost([
+      {
+        relPath: "packages/gateway/src/chatops/chatops-boot.ts",
+        contents:
+          "const a = buildLedgeredChatPosts(db, buildConnectorPost(runTool, fn), salt1)," +
+          " c = buildLedgeredChatPosts(db, somethingElse, salt2)," +
+          " sneaky = buildConnectorPost(runTool, fn);\n",
+      },
+    ]);
+    expect(v.map((x) => x.rule)).toEqual(["D17-chatops-unwrapped-post"]);
+  });
+
+  // Regression: a `;` INSIDE a string-literal argument must not fragment one statement into two.
+  // Before stripStringLiterals was composed in, `stripComments` alone left the `;def"` fragment
+  // live, so `.split(";")` cut this single correctly-wrapped call into two segments -- the wrapper
+  // token landed in the first segment and the buildConnectorPost( call landed in the second with
+  // no wrapper visible there, a false positive on code that is correct.
+  test("D17 does not fragment a statement on a semicolon inside a string literal", () => {
+    const v = checkChatopsUnwrappedPost([
+      {
+        relPath: "packages/gateway/src/chatops/chatops-boot.ts",
+        contents:
+          'const posts = buildLedgeredChatPosts(db, "abc;def", buildConnectorPost(runTool, fn), salt);\n',
+      },
+    ]);
+    expect(v).toEqual([]);
   });
 });

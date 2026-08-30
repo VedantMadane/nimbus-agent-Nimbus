@@ -1,5 +1,8 @@
+import type { Database } from "bun:sqlite";
 import type { NimbusChatopsToml } from "../config/nimbus-toml.ts";
+import { buildLedgeredChatPosts } from "../egress/chatops-egress.ts";
 import type { EgressSink } from "../egress/egress-ledger.ts";
+import { EgressAppendFailedError } from "../egress/model-egress.ts";
 import { HITL_REQUIRED, ToolExecutor } from "../engine/executor.ts";
 import type { AuditSink, ConnectorDispatcher, ConsentChannel } from "../engine/types.ts";
 import type { ChatopsRpcCtx } from "../ipc/chatops-rpc.ts";
@@ -8,7 +11,9 @@ import type { TeamsEventsSurface } from "../ipc/http-write-routes.ts";
 import { resolveChannelBinding, resolveOwner } from "../policy/chatops-policy.ts";
 import type { EnforcedPolicy } from "../policy/policy-gate.ts";
 import { isHitlRequiredByPolicy } from "../policy/quorum-override.ts";
+import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import { ApprovalPresenter } from "./approval-presenter.ts";
+import { ensureChannelSalt } from "./channel-salt.ts";
 import {
   getChatopsApprovalContext,
   runWithChatopsApprovalContext,
@@ -37,6 +42,11 @@ export interface ChatopsBootDeps {
   };
   /** Bot-credentialed connector tool invocation (chatops-tool-runner). */
   readonly runTool: RunChatopsTool;
+  /** I29 `chatops` class: the ledger every outbound post is appended to. REQUIRED — a chatops
+   *  boot that cannot ledger must not be constructible. */
+  readonly db: Database;
+  /** Holds the per-install channel-hash salt (`chatops.channel.salt`). */
+  readonly vault: NimbusVault;
   readonly audit: AuditSink;
   /** Dispatches an approved action to the live connector mesh (same seam as the engine). */
   readonly dispatcher: ConnectorDispatcher;
@@ -52,6 +62,15 @@ export interface ChatopsBootDeps {
    *  events surface is NOT exposed (fail-closed). */
   readonly validateTeamsJwt?: TeamsEventsSurface["validateBotJwt"];
   readonly log: (msg: string) => void;
+  /**
+   * Design §13.1: a failed egress-ledger append on an outbound post must be LOUD in the gateway
+   * log at `error` — nothing can be posted in-channel to say so (that would itself be an
+   * unledgerable post), and no `degraded` marker either (that is itself a row). Structured so the
+   * underlying `Error` survives intact (see #1393 — a bare string interpolation is exactly the
+   * "err":{} bug that fix closed). Optional so a caller that only cares about `log` need not
+   * change; falls back to it (at a lower apparent severity) when absent.
+   */
+  readonly logError?: (fields: Readonly<Record<string, unknown>>, msg: string) => void;
   readonly nowMs?: () => number;
   /** Test seams for the Slack Socket Mode adapter. */
   readonly socketFactory?: (url: string) => SocketLike;
@@ -145,9 +164,11 @@ export function emailFromUserInfo(platform: ChatPlatform, result: unknown): stri
  * intent router → HITL gate (I2/I20 via a ChatOps-configured ToolExecutor whose
  * `delegation.requestRemote` is the approval presenter) → bounded reply surface (I23).
  */
-export function buildChatopsBoot(deps: ChatopsBootDeps): ChatopsBoot {
+export async function buildChatopsBoot(deps: ChatopsBootDeps): Promise<ChatopsBoot> {
   const { cfg, policyGate, identity, runTool } = deps;
   const nowMs = deps.nowMs ?? ((): number => Date.now());
+  const logError =
+    deps.logError ?? ((fields, msg): void => deps.log(`${msg} ${JSON.stringify(fields)}`));
   const chatopsPolicy = (): EnforcedPolicy["chatops"] => policyGate.enforced().chatops;
 
   let askEngine: (query: string, namespace: string) => Promise<string> = () =>
@@ -161,12 +182,20 @@ export function buildChatopsBoot(deps: ChatopsBootDeps): ChatopsBoot {
   const teamsServiceUrlByConversation = new Map<string, string>();
   const pendingCardByChannel = new Map<string, string>();
 
-  const post = buildConnectorPost(runTool, (conversationId) =>
-    teamsServiceUrlByConversation.get(conversationId),
+  // I29 `chatops` class: every outbound post is ledgered before it leaves the machine. The raw
+  // connector post is passed INLINE, never bound to a name — an unwrapped post in scope would be
+  // a bypass waiting for the next consumer to reach for it (static D17 extension).
+  const channelSalt = await ensureChannelSalt(deps.vault);
+  const posts = buildLedgeredChatPosts(
+    deps.db,
+    buildConnectorPost(runTool, (conversationId) =>
+      teamsServiceUrlByConversation.get(conversationId),
+    ),
+    channelSalt,
   );
 
   const replyDispatcher = new ReplyDispatcher({
-    post,
+    post: posts.reply,
     notifyChannelsFor: (namespace) => {
       const channels: string[] = [];
       for (const binding of chatopsPolicy().channels.values()) {
@@ -183,8 +212,20 @@ export function buildChatopsBoot(deps: ChatopsBootDeps): ChatopsBoot {
     post: async (channelId, text) => {
       // `requestApproval` registers the pending resolver and sets lastRequestId BEFORE posting,
       // so recording the live card here is race-free (see the resolve-race note in the presenter).
-      pendingCardByChannel.set(channelId, presenter.lastRequestId());
-      await post(lastPlatformByChannel.get(channelId) ?? "slack", channelId, text);
+      const requestId = presenter.lastRequestId();
+      pendingCardByChannel.set(channelId, requestId);
+      try {
+        await posts.approvalCard(lastPlatformByChannel.get(channelId) ?? "slack", channelId, text);
+      } catch (err) {
+        // The append-before-post ledger (I29 `chatops` class) failed, so nothing was posted — the
+        // owner never saw a card. The pending entry must not outlive that failure, or a later
+        // "approve" in this channel would resolve an approval card that was never shown (fail-
+        // closed: only clear OUR entry, in case a newer request already replaced it).
+        if (pendingCardByChannel.get(channelId) === requestId) {
+          pendingCardByChannel.delete(channelId);
+        }
+        throw err;
+      }
     },
     // No DM surface in scope (design §3.1): the card lands in the server-derived originating
     // channel; only the owner's identity-valid click is honored (I20).
@@ -300,7 +341,7 @@ export function buildChatopsBoot(deps: ChatopsBootDeps): ChatopsBoot {
         }),
     });
 
-  const handleMessage = async (msg: ChatMessage): Promise<void> => {
+  const handleMessageInner = async (msg: ChatMessage): Promise<void> => {
     lastPlatformByChannel.set(msg.channelId, msg.platform);
     // Slice 6c fan-out: every inbound message (addressed or ambient) flows to the tribal
     // watcher first. It swallows its own errors, so this never breaks the command path.
@@ -329,6 +370,37 @@ export function buildChatopsBoot(deps: ChatopsBootDeps): ChatopsBoot {
     // Slice 6c: a special command (e.g. `tribal capture <id>`) is intercepted before the router.
     if (deps.interceptCommand !== undefined && (await deps.interceptCommand(msg))) return;
     await routerFor(msg).handle(msg);
+  };
+
+  /**
+   * Design §13.1: a failed egress-ledger append (e.g. the index DB is locked mid-reindex,
+   * read-only, or full) must not take the whole gateway down. Structurally nothing was posted —
+   * `buildLedgeredChatPosts` appends before it ever calls the raw post — so containing this here
+   * loses nothing that was going to be said in-channel; it only stops an unhandled rejection from
+   * reaching `platform/exit-diagnostics.ts`'s `unhandledRejection` handler and exiting the process
+   * (traced: `ReplyDispatcher.send` → `IntentRouter.handle` → here → `ChatopsService`'s
+   * `t.onMessage` callback → `SlackSocketAdapter`'s `void this.onFrame(...)` → `host.exit(1)`).
+   * ONLY `EgressAppendFailedError` is caught — every other error (a bad command parse, a connector
+   * failure, a bug) still propagates and still crashes loudly, which is correct: this seam
+   * contains one named, anticipated failure mode, not errors in general.
+   */
+  const handleMessage = async (msg: ChatMessage): Promise<void> => {
+    try {
+      await handleMessageInner(msg);
+    } catch (err) {
+      if (!(err instanceof EgressAppendFailedError)) throw err;
+      const postKind = err.context?.["chatopsPostKind"];
+      const channelId = err.context?.["chatopsChannelId"] ?? msg.channelId;
+      logError(
+        {
+          channelId, // unhashed on purpose — this is the log, not the ledger (§13.1)
+          postKind: typeof postKind === "string" ? postKind : "unknown",
+          platform: msg.platform,
+          err,
+        },
+        "chatops: outbound post blocked — egress ledger append failed, nothing was posted",
+      );
+    }
   };
 
   const transports: ChatTransport[] = [];
