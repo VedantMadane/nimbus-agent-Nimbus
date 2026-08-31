@@ -931,6 +931,86 @@ export function checkRunConfinedConfinement(files: readonly FileEntry[]): Violat
   return out;
 }
 
+// D26(a) (I35): `performActuation` — the primitive that turns a model-proposed action into a real
+// interaction with the host — may be CALLED only from the computer-use gate (which performs the
+// config/policy checks, the sandbox assertion, the envelope check, the structural classification,
+// the ledger append and the owner-HITL approval first) plus its own definition file. A second
+// caller would be a second path from a model proposal to the host, bypassing every one of those.
+// Mirrors D23's runConfined confinement. Test files are exempt.
+// The gate is the one legitimate CALLER. `cu-actuate.ts` is the definition file, not a caller
+// exemption: a wholesale file allow-list (the earlier shape) let ANY occurrence of
+// `performActuation(` inside `cu-actuate.ts` through, including a second, illegitimate direct
+// invocation added below the real declaration — undetected, because the whole file was skipped.
+// Only the DECLARATION line is exempt there now; any call-shaped occurrence elsewhere in that
+// file (or anywhere outside `cu-gate.ts`) is a violation, matching D23's tighter shape.
+const D26_ACTUATE_GATE_FILE = "packages/gateway/src/computer-use/cu-gate.ts";
+const D26_ACTUATE_DEFINITION_FILE = "packages/gateway/src/computer-use/cu-actuate.ts";
+const D26_ACTUATE_RE = /\bperformActuation\s*\(/;
+const D26_ACTUATE_DECLARATION_RE = /\bfunction\s+performActuation\s*\(/;
+
+// Review finding: a call-text scan alone is defeated by an ALIASED import --
+// `import { performActuation as invoke }` followed by `invoke(...)` contains no `performActuation(`
+// call-shaped text anywhere, so the scan above stays silent while a second, unauthorized path to
+// the host exists. Closed at the IMPORT, not the call: no file other than the gate may import
+// `performActuation` under ANY local name -- if the symbol can never enter scope outside cu-gate.ts,
+// there is no alias left to call it through. `[^}]*` deliberately allows other named imports on the
+// same line/braces; this only cares whether `performActuation` appears as one of the specifiers.
+const D26_ACTUATE_IMPORT_RE = /\bimport\s*\{[^}]*\bperformActuation\b[^}]*\}\s*from/;
+
+export function checkActuationConfinement(files: readonly FileEntry[]): Violation[] {
+  const out: Violation[] = [];
+  for (const f of files) {
+    if (f.relPath.endsWith(".test.ts")) continue;
+    if (f.relPath === D26_ACTUATE_GATE_FILE) continue;
+    const stripped = stripComments(f.contents).split("\n");
+    const original = f.contents.split("\n");
+    for (let i = 0; i < stripped.length; i++) {
+      const line = stripped[i] ?? "";
+      const isImport = D26_ACTUATE_IMPORT_RE.test(line);
+      const isCall = D26_ACTUATE_RE.test(line);
+      if (!isImport && !isCall) continue;
+      if (f.relPath === D26_ACTUATE_DEFINITION_FILE && D26_ACTUATE_DECLARATION_RE.test(line)) {
+        continue; // the declaration itself, not a call or an import
+      }
+      out.push({
+        rule: isImport ? "D26-actuation-import" : "D26-actuation-callsite",
+        file: f.relPath,
+        line: i + 1,
+        snippet: (original[i] ?? "").trim(),
+      });
+    }
+  }
+  return out;
+}
+
+// D26(b) (I35): the browser DRIVER may be imported only under `computer-use/cu-lanes/`. Confining
+// the primitive alone does not carry the invariant — a new file could construct its own
+// BrowserContext and call page.click() directly, reaching the host without passing the gate. Both
+// the static and the dynamic import forms are checked, matching D22(d).
+const D26_DRIVER_DIR = "packages/gateway/src/computer-use/cu-lanes/";
+const D26_DRIVER_RE = /(?:from\s*|import\s*\(\s*)["']playwright(?:-core)?["']/;
+
+export function checkDriverImportConfinement(files: readonly FileEntry[]): Violation[] {
+  const out: Violation[] = [];
+  for (const f of files) {
+    if (f.relPath.endsWith(".test.ts")) continue;
+    if (f.relPath.startsWith(D26_DRIVER_DIR)) continue;
+    const stripped = stripComments(f.contents).split("\n");
+    const original = f.contents.split("\n");
+    for (let i = 0; i < stripped.length; i++) {
+      if (D26_DRIVER_RE.test(stripped[i] ?? "")) {
+        out.push({
+          rule: "D26-driver-import",
+          file: f.relPath,
+          line: i + 1,
+          snippet: (original[i] ?? "").trim(),
+        });
+      }
+    }
+  }
+  return out;
+}
+
 // D21 (I27) extension: `forwardShare` — the re-forward chokepoint (owner-HITL + hop-append + emit) —
 // may be CALLED only from its home (share-forward.ts) and the single wiring file federation-rpc.ts.
 // Mirrors the createShare confinement so the SECOND outbound-share emit path cannot be invoked out of
@@ -1472,6 +1552,12 @@ export const RULE_ANCHORS: readonly string[] = [
   // report clean while scanning nothing the moment `iterateSourceFiles()` stopped loading
   // `chatops/` — the exact inert-guard failure mode D22(f)/D23 exist to catch.
   "packages/gateway/src/chatops/chatops-boot.ts",
+  // D26(a) (I35) — anchored on the actuation primitive's own home, a file the rule SCANS (it is
+  // on the allow-list, so it is read and then permitted) rather than on cu-gate.ts, the other
+  // allowed caller. Same shape as the D23 anchor above. D26(b) has no anchor: its confined
+  // directory, `computer-use/cu-lanes/`, does not exist yet (the browser driver is deferred), so
+  // there is no allowed file on disk to point at — see the rule's own comment.
+  "packages/gateway/src/computer-use/cu-actuate.ts",
 ];
 
 /** Fail loudly when the scanned set cannot support the rules about to run. */
@@ -1666,6 +1752,22 @@ async function run(): Promise<void> {
       );
     }
     if (v.length > 0) exit = 1;
+  }
+  if (mode === "binary-only" || mode === "all") {
+    const actuationViolations = checkActuationConfinement(files);
+    for (const e of actuationViolations) {
+      console.error(
+        `::error file=${e.file},line=${e.line}::D26 performActuation called outside cu-gate.ts/cu-actuate.ts — bypasses the I35 computer-use actuation gate: ${e.snippet}`,
+      );
+    }
+    if (actuationViolations.length > 0) exit = 1;
+    const driverImportViolations = checkDriverImportConfinement(files);
+    for (const e of driverImportViolations) {
+      console.error(
+        `::error file=${e.file},line=${e.line}::D26 browser driver imported outside computer-use/cu-lanes/ — a second path to the host that never passes the I35 gate: ${e.snippet}`,
+      );
+    }
+    if (driverImportViolations.length > 0) exit = 1;
   }
   if (mode === "binary-only" || mode === "all") {
     const v = checkEgressChokepointConfinement(files);

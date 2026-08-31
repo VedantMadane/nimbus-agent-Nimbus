@@ -8,6 +8,64 @@ Phase-level history before `v0.1.0` (Phases 1–4) lives in [`docs/roadmap.md` �
 
 ## Post-Phase-6 deliveries
 
+- **2026-08-30 — The local computer-use loop's gate shipped; nothing can drive it yet.** New
+  invariant **I35** + static rule **D26**, schema **V57** (`cu_session` / `cu_action`), new
+  subsystem `packages/gateway/src/computer-use/`, deliberately parallel to `exec/` in shape and
+  naming. An actuation reaches the host only through `cu-gate.ts`'s `openSession()`/`runAction()`,
+  inside a live session envelope the LOCAL owner approved up front: refuse **before consent** when
+  disabled by `[computer_use] enabled`/org policy (I22) or when the lane is not in `allowed_lanes`;
+  assert `SandboxRunner.canConfine(policy)` — never `degradedReason()`/`isFullyActive()`, I33's
+  identical reasoning; **refuse, never prompt**, an action outside the approved envelope; derive
+  the HITL class STRUCTURALLY from the gateway-observed target (`cu-classify.ts`), never the
+  model's own `modelDescription` field (I3 transplanted); obtain single-use owner approval for
+  every `actuating` verdict; append one `computer.action` audit row before every actuation,
+  fail-closed. The envelope's immutability is enforced at construction: `CuSession` deep-freezes
+  the approved envelope and both origin arrays when the session opens, so origins can never grow
+  and budgets can never rise — that holds from the first action, independent of any latch. The
+  taint latch (`tainted_at`) is a durable forensic record of the moment untrusted content first
+  enters a session, not an enforcement mechanism: nothing in production reads it today. Screenshot
+  bytes are BLAKE3-digested and discarded in the same expression that captures them; no pixel is
+  ever written to disk, on any lane, at any point. New IPC namespace `computer.*`
+  (`sessionOpen`/`act`/`sessionStatus`/`sessionClose`/`approvalRespond`), whole-namespace
+  LAN-forbidden (I5) and absent from the Tauri `ALLOWED_METHODS` (I7), exactly as `exec.*` is and
+  for the same reason. New CLI surface `nimbus computer browser|sessions|close`. Static **D26** has
+  two rules, because one does not carry the property: `performActuation` confinement to
+  `cu-gate.ts`/`cu-actuate.ts` (mirrors I33's D23), and driver-import confinement — no file outside
+  `computer-use/cu-lanes/` may import a browser driver, in either import form (mirrors D22(d)).
+  Design: [`docs/superpowers/specs/2026-08-30-s2-computer-use-design.md`](./superpowers/specs/2026-08-30-s2-computer-use-design.md).
+
+  **What did NOT ship, so this is not read as a working capability.** The browser **driver does
+  not exist**: `playwright-core@1.62.1` fails a `bun build --compile` gate — a statically-resolved,
+  unconditional `require("chromium-bidi/lib/cjs/...")` inside a lazy-init block for its unused
+  WebDriver-BiDi transport, which bun's bundler resolves eagerly at compile time and fails outright
+  — reproduced identically against both `packages/cli`'s and `packages/gateway`'s own
+  `bun build --compile` step, and not fixable by installing the published `chromium-bidi` package
+  (its public layout does not match the internal path Playwright's build vendors). It is re-planned
+  against raw CDP over a WebSocket. Consequently `platform/assemble.ts` wires
+  `resolveBrowserPath: () => null`, and `cu-gate.ts` refuses **every** session before consent with
+  `ERR_CU_NO_BROWSER` — the furthest a **fully-configured** user can get today, not the only
+  refusal a real user can reach: with the shipped defaults (`enabled = false`, `allowed_lanes =
+  []`) a real user hits `ERR_CU_DISABLED` first, then `ERR_CU_LANE_NOT_ALLOWED`, then
+  `ERR_CU_SANDBOX_DEGRADED`, before `ERR_CU_NO_BROWSER` is even reached — over a gate, classifier,
+  request policy, envelope, taint latch, IPC surface, agent-tool wiring, invariant and static rule
+  that are all wired and tested. `nimbus computer browser` is consequently a PASSIVE LISTENER, not
+  a driver: it opens a session and answers its two consent-prompt kinds, but `computer.act` has no
+  production caller anywhere in this build. The **terminal** and **screen** lanes did not ship at
+  all — deferred to slices 2 and 3 — nor did the screen lane's `opaque` egress marker or the
+  `nimbus prove` indeterminacy verdict it requires. The `browser` egress coverage class ships as
+  **`"none"`**, not `per-run`: `egress/browser-egress.ts`'s `wrapLedgeredBrowserContext` is a
+  decorator over a driven `BrowserContext` and has no production caller until the driver lands —
+  it returns to `per-run` in the same commit that gives it one. Invariant **I11**'s screenshot
+  bound is **anticipated, not live**: a capture hashes its bytes and discards them in the same
+  expression, the model receives only an outcome and a digest, and no vision-capable model is
+  wired into the agent — so there is currently nothing on this path for an envelope to protect;
+  the taint latch is nonetheless built to taint by KIND rather than by content, in advance of a
+  channel that does not exist yet. **Adding `browser` to `COVERAGE_CLASSES` invalidates every boot
+  marker written by a binary built before this landed** — `parseCoverage` requires every known
+  class to be present in a marker string, so an older binary's marker is missing the new key and a
+  window spanning the upgrade reads `indeterminate` rather than a clean count. Fail-safe, not a
+  soundness bug, but user-visible: it is called out here rather than left for a bug report.
+
 - **2026-08-30 — ChatOps agent intent: the deterministic agents were unreachable on the one surface that needs no install.** `@nimbus agent why ref=src/auth.ts line=42` in a bound Slack/Teams channel now runs one of eleven externally-permitted built-in agents and posts its brief — closing a dependency inversion standing since Phase 6 Slice 5: a channel `read` requires a configured LLM, while the built-in agents render deterministically with **no LLM at all**, and until now they were exactly the output a channel could not reach.
 
   `agent <name> k=v …` is parsed ahead of the free-text `read` fallthrough (`chatops/command-parser.ts`'s `parseAgentCommand`); `agent`/`run` share a leading keyword with free text, so `@nimbus why is checkout slow?` still parses as a question. Params are **coerced, not validated** — `ipc/agent-param-kinds.ts` declares each field's primitive kind and `agent-commands/parse-agent-command.ts` converts a `k=v` token accordingly, but `ipc/agents-rpc.ts` keeps sole ownership of every bound and every `-32602` message; a non-finite number (the live, previously-unguarded `minConfidence` hole) is refused before dispatch. The permitted set is **eleven, not fourteen**: `EXTERNAL_EXCLUDED_AGENT_METHODS` (renamed from `HTTP_EXCLUDED_AGENT_METHODS`, generalized to every external surface) drops `preflight`/`premortem` for their side effects, `negotiate` because `--person` makes it a dossier-builder for anyone who can read the channel, and `whyPeek` as a companion to `why` rather than a fifteenth agent — ChatOps inherits this exclusion set from the already-shipped HTTP/MCP surfaces rather than re-deciding it, since every reason is stronger in a shared room. An agent command requires a **mapped identity**: `binding.unmapped === "public-read"` admits an unmapped user to `read` only, so the same person gets an answer to a plain question and a refusal for an agent command in the same channel — a real, disclosed inconsistency, not an oversight. The brief is truncated to a per-platform byte cap that **always binds**: ordinary body content — at ANY heading level, not only `##` — is dropped from the end first, and a reserved section is touched only once that is exhausted (glossary's synthesis-reserved `## Terms` table is shrunk, with an honest count, before an I31 disclosure section's own bytes are ever cut, which happens only as the absolute last resort, always with an unambiguous notice), reusing `agents/_lib/`'s own section machinery (`sectionBody`/`stripSections`/`joinReserved`/`topLevelSections`) rather than a second markdown parser. The reply goes out through a second `ReplyDispatcher` over `posts.agentBrief`, keeping I23's "sole operational post path" claim intact, and — riding the `chatops` I29 coverage class a preceding PR already shipped — appends exactly one `egress_ledger` row per brief with `method='chatops.agentBrief'`, from the post appender, never the invoker.

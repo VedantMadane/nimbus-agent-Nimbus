@@ -11,6 +11,7 @@ import {
 } from "./egress-coverage.ts";
 
 const NONE: CoverageVector = {
+  browser: "none",
   chatops: "none",
   task: "none",
   mcp: "none",
@@ -26,14 +27,14 @@ const NONE: CoverageVector = {
  * `COVERAGE_CLASSES` (which IS the wire order) shows up as a diff here rather than being absorbed
  * by a round-trip through `serializeCoverage`.
  *
- * Every hardcoded coverage string in this file must list ALL EIGHT classes. A string that omits one
+ * Every hardcoded coverage string in this file must list ALL NINE classes. A string that omits one
  * makes `parseCoverage` return `null` for the MISSING-class reason, which would let a test that
  * targets some other defect keep passing while exercising nothing.
  *
- * `chatops` heads the string because the array is key-sorted and `chatops` < `http`.
+ * `browser` heads the string because the array is key-sorted and `browser` < `chatops`.
  */
 const CANONICAL =
-  "chatops=per-call;http=per-call;mcp=per-call;model=per-call;peer=none;session=none;sync=per-run;task=per-call";
+  "browser=none;chatops=per-call;http=per-call;mcp=per-call;model=per-call;peer=none;session=none;sync=per-run;task=per-call";
 
 /** The six-class string every binary before the `http` class wrote. See the blackout test below. */
 const PRE_HTTP_MARKER = "mcp=per-call;model=none;peer=none;session=none;sync=none;task=per-call";
@@ -55,8 +56,12 @@ describe("coverage vector", () => {
     // locally-run Mastra model, or a local embedder each append nothing by design, not as a gap.
     // Every other class stays `none` until its appender lands — raising an entry on the strength of
     // an unwired seam would be a claim with no code behind it, which is the exact defect this vector
-    // prevents.
+    // prevents. `browser` is the worked example: its appender (`egress/browser-egress.ts`'s
+    // `wrapLedgeredBrowserContext`) is written and tested, but has NO production caller yet (the
+    // computer-use browser driver that would construct a `BrowserContext` is deferred, invariant
+    // I35), so it stays `"none"` here too, not `"per-run"`, until that driver lands and calls it.
     expect(THIS_BINARY_COVERAGE).toEqual({
+      browser: "none",
       chatops: "per-call",
       task: "per-call",
       mcp: "per-call",
@@ -68,12 +73,13 @@ describe("coverage vector", () => {
     });
   });
 
-  test("COVERAGE_CLASSES stays key-sorted, with chatops at the head", () => {
+  test("COVERAGE_CLASSES stays key-sorted, with browser at the head", () => {
     // The array IS the wire format: serializeCoverage maps over it to build the canonical string
     // stored in a boot marker's HASHED source_id. A non-sorted array would still typecheck and
     // still round-trip within one binary — and would produce a different canonical string from any
     // other binary that sorted correctly, silently splitting the fleet.
     expect([...COVERAGE_CLASSES]).toEqual([
+      "browser",
       "chatops",
       "http",
       "mcp",
@@ -103,9 +109,9 @@ describe("coverage vector", () => {
     // strictness exists to prevent. This is the fail-safe direction. Do not relax it.
     expect(parseCoverage(PRE_HTTP_MARKER)).toBeNull();
     // ...and the reason is genuinely the missing class, not some unrelated malformation: the same
-    // string with BOTH classes missing from this fixture (`http`, and now `chatops` too) restored
-    // parses fine.
-    expect(parseCoverage(`chatops=none;http=none;${PRE_HTTP_MARKER}`)).not.toBeNull();
+    // string with every class missing from this fixture (`http`, `chatops`, and now `browser` too)
+    // restored parses fine.
+    expect(parseCoverage(`browser=none;chatops=none;http=none;${PRE_HTTP_MARKER}`)).not.toBeNull();
   });
 
   test("serialize is stable and key-sorted", () => {
@@ -154,6 +160,7 @@ describe("coverage vector", () => {
 
   test("weakest takes the LOWEST granularity per class across binaries", () => {
     const rich: CoverageVector = {
+      browser: "per-call",
       chatops: "per-call",
       task: "per-call",
       mcp: "per-call",
@@ -164,6 +171,7 @@ describe("coverage vector", () => {
       peer: "per-call",
     };
     expect(weakestCoverage([rich, THIS_BINARY_COVERAGE])).toEqual({
+      browser: "none", // this binary's none is weaker than rich's per-call
       chatops: "per-call", // both per-call
       task: "per-call", // both per-call
       mcp: "per-call", // both per-call
@@ -181,10 +189,11 @@ describe("coverage vector", () => {
 });
 
 describe("chatops coverage class", () => {
-  test("chatops is the FIRST class — the array order is the wire format", () => {
+  test("chatops sits second in sort order, right after browser — the array order is the wire format", () => {
     // Not just "is present": appending would typecheck and round-trip within one binary
-    // while producing a canonical string no other binary agrees with.
-    expect(COVERAGE_CLASSES[0]).toBe("chatops");
+    // while producing a canonical string no other binary agrees with. `chatops` headed the list
+    // until `browser` joined and sorted ahead of it (`"browser" < "chatops"`).
+    expect(COVERAGE_CLASSES.indexOf("chatops")).toBe(1);
     expect([...COVERAGE_CLASSES]).toEqual([...COVERAGE_CLASSES].sort());
   });
 
@@ -192,9 +201,9 @@ describe("chatops coverage class", () => {
     expect(THIS_BINARY_COVERAGE.chatops).toBe("per-call");
   });
 
-  test("serialize puts chatops first and parse round-trips it", () => {
+  test("serialize puts chatops right after browser and parse round-trips it", () => {
     const s = serializeCoverage(THIS_BINARY_COVERAGE);
-    expect(s.startsWith("chatops=per-call;")).toBe(true);
+    expect(s.startsWith("browser=none;chatops=per-call;")).toBe(true);
     expect(parseCoverage(s)).toEqual(THIS_BINARY_COVERAGE);
   });
 
@@ -204,5 +213,32 @@ describe("chatops coverage class", () => {
       .filter((seg) => !seg.startsWith("chatops="))
       .join(";");
     expect(parseCoverage(withoutChatops)).toBeNull();
+  });
+});
+
+describe("browser coverage class", () => {
+  test("browser is a coverage class, currently at none — its appender has no production caller yet", () => {
+    // Written and tested (`egress/browser-egress.ts`'s `wrapLedgeredBrowserContext`), but nothing
+    // constructs a `BrowserContext` in production: the computer-use browser driver is deferred
+    // (invariant I35). Raising this to "per-run" ahead of a real caller would be exactly the
+    // defect this vector's own preamble warns against for every other class.
+    expect(COVERAGE_CLASSES).toContain("browser");
+    expect(THIS_BINARY_COVERAGE.browser).toBe("none");
+  });
+
+  test("browser sorts FIRST — membership order IS the wire format", () => {
+    // `serializeCoverage` maps over COVERAGE_CLASSES to build the canonical string stored in a boot
+    // marker's HASHED `source_id`. Appending instead of inserting in sort order would still typecheck,
+    // still round-trip within one binary, and produce a string no other binary agrees with.
+    expect([...COVERAGE_CLASSES]).toEqual([...COVERAGE_CLASSES].sort());
+    expect(COVERAGE_CLASSES[0]).toBe("browser");
+  });
+
+  test("serializeCoverage leads with browser", () => {
+    expect(serializeCoverage(THIS_BINARY_COVERAGE).startsWith("browser=none;")).toBe(true);
+  });
+
+  test("ALL_NONE_COVERAGE carries browser too", () => {
+    expect(ALL_NONE_COVERAGE.browser).toBe("none");
   });
 });

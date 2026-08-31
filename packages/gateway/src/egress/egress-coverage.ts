@@ -11,11 +11,11 @@ export type Granularity = (typeof GRANULARITIES)[number];
  * The egress-BEARING source types. Marker classes carry no coverage claim.
  *
  * Kept in key-sorted order — `serializeCoverage` maps over this array to build the canonical
- * string stored in a boot marker's HASHED `source_id`, so the order IS the wire format. `chatops`
- * sorts before `http`, which sorts before `mcp`, which sorts before `model`; that is why they head
- * the list rather than trailing it. Appending a new class instead of inserting it in sort order
- * would still typecheck, still round-trip within one binary, and produce a canonical string no
- * other binary agrees with.
+ * string stored in a boot marker's HASHED `source_id`, so the order IS the wire format. `browser`
+ * sorts before `chatops`, which sorts before `http`, which sorts before `mcp`, which sorts before
+ * `model`; that is why they head the list rather than trailing it. Appending a new class instead
+ * of inserting it in sort order would still typecheck, still round-trip within one binary, and
+ * produce a canonical string no other binary agrees with.
  *
  * That also means MEMBERSHIP, not just order, is part of the wire format, in both directions:
  * `parseCoverage` requires every member of this array to be present in a marker string with a
@@ -27,6 +27,7 @@ export type Granularity = (typeof GRANULARITIES)[number];
  * silently under-counting it as a clean zero.
  */
 export const COVERAGE_CLASSES = [
+  "browser",
   "chatops",
   "http",
   "mcp",
@@ -51,8 +52,13 @@ export type CoverageVector = Readonly<Record<CoverageClass, Granularity>>;
  * `egress/mastra-model-egress.ts`'s `wrapLedgeredMastraModel`, and `egress/embedding-egress.ts`'s
  * `wrapLedgeredEmbedder` — see the `model` paragraph below for exactly what each covers); and
  * `chatops` (every outbound Slack/Teams post, appended by ONE decorator over the shared `post`
- * closure — see the `chatops` paragraph below). Later phases raise `peer`, `session`; raising an
- * entry without landing its appender is the exact defect this vector exists to prevent.
+ * closure — see the `chatops` paragraph below). `browser`, `peer` and `session` stay `none`:
+ * `browser`'s appender (`egress/browser-egress.ts`'s `wrapLedgeredBrowserContext`) is written and
+ * tested but has NO production caller yet — the computer-use browser driver that would construct
+ * it is deferred (re-planned against raw CDP, see invariant I35) — so raising this entry ahead of
+ * that landing would be exactly the defect this vector exists to prevent, the same one this file
+ * warns against for every other class. Raising `browser` back to `per-run`, and `peer`/`session`
+ * from `none`, happens in the SAME commit as each one's production caller.
  *
  * READ THE `mcp` ENTRY NARROWLY. It is `per-call` over exactly one thing: an `agents.*` brief
  * served to a client that declared `kind: "mcp"`. It is NOT "everything an MCP client does". The
@@ -129,8 +135,32 @@ export type CoverageVector = Readonly<Record<CoverageClass, Granularity>>;
  * consumer sent it. Before it landed the class did not exist at all — chat posts were neither
  * covered nor disclosed, which is why `nimbus prove` could report a zero over a window in which a
  * brief synthesized from the private index was posted to Slack.
+ *
+ * `browser` is `"none"` TODAY, DELIBERATELY, though its appender exists and is tested. It is
+ * WRITTEN to be `per-run`: `egress/browser-egress.ts`'s `wrapLedgeredBrowserContext` is a DECORATOR
+ * over the driver-neutral `LedgerableContext` shape (structurally typed, not a `playwright`
+ * import — see `browser-egress.ts`) rather than a call-site append — the same shape as
+ * `wrapLedgeredProvider`, and for the same reason: a call-site append covers the callers that exist
+ * today, a wrapped instance covers the ones written later without their cooperation. But nothing
+ * CONSTRUCTS a browser context in production yet — the computer-use browser driver is deferred
+ * (re-planned against raw CDP after `playwright-core` failed a `bun build --compile` gate; see
+ * invariant I35) — so `wrapLedgeredBrowserContext` has no production caller and this class must
+ * stay `"none"` until one lands, per this file's own rule for every other class. `per-run` (once
+ * raised) would be the honest label, matching `sync`: ONE row per (navigation, distinct destination
+ * origin) pair, so a single row can stand for many upstream calls to that origin. Per-request would
+ * be thousands of rows for one page load; one row per navigation would understate where data went,
+ * since a page pulls from origins the owner never named. The pair shape is bounded at tens and lets
+ * `nimbus prove` NAME every host the browser contacted. A request REFUSED by the § 3.5.1 policy
+ * would append a `blocked` row, exactly as a denied executor gate does — a cluster of those naming
+ * an unapproved origin would be the clearest signal that something was steering the page toward
+ * exfiltration, retained even though nothing left the machine. None of this is live until the
+ * driver lands and this entry is raised in the SAME commit as its production caller.
  */
 export const THIS_BINARY_COVERAGE: CoverageVector = {
+  // "none", not "per-run": `wrapLedgeredBrowserContext` (above) has no production caller yet.
+  // Raise this to "per-run" in the SAME commit that wires it to a real BrowserContext — never
+  // ahead of that landing (see the `browser` paragraph above and invariant I35).
+  browser: "none",
   chatops: "per-call",
   task: "per-call",
   mcp: "per-call",
@@ -147,6 +177,7 @@ export const THIS_BINARY_COVERAGE: CoverageVector = {
  * sibling marker's richer claim stand unchallenged.
  */
 export const ALL_NONE_COVERAGE: CoverageVector = {
+  browser: "none",
   chatops: "none",
   task: "none",
   mcp: "none",
