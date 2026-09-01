@@ -1336,3 +1336,123 @@ describe("credentials never survive a URL param", () => {
     expect(String((err as Error).message)).not.toContain("secret");
   });
 });
+
+/**
+ * The forge-file arm: `{ service, repo, refAndPath }` instead of a local `{ file }`.
+ *
+ * A browser has a forge coordinate and nothing else — it does not know the reader's
+ * filesystem and must not guess at one. `requireFileParam` resolves the coordinate against
+ * the checkout before any agent sees it, so the agents keep taking a local path.
+ */
+describe("the forge-file arm", () => {
+  function seedCheckout(db: Database): void {
+    db.run(
+      "INSERT INTO graph_entity (id, type, external_id, label, service, metadata) VALUES ('ws:/r', 'workspace', 'filesystem:/r', '/r', 'filesystem', '{}')",
+    );
+    db.run(
+      "INSERT INTO graph_entity (id, type, external_id, label, service, metadata) VALUES ('repo:g', 'repo', 'github:acme/web', 'acme/web', 'github', '{}')",
+    );
+    db.run(
+      "INSERT INTO graph_relation (from_id, to_id, type, created_at) VALUES ('ws:/r', 'repo:g', 'tracks_remote', 0)",
+    );
+    db.run(
+      "INSERT INTO graph_entity (id, type, external_id, label, service, metadata) VALUES ('file:/r:src/foo.ts', 'source_file', 'file:/r:src/foo.ts', 'src/foo.ts', 'filesystem', '{}')",
+    );
+  }
+
+  const COORD = { service: "github", repo: "acme/web", refAndPath: "main/src/foo.ts" };
+
+  test("ghost and conflicts accept a forge coordinate", async () => {
+    const db = freshDb();
+    seedCheckout(db);
+    const ctx = makeCtx(db);
+    for (const method of ["agents.ghost", "agents.conflicts"]) {
+      const out = await dispatchAgentsRpc(method, COORD, ctx);
+      expect(out.kind).toBe("hit");
+    }
+  });
+
+  test("an untracked remote and an unindexed path are distinguishable on the wire", async () => {
+    const empty = makeCtx(freshDb());
+    await expect(dispatchAgentsRpc("agents.ghost", COORD, empty)).rejects.toThrow(
+      /remote_not_tracked/,
+    );
+
+    const db = freshDb();
+    seedCheckout(db);
+    await expect(
+      dispatchAgentsRpc("agents.ghost", { ...COORD, refAndPath: "main/src/nope.ts" }, makeCtx(db)),
+    ).rejects.toThrow(/file_not_indexed/);
+  });
+
+  test("the two shapes are mutually exclusive", async () => {
+    const db = freshDb();
+    seedCheckout(db);
+    await expect(
+      dispatchAgentsRpc("agents.ghost", { ...COORD, file: "src/foo.ts" }, makeCtx(db)),
+    ).rejects.toThrow(/mutually exclusive/);
+  });
+
+  test("a local file path still works, unchanged", async () => {
+    const db = freshDb();
+    const out = await dispatchAgentsRpc("agents.ghost", { file: "src/foo.ts" }, makeCtx(db));
+    expect(out.kind).toBe("hit");
+  });
+
+  // Federation fan-out must never arrive by accident. `ghost` and `conflicts` reach peers
+  // only when `namespaces` is supplied, and the browser supplies none — so the forge arm
+  // must not manufacture any. A loopback-only client turning two local reads into network
+  // calls is the failure this pins.
+  // The absence case below proves the arm invents no namespaces. This proves it REFUSES
+  // supplied ones — the actual hole, since a holder of an `agents`-scoped token could
+  // otherwise turn a browser-reachable file question into peer network calls.
+  test("the forge arm refuses supplied namespaces rather than fanning out", async () => {
+    const db = freshDb();
+    seedCheckout(db);
+    let sent = 0;
+    const ctx = {
+      ...makeCtx(db),
+      sendOverWire: () => {
+        sent += 1;
+        return Promise.resolve(null);
+      },
+    } as unknown as Parameters<typeof dispatchAgentsRpc>[2];
+
+    for (const method of ["agents.ghost", "agents.conflicts"]) {
+      for (const extra of [{ namespaces: ["peer-1"] }, { namespace: "peer-1" }]) {
+        await expect(dispatchAgentsRpc(method, { ...COORD, ...extra }, ctx)).rejects.toThrow(
+          /locally only/,
+        );
+      }
+    }
+    expect(sent).toBe(0);
+  });
+
+  test("the local { file } shape still accepts namespaces", async () => {
+    // The refusal is scoped to the forge shape. A terminal caller naming a local path
+    // may still ask for federation, exactly as before.
+    const db = freshDb();
+    const out = await dispatchAgentsRpc(
+      "agents.ghost",
+      { file: "src/foo.ts", namespaces: ["peer-1"] },
+      makeCtx(db),
+    );
+    expect(out.kind).toBe("hit");
+  });
+
+  test("the forge arm adds no namespaces of its own", async () => {
+    const db = freshDb();
+    seedCheckout(db);
+    let sent = 0;
+    const ctx = {
+      ...makeCtx(db),
+      sendOverWire: () => {
+        sent += 1;
+        return Promise.resolve(null);
+      },
+    } as unknown as Parameters<typeof dispatchAgentsRpc>[2];
+    await dispatchAgentsRpc("agents.ghost", COORD, ctx);
+    await dispatchAgentsRpc("agents.conflicts", COORD, ctx);
+    expect(sent).toBe(0);
+  });
+});
