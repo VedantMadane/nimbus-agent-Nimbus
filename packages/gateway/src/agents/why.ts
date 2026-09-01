@@ -2,10 +2,11 @@ import type { Database } from "bun:sqlite";
 
 import type { NimbusFilesystemRootToml } from "../config/filesystem-toml.ts";
 import { AgentCoordinator, type SubTask, type SubTaskResult } from "../engine/coordinator.ts";
+import { resolveItemByUrl } from "../index/resolve-by-url.ts";
 import type { BlameLookup } from "../security/blame-store.ts";
 import { type BlameSpawn, ensureBlameLine } from "./_lib/blame-on-demand.ts";
 import { emitBriefWithSynthesis } from "./_lib/emit-brief.ts";
-import type { GapNote, WhyChangeSubject } from "./_lib/findings.ts";
+import type { GapNote, WhyChangeSubject, WhyItemSubject } from "./_lib/findings.ts";
 import {
   aggregateMissingEntityTypes,
   detectEmptyIndex,
@@ -17,8 +18,8 @@ import { reverseDependsOn } from "./_lib/graph-traversals.ts";
 import { resolvePrSubject } from "./_lib/pr-subject.ts";
 import type { SynthesisRunner } from "./_lib/synthesis-llm.ts";
 import { parseRef, resolveWhySubject } from "./_lib/why-subject.ts";
-import type { WhyBrief, WhyFinding, WhyInput, WhySubject } from "./_lib/why-types.ts";
-import { isWhyPrInput } from "./_lib/why-types.ts";
+import type { WhyBrief, WhyFinding, WhyInput, WhyRefInput, WhySubject } from "./_lib/why-types.ts";
+import { isWhyItemInput, isWhyPrInput } from "./_lib/why-types.ts";
 
 export type WhyContext = {
   db: Database;
@@ -43,17 +44,22 @@ type LaneInput = {
    * an entry point rather than a second code path.
    */
   pr: PrForSha | null;
-  /** Blame's author time on the ref arm, the PR's own timestamp on the prUrl arm. */
+  /**
+   * The indexed item the lanes answer about, on the `item` arm only — null on
+   * every other arm, and null on `item` when the item had no graph entity.
+   */
+  itemEntityId: string | null;
+  /** Blame's author time on the ref arm, the item's or PR's own timestamp otherwise. */
   occurredAt: number | null;
   /**
    * Which entry point ran. `subAuthorship` and `subDownstream` are file/line
-   * lanes by nature — they stay silent on `"change"` rather than reporting a
-   * gap for the file subject a `prUrl` question never had. Explicit, not
-   * inferred from `subject === null`: inference would also silence the
-   * genuine ref-arm case where a ref legitimately fails to resolve, which
+   * lanes by nature — they stay silent on `"change"` and `"item"` alike rather
+   * than reporting a gap for the file subject neither question ever had.
+   * Explicit, not inferred from `subject === null`: inference would also silence
+   * the genuine ref-arm case where a ref legitimately fails to resolve, which
    * must keep its gap note.
    */
-  arm: "ref" | "change";
+  arm: "ref" | "change" | "item";
 };
 
 type SubAgentResult = {
@@ -83,6 +89,16 @@ interface WhyLaneResolution {
   /** `undefined` on the ref arm (the field is omitted entirely); `null` when a change */
   /** was asked about and could not be named. The two are NOT interchangeable. */
   readonly changeSubject: WhyChangeSubject | null | undefined;
+  /** The same three states as `changeSubject`, for the `itemUrl` arm. */
+  readonly itemSubject: WhyItemSubject | null | undefined;
+  /**
+   * The `graph_entity.id` the item lanes traverse from, on the `item` arm only.
+   *
+   * Always null when `itemSubject` is null: the two are decided together, because
+   * an indexed item with no graph entity is precisely the case the lanes cannot
+   * answer, and a subject without an entity would promise otherwise.
+   */
+  readonly itemEntityId: string | null;
   readonly queryRef: string;
   readonly queryLine: number | null;
 }
@@ -104,7 +120,119 @@ function resolvePrArm(db: Database, prUrl: string): WhyLaneResolution {
       : null,
     // null, not absent: the caller asked about a change and we could not name it.
     changeSubject: resolved.ok ? resolved.subject : null,
+    itemSubject: undefined,
+    itemEntityId: null,
     queryRef: prUrl,
+    queryLine: null,
+  };
+}
+
+/**
+ * The `itemUrl` arm: resolve the indexed item the lanes answer about.
+ *
+ * Two lookups, not one. `resolveItemByUrl` answers from the `item` table, but every
+ * lane on this arm traverses `graph_relation`, which hangs off a `graph_entity` — and
+ * `syncGraphFromIndexedItem` writes no entity for a type outside
+ * `ITEM_LINKED_ENTITY_TYPES` / `GRAPH_SYNC_BY_TYPE`. A Confluence page (`type: "page"`)
+ * is exactly that case: fully indexed, resolvable by URL, and with nothing for a lane to
+ * walk.
+ *
+ * So "resolved, but no entity" is a MISS here. Returning a subject without an entity
+ * would name an item the lanes then answer nothing about, which reads to a caller as
+ * "no context exists" rather than "this kind of item carries none".
+ */
+/**
+ * The PR that `resolves` this item, or null.
+ *
+ * The INVERSE of `ticketRowsForPr`'s traversal: that one walks `resolves` outward from a
+ * `pr` entity to find the issues a change closed, this one walks inward from the issue to
+ * find the change that closed it. The direction is the whole difference between the two
+ * arms, and it is why the item arm could not simply reuse the PR arm's queries.
+ */
+function prResolvingItem(db: Database, itemEntityId: string): PrForSha | null {
+  const row = db
+    .query(
+      `SELECT pe.id AS entity_id, i.title AS title, i.url AS url, i.modified_at AS modified_at,
+              json_extract(i.metadata, '$.number') AS number
+         FROM graph_relation r
+         JOIN graph_entity pe ON pe.id = r.from_id AND pe.type = 'pr'
+         JOIN item i ON i.id = pe.external_id
+        WHERE r.to_id = ? AND r.type = 'resolves'
+        ORDER BY i.modified_at DESC, pe.id ASC
+        LIMIT 1`,
+    )
+    .get(itemEntityId) as {
+    entity_id: string;
+    title: string;
+    url: string | null;
+    modified_at: number;
+    number: number | null;
+  } | null;
+  if (row === null) return null;
+  return {
+    entityId: row.entity_id,
+    number: row.number,
+    title: row.title,
+    url: row.url,
+    modifiedAt: row.modified_at,
+  };
+}
+
+function resolveItemArm(db: Database, itemUrl: string): WhyLaneResolution {
+  const miss: WhyLaneResolution = {
+    subject: null,
+    blame: null,
+    pr: null,
+    changeSubject: undefined,
+    // null, not absent: the caller asked about an item and we could not name it.
+    itemSubject: null,
+    itemEntityId: null,
+    queryRef: itemUrl,
+    queryLine: null,
+  };
+
+  const resolved = resolveItemByUrl(db, itemUrl);
+  if (!resolved.found) return miss;
+  const item = resolved.item;
+
+  // Constrained by type as well as external_id: `deterministicGraphEntityId` hashes
+  // (type, externalId), so one external id can legitimately exist under more than one
+  // type and a bare external_id lookup could return the wrong node.
+  const entity = db
+    .query("SELECT id FROM graph_entity WHERE external_id = ? AND type = ? LIMIT 1")
+    .get(item.id, item.type) as { id?: string } | null;
+  if (entity?.id === undefined) return miss;
+
+  const numberRow = db
+    .query("SELECT json_extract(metadata, '$.number') AS number FROM item WHERE id = ? LIMIT 1")
+    .get(item.id) as { number: number | null } | null;
+
+  return {
+    subject: null,
+    blame: null,
+    // The PR that resolved this item, if one did — the inverse of the traversal the
+    // prUrl arm makes. Populating `pr` here rather than teaching four lanes about items
+    // is what keeps this arm small: `subPullRequest`, `subTicket`, `subDiscussion` and
+    // `subDriver` already answer from `lane.pr`, and "the change that closed this issue"
+    // is exactly what a `why` question about an issue is asking for.
+    pr: prResolvingItem(db, entity.id),
+    changeSubject: undefined,
+    itemSubject: {
+      itemId: item.id,
+      entityId: entity.id,
+      number: numberRow?.number ?? null,
+      // `ResolveCandidate.url` is nullable and `WhyItemSubject.url` matches it. NOT a
+      // fallback to `itemUrl`: that would substitute the URL we were asked with for the
+      // one the item carries — a fabricated field inside a subject.
+      url: item.url,
+      title: item.title,
+      // `modified_at` is `number` on a found candidate, not nullable. No `??` here.
+      modifiedAt: item.modified_at,
+      service: item.service,
+      type: item.type,
+    },
+    itemEntityId: entity.id,
+    queryRef: itemUrl,
     queryLine: null,
   };
 }
@@ -114,10 +242,7 @@ function resolvePrArm(db: Database, prUrl: string): WhyLaneResolution {
  * inside parallel sub-agents could double-spawn on a cold line. Resolve it here, once, and hand
  * the result to every lane.
  */
-async function resolveRefArm(
-  input: Exclude<WhyInput, { prUrl: string }>,
-  ctx: WhyContext,
-): Promise<WhyLaneResolution> {
+async function resolveRefArm(input: WhyRefInput, ctx: WhyContext): Promise<WhyLaneResolution> {
   const subject = resolveWhySubject(ctx.db, ctx.roots, input);
   let blame: BlameLookup | null = null;
   if (subject !== null && subject.lineNo !== null) {
@@ -133,6 +258,8 @@ async function resolveRefArm(
     blame,
     pr: blame === null ? null : findPrForSha(ctx.db, blame.commitSha),
     changeSubject: undefined,
+    itemSubject: undefined,
+    itemEntityId: null,
     queryRef: input.ref,
     queryLine: input.line ?? parseRef(input.ref).line,
   };
@@ -173,28 +300,45 @@ function collectLaneOutput(results: readonly SubTaskResult[]): {
   return { findings, gaps };
 }
 
+/** Which arm a request names. One place, so the dispatch and `LaneInput.arm` cannot disagree. */
+function armOf(input: WhyInput): LaneInput["arm"] {
+  if (isWhyPrInput(input)) return "change";
+  return isWhyItemInput(input) ? "item" : "ref";
+}
+
 export async function runWhy(input: WhyInput, ctx: WhyContext): Promise<WhyBrief> {
   const start = performance.now();
   const preflightGaps: GapNote[] = [];
   const empty = detectEmptyIndex(ctx.db);
   if (empty !== null) preflightGaps.push(empty);
 
-  const { subject, blame, pr, changeSubject, queryRef, queryLine } = isWhyPrInput(input)
-    ? resolvePrArm(ctx.db, input.prUrl)
-    : await resolveRefArm(input, ctx);
+  const arm = armOf(input);
+  const { subject, blame, pr, changeSubject, itemSubject, itemEntityId, queryRef, queryLine } =
+    isWhyPrInput(input)
+      ? resolvePrArm(ctx.db, input.prUrl)
+      : isWhyItemInput(input)
+        ? resolveItemArm(ctx.db, input.itemUrl)
+        : await resolveRefArm(input, ctx);
 
   const lane: LaneInput = {
     subject,
     blame,
     pr,
+    itemEntityId,
     // Computed per-arm, not through one shared nullish chain: on the ref arm
     // `blame.authorTimeMs` can itself be null (no `author-time` line in the
     // `git blame --line-porcelain` output) while `pr` is still non-null — a
     // shared `blame?.authorTimeMs ?? pr?.modifiedAt ?? null` would silently
     // borrow the PR's timestamp for a ref-arm answer, which is a different
-    // (and wrong) answer, not a missing one.
-    occurredAt: isWhyPrInput(input) ? (pr?.modifiedAt ?? null) : (blame?.authorTimeMs ?? null),
-    arm: isWhyPrInput(input) ? "change" : "ref",
+    // (and wrong) answer, not a missing one. The item arm takes its own
+    // timestamp for the same reason, rather than borrowing the PR's.
+    occurredAt:
+      arm === "item"
+        ? (itemSubject?.modifiedAt ?? null)
+        : arm === "change"
+          ? (pr?.modifiedAt ?? null)
+          : (blame?.authorTimeMs ?? null),
+    arm,
   };
 
   const coordinator = new AgentCoordinator({
@@ -227,6 +371,7 @@ export async function runWhy(input: WhyInput, ctx: WhyContext): Promise<WhyBrief
     query: { ref: queryRef, line: queryLine },
     subject,
     ...(changeSubject === undefined ? {} : { changeSubject }),
+    ...(itemSubject === undefined ? {} : { itemSubject }),
     findings: allFindings,
   };
 }
@@ -353,7 +498,10 @@ async function subAuthorship(db: Database, lane: LaneInput): Promise<SubAgentRes
   // Line-level by nature: a `prUrl` question never had a file/line subject to
   // begin with, so that absence is the shape of the question, not a gap in
   // anyone's index — nothing here is actionable on the change arm.
-  if (lane.arm === "change") return {};
+  // `change` and `item` alike: neither question ever had a file subject, so a gap
+  // here would report something missing that was never asked for. The ref arm keeps
+  // its gap, which is why this branches on the arm and not on `subject === null`.
+  if (lane.arm !== "ref") return {};
   if (lane.subject?.lineNo == null) {
     return {
       gap: {
@@ -534,7 +682,11 @@ async function subTicket(db: Database, lane: LaneInput): Promise<SubAgentResult>
   const pr = lane.pr;
   if (pr === null) return {};
 
-  const rows = ticketRowsForPr(db, pr.entityId);
+  // On the item arm the PR was found BY walking `resolves` from this very item, so the
+  // item is always in its own ticket list. Listing an issue as a ticket referenced by
+  // the change that closed it is circular, not informative — drop it and report what
+  // else that PR touched.
+  const rows = ticketRowsForPr(db, pr.entityId).filter((r) => r.entityId !== lane.itemEntityId);
   if (rows.length === 0) {
     const gap = detectMissingRelationToEntityType(
       db,
@@ -577,6 +729,16 @@ async function subDiscussion(db: Database, lane: LaneInput): Promise<SubAgentRes
     const ticket = ticketRowsForPr(db, pr.entityId).at(0);
     if (ticket !== undefined) targetIds.push(ticket.entityId);
   }
+
+  // The item itself, on the item arm. Added directly rather than via the PR, because a
+  // discussion can mention an issue that no change ever closed — precisely the case where
+  // this lane has something to say and no PR to reach it through.
+  //
+  // It may duplicate the ticket pushed just above, and that is harmless: `targetIds` is
+  // spliced into an `IN (...)`, which is set membership, so a repeated id matches the same
+  // rows once. (It is NOT de-duplicated first — do not add a `DISTINCT` here believing it
+  // is compensating for that.)
+  if (lane.itemEntityId !== null) targetIds.push(lane.itemEntityId);
 
   let rows: Array<{
     id: string;
@@ -699,7 +861,10 @@ async function subDownstream(db: Database, lane: LaneInput): Promise<SubAgentRes
   // File-shaped by nature — `agents.impact` already answers this question for
   // a `prUrl`, so a missing file subject here is the shape of the question,
   // not a gap in anyone's index.
-  if (lane.arm === "change") return {};
+  // `change` and `item` alike: neither question ever had a file subject, so a gap
+  // here would report something missing that was never asked for. The ref arm keeps
+  // its gap, which is why this branches on the arm and not on `subject === null`.
+  if (lane.arm !== "ref") return {};
   if (lane.subject === null) {
     return { gap: { category: "missing_relation_emit", detail: NO_SYMBOLS_DETAIL } };
   }

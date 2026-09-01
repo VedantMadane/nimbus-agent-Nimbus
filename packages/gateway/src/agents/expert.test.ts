@@ -968,5 +968,97 @@ describe("emitExpertBrief", () => {
   });
 });
 
+describe("runExpert — the itemUrl arm", () => {
+  const ISSUE_URL = "https://acme.atlassian.net/browse/PLAT-9";
+
+  function itemArmDb(): Database {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    return db;
+  }
+
+  // The whole reason this arm exists. The free-text arm matches titles with `LIKE`, so a
+  // second item whose title merely RESEMBLES this one pulls its author in. The item arm
+  // answers from edges, so it must not.
+  test("answers from graph edges, not from a title match", async () => {
+    const db = itemArmDb();
+    const t = Date.now();
+
+    db.run("INSERT INTO person (id, display_name) VALUES ('p-dana', 'Dana')");
+    db.run("INSERT INTO person (id, display_name) VALUES ('p-rae', 'Rae')");
+
+    upsertIndexedItem(db, {
+      service: "jira",
+      type: "issue",
+      externalId: "PLAT-9",
+      title: "Checkout times out",
+      bodyPreview: "",
+      url: ISSUE_URL,
+      modifiedAt: t,
+      syncedAt: t,
+      authorId: "p-dana",
+      metadata: {},
+    });
+
+    // A decoy the LIKE-based arm would happily match on title, authored by someone else.
+    upsertIndexedItem(db, {
+      service: "jira",
+      type: "issue",
+      externalId: "PLAT-10",
+      title: "Checkout times out again",
+      bodyPreview: "",
+      url: "https://acme.atlassian.net/browse/PLAT-10",
+      modifiedAt: t,
+      syncedAt: t,
+      authorId: "p-rae",
+      metadata: {},
+    });
+
+    const brief = await runExpert(
+      { itemUrl: ISSUE_URL },
+      { db, notify: () => {}, sessionId: "expert-item-1" },
+    );
+
+    const names = brief.ranked.map((f) => f.displayName);
+    expect(names).not.toContain("Rae");
+    expect(brief.query.topicOrFile).toBe(ISSUE_URL);
+    expect(brief.query.itemUrl).toBe(ISSUE_URL);
+  });
+
+  test("an unresolvable itemUrl gaps rather than answering emptily", async () => {
+    const db = itemArmDb();
+    const brief = await runExpert(
+      { itemUrl: "https://acme.atlassian.net/browse/NOPE-1" },
+      { db, notify: () => {}, sessionId: "expert-item-2" },
+    );
+    expect(brief.ranked).toEqual([]);
+    expect(brief.gaps.length).toBeGreaterThan(0);
+  });
+
+  test("the free-text arm still records only topicOrFile", async () => {
+    const db = itemArmDb();
+    const brief = await runExpert(
+      { topicOrFile: "src/clip.ts" },
+      { db, notify: () => {}, sessionId: "expert-item-3" },
+    );
+    expect(brief.query.topicOrFile).toBe("src/clip.ts");
+    expect(brief.query.itemUrl).toBeUndefined();
+  });
+});
+
 // Placeholder afterEach — no global state is mutated in these tests.
 afterEach(() => {});
+
+test("runExpert refuses a request with no arm rather than searching for the empty string", async () => {
+  // `LIKE '%' || '' || '%'` matches every indexed title and body preview, so a defaulted
+  // empty topic would answer "who are the most active people in your whole index" to a
+  // question nobody asked — confidently, and with no gap to warn anyone.
+  const db = new Database(":memory:");
+  LocalIndex.ensureSchema(db);
+  // `await`, not a floating assertion: an un-awaited `.rejects` resolves after the test
+  // has already passed, so this would go green even if runExpert stopped throwing — the
+  // one failure mode a guard test must not have.
+  await expect(runExpert({}, { db, notify: () => {}, sessionId: "expert-noarm" })).rejects.toThrow(
+    /exactly one/,
+  );
+});

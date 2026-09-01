@@ -80,22 +80,45 @@ const MAX_IMPACT_DEPTH = 5;
 const MAX_SERVICE_LEN = 64;
 
 const MAX_SINCE_MS = 90 * 24 * 60 * 60 * 1000;
-function requireExpertParams(params: unknown): { topicOrFile: string; limit?: number } {
+function requireExpertParams(params: unknown): {
+  topicOrFile?: string;
+  itemUrl?: string;
+  limit?: number;
+} {
   if (params === null || typeof params !== "object" || Array.isArray(params)) {
-    throw new AgentsRpcError(-32602, "agents.expert requires { topicOrFile: string }");
-  }
-  const p = params as { topicOrFile?: unknown; limit?: unknown };
-  if (typeof p.topicOrFile !== "string") {
-    throw new AgentsRpcError(-32602, "topicOrFile must be a string");
-  }
-  const trimmed = p.topicOrFile.trim();
-  if (trimmed.length < MIN_TOPIC_LEN || trimmed.length > MAX_TOPIC_LEN) {
     throw new AgentsRpcError(
       -32602,
-      `topicOrFile must be ${MIN_TOPIC_LEN}..${MAX_TOPIC_LEN} chars after trim`,
+      "agents.expert requires exactly one of { topicOrFile } or { itemUrl }",
     );
   }
-  const out: { topicOrFile: string; limit?: number } = { topicOrFile: trimmed };
+  const p = params as { topicOrFile?: unknown; itemUrl?: unknown; limit?: unknown };
+  // Counted, not an equality: the same shape `agents.why` uses, and for the same reason —
+  // it keeps meaning "exactly one" if a third arm is ever added.
+  const supplied = [p.topicOrFile, p.itemUrl].filter((v) => v !== undefined).length;
+  if (supplied !== 1) {
+    throw new AgentsRpcError(
+      -32602,
+      "agents.expert requires exactly one of { topicOrFile } or { itemUrl }",
+    );
+  }
+
+  const out: { topicOrFile?: string; itemUrl?: string; limit?: number } = {};
+  if (p.itemUrl !== undefined) {
+    // The same guards `why`'s URL arms get: both values come off a browser address bar.
+    out.itemUrl = requireUrlArm(p.itemUrl, "itemUrl");
+  } else {
+    if (typeof p.topicOrFile !== "string") {
+      throw new AgentsRpcError(-32602, "topicOrFile must be a string");
+    }
+    const trimmed = p.topicOrFile.trim();
+    if (trimmed.length < MIN_TOPIC_LEN || trimmed.length > MAX_TOPIC_LEN) {
+      throw new AgentsRpcError(
+        -32602,
+        `topicOrFile must be ${MIN_TOPIC_LEN}..${MAX_TOPIC_LEN} chars after trim`,
+      );
+    }
+    out.topicOrFile = trimmed;
+  }
   if (p.limit !== undefined) {
     if (
       typeof p.limit !== "number" ||
@@ -460,28 +483,46 @@ function prUrlHasCredentials(value: string): boolean {
   }
 }
 
+/**
+ * One URL-shaped arm's value, validated.
+ *
+ * Extracted so `prUrl` and `itemUrl` cannot drift apart: both come off a browser address
+ * bar, so both need the same length bound and the same userinfo rejection. A second copy
+ * of these three checks is a second thing to remember to update.
+ */
+function requireUrlArm(value: unknown, name: "prUrl" | "itemUrl"): string {
+  if (typeof value !== "string") {
+    throw new AgentsRpcError(-32602, `${name} must be a string`);
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > MAX_PR_URL_LEN) {
+    throw new AgentsRpcError(-32602, `${name} must be 1..${MAX_PR_URL_LEN} chars after trim`);
+  }
+  if (prUrlHasCredentials(trimmed)) {
+    throw new AgentsRpcError(-32602, `${name} must not contain userinfo (user:pass@) credentials`);
+  }
+  return trimmed;
+}
+
+const WHY_ARMS_MESSAGE = "agents.why requires exactly one of { ref }, { prUrl } or { itemUrl }";
+
 function requireWhyParams(params: unknown): WhyInput {
   if (params === null || typeof params !== "object" || Array.isArray(params)) {
-    throw new AgentsRpcError(-32602, "agents.why requires { ref: string } or { prUrl: string }");
+    throw new AgentsRpcError(-32602, WHY_ARMS_MESSAGE);
   }
-  const p = params as { ref?: unknown; prUrl?: unknown };
-  const hasRef = p.ref !== undefined;
-  const hasPrUrl = p.prUrl !== undefined;
-  if (hasRef === hasPrUrl) {
-    throw new AgentsRpcError(-32602, "agents.why requires exactly one of { ref } or { prUrl }");
+  const p = params as { ref?: unknown; prUrl?: unknown; itemUrl?: unknown };
+  // A COUNT, not the `hasRef === hasPrUrl` equality this replaced: that trick reads
+  // "exactly one" only while there are exactly two arms, and silently starts meaning
+  // "an odd number" at three. Counting says what it means at any arity.
+  const supplied = [p.ref, p.prUrl, p.itemUrl].filter((v) => v !== undefined).length;
+  if (supplied !== 1) {
+    throw new AgentsRpcError(-32602, WHY_ARMS_MESSAGE);
   }
-  if (hasPrUrl) {
-    if (typeof p.prUrl !== "string") {
-      throw new AgentsRpcError(-32602, "prUrl must be a string");
-    }
-    const trimmed = p.prUrl.trim();
-    if (trimmed.length === 0 || trimmed.length > MAX_PR_URL_LEN) {
-      throw new AgentsRpcError(-32602, `prUrl must be 1..${MAX_PR_URL_LEN} chars after trim`);
-    }
-    if (prUrlHasCredentials(trimmed)) {
-      throw new AgentsRpcError(-32602, "prUrl must not contain userinfo (user:pass@) credentials");
-    }
-    return { prUrl: trimmed };
+  if (p.itemUrl !== undefined) {
+    return { itemUrl: requireUrlArm(p.itemUrl, "itemUrl") };
+  }
+  if (p.prUrl !== undefined) {
+    return { prUrl: requireUrlArm(p.prUrl, "prUrl") };
   }
   return requireWhyRefParams(params);
 }
@@ -701,14 +742,21 @@ function requireOwnershipParams(params: unknown): OwnershipInput {
   if (typeof params !== "object" || Array.isArray(params)) {
     throw new AgentsRpcError(-32602, "agents.ownership requires an object payload");
   }
-  const p = params as { path?: unknown; service?: unknown };
-  if (p.path !== undefined && p.service !== undefined) {
+  const p = params as { path?: unknown; service?: unknown; itemUrl?: unknown };
+  // A count, not a pairwise check: with three scopes the old `path && service` form would
+  // have let `{ path, itemUrl }` through, and lane 1 would silently answer only one of them.
+  const scopes = [p.path, p.service, p.itemUrl].filter((v) => v !== undefined).length;
+  if (scopes > 1) {
     throw new AgentsRpcError(
       -32602,
-      "path and service are mutually exclusive — pass one, or neither for a coverage summary",
+      "path, service and itemUrl are mutually exclusive — pass one, or none for a coverage summary",
     );
   }
-  const out: { path?: string; service?: string } = {};
+  const out: { path?: string; service?: string; itemUrl?: string } = {};
+  if (p.itemUrl !== undefined) {
+    // The same guards `why`'s URL arms get — this value comes off a browser address bar too.
+    out.itemUrl = requireUrlArm(p.itemUrl, "itemUrl");
+  }
   if (p.path !== undefined) {
     if (typeof p.path !== "string") {
       throw new AgentsRpcError(-32602, "path must be a string");

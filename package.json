@@ -28,6 +28,7 @@
     "js-yaml": "4.3.1",
     "postcss": "8.5.23",
     "postcss-selector-parser": "6.1.4",
+    "browserslist": "4.28.7",
     "nanoid": "3.3.18",
     "qs": "6.15.3",
     "yaml": "2.9.0",
@@ -171,7 +172,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
     "@nimbus-dev/client": "^0.17.3",
-    "@nimbus-dev/sdk": "^1.19.0",
+    "@nimbus-dev/sdk": "^1.31.0",
     "astro": "^7.2.4",
     "zod": "^4.4.3"
   },

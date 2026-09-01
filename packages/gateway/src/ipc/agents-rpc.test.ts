@@ -128,8 +128,26 @@ describe("dispatchAgentsRpc", () => {
       dispatchAgentsRpc("agents.expert", ["not", "an", "object"], makeCtx(freshDb())),
     ).rejects.toMatchObject({
       rpcCode: -32602,
-      message: expect.stringContaining("requires { topicOrFile: string }"),
+      // The message now names both arms — `expert` grew an `itemUrl` arm, and a message
+      // that mentioned only `topicOrFile` would send a caller to the wrong one.
+      message: expect.stringContaining("exactly one of { topicOrFile } or { itemUrl }"),
     });
+  });
+
+  test("agents.expert requires exactly one arm", async () => {
+    const ctx = makeCtx(freshDb());
+    for (const params of [
+      {},
+      { topicOrFile: "x", itemUrl: "https://acme.atlassian.net/browse/A-1" },
+    ]) {
+      await expect(dispatchAgentsRpc("agents.expert", params, ctx)).rejects.toThrow(/exactly one/);
+    }
+    for (const params of [
+      { topicOrFile: "x" },
+      { itemUrl: "https://acme.atlassian.net/browse/A-1" },
+    ]) {
+      expect((await dispatchAgentsRpc("agents.expert", params, ctx)).kind).toBe("hit");
+    }
   });
 
   test("agents.expert eventually emits expert.briefReady", async () => {
@@ -590,6 +608,57 @@ describe("dispatchAgentsRpc — ctx.runner threading proof for the remaining age
       used: true,
       model: "fake-model",
     });
+  });
+
+  // The `hasRef === hasPrUrl` equality this replaced read "exactly one" only while there
+  // were exactly two arms — at three it silently means "an odd number", so all three
+  // supplied together would have been ACCEPTED. Tested as a count, at every arity.
+  test("agents.why requires exactly one of three arms", async () => {
+    const ctx = makeCtx(freshDb());
+    const rejects = [
+      {},
+      { ref: "x", prUrl: "https://github.com/a/b/pull/1" },
+      { ref: "x", itemUrl: "https://acme.atlassian.net/browse/A-1" },
+      { prUrl: "https://github.com/a/b/pull/1", itemUrl: "https://acme.atlassian.net/browse/A-1" },
+      // The three-arm case the old equality would have let through.
+      {
+        ref: "x",
+        prUrl: "https://github.com/a/b/pull/1",
+        itemUrl: "https://acme.atlassian.net/browse/A-1",
+      },
+    ];
+    for (const params of rejects) {
+      await expect(dispatchAgentsRpc("agents.why", params, ctx)).rejects.toThrow(/exactly one/);
+    }
+  });
+
+  test("agents.why accepts each single arm", async () => {
+    const ctx = makeCtx(freshDb());
+    for (const params of [
+      { ref: "x" },
+      { prUrl: "https://github.com/a/b/pull/1" },
+      { itemUrl: "https://acme.atlassian.net/browse/A-1" },
+    ]) {
+      const out = await dispatchAgentsRpc("agents.why", params, ctx);
+      expect(out.kind).toBe("hit");
+    }
+  });
+
+  test("itemUrl inherits the prUrl arm's guards", async () => {
+    const ctx = makeCtx(freshDb());
+    await expect(
+      dispatchAgentsRpc(
+        "agents.why",
+        { itemUrl: "https://u:p@acme.atlassian.net/browse/A-1" },
+        ctx,
+      ),
+    ).rejects.toThrow(/userinfo/);
+    await expect(dispatchAgentsRpc("agents.why", { itemUrl: "   " }, ctx)).rejects.toThrow(
+      /chars after trim/,
+    );
+    await expect(dispatchAgentsRpc("agents.why", { itemUrl: 7 }, ctx)).rejects.toThrow(
+      /itemUrl must be a string/,
+    );
   });
 
   test("agents.why with runner set actually synthesizes", async () => {
@@ -1224,5 +1293,46 @@ describe("I29 — externally-originated agent briefs are ledgered", () => {
     ).catch(() => undefined);
     const rows = db.query(`SELECT method FROM egress_ledger`).all() as Array<{ method: string }>;
     expect(rows.map((r) => r.method)).toEqual(["agents.whyPeek"]);
+  });
+});
+
+/**
+ * Every URL-shaped agent param goes through `requireUrlArm`, which rejects userinfo.
+ *
+ * Pinned across ALL THREE call sites rather than once: the guard is shared today, and this
+ * is what fails if someone later inlines a fourth arm's validation instead of reusing it.
+ * A `user:pass@` URL forwarded downstream would land plaintext credentials in a brief's
+ * rendered query and in the egress ledger.
+ */
+describe("credentials never survive a URL param", () => {
+  const CREDENTIALED = "https://user:secret@acme.atlassian.net/browse/A-1";
+
+  test("why rejects userinfo on both URL arms", async () => {
+    const ctx = makeCtx(freshDb());
+    for (const params of [{ prUrl: CREDENTIALED }, { itemUrl: CREDENTIALED }]) {
+      await expect(dispatchAgentsRpc("agents.why", params, ctx)).rejects.toThrow(/userinfo/);
+    }
+  });
+
+  test("expert rejects userinfo on itemUrl", async () => {
+    const ctx = makeCtx(freshDb());
+    await expect(
+      dispatchAgentsRpc("agents.expert", { itemUrl: CREDENTIALED }, ctx),
+    ).rejects.toThrow(/userinfo/);
+  });
+
+  test("ownership rejects userinfo on itemUrl", async () => {
+    const ctx = makeCtx(freshDb());
+    await expect(
+      dispatchAgentsRpc("agents.ownership", { itemUrl: CREDENTIALED }, ctx),
+    ).rejects.toThrow(/userinfo/);
+  });
+
+  test("the secret never appears in the rejection message", async () => {
+    const ctx = makeCtx(freshDb());
+    const err = await dispatchAgentsRpc("agents.why", { itemUrl: CREDENTIALED }, ctx).catch(
+      (e: unknown) => e,
+    );
+    expect(String((err as Error).message)).not.toContain("secret");
   });
 });
