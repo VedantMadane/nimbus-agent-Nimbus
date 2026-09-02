@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { isAbsolute } from "node:path";
 import {
   CU_EXIT_CODES,
   cuOutcomeExitCode,
@@ -7,6 +8,7 @@ import {
   handleActionBroadcast,
   handleEnvelopeBroadcast,
   parseComputerBrowserArgs,
+  parseComputerTerminalArgs,
   resolveOrigin,
   runComputer,
 } from "./computer.ts";
@@ -279,11 +281,53 @@ describe("handleEnvelopeBroadcast", () => {
   test("survives malformed nested origin lists without throwing before responding", async () => {
     const h = harness(true);
     await handleEnvelopeBroadcast(
-      { requestId: "e2", navigateOrigins: "nope", scriptOrigins: [1, 2] },
+      // `lane` added when the prompt became a lane union: without it this broadcast is now
+      // auto-denied as undescribable (see the test below), which would make this case assert the
+      // wrong thing. Its actual subject is the MALFORMED ORIGIN LISTS, unchanged.
+      { requestId: "e2", lane: "browser", navigateOrigins: "nope", scriptOrigins: [1, 2] },
       h.ask,
       h.respond,
     );
     expect(h.answered).toEqual([{ requestId: "e2", approved: true }]);
+  });
+
+  test("an UNRECOGNISED lane is denied without ever prompting the owner", async () => {
+    // Falling back to the browser render would show the owner a prompt describing a grant that is
+    // not the one being requested. Asking a human to approve a thing this command cannot describe
+    // is worse than refusing it — and a refusal is recoverable, a mistaken approval is not.
+    const h = harness(true);
+    await handleEnvelopeBroadcast({ requestId: "e3", lane: "screen" }, h.ask, h.respond);
+    expect(h.shown).toEqual([]);
+    expect(h.answered).toEqual([{ requestId: "e3", approved: false }]);
+  });
+
+  test("a MISSING lane is denied too, rather than assumed to be a browser", async () => {
+    const h = harness(true);
+    await handleEnvelopeBroadcast({ requestId: "e4" }, h.ask, h.respond);
+    expect(h.shown).toEqual([]);
+    expect(h.answered).toEqual([{ requestId: "e4", approved: false }]);
+  });
+
+  test("a terminal broadcast renders the shell and directory, and says there is no network", async () => {
+    const h = harness(true);
+    await handleEnvelopeBroadcast(
+      {
+        requestId: "e5",
+        lane: "terminal",
+        sessionId: "s1",
+        shellId: "sh",
+        cwd: "/home/me/project",
+        maxActions: 5,
+        maxWallClockMs: 60000,
+      },
+      h.ask,
+      h.respond,
+    );
+    const shown = h.shown[0] ?? "";
+    expect(shown).toContain("/home/me/project");
+    expect(shown).toContain("sh");
+    expect(shown).toMatch(/no network|NONE/i);
+    expect(h.answered).toEqual([{ requestId: "e5", approved: true }]);
   });
 });
 
@@ -882,5 +926,315 @@ describe("an unknown subcommand refuses with a usage message", () => {
     } as never);
     expect(codes).toEqual([CU_EXIT_CODES.refused]);
     expect(err.join("")).toContain("Usage");
+  });
+});
+
+describe("nimbus computer terminal", () => {
+  test("requires --cwd and resolves it to an absolute path CLIENT-side", () => {
+    expect(() => parseComputerTerminalArgs([])).toThrow(/--cwd is required/);
+    const p = parseComputerTerminalArgs(["--cwd", "."]);
+    expect(isAbsolute(p.cwd)).toBe(true);
+  });
+
+  test("rejects an unknown flag rather than ignoring it", () => {
+    expect(() => parseComputerTerminalArgs(["--cwd", ".", "--net"])).toThrow(/Unknown flag/);
+  });
+
+  test("rejects a flag with no value", () => {
+    expect(() => parseComputerTerminalArgs(["--cwd"])).toThrow(/requires a value/);
+  });
+
+  test("rejects a non-positive budget or timeout", () => {
+    expect(() => parseComputerTerminalArgs(["--cwd", ".", "--max-actions", "0"])).toThrow(
+      /positive integer/,
+    );
+    expect(() => parseComputerTerminalArgs(["--cwd", ".", "--timeout", "-1"])).toThrow(
+      /positive integer/,
+    );
+  });
+
+  test("carries --shell and the bounds through", () => {
+    const p = parseComputerTerminalArgs([
+      "--cwd",
+      ".",
+      "--shell",
+      "sh",
+      "--max-actions",
+      "7",
+      "--timeout",
+      "30",
+    ]);
+    expect(p.shellId).toBe("sh");
+    expect(p.maxActions).toBe(7);
+    expect(p.maxWallClockMs).toBe(30_000);
+  });
+
+  test("the terminal envelope prompt shows the shell and the directory verbatim", () => {
+    const s = formatEnvelopePrompt({
+      lane: "terminal",
+      sessionId: "s1",
+      shellId: "sh",
+      cwd: "/home/me/project",
+      maxActions: 5,
+      maxWallClockMs: 60_000,
+    });
+    expect(s).toContain("/home/me/project");
+    expect(s).toContain("sh");
+    // The one thing a terminal envelope must say and a browser one must not.
+    expect(s).toMatch(/network:\s+NONE/);
+  });
+
+  test("the browser envelope prompt is unchanged and mentions no shell", () => {
+    const s = formatEnvelopePrompt({
+      lane: "browser",
+      sessionId: "s1",
+      navigateOrigins: ["https://example.com"],
+      scriptOrigins: [],
+      maxActions: 5,
+      maxWallClockMs: 60_000,
+    });
+    expect(s).toContain("https://example.com");
+    expect(s).not.toMatch(/shell/i);
+    expect(s).not.toMatch(/directory/i);
+  });
+
+  test("the action prompt heading is lane-neutral, and the fact/claim split survives", () => {
+    const s = formatActionPrompt({
+      sessionId: "s1",
+      seq: 1,
+      kind: "terminal_write",
+      observedTarget: "rm -rf /tmp/x",
+      classification: "actuating",
+      why: "every complete command line",
+      actionsUsed: 1,
+      maxActions: 5,
+      modelDescription: null,
+    });
+    expect(s).not.toMatch(/browser action/i);
+    expect(s).toContain("rm -rf /tmp/x");
+    // The whole design rests on the human reading these as two different kinds of information.
+    expect(s).toMatch(/gateway observed/i);
+    expect(s).toMatch(/UNTRUSTED/);
+  });
+
+  test("the subcommand usage lists terminal", () => {
+    // `runComputer`'s default branch prints this, so a typo'd subcommand would otherwise tell the
+    // user the terminal lane does not exist.
+    let err = "";
+    const deps = {
+      runWithClient: async () => undefined as never,
+      ask: async () => true,
+      sink: {
+        out: () => {},
+        err: (chunk: string) => {
+          err += chunk;
+        },
+      },
+      setExitCode: () => {},
+      sleep: async () => {},
+      onSignal: () => () => {},
+    };
+    return runComputer(["nonsense"], deps).then(() => {
+      expect(err).toContain("terminal");
+    });
+  });
+});
+describe("runComputer orchestration — terminal subcommand", () => {
+  function deps(over: Partial<Parameters<typeof runComputer>[1]> = {}, openReply?: unknown) {
+    const out: string[] = [];
+    const err: string[] = [];
+    const codes: number[] = [];
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const notifs = new Map<string, (params: unknown) => unknown>();
+    const signal: { handlers: Array<() => void>; fire: () => void } = {
+      handlers: [],
+      fire: () => {
+        for (const h of [...signal.handlers]) h();
+      },
+    };
+    const client = {
+      onNotification: (m: string, h: (p: unknown) => unknown) => {
+        notifs.set(m, h);
+      },
+      call: async (method: string, params: unknown) => {
+        calls.push({ method, params });
+        if (method === "computer.sessionOpen") {
+          return openReply ?? { status: "open", sessionId: "sess-t" };
+        }
+        if (method === "computer.sessionStatus") {
+          // Already closed on the FIRST poll, so tests that do not care about the watch loop
+          // resolve immediately without needing `sleep` to be called.
+          return {
+            sessions: [
+              {
+                sessionId: "sess-t",
+                lane: "terminal",
+                openedAt: 0,
+                closedAt: 1,
+                closeReason: "owner",
+                taintedAt: null,
+                actionsUsed: 2,
+                open: false,
+              },
+            ],
+          };
+        }
+        return { matched: true };
+      },
+    };
+    const base = {
+      runWithClient: async <T>(fn: (c: typeof client) => Promise<T>) => fn(client),
+      ask: async () => true,
+      sink: { out: (s: string) => out.push(s), err: (s: string) => err.push(s) },
+      setExitCode: (c: number) => codes.push(c),
+      sleep: async () => {},
+      onSignal: (handler: () => void) => {
+        signal.handlers.push(handler);
+        return () => {
+          signal.handlers = signal.handlers.filter((h) => h !== handler);
+        };
+      },
+      ...over,
+    };
+    return { out, err, codes, calls, notifs, signal, d: base as never };
+  }
+
+  test("sends computer.sessionOpen with an ABSOLUTE cwd and the terminal lane", async () => {
+    const h = deps();
+    await runComputer(["terminal", "--cwd", "."], h.d);
+    const open = h.calls.find((c) => c.method === "computer.sessionOpen");
+    if (open === undefined) throw new Error("expected a computer.sessionOpen call");
+    const params = open.params as { lane: string; cwd: string };
+    expect(params.lane).toBe("terminal");
+    // Resolved CLIENT-side: the gateway's working directory is not the caller's, and the gateway
+    // refuses a relative path rather than resolving it against something the caller never saw.
+    expect(isAbsolute(params.cwd)).toBe(true);
+  });
+
+  test("carries --shell and the bounds through to the gateway", async () => {
+    const h = deps();
+    await runComputer(
+      ["terminal", "--cwd", ".", "--shell", "sh", "--max-actions", "3", "--timeout", "10"],
+      h.d,
+    );
+    const open = h.calls.find((c) => c.method === "computer.sessionOpen");
+    expect(open?.params).toMatchObject({
+      lane: "terminal",
+      shellId: "sh",
+      maxActions: 3,
+      maxWallClockMs: 10_000,
+    });
+  });
+
+  test("omits shellId entirely when --shell is not given", async () => {
+    // Omitted, not sent as undefined or an empty string: the GATE picks the platform default, and
+    // an empty id would be a caller-chosen value the registry would have to interpret.
+    const h = deps();
+    await runComputer(["terminal", "--cwd", "."], h.d);
+    const open = h.calls.find((c) => c.method === "computer.sessionOpen");
+    expect(Object.keys(open?.params as object)).not.toContain("shellId");
+  });
+
+  test("registers BOTH consent handlers before opening the session", async () => {
+    // A broadcast can share a socket chunk with the RPC response, so a handler registered after
+    // the call can miss the prompt it exists to answer.
+    const h = deps();
+    await runComputer(["terminal", "--cwd", "."], h.d);
+    expect([...h.notifs.keys()].sort()).toEqual([
+      "computer.actionRequest",
+      "computer.envelopeRequest",
+    ]);
+  });
+
+  test("a bad argument refuses without opening anything", async () => {
+    const h = deps();
+    await runComputer(["terminal"], h.d);
+    expect(h.calls).toEqual([]);
+    expect(h.codes).toEqual([CU_EXIT_CODES.refused]);
+    expect(h.err.join("")).toMatch(/--cwd is required/);
+  });
+
+  test("an owner denial exits deniedByOwner", async () => {
+    const h = deps({}, { status: "denied" });
+    await runComputer(["terminal", "--cwd", "."], h.d);
+    expect(h.codes).toEqual([CU_EXIT_CODES.deniedByOwner]);
+  });
+
+  test("a refusal prints the ACTIONABLE message for its code, not the bare code", async () => {
+    const h = deps({}, { status: "refused", code: "ERR_CU_SANDBOX_DEGRADED" });
+    await runComputer(["terminal", "--cwd", "."], h.d);
+    expect(h.codes).toEqual([CU_EXIT_CODES.refused]);
+    // Restored with this lane, having been deleted when the browser lane dropped its placeholder
+    // assertion — and it must name the real remedy per platform, not just the code.
+    expect(h.err.join("")).toMatch(/bubblewrap|nimbus-sandbox-helper/);
+  });
+
+  test("an unknown shell id gets its own message, distinct from a missing shell", async () => {
+    const h = deps({}, { status: "refused", code: "ERR_CU_UNKNOWN_SHELL" });
+    await runComputer(["terminal", "--cwd", "."], h.d);
+    expect(h.err.join("")).toMatch(/--shell named an id/);
+  });
+
+  test("an unrecognised reply shape refuses rather than proceeding", async () => {
+    const h = deps({}, { status: "who-knows" });
+    await runComputer(["terminal", "--cwd", "."], h.d);
+    expect(h.codes).toEqual([CU_EXIT_CODES.refused]);
+  });
+
+  test("watches until the session closes and exits on its close reason", async () => {
+    const h = deps();
+    await runComputer(["terminal", "--cwd", "."], h.d);
+    expect(h.out.join("")).toContain("Session opened: sess-t");
+    // `owner` is a CLEAN shutdown, not a failure.
+    expect(h.codes).toEqual([0]);
+  });
+
+  test("Ctrl-C closes the session on the GATEWAY and exits 130", async () => {
+    // The session belongs to the gateway, so the fix for an interrupt is to ask it to close —
+    // not to exit harder and leave a shell running inside an approved envelope.
+    const h = deps({
+      runWithClient: (async (fn: (c: unknown) => Promise<unknown>) => {
+        const inner = {
+          onNotification: () => {},
+          call: async (method: string, params: unknown) => {
+            h.calls.push({ method, params });
+            if (method === "computer.sessionOpen") return { status: "open", sessionId: "sess-t" };
+            if (method === "computer.sessionStatus") {
+              h.signal.fire(); // interrupt arrives while the watch loop is polling
+              return {
+                sessions: [
+                  {
+                    sessionId: "sess-t",
+                    lane: "terminal",
+                    openedAt: 0,
+                    closedAt: 1,
+                    closeReason: "owner",
+                    taintedAt: null,
+                    actionsUsed: 0,
+                    open: false,
+                  },
+                ],
+              };
+            }
+            return { matched: true };
+          },
+        };
+        return fn(inner);
+      }) as never,
+    });
+    await runComputer(["terminal", "--cwd", "."], h.d);
+    expect(h.calls.some((c) => c.method === "computer.sessionClose")).toBe(true);
+    expect(h.codes).toEqual([CU_EXIT_CODES.interrupted]);
+  });
+
+  test("a transport failure refuses rather than throwing out of the command", async () => {
+    const h = deps({
+      runWithClient: (async () => {
+        throw new Error("gateway not running");
+      }) as never,
+    });
+    await runComputer(["terminal", "--cwd", "."], h.d);
+    expect(h.codes).toEqual([CU_EXIT_CODES.refused]);
+    expect(h.err.join("")).toContain("gateway not running");
   });
 });

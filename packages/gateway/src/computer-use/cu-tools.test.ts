@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { blake3 } from "@noble/hashes/blake3.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
+import type { CuLane } from "../config/nimbus-toml.ts";
 import { DEFAULT_NIMBUS_COMPUTER_USE_TOML } from "../config/nimbus-toml.ts";
 import { runIndexedSchemaMigrations } from "../index/migrations/runner.ts";
 import { type CuGateDeps, closeSession, openSession } from "./cu-gate.ts";
@@ -17,8 +18,15 @@ import type { BrowserLane, ObservedNode } from "./cu-types.ts";
 type ToolExecute = (input: unknown) => Promise<unknown>;
 type ToolsMap = Record<string, { execute?: ToolExecute } | undefined>;
 
-function buildTools(sessionId: string | undefined, d: CuGateDeps): ToolsMap {
-  return buildComputerUseTools(sessionId, d) as unknown as ToolsMap;
+function buildTools(
+  sessionId: string | undefined,
+  d: CuGateDeps,
+  lane: CuLane = "browser",
+): ToolsMap {
+  return buildComputerUseTools(
+    sessionId === undefined ? undefined : { sessionId, lane },
+    d,
+  ) as unknown as ToolsMap;
 }
 
 /** Screenshot bytes the lane stub "captures" — fixed, so the expected BLAKE3 digest is fixed too. */
@@ -129,13 +137,53 @@ function deps(opts: DepsOptions = {}): {
       if (input.promptKind === "action") approvalKinds.push(input.kind);
       return true;
     },
-    resolveBrowserPath: () => "/fake/chrome",
-    buildLaunchPolicy: ({ profileDir }) => ({
-      profileDir: profileDir === "" ? "/fake/profile" : profileDir,
-      argv: ["--user-data-dir=/fake/profile"],
-    }),
-    assertLaunchable: () => null,
-    openLane: async () => laneStub(opts.pageText ?? "page text", spy),
+    lanes: {
+      browser: {
+        resolveBrowserPath: () => "/fake/chrome",
+        buildLaunchPolicy: ({ profileDir }: { profileDir: string }) => ({
+          profileDir: profileDir === "" ? "/fake/profile" : profileDir,
+          argv: ["--user-data-dir=/fake/profile"],
+        }),
+        assertLaunchable: () => null,
+        openLane: async () => laneStub(opts.pageText ?? "page text", spy),
+      },
+      // The terminal seams are REQUIRED on `CuGateDeps` — a gate that could not drive a lane
+      // cannot be constructed — so every fixture supplies them even where no test opens one.
+      terminal: {
+        defaultShellId: "sh",
+        resolveShellPath: () => ({
+          status: "ok" as const,
+          shellPath: "/fake/sh",
+          argv: ["-s"],
+          envOverlay: {},
+        }),
+        buildLaunchPolicy: ({
+          sessionId,
+          shellId,
+          shellPath,
+          cwd,
+        }: {
+          sessionId: string;
+          shellId: string;
+          shellPath: string;
+          cwd: string;
+        }) => ({
+          shellId,
+          shellPath,
+          argv: ["-s"],
+          cwd,
+          envOverlay: {},
+          policy: {
+            id: `cu-terminal-${sessionId}`,
+            permissions: { network: [], filesystem: { read: [cwd], write: [cwd] } },
+          },
+        }),
+        assertLaunchable: () => null,
+        openLane: () => {
+          throw new Error("the terminal lane is not exercised by this fixture");
+        },
+      },
+    },
     db,
     now: () => 1000,
     newId: () => "id-1",
@@ -390,5 +438,40 @@ describe("computer-use tools", () => {
         .get(sessionId) as { model_description: string | null } | null;
       expect(row?.model_description).toBe("reading the current page");
     });
+  });
+});
+
+describe("buildComputerUseTools — lane dispatch", () => {
+  test("a terminal session exposes terminal_write and NO browser tool", () => {
+    const { deps: d } = deps();
+    expect(Object.keys(buildTools("s1", d, "terminal"))).toEqual(["terminal_write"]);
+  });
+
+  test("a browser session exposes the browser tools and NO terminal tool", () => {
+    const { deps: d } = deps();
+    const keys = Object.keys(buildTools("s1", d, "browser"));
+    expect(keys).not.toContain("terminal_write");
+    expect(keys).toContain("browser_click");
+  });
+
+  test("no session exposes nothing at all", () => {
+    const { deps: d } = deps();
+    expect(buildTools(undefined, d)).toEqual({});
+  });
+
+  test("the screen lane exposes nothing — it is a config name with no implementation", () => {
+    const { deps: d } = deps();
+    expect(buildTools("s1", d, "screen")).toEqual({});
+  });
+
+  test("the terminal tool's description names the approval requirement and the bounds", () => {
+    const { deps: d } = deps();
+    const tool = buildComputerUseTools({ sessionId: "s1", lane: "terminal" }, d)[
+      "terminal_write"
+    ] as unknown as { description: string } | undefined;
+    expect(tool?.description ?? "").toMatch(/approve/i);
+    // The two bounds a model will otherwise discover by wasting the owner's budget on them.
+    expect(tool?.description ?? "").toMatch(/no network/i);
+    expect(tool?.description ?? "").toMatch(/vi, less, top, fzf/);
   });
 });

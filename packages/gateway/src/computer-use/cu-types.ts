@@ -7,7 +7,8 @@
  * code in `cu-session.ts` or `cu-gate.ts`, which are gated normally.
  */
 import type { Database } from "bun:sqlite";
-import type { CuLane } from "../config/nimbus-toml.ts";
+import type { SandboxPolicy } from "../platform/sandbox/sandbox-policy.ts";
+import type { TerminalLineBuffer } from "./cu-terminal-buffer.ts";
 
 /**
  * What the GATEWAY observed about the target node, derived from the DOM via CDP.
@@ -53,17 +54,45 @@ export interface CuBrowserTarget {
   readonly scriptOrigins: readonly string[];
 }
 
-export type CuTarget = CuBrowserTarget;
+/**
+ * Terminal lane target. No origins — the envelope names WHICH shell and WHERE it runs, both fixed
+ * at approval and neither widenable afterwards.
+ */
+export interface CuTerminalTarget {
+  /** A registry id (`cu-lanes/terminal-shells.ts`), never an argv. Resolved gateway-side. */
+  readonly shellId: string;
+  /** Absolute. The shell's working directory AND its only filesystem grant. */
+  readonly cwd: string;
+}
 
-/** Immutable once approved. Frozen at construction — widening is unrepresentable, not discouraged. */
-export interface CuEnvelope {
+export type CuTarget = CuBrowserTarget | CuTerminalTarget;
+
+interface CuEnvelopeCommon {
   readonly sessionId: string;
-  readonly lane: CuLane;
-  readonly target: CuTarget;
   readonly maxActions: number;
   readonly maxWallClockMs: number;
   readonly approvedAt: number;
 }
+
+export interface CuBrowserEnvelope extends CuEnvelopeCommon {
+  readonly lane: "browser";
+  readonly target: CuBrowserTarget;
+}
+
+export interface CuTerminalEnvelope extends CuEnvelopeCommon {
+  readonly lane: "terminal";
+  readonly target: CuTerminalTarget;
+}
+
+/**
+ * Immutable once approved. Frozen at construction — widening is unrepresentable, not discouraged.
+ *
+ * A DISCRIMINATED UNION on `lane` rather than a common shape with a per-lane optional target. The
+ * discriminant is what lets `envelope.lane === "terminal"` narrow `envelope.target` to the type
+ * that lane actually has; an optional-field shape would compile everywhere and silently hand a
+ * browser code path an envelope with no origins in it.
+ */
+export type CuEnvelope = CuBrowserEnvelope | CuTerminalEnvelope;
 
 /** `observing` never prompts; `actuating` ALWAYS prompts, and its approval is single-use. */
 export type CuActionClass = "observing" | "actuating";
@@ -84,7 +113,15 @@ export type CuOutcome =
    * wall-clock ceiling. Distinct from every other terminated_* tag: nothing about THIS action was
    * wrong, the capability itself was withdrawn out from under it.
    */
-  | "terminated_policy";
+  | "terminated_policy"
+  /**
+   * TERMINAL LANE ONLY. Model-supplied bytes were accepted into the gateway-side line buffer and
+   * NOTHING reached the shell: no submit character had arrived yet (spec § 4.3.1). Distinct from
+   * every other outcome because nothing was classified, nothing was prompted and nothing actuated —
+   * and it is a real, recorded outcome rather than a silent no-op precisely so an auditor can see
+   * how a command was composed before it was approved.
+   */
+  | "buffered";
 
 export type CuBudgetVerdict =
   | { readonly ok: true; readonly seq: number }
@@ -98,7 +135,7 @@ export type CuBudgetVerdict =
  *
  * `cu-lanes/browser.ts`'s raw-CDP driver IMPLEMENTS this interface rather than declaring it.
  */
-export interface BrowserLane {
+export interface BrowserLane extends CuLaneBase {
   observe(selector: string): Promise<ObservedNode | null>;
   currentOrigin(): string | null;
   click(selector: string): Promise<void>;
@@ -107,19 +144,6 @@ export interface BrowserLane {
   readText(): Promise<string>;
   domSnapshot(): Promise<string>;
   screenshot(): Promise<Uint8Array>;
-  /**
-   * Is the driven target still the one this session opened? `false` once the browser process has
-   * exited, the CDP transport has closed, or the attached page target is gone.
-   *
-   * This is what makes `CuOutcome`'s `terminated_target_lost` an OUTCOME THE GATE CAN ACTUALLY
-   * ASSIGN rather than a declared-and-handled string nothing ever produces. The gate consults it
-   * before it spends a budget slot and again after every `await` inside an action (a click that
-   * navigates away is the single most common way a CDP execution context dies mid-action), so a
-   * dead lane terminates the session instead of surfacing as a generic
-   * `failed_after_approval` whose message happens to mention a socket.
-   */
-  isAlive(): boolean;
-  close(): Promise<void>;
 }
 
 /**
@@ -171,3 +195,98 @@ export interface OpenBrowserLaneOptions {
   readonly sessionId: string;
   readonly target: CuBrowserTarget;
 }
+
+/**
+ * The EXACT launch parameters the TERMINAL lane spawns with — built once, asserted before consent,
+ * then handed UNCHANGED to `openTerminalLane`, which spawns `shellPath` + `argv` verbatim. That
+ * identity is what makes the pre-consent assertion a statement about the process that actually
+ * starts, and it is the same discipline `CuBrowserLaunchPolicy` describes for the browser.
+ *
+ * Unlike the browser, this lane DOES route through `SandboxRunner`, so its `policy` is asserted
+ * with `canConfine` and then used to spawn — the browser's PAL objection (no runner can carry a
+ * CDP control channel) does not apply to a lane whose only channel is stdio. See invariant I35.
+ */
+export interface CuTerminalLaunchPolicy {
+  readonly shellId: string;
+  readonly shellPath: string;
+  readonly argv: readonly string[];
+  readonly cwd: string;
+  readonly envOverlay: Readonly<Record<string, string>>;
+  /** Handed to `SandboxRunner.spawn` verbatim. `permissions.network` is `[]` by construction. */
+  readonly policy: SandboxPolicy;
+}
+
+/**
+ * What EVERY lane offers the gate, independent of what it drives.
+ *
+ * `finalizeSession`, `bestEffortCloseLane` and the gate's post-`await` liveness re-checks are
+ * written against this and this alone, which is why adding a second lane did not have to touch any
+ * of them.
+ */
+export interface CuLaneBase {
+  /**
+   * Is the driven target still the one this session opened? `false` once the child process has
+   * exited or its transport has closed.
+   *
+   * This is what makes `CuOutcome`'s `terminated_target_lost` an OUTCOME THE GATE CAN ACTUALLY
+   * ASSIGN rather than a declared-and-handled string nothing ever produces.
+   */
+  isAlive(): boolean;
+  close(): Promise<void>;
+}
+
+export interface TerminalWriteResult {
+  readonly output: string;
+  /**
+   * WHICH bound ended collection. Disclosed rather than inferred — a reader must be able to tell
+   * "the command finished" from "we stopped waiting", and those are genuinely different facts.
+   *
+   * `no_output` is the one that earns its place: it says nothing arrived within
+   * `TERMINAL_FIRST_BYTE_MS`, which is what a silent command (`mkdir`) and a slow-starting one
+   * (`python x.py`) both look like from here. Reporting it as `quiet` would assert the command
+   * finished, which is exactly the claim this driver cannot make.
+   */
+  readonly settled: "quiet" | "no_output" | "settle_cap" | "output_cap" | "exited";
+  readonly truncated: boolean;
+}
+
+/**
+ * The terminal lane's contract with the gate. `cu-lanes/terminal.ts` IMPLEMENTS this rather than
+ * declaring it, so `cu-gate.ts` imports NOTHING from `cu-lanes/` (D26(b)/(c)) — the same shape
+ * `BrowserLane` above uses.
+ */
+export interface TerminalLane extends CuLaneBase {
+  /**
+   * Write `bytes` plus ONE newline, and nothing else.
+   *
+   * The caller has already obtained the owner's approval for exactly these bytes. This method
+   * appends no sentinel, no prelude and no echo — which is why command completion is detected by
+   * output quiescence rather than by anything written here (invariant I35's terminal clause).
+   */
+  write(bytes: string): Promise<TerminalWriteResult>;
+}
+
+/**
+ * What `cu-gate.ts` passes to the injected `CuGateDeps.lanes.terminal.openLane` seam to launch a
+ * terminal lane AFTER the owner has approved the envelope.
+ */
+export interface OpenTerminalLaneOptions {
+  /** The same object `assertTerminalLaunchable` cleared before the owner was prompted. */
+  readonly launch: CuTerminalLaunchPolicy;
+  readonly sessionId: string;
+}
+
+/**
+ * A live lane, tagged. The gate holds ONE of these per session and narrows on `kind`.
+ *
+ * The terminal arm carries its line buffer BESIDE the driver rather than inside it: the buffer is
+ * the unit of consent and must be readable by the gate before any byte is written, while the driver
+ * must not be able to see or alter what is pending approval.
+ */
+export type CuLaneHandle =
+  | { readonly kind: "browser"; readonly browser: BrowserLane }
+  | {
+      readonly kind: "terminal";
+      readonly terminal: TerminalLane;
+      readonly buffer: TerminalLineBuffer;
+    };
