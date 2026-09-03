@@ -16,13 +16,17 @@
 [![Release](https://img.shields.io/github/v/release/nimbus-agent/Nimbus?label=release&color=brightgreen)](https://github.com/nimbus-agent/Nimbus/releases/latest)
 [![Discussions](https://img.shields.io/badge/community-GitHub%20Discussions-238636.svg)](https://github.com/nimbus-agent/Nimbus/discussions)
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="./assets/hero-cast-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="./assets/hero-cast-light.svg">
-  <img alt="Nimbus zero-config demo: nimbus init registers the current git repository for code indexing, the filesystem connector syncs it, and nimbus why traces a line back to its commit and author from local git history — with no credentials, no API key and no LLM configured. Connecting GitHub, a ticket tracker and an incident tool extends the same command with the pull request, ticket and incident." src="./assets/hero-cast-light.svg" width="720">
-</picture>
+<!-- HERO DEMO PULLED 2026-08-25 — do not re-add without a real capture.
+     The cast was rendered from a fake-gateway recording and depicted output the
+     product does not produce: a "| Lane | Evidence |" table with a fabricated PR
+     #214, ticket AUTH-88 and incident INC-31. That string appears nowhere in
+     production source — only in scripts/cast-driver/fixtures/zero-config/events.json.
+     The real `nimbus why` emits "# Why" -> "## Authorship" -> "## Gaps", and the
+     recorded command sequence (init --no-sync -> connector sync -> why) fails on a
+     real machine with "Gateway is not running".
+     Restore only from output captured against a REAL gateway. -->
 
-[**Install**](#quick-start) · [**Docs**](https://nimbus-agent.dev) · [**Watch the 15-second cast**](https://asciinema.org/a/HBEHmA2twRB7pPzI) · [**Architecture**](./architecture.md) · [**Roadmap**](./roadmap.md)
+[**Install**](#quick-start) · [**Docs**](https://nimbus-agent.dev) · [**Architecture**](./architecture.md) · [**Roadmap**](./roadmap.md)
 
 </div>
 
@@ -182,7 +186,7 @@ Nimbus maintains a local SQLite metadata index. Searching across 50,000 indexed 
 - **The HITL consent gate** is implemented in the executor, not the prompt. A model that generates a plan to skip confirmation produces a plan that simply does not execute.
 - **Extensions** run in sandboxed child processes. They receive only credentials for their declared service and cannot enumerate Vault keys or access other connectors.
 - **Prompt injection** is mitigated by injecting file content and API responses as typed `<tool_output>` data blocks, never as instructions.
-- **Every authorized outbound action is ledgered.** An append-only, BLAKE3-chained egress ledger records what left the machine, and `nimbus prove` reports it. The structural rules behind all of this are enumerated in [`SECURITY-INVARIANTS.md`](./SECURITY-INVARIANTS.md); each of the thirty-one LIVE invariants — `I1`–`I27` and `I29`–`I32` — has a production wiring site *and* an enforcement test. `I28` is a reserved number with neither.
+- **Every authorized outbound action is ledgered.** An append-only, BLAKE3-chained egress ledger records what left the machine, and `nimbus prove` reports it. The structural rules behind all of this are enumerated in [`SECURITY-INVARIANTS.md`](./SECURITY-INVARIANTS.md); each of the thirty-two LIVE invariants — `I1`–`I27` and `I29`–`I33` — has a production wiring site *and* an enforcement test. `I28` is a reserved number with neither.
 
 ### True Cross-Platform
 
@@ -368,7 +372,7 @@ OAuth services — Google Drive, Gmail, Slack, … — use `nimbus connector aut
                                                           │
                               your question ─▶ engine ─▶ HITL consent gate ─▶ action
                                                           │
-                                       CLI · VS Code · web clipper · (desktop, coming)
+                        CLI · VS Code · web clipper · Slack/Teams bot · (desktop, coming)
 ```
 
 A headless **Bun Gateway** maintains the private index and runs the agent; clients talk to it only over local JSON-RPC IPC. Credentials live in the OS keystore (DPAPI / Keychain / libsecret) — never in logs, config, or IPC. Full design: [`architecture.md`](./architecture.md).
@@ -413,6 +417,8 @@ Nimbus uses phases, not calendar dates. A phase completes when its acceptance cr
 **S1 (Local Brain) shipped and closed** on 2026-08-20 — the always-on egress ledger and `nimbus prove` (invariant `I29`), the research-briefs HTTP surface, the full-body store that made briefs answerable at all, zero-config onboarding, and the fourteen built-in read-only agents: `expert`, `impact`, `catchup`, `ghost`, `conflicts`, `huddle`, `janitor`, `preflight`, `why`, `glossary`, `decisions`, `ownership`, `pre-mortem` and `negotiate`. The Wave 6 answer-quality set followed and closed it out: agent brief synthesis (`[agents] synthesis`, invariant `I31`), `nimbus ask --devil`, the `[persona]` `tone`/`voice` vocabulary, `nimbus stats` for bucketed time series over the index, and first-class negation queries.
 
 **Now building (S2 — Local Compute Fleet)**, opened 2026-08-21 with nothing shipped in it yet: sandboxed code execution, a HITL-gated local computer-use loop where screenshots never leave the machine, runtime tool generation, multimodal I/O, overnight sub-agent fleets on compute you already own, and bring-your-own-frontier-model routing with local fallback. S1 made the local index answerable; S2 makes local compute usable.
+
+**Recorded direction — not built, and not in the current slot.** The agents are the product; a client is only a context-aware way to reach them without leaving where you already are. The Slack/Teams `@nimbus` bot ships today but cannot yet run an agent — a channel can ask a question (which needs an LLM) but cannot get a brief (which does not). Closing that is the next surface direction. Two things were considered and deliberately **rejected**: shipping a Nimbus fork of VS Code, and letting an agent write your source code. The reasoning and the conditions that would reopen either are recorded in [`roadmap.md` § Rejected Directions](./roadmap.md#rejected-directions) — read that before proposing them again.
 
 The dated delivery log is [`CHANGELOG.md`](./CHANGELOG.md) — it is the single source for what landed when. [`roadmap.md`](./roadmap.md) carries the acceptance criteria, sequencing, and per-phase summaries. Command-level detail for everything above is in [`cli-reference.md`](./cli-reference.md).
 
@@ -461,8 +467,7 @@ Gateway binaries built with `bun build --compile` bundle JavaScript into a singl
 |---|---|---|
 | **Local LLM (Ollama)** | [Ollama](https://ollama.com/download) running on `localhost:11434`, plus at least one pulled model (e.g. `ollama pull llama3.2`) | Default endpoint: `http://127.0.0.1:11434`. Set the local model with `nimbus config set llm.local_model <model>` and prefer it with `nimbus config set llm.prefer_local true`. |
 | **Local LLM (llama.cpp)** | A `llama-server` HTTP endpoint reachable from the Gateway | Default endpoint: `http://127.0.0.1:8080`; override with `nimbus config set llm.llamacpp_server_path http://127.0.0.1:8080`. The key stores the HTTP base URL, not the binary path. |
-| **Cloud LLM (Anthropic)** | Anthropic API key | Export `ANTHROPIC_API_KEY=…` in the Gateway's environment, then `nimbus config set llm.remote_model claude-sonnet-4-6` (provider is inferred from the model id; `claude-*` → Anthropic). |
-| **Cloud LLM (OpenAI)** | OpenAI API key | Export `OPENAI_API_KEY=…`, then `nimbus config set llm.remote_model gpt-4o` (provider is inferred; `gpt-*` / `o1-*` / `o3-*` / `o4-*` → OpenAI). |
+| **Cloud LLM (Anthropic / OpenAI / Gemini / xAI)** | That vendor's API key | Two independent halves, both required. Store the key in the Vault — `nimbus vault set anthropic.api_key` (or `openai` / `gemini` / `xai`) — and opt the vendor in with an `[llm.remote.<vendor>]` table carrying `enabled = true` and a `model`. **No environment variable enables a vendor**, so a key alone does nothing. See [`cli-reference.md`](./cli-reference.md#configuration-file). |
 | **Voice — STT (push-to-talk hotkey / wake-word loop)** | `whisper-cli` (whisper.cpp) on PATH, plus `ffmpeg` for audio capture | Build whisper.cpp from source or install via `brew install whisper-cpp`; `ffmpeg` via your distro/`brew`. Set `voice.whisper_path` if not on PATH. |
 | **Voice — TTS** | macOS: `say` (built-in). Windows: PowerShell SAPI (built-in). Linux: `espeak-ng` (preferred) or `spd-say` | `sudo apt install espeak-ng` / `brew install espeak-ng`. |
 | **Wake-word loop** | Same as STT, plus a microphone configured at the OS level | Verify with `nimbus doctor` — voice section appears when `[voice].enabled = true`. |
@@ -501,17 +506,18 @@ The first time the Gateway starts it creates a default `nimbus.toml` in the plat
 | macOS | `~/Library/Application Support/Nimbus/nimbus.toml` | `~/Library/Application Support/Nimbus` |
 | Linux | `~/.config/nimbus/nimbus.toml` | `~/.local/share/nimbus` |
 
-`NIMBUS_CONFIG_DIR` moves the config directory only — it deliberately does not move the data directory, and there is no data-directory override (on Linux the data root follows `XDG_DATA_HOME`). Most TOML keys also have a corresponding `NIMBUS_`-prefixed env var override that wins over the file (e.g. `NIMBUS_AGENT_MODEL`, `NIMBUS_CLASSIFIER_MODEL`, `NIMBUS_TELEMETRY_ENABLED`) — see [`cli-reference.md`](./cli-reference.md#environment-variables).
+`NIMBUS_CONFIG_DIR` moves the config directory only — it deliberately does not move the data directory, and there is no data-directory override (on Linux the data root follows `XDG_DATA_HOME`). Most TOML keys also have a corresponding `NIMBUS_`-prefixed env var override that wins over the file (e.g. `NIMBUS_TELEMETRY_ENABLED`, `NIMBUS_ASK_MAX_STEPS`) — see [`cli-reference.md`](./cli-reference.md#environment-variables).
 
 `nimbus ask` needs an LLM; indexing, `nimbus why` and the deterministic briefs do not. Remote model ids are inferred: `claude-*` → Anthropic, `gpt-*` / `o1-*` / `o3-*` / `o4-*` → OpenAI. Local model ids are passed to Ollama or llama.cpp through `[llm].local_model`.
 
 ```bash
-# Cloud (default — fastest path to a working install).
-# Defaults are claude-sonnet-4-6 (agent) + claude-haiku-4-5-20251001 (classifier);
-# only set these if you want to override.
-export ANTHROPIC_API_KEY=sk-ant-…
-nimbus config set llm.remote_model      claude-sonnet-4-6
-nimbus config set llm.classifier_model  claude-haiku-4-5-20251001
+# Cloud — one vendor at a time, opted into explicitly. A key alone does nothing:
+# no environment variable can enable a vendor you did not name in nimbus.toml.
+nimbus vault set anthropic.api_key   # prompts for the value; never on the command line
+nimbus config edit                   # add the block below, then restart the Gateway
+#   [llm.remote.anthropic]
+#   enabled = true
+#   model   = "claude-sonnet-4-6"
 
 # OR fully local (no network calls; requires Ollama running)
 ollama pull llama3.2
@@ -715,7 +721,7 @@ The complete command reference — every subcommand, flag, exit code, and the fu
 - **Extension isolation** — third-party extensions run as sandboxed child processes (bwrap + seccomp on Linux, `sandbox-exec` on macOS, AppContainer on Windows), receive only their declared service's credentials, and cannot reach the Vault or other connectors. Publisher manifests are Ed25519-verified at install and on every Gateway startup.
 - **Full audit log** — every action, including every HITL decision, is recorded in a local BLAKE3-chained SQLite table before the action executes; `nimbus audit verify` proves the chain.
 - **Egress ledger** — every authorized outbound action is appended to an append-only, BLAKE3-chained ledger before dispatch, and a failed append aborts the action. `nimbus prove` reports what left the machine.
-- **Thirty-one enumerated invariants** — `I1`–`I27` and `I29`–`I32`, each with a production wiring site, a section in [`SECURITY-INVARIANTS.md`](./SECURITY-INVARIANTS.md), and an enforcement test. `I28` is a reserved number, deliberately skipped: it has no wiring, no section and no test, so it is not one of the thirty-one. A static audit runs before the test suite; the runtime tests stay authoritative.
+- **Thirty-two enumerated invariants** — `I1`–`I27` and `I29`–`I33`, each with a production wiring site, a section in [`SECURITY-INVARIANTS.md`](./SECURITY-INVARIANTS.md), and an enforcement test. `I28` is a reserved number, deliberately skipped: it has no wiring, no section and no test, so it is not one of the thirty-two. A static audit runs before the test suite; the runtime tests stay authoritative.
 - **Internal security audit (B1, 2026-04-25)** — 8 trust surfaces reviewed; 78 unique findings filed (0 Critical); all High and Medium items closed pre-`v0.1.0`. One Low item (`S6-F1`) closed in `v0.1.0`, and the two Tauri-specific Low items (`S4-F6`, `S4-F8`) are deferred to Phase 13 (`desktop-v0.1.0`); see [SECURITY.md](./SECURITY.md#security-audits) for the full record. A formal third-party penetration test is scheduled for Phase 12.
 
 > **Note:** Nimbus's guarantees hold at the process boundary. It is not a firewall, antivirus, or VPN application; endpoint protection (AV/EDR), network security (VPN/Firewall), and OS-level hardening are your responsibility. See [SECURITY.md](./SECURITY.md) for the full boundary definition.
@@ -810,14 +816,13 @@ nimbus/
 │   │                         # config, profile, diag, doctor, db, connector, extension, …
 │   ├── ui/                   # Tauri 2.0 desktop app (Phase 4; release vehicle in Phase 13)
 │   ├── docs/                 # Astro Starlight documentation site
-│   ├── mcp-connectors/       # First-party MCP servers (90+)
 │   ├── admin-console/        # Static admin console served at /admin/*
 │   └── github-actions/       # First-party GitHub Actions (not workspace members)
 ├── docs/
 │   ├── README.md             # this file — the repository landing page
 │   ├── architecture.md       # subsystem design, IPC catalogue, schema reference
 │   ├── SECURITY.md           # security model + vulnerability reporting
-│   ├── SECURITY-INVARIANTS.md# I1–I31 rationale + anti-patterns
+│   ├── SECURITY-INVARIANTS.md# I1–I35 rationale + anti-patterns
 │   ├── roadmap.md            # acceptance-criteria-driven roadmap
 │   ├── CHANGELOG.md          # dated delivery log (canonical)
 │   ├── cli-reference.md      # full CLI + nimbus.toml reference

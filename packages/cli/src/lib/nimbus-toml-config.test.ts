@@ -13,6 +13,7 @@ const SAVED = {
   agent: process.env["NIMBUS_AGENT_MODEL"],
   classifier: process.env["NIMBUS_CLASSIFIER_MODEL"],
   telemetry: process.env["NIMBUS_TELEMETRY_ENABLED"],
+  endpoint: process.env["NIMBUS_TELEMETRY_ENDPOINT"],
 };
 
 let dir: string;
@@ -22,6 +23,7 @@ beforeEach(() => {
   delete process.env["NIMBUS_AGENT_MODEL"];
   delete process.env["NIMBUS_CLASSIFIER_MODEL"];
   delete process.env["NIMBUS_TELEMETRY_ENABLED"];
+  delete process.env["NIMBUS_TELEMETRY_ENDPOINT"];
   dir = mkdtempSync(join(tmpdir(), "nimbus-toml-cfg-"));
   tomlPath = join(dir, "nimbus.toml");
 });
@@ -34,74 +36,70 @@ afterEach(() => {
   else process.env["NIMBUS_CLASSIFIER_MODEL"] = SAVED.classifier;
   if (SAVED.telemetry === undefined) delete process.env["NIMBUS_TELEMETRY_ENABLED"];
   else process.env["NIMBUS_TELEMETRY_ENABLED"] = SAVED.telemetry;
+  if (SAVED.endpoint === undefined) delete process.env["NIMBUS_TELEMETRY_ENDPOINT"];
+  else process.env["NIMBUS_TELEMETRY_ENDPOINT"] = SAVED.endpoint;
 });
 
-describe("listTomlKeysWithEnv — llm.* entries", () => {
-  test("llm.remote_model surfaces from env when NIMBUS_AGENT_MODEL is set", () => {
-    process.env["NIMBUS_AGENT_MODEL"] = "claude-opus-4-8";
+describe("listTomlKeysWithEnv — env-overridable entries", () => {
+  // These exercised `llm.remote_model` until 2026-08-28, when it and `llm.classifier_model` were
+  // removed: the engine agent moved to `[llm.remote.<vendor>] model` and the intent classifier
+  // to `LlmRouter`, leaving nothing that read either key. `telemetry.endpoint` is the remaining
+  // string-valued env-overridable key and carries the same behaviours.
+  test("surfaces from env when the env var is set", () => {
+    process.env["NIMBUS_TELEMETRY_ENDPOINT"] = "https://otel.example/v1";
     const rows = listTomlKeysWithEnv(tomlPath);
-    const row = rows.find((r) => r.key === "llm.remote_model");
+    const row = rows.find((r) => r.key === "telemetry.endpoint");
     expect(row).toEqual({
-      key: "llm.remote_model",
-      value: "claude-opus-4-8",
+      key: "telemetry.endpoint",
+      value: "https://otel.example/v1",
       source: "env",
-      envVar: "NIMBUS_AGENT_MODEL",
+      envVar: "NIMBUS_TELEMETRY_ENDPOINT",
     });
   });
 
-  test("llm.classifier_model surfaces from env when NIMBUS_CLASSIFIER_MODEL is set", () => {
-    process.env["NIMBUS_CLASSIFIER_MODEL"] = "claude-haiku-4-5-20251001";
+  test("surfaces from file when env is unset and the key is in the TOML", () => {
+    writeFileSync(tomlPath, `[telemetry]\nendpoint = "https://otel.example/v1"\n`);
     const rows = listTomlKeysWithEnv(tomlPath);
-    const row = rows.find((r) => r.key === "llm.classifier_model");
-    expect(row).toEqual({
-      key: "llm.classifier_model",
-      value: "claude-haiku-4-5-20251001",
-      source: "env",
-      envVar: "NIMBUS_CLASSIFIER_MODEL",
-    });
-  });
-
-  test("llm.* surfaces from file when env is unset and the key is in the TOML", () => {
-    writeFileSync(
-      tomlPath,
-      `[llm]\nremote_model = "claude-sonnet-4-6"\nclassifier_model = "claude-haiku-4-5-20251001"\n`,
-    );
-    const rows = listTomlKeysWithEnv(tomlPath);
-    const remote = rows.find((r) => r.key === "llm.remote_model");
-    const classifier = rows.find((r) => r.key === "llm.classifier_model");
-    expect(remote).toEqual({
-      key: "llm.remote_model",
-      value: '"claude-sonnet-4-6"',
-      source: "file",
-    });
-    expect(classifier).toEqual({
-      key: "llm.classifier_model",
-      value: '"claude-haiku-4-5-20251001"',
+    expect(rows.find((r) => r.key === "telemetry.endpoint")).toEqual({
+      key: "telemetry.endpoint",
+      value: '"https://otel.example/v1"',
       source: "file",
     });
   });
 
   test("env beats file when both are set", () => {
-    writeFileSync(tomlPath, `[llm]\nremote_model = "claude-sonnet-4-6"\n`);
-    process.env["NIMBUS_AGENT_MODEL"] = "claude-opus-4-8";
+    writeFileSync(tomlPath, `[telemetry]\nendpoint = "https://from-file"\n`);
+    process.env["NIMBUS_TELEMETRY_ENDPOINT"] = "https://from-env";
     const rows = listTomlKeysWithEnv(tomlPath);
-    const row = rows.find((r) => r.key === "llm.remote_model");
+    const row = rows.find((r) => r.key === "telemetry.endpoint");
     expect(row?.source).toBe("env");
-    expect(row?.value).toBe("claude-opus-4-8");
-  });
-
-  test("llm.* is omitted when both env and file are unset", () => {
-    const rows = listTomlKeysWithEnv(tomlPath);
-    expect(rows.find((r) => r.key === "llm.remote_model")).toBeUndefined();
-    expect(rows.find((r) => r.key === "llm.classifier_model")).toBeUndefined();
+    expect(row?.value).toBe("https://from-env");
   });
 
   test("trims whitespace-only env values to undefined and falls back to file", () => {
-    process.env["NIMBUS_AGENT_MODEL"] = "   ";
-    writeFileSync(tomlPath, `[llm]\nremote_model = "from-file"\n`);
+    process.env["NIMBUS_TELEMETRY_ENDPOINT"] = "   ";
+    writeFileSync(tomlPath, `[telemetry]\nendpoint = "https://from-file"\n`);
     const rows = listTomlKeysWithEnv(tomlPath);
-    const row = rows.find((r) => r.key === "llm.remote_model");
-    expect(row?.source).toBe("file");
+    expect(rows.find((r) => r.key === "telemetry.endpoint")?.source).toBe("file");
+  });
+
+  test("a key is omitted entirely when both env and file are unset", () => {
+    const rows = listTomlKeysWithEnv(tomlPath);
+    expect(rows.find((r) => r.key === "telemetry.endpoint")).toBeUndefined();
+  });
+
+  // The removed keys must not merely be absent from the map — they must not surface even when
+  // the owner still has them set both ways, because a listed key reads as "this is configured".
+  test("the removed llm.* keys are not listed, from env or from file", () => {
+    process.env["NIMBUS_AGENT_MODEL"] = "claude-opus-4-8";
+    process.env["NIMBUS_CLASSIFIER_MODEL"] = "claude-haiku-4-5-20251001";
+    writeFileSync(
+      tomlPath,
+      `[llm]\nremote_model = "claude-sonnet-4-6"\nclassifier_model = "haiku"\n`,
+    );
+    const rows = listTomlKeysWithEnv(tomlPath);
+    expect(rows.find((r) => r.key === "llm.remote_model")).toBeUndefined();
+    expect(rows.find((r) => r.key === "llm.classifier_model")).toBeUndefined();
   });
 });
 
@@ -276,5 +274,118 @@ describe("setTomlValueInFile", () => {
     writeFileSync(sibling, "keep me");
     setTomlValueInFile(tomlPath, "llm.remote_model", "sonnet");
     expect(readFileSync(sibling, "utf8")).toBe("keep me");
+  });
+});
+
+describe("nested-table keys are refused, not silently mis-written (#1382)", () => {
+  // `setTomlValueInFile` split the dotted key on the FIRST dot, so `llm.tasks.classification`
+  // became section `llm`, key `tasks.classification` — written verbatim under `[llm]`, where
+  // `parseLlmTaskPins` (which reads only a literal `[llm.tasks]` table) never sees it. The command
+  // succeeded, the file changed, and the setting did nothing. Unreachable before `[llm.tasks]`
+  // existed, because no key had two dots; the per-task routing work made it the natural thing
+  // to type.
+  const NESTED = "llm.tasks.classification";
+
+  test("setTomlValueInFile throws on a key naming a nested table", () => {
+    writeFileSync(tomlPath, "[llm]\nprefer_local = true\n");
+    expect(() => setTomlValueInFile(tomlPath, NESTED, "ollama/llama3.2:latest")).toThrow(
+      /nested table/i,
+    );
+  });
+
+  // Fail-CLOSED is the property that matters: a throw that still wrote half a line would leave
+  // exactly the inert `tasks.classification = ...` line this guard exists to prevent.
+  test("the file is left completely untouched when it refuses", () => {
+    const before = "[llm]\nprefer_local = true\n";
+    writeFileSync(tomlPath, before);
+    expect(() => setTomlValueInFile(tomlPath, NESTED, "ollama/llama3.2:latest")).toThrow();
+    expect(readFileSync(tomlPath, "utf8")).toBe(before);
+  });
+
+  // The adjacent door. `getTomlValueFromFile` had the same first-dot split, so it read the inert
+  // line back and ECHOED it — set appeared to work, then get appeared to confirm it, while routing
+  // ignored the value entirely. A guard on the write path alone would leave that false
+  // confirmation in place for a hand-edited file.
+  test("getTomlValueFromFile throws rather than echoing an inert nested line", () => {
+    writeFileSync(tomlPath, '[llm]\nprefer_local = true\n\ntasks.classification = "x"\n');
+    expect(() => getTomlValueFromFile(tomlPath, NESTED)).toThrow(/nested table/i);
+  });
+
+  test("a deeply nested key is refused too, not just three segments", () => {
+    writeFileSync(tomlPath, "[llm]\n");
+    expect(() => setTomlValueInFile(tomlPath, "a.b.c.d", "v")).toThrow(/nested table/i);
+  });
+
+  // The bound in the other direction: ordinary single-dot keys must be untouched. Every existing
+  // call site is single-dot, so this is what proves the guard did not become a regression.
+  test("a plain section.key still round-trips", () => {
+    setTomlValueInFile(tomlPath, "telemetry.enabled", "true");
+    expect(getTomlValueFromFile(tomlPath, "telemetry.enabled")).toBe("true");
+  });
+
+  test("a dotless key still reports the flat-key usage error, not the nested one", () => {
+    expect(() => setTomlValueInFile(tomlPath, "telemetry", "true")).toThrow(/section\.name/);
+  });
+});
+
+describe("degenerate dotted keys are refused too (review of #1382 fix)", () => {
+  // `telemetry.` split into section `telemetry` + an EMPTY key, and the writer emitted ` = true` —
+  // a syntactically invalid TOML line written into the user's real config, which can break parsing
+  // of the whole file. Pre-existing rather than introduced by the nested-table guard, but the
+  // shared splitter is where a key is validated now, so it belongs here.
+  test("an empty key segment is refused, not written as ` = value`", () => {
+    writeFileSync(tomlPath, "[telemetry]\nenabled = false\n");
+    expect(() => setTomlValueInFile(tomlPath, "telemetry.", "true")).toThrow(/section\.name/);
+  });
+
+  test("the config file is untouched after that refusal", () => {
+    const before = "[telemetry]\nenabled = false\n";
+    writeFileSync(tomlPath, before);
+    expect(() => setTomlValueInFile(tomlPath, "telemetry.", "true")).toThrow();
+    expect(readFileSync(tomlPath, "utf8")).toBe(before);
+  });
+
+  test("an empty SECTION segment is refused as well", () => {
+    expect(() => setTomlValueInFile(tomlPath, ".enabled", "true")).toThrow(/section\.name/);
+  });
+
+  // The key was validated only AFTER the file was read, so the same nested key threw on an
+  // existing file and returned `undefined` on a missing one. Validating arguments before touching
+  // the filesystem makes the refusal a property of the KEY, not of whether the file happens to
+  // exist.
+  test("a nested key is refused even when the file does not exist", () => {
+    const missing = join(dir, "definitely-absent.toml");
+    expect(() => getTomlValueFromFile(missing, "llm.tasks.classification")).toThrow(
+      /nested table/i,
+    );
+  });
+
+  test("the same nested key throws identically whether or not the file exists", () => {
+    writeFileSync(tomlPath, "[llm]\n");
+    const missing = join(dir, "definitely-absent.toml");
+    const a = (() => {
+      try {
+        getTomlValueFromFile(tomlPath, "llm.tasks.classification");
+      } catch (e) {
+        return (e as Error).message;
+      }
+      return "did not throw";
+    })();
+    const b = (() => {
+      try {
+        getTomlValueFromFile(missing, "llm.tasks.classification");
+      } catch (e) {
+        return (e as Error).message;
+      }
+      return "did not throw";
+    })();
+    expect(a).toBe(b);
+  });
+
+  // The bound: a missing file is still a normal "not set" for a WELL-FORMED key. Only a malformed
+  // key throws — otherwise `nimbus config get` on a fresh machine would start erroring.
+  test("a well-formed key on a missing file still returns undefined", () => {
+    const missing = join(dir, "definitely-absent.toml");
+    expect(getTomlValueFromFile(missing, "telemetry.enabled")).toBeUndefined();
   });
 });

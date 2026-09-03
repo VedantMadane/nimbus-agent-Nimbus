@@ -676,7 +676,7 @@ Like `nimbus owners`/`nimbus pre-mortem`, `nimbus negotiate` **hard-rejects** an
 
 The brief is also recomputed fresh on every invocation rather than cached, so two runs a window apart can legitimately disagree as the underlying index changes.
 
-**Not reachable over the local HTTP API, nor as an MCP tool.** `agents.negotiate` is served on the CLI/Tauri socket only — it is excluded from the HTTP agent surface (`POST /v1/agents/{agent}`) and it defines no MCP tool, so a model driving `nimbus mcp` cannot invoke it either. Unlike `agents.preflight`/`agents.premortem` (excluded for their side effects) it writes nothing, but combined with `--person` an exposed version would let any holder of the `agents` bearer token — or any model driving the tool server — assemble a contribution dossier on any indexed person without the local owner initiating it. The CLI and Tauri renderer are same-machine, owner-initiated surfaces; the local HTTP API and the MCP tool server are not.
+**Not reachable over the local HTTP API, nor as an MCP tool.** `agents.negotiate` is served on the CLI/Tauri socket only — it is excluded from the HTTP agent surface (`POST /v1/agents/{agent}`) and it defines no MCP tool, so a model driving `nimbus mcp-server` cannot invoke it either. Unlike `agents.preflight`/`agents.premortem` (excluded for their side effects) it writes nothing, but combined with `--person` an exposed version would let any holder of the `agents` bearer token — or any model driving the tool server — assemble a contribution dossier on any indexed person without the local owner initiating it. The CLI and Tauri renderer are same-machine, owner-initiated surfaces; the local HTTP API and the MCP tool server are not.
 
 **Configuration — `[negotiate]` in `nimbus.toml`:**
 
@@ -1185,6 +1185,193 @@ the local posture and never loosen it.
 
 ---
 
+## Computer-Use Sessions (browser and terminal lanes)
+
+### `nimbus computer`
+
+Open a HITL-gated computer-use session — a sandboxed **browser** or a sandboxed
+**terminal** — and watch its action log, answering the two consent-prompt kinds
+inline. Invariant **I35**, static rule **D26**, schema **V57**.
+
+**Off by default, and empty even when on.** Add to `nimbus.toml`:
+
+```toml
+[computer_use]
+enabled                 = true       # DEFAULT false
+allowed_lanes           = ["browser", "terminal"] # DEFAULT [] — a second, deliberate lock
+max_actions             = 50
+max_wall_clock_ms       = 300000
+snapshot_max_bytes      = 262144
+snapshot_retention_days = 7
+```
+
+`enabled = true` alone grants no lane — `allowed_lanes` must name one too, so
+turning the capability on does not silently turn every lane on with it. With
+either left at its default the gate refuses *before* prompting.
+
+```bash
+nimbus computer browser --origin https://github.com --script-origin https://api.github.com
+nimbus computer terminal --cwd ./my-project
+nimbus computer sessions
+nimbus computer close <session-id>
+```
+
+| Subcommand | Meaning |
+| --- | --- |
+| `browser --origin <o>...` | Open a browser-lane session. Repeatable `--origin` builds the navigate allowlist (at least one required); repeatable `--script-origin` builds the SEPARATE allowlist for script-initiated `fetch`/XHR/`WebSocket` requests (default empty). `--max-actions <n>` / `--timeout <seconds>` clamp the session's action and wall-clock budgets. Every origin is canonicalised client-side and REFUSED — never widened — if it carries a path, query, fragment, userinfo, or a trailing-dot hostname. |
+| `terminal --cwd <dir>` | Open a terminal-lane session: a sandboxed shell in `<dir>`, which is resolved client-side and is the shell's ONLY filesystem grant. `--shell <id>` names a registry shell (`sh` on POSIX, `cmd` on Windows) — an id, never an argv; omit it for the platform default. `--max-actions <n>` / `--timeout <seconds>` clamp the budgets. |
+| `sessions` | List known sessions: id, lane, open/closed, actions used, close reason. |
+| `close <session-id>` | End a session early. |
+
+**`nimbus computer browser` is a passive listener, not a driver.** It opens the
+session, answers `computer.envelopeRequest` (the up-front session approval —
+lane, the **full** origin lists, the action budget, the wall-clock budget,
+never elided or summarised) and `computer.actionRequest` (one per
+`actuating` action — a clearly labelled **gateway-observed fact** alongside
+the model's own **untrusted claim** about its intent), and then watches the
+session's action count until it closes. It does not drive any action itself,
+and that is by design rather than a gap: `computer.act` is driven from inside
+the gateway by the model-callable browser tools, which exist only while a
+session is live.
+
+**What the terminal lane does and does not do.** Every command is shown to you
+in full and approved individually before a single byte reaches the shell —
+bytes the model composes accumulate gateway-side until it submits a complete
+line. Control characters, escape sequences and invisible/bidirectional
+formatting characters are refused outright rather than buffered, so the line
+you approve renders as the bytes that will run.
+
+Two consequences worth knowing before you enable it:
+
+- **The shell has NO network access, including `localhost`.** `curl`, `git
+  fetch`, `npm install` and anything else that needs the network will fail.
+  That is the design, not a limitation to work around, and it is what lets the
+  lane add no egress class at all.
+- **It is line-oriented only.** `vi`, `less`, `top`, `fzf` and interactive
+  confirmation prompts do not work — the shell has no tty, so most of them
+  refuse to start on their own. This is the deliberate cost of approving whole
+  commands rather than keystrokes.
+
+And one bound stated plainly: approving a line proves you **saw** it, not that
+you understood it. A single approved command can still do arbitrary damage
+inside its working directory.
+
+If a terminal session refuses with `ERR_CU_SANDBOX_DEGRADED`, the sandbox could
+not confine it: on Linux install `bubblewrap` (`bwrap`); on Windows ensure
+`nimbus-sandbox-helper.exe` sits beside the `nimbus` binary. The lane spawns a
+real shell and will not do so unsandboxed.
+
+**Ctrl-C closes the session on the GATEWAY, and exits `130`.** The session
+belongs to the gateway, not to this process, so an interrupt asks the gateway
+to close it rather than merely exiting — otherwise a live headless browser
+would sit inside an approved envelope, unwatched, until its wall-clock ceiling
+expired. A second Ctrl-C stops waiting and prints the recovery command
+(`nimbus computer close <id>`) rather than blocking your terminal on a close
+that is not landing.
+
+**Refusals you can actually hit, in the order you hit them.** With the shipped
+defaults (`enabled = false`, `allowed_lanes = []`) a session refuses with
+`ERR_CU_DISABLED` first, then `ERR_CU_LANE_NOT_ALLOWED`. Past those,
+`ERR_CU_UNSAFE_LAUNCH` means the launch policy for this session would have been
+under-confined (for example a `browser_profile_dir` that is empty or relative —
+Chromium with no `--user-data-dir` would run against your real browser profile),
+and `ERR_CU_NO_BROWSER` means no Chrome, Chromium or Edge was found: install one,
+or point `NIMBUS_CHROMIUM_PATH` at an absolute path to a non-standard install.
+Unlike before 2026-08-31, `ERR_CU_NO_BROWSER` now has a local fix — the raw-CDP
+driver shipped, so a machine with a Chromium-family browser can open a real
+session.
+
+**Exit codes.**
+
+| Code | Meaning |
+| --- | --- |
+| `0` | The session closed cleanly — no close reason, or an owner-initiated `close`. |
+| `110` | The owner denied the session envelope. |
+| `112` | Terminated: action budget exhausted. |
+| `113` | Terminated: wall-clock budget exhausted. |
+| `127` | Refused — bad arguments, disabled by config/org policy, an under-confined launch policy, or no Chromium-family browser found. Shared with `nimbus exec`'s `refused` code: same meaning, different command, deliberately. |
+| `130` | Interrupted (Ctrl-C). `128 + SIGINT`, the POSIX convention — the session was asked to close cleanly on the gateway. |
+
+**No pixels ever reach disk.** A screenshot capture is BLAKE3-digested and
+discarded in the same expression; only the digest is recorded. No image
+file is written on any lane, at any point.
+
+**Org lockoff.** A signed `nimbus.policy.toml` can disable it fleet-wide:
+
+```toml
+[policy.capabilities.ai_v2]
+computer_use = false
+```
+
+Only `false` carries meaning, matching `nimbus exec`'s lockoff.
+
+---
+
+## Media Understanding
+
+### `nimbus media understand`
+
+Transcribe local audio and video already in the index, and store the transcript as a
+searchable derived item. **Local models only** — there is no remote transcription tier,
+so the pass refuses rather than reaching for the cloud when no local model is available.
+Schema **V58**.
+
+**Off by default, twice.** Both switches must be set:
+
+```toml
+[multimodal]
+enabled = true            # DEFAULT false
+
+[[filesystem.roots]]
+path        = "~/recordings"
+media_index = true        # DEFAULT false — per root
+```
+
+`media_index` is per-root and separate on purpose: enabling the capability should not
+silently start walking every configured root for large binaries.
+
+**Requires two external binaries on PATH:** `ffmpeg` (transcode) and `whisper-cli`.
+Override with `NIMBUS_FFMPEG_PATH` / `NIMBUS_WHISPER_PATH`.
+
+```bash
+nimbus media understand                        # up to 50 candidates
+nimbus media understand --limit 10             # bound the run
+nimbus media understand --service filesystem   # one service
+nimbus media understand --modality av          # audio/video only
+nimbus media understand --since 30             # modified within 30 days
+nimbus media understand --json                 # machine-readable summary
+```
+
+**Resumable.** Progress is a cursor in `media_pass_cursor`, advanced on skips as well as
+successes, so an interrupted run resumes past the artifact it stopped on rather than
+retrying it forever.
+
+**The summary reports skips by reason, not just a total:**
+
+```text
+Understood 42 of 108.
+Skipped:
+  over_byte_cap: 51
+  no_local_model: 15
+```
+
+A bare count would not tell you whether the other 66 were absent, too large, or refused.
+
+**What it does NOT do in this slice:** images (there is no vision model — image candidates
+are skipped), cloud-hosted media (local files only), and speaker diarization
+(`whisper-cli` cannot do it). Transcripts are embedded **locally** even when a remote
+embedder is configured, so the text extracted from a private recording is never sent to a
+remote embedding service.
+
+**Not reachable over LAN.** The whole `media` namespace is denied to paired peers,
+alongside `exec` and `computer` — the command reads local files and spawns subprocesses.
+
+**Known bound:** org policy does not yet gate this capability. `[policy.capabilities.ai_v2]`
+lists `multimodal_input`, but no policy accessor is wired to this path, so setting it has
+no effect today. The `[multimodal] enabled` switch above is the only real control.
+
+---
+
 ## Interactive Sessions
 
 ### `nimbus tui`
@@ -1515,7 +1702,7 @@ Read a single configuration value.
 
 ```bash
 nimbus config get telemetry.enabled
-nimbus config get llm.remote_model
+nimbus config get llm.local_model
 ```
 
 There is no TOML key for sync cadence — per-connector intervals are set with `nimbus connector set-interval <service> <duration>`, which writes to the index, not to `nimbus.toml`.
@@ -1528,19 +1715,17 @@ Set a configuration value. Changes take effect on the next Gateway restart for G
 
 ```bash
 nimbus config set telemetry.enabled false
-nimbus config set llm.remote_model      claude-sonnet-4-6
-nimbus config set llm.classifier_model  claude-haiku-4-5-20251001
 nimbus config set llm.local_model       llama3.2
 nimbus config set llm.prefer_local      true
 ```
 
-The provider is inferred from the model id: `claude-*` → Anthropic, `gpt-*` / `o1-*` / `o3-*` / `o4-*` → OpenAI. Already-prefixed forms (`anthropic/...`, `openai/...`) are accepted as-is.
+Cloud vendors are **not** configured this way — they need a whole `[llm.remote.<vendor>]` table plus a Vault key, so use `nimbus config edit` and `nimbus vault set`. See [Configuration File](#configuration-file) below.
 
 ---
 
 ### `nimbus config list`
 
-Print the config file path, then a per-key line for whichever of the five env-overridable keys (`telemetry.enabled`, `telemetry.endpoint`, `telemetry.flush_interval_seconds`, `llm.remote_model`, `llm.classifier_model`) currently has a value, followed by the raw `nimbus.toml` body. A key is listed as `env` when its environment variable is set to a non-empty value, otherwise as `file` when it is present in `nimbus.toml` — and is **omitted entirely** when it is neither. There is no `default` source and no line for an unset key. Every other key appears only in the raw dump; there is no per-key documentation column.
+Print the config file path, then a per-key line for whichever of the three env-overridable keys (`telemetry.enabled`, `telemetry.endpoint`, `telemetry.flush_interval_seconds`) currently has a value, followed by the raw `nimbus.toml` body. A key is listed as `env` when its environment variable is set to a non-empty value, otherwise as `file` when it is present in `nimbus.toml` — and is **omitted entirely** when it is neither. There is no `default` source and no line for an unset key. Every other key appears only in the raw dump; there is no per-key documentation column.
 
 ```bash
 nimbus config list
@@ -1595,12 +1780,7 @@ Key sections:
 
 ```toml
 [llm]
-# Conversational agent (Mastra). Provider is inferred from the model id:
-# claude-* → Anthropic; gpt-*/o1-*/o3-*/o4-* → OpenAI.
-remote_model       = "claude-sonnet-4-6"
-# Cheaper/faster model used by the intent classifier. May differ from remote_model.
-classifier_model   = "claude-haiku-4-5-20251001"
-# Local-LLM routing (Phase 4 LLM router).
+# Local-LLM routing.
 prefer_local       = true
 local_model        = "llama3.2" # Any pulled Ollama model name
 # llama.cpp HTTP base URL; not the filesystem path to the llama-server binary.
@@ -1633,7 +1813,35 @@ endpoint = "https://telemetry.nimbus-agent.dev/v1/collect"
 # graph_conditions = true
 ```
 
-**Environment variable overrides:** Most TOML keys have a corresponding `NIMBUS_`-prefixed env var that wins over the file. Examples: `NIMBUS_AGENT_MODEL` (overrides `[llm].remote_model`), `NIMBUS_CLASSIFIER_MODEL` (overrides `[llm].classifier_model`), `NIMBUS_TELEMETRY_ENABLED`. See the [Environment Variables](#environment-variables) table at the end of this document for the full list.
+#### Cloud vendors — `[llm.remote.<vendor>]`
+
+Four vendors are supported: `anthropic`, `openai`, `gemini`, `xai`. Each is its own table, and each is **off by default**.
+
+```toml
+[llm.remote.anthropic]
+enabled = true                    # REQUIRED. Never inferred from the presence of a key.
+model   = "claude-sonnet-4-6"     # REQUIRED. An empty model drops the route (warn-logged by name).
+# base_url = "https://api.anthropic.com"   # optional; for a proxy
+```
+
+The API key is **never** read from the environment or from this file. Store it in the Vault:
+
+| Vendor | Vault key |
+|---|---|
+| `anthropic` | `anthropic.api_key` |
+| `openai` | `openai.api_key` — deliberately the SAME key the embedding runtime uses |
+| `gemini` | `gemini.api_key` |
+| `xai` | `xai.api_key` |
+
+```bash
+nimbus vault set gemini.api_key      # prompts for the value; never on the command line
+```
+
+Both halves are required and they are independent: a key with no `enabled = true` registers no route, and `enabled = true` with no key registers a route that reports `no (no api key)` in `nimbus llm status`. Each enabled vendor becomes one route named `<vendor>/<model>`, which is the name `[llm].route_priority` and `nimbus llm status` use.
+
+**Model ids are the vendor's, and vendors retire them.** Check the vendor's current list rather than copying an id from a document — a retired id fails with a 404 that names the replacement. As of 2026-08-28, for example, `gemini-2.5-pro` and `gemini-2.5-flash` still appear in Google's `GET /v1beta/models` listing but return `404 NOT_FOUND … no longer available to new users` on `generateContent` for a key issued after their retirement; `gemini-flash-lite-latest` and `gemini-3.5-flash` answer normally.
+
+**Environment variable overrides:** Most TOML keys have a corresponding `NIMBUS_`-prefixed env var that wins over the file — `NIMBUS_TELEMETRY_ENABLED`, `NIMBUS_ASK_MAX_STEPS`, and so on. **No vendor credential or vendor selection is env-overridable**, by design: a capability must not turn itself on because a credential happens to exist in the environment. See the [Environment Variables](#environment-variables) table at the end of this document for the full list.
 
 ---
 
@@ -2243,8 +2451,11 @@ nimbus admin token
 
 ### `nimbus llm status`
 
-Show which LLM provider and model is selected for each task type, whether the provider
-is reachable, and why it was chosen.
+Show every LLM route registered with the Gateway — a `(provider, model)` pair, e.g.
+`ollama/qwen3:8b` — and that route's own live availability. One provider vendor (e.g.
+`ollama`, backed by a single daemon) can register several routes at once via
+`[llm.local.<name>]`; each is listed and probed independently, so a shared daemon
+missing one of its two configured models shows only that route as unavailable.
 
 ```text
 nimbus llm status [--json]
@@ -2254,15 +2465,26 @@ nimbus llm status [--json]
 
 | Column    | Description |
 |-----------|-------------|
-| Task type | One of `classification`, `reasoning`, `summarisation`, `agent_step` |
-| Provider  | `ollama`, `llamacpp`, or `remote` |
-| Model     | Model name from config (`llm.local_model` or `llm.remote_model`) |
-| Available | Whether the provider responded to an availability check |
-| Reason    | `prefer-local`, `prefer-remote`, `air-gap`, `no-local-provider`, `no-remote-provider`, or `local-below-reasoning-floor` |
+| Route     | The route id, `"<providerId>/<modelName>"` |
+| Provider  | The provider vendor id, e.g. `ollama`, `llamacpp` |
+| Model     | The model name this route registers |
+| Local     | Whether the route's provider runs on this machine (`provider.isLocal`) |
+| Available | Whether this specific route is reachable right now |
+| Context   | The route's configured context window, or `—` when not reported |
 
-The Provider/Model/Reason columns describe the **preferred** provider for each task (the
-configured intent). When that provider is unavailable, the Reason cell also names the provider
-the router would actually fall back to at generation time — `… (falls back to remote/<model>)`.
+**Available column detail:** `yes`, or one of two distinguishable failure reasons —
+`no (provider unreachable)` when the daemon itself did not respond, or
+`no (model not pulled)` when the daemon is up but this route's specific model is not
+among the models it reports. These are deliberately kept apart (`provider_unreachable`
+vs. `model_absent`) because the fix differs: start the daemon vs. pull the model. An
+unrecognised reason string degrades to `no (<reason>)` rather than a fixed label, so a
+future reason value is still legible.
+
+There is no per-task-type decision or `Reason` column any more, and no
+`falls back to …` text — every route is listed on equal footing with its own
+availability; which one `generate()` would actually pick for a given task is a
+function of `[llm].prefer_local`, `[llm].route_priority`, and the reasoning
+capability floor, not something this command renders per row.
 
 **Flags:**
 
@@ -2273,36 +2495,79 @@ the router would actually fall back to at generation time — `… (falls back t
 **Example — table:**
 
 ```text
-Task type      Provider   Model                    Available  Reason
--------------------------------------------------------------------------------
-classification ollama     llama3.2                 yes        prefer-local
-reasoning      ollama     llama3.2                 no         prefer-local (falls back to remote/claude-sonnet-4-6)
-summarisation  ollama     llama3.2                 yes        prefer-local
-agent_step     —          —                        no         unavailable
+Route                 Provider  Model               Local  Available                 Context
+------------------------------------------------------------------------------------------------
+ollama/qwen3:8b       ollama    qwen3:8b            yes    yes                       8192
+ollama/gemma3:12b     ollama    gemma3:12b          yes    no (model not pulled)     —
+llamacpp/model.gguf   llamacpp  model.gguf          yes    no (provider unreachable) —
 ```
 
 **Example — JSON:**
 
 ```json
-{
-  "classification": {
+[
+  {
+    "routeId": "ollama/qwen3:8b",
     "providerId": "ollama",
-    "modelName": "llama3.2",
-    "isAvailable": true,
-    "reason": "prefer-local"
+    "modelName": "qwen3:8b",
+    "isLocal": true,
+    "available": true,
+    "reason": "ok",
+    "contextWindow": 8192
   },
-  "reasoning": {
+  {
+    "routeId": "ollama/gemma3:12b",
     "providerId": "ollama",
-    "modelName": "llama3.2",
-    "isAvailable": false,
-    "reason": "prefer-local",
-    "fallback": { "providerId": "remote", "modelName": "claude-sonnet-4-6" }
+    "modelName": "gemma3:12b",
+    "isLocal": true,
+    "available": false,
+    "reason": "model_absent"
   }
-}
+]
 ```
 
-The `fallback` field is present only when the preferred provider is unavailable but another
-provider can serve the task.
+The JSON form is the gateway's `routes` array emitted verbatim — a route with no
+reported `contextWindow` simply omits the key (never a fabricated `null` or `0`),
+which is why the table above renders `—` for it instead of a number.
+
+### `nimbus llm use`
+
+Pin a task type (`classification`, `reasoning`, `summarisation`, or `agent_step`) to a
+specific registered route, so that task always tries this route FIRST — ahead of
+`[llm].route_priority` and the `prefer_local` ordering alike.
+
+```text
+nimbus llm use <task> <routeId>
+```
+
+Run `nimbus llm status` first to see the exact route ids this build has registered
+(`"<providerId>/<modelName>"`, e.g. `ollama/llama3.2:latest`).
+
+Both the task type and the route id are validated against what is CURRENTLY
+registered before anything is written — fail-closed, unlike a stale pin at read time
+(which degrades to normal ordering rather than an outage). An unknown task name or an
+unregistered route id is refused with a message listing the valid options, and nothing
+is persisted.
+
+This command writes `<task> = "<routeId>"` under `[llm.tasks]` in `nimbus.toml` — the
+same table a human can hand-edit directly, and the same one `nimbus llm status`'s
+routing and boot both read (`config/nimbus-toml.ts`'s `parseNimbusTomlLlmSection`).
+Both forms end up agreeing because there is exactly one table, never a second
+database-backed store shadowing it. (`nimbus config set` is not that second form here
+— it targets a single flat `section.key` pair and does not address a nested table
+header like `[llm.tasks]`.) The pin also takes effect on the running Gateway
+immediately, with no restart required, in addition to persisting for the next one.
+
+**Example:**
+
+```bash
+nimbus llm use classification ollama/llama3.2:latest
+```
+
+```text
+Pinned "classification" to "ollama/llama3.2:latest" in [llm.tasks].
+Applied immediately — no restart needed — and persisted for the next one.
+```
 
 ---
 
@@ -3495,9 +3760,6 @@ nimbus lan remove abc123
 
 | Variable | Purpose |
 |---|---|
-| `NIMBUS_AGENT_MODEL` | Override `[llm].remote_model` — model id for the conversational agent (default: `claude-sonnet-4-6`). Bare ids work; provider is inferred from `claude-*` / `gpt-*` / `o1-*` / `o3-*` / `o4-*` prefix. |
-| `NIMBUS_CLASSIFIER_MODEL` | Override `[llm].classifier_model` — Anthropic model used by the intent classifier (default: `claude-haiku-4-5-20251001`). |
-| `NIMBUS_OPENAI_CLASSIFIER_MODEL` | OpenAI model used by the classifier when only `OPENAI_API_KEY` is set (default: `gpt-4o-mini`). |
 | `NIMBUS_TELEMETRY_ENABLED` | Override `[telemetry].enabled` |
 | `NIMBUS_TELEMETRY_ENDPOINT` | Override `[telemetry].endpoint` |
 | `NIMBUS_CONFIG_DIR` | Override the platform config directory — **config only**. There is no data-directory override: the data directory is not relocatable by any `NIMBUS_*` variable (on Linux it follows `XDG_DATA_HOME`). |

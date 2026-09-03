@@ -49,7 +49,6 @@ cd packages/ui && bunx vitest run --coverage          # UI with coverage
 bun run test:ci                           # the TEST SUITE only — same sequence as .github/workflows/_test-suite.yml
 
 bun run test:sandbox                      # per-connector sandbox contract suite — OPT-IN, real network
-bun run test:sandbox packages/mcp-connectors/github/test/sandbox.test.ts   # scoped to one connector
 ```
 
 **`test:sandbox` is the only way those 79 tests run.** Each connector's
@@ -123,7 +122,6 @@ bun run test:coverage:config          # ≥80% (config loader, profiles, env ove
 bun run test:coverage:telemetry       # ≥85% (telemetry collector — payload safety gate)
 bun run test:coverage:doctor          # ≥80% (nimbus doctor)
 bun run test:coverage:tui             # ≥80% (packages/cli/src/tui)
-bun run test:coverage:mcp             # ≥70% (mcp-connectors)
 
 # Phase 4 WS4 — release infrastructure
 bun run test:coverage:updater         # ≥80% (updater state machine + manifest fetcher)
@@ -169,14 +167,25 @@ bun run audit:dead-code                 # knip unused exports / orphan files (D7
 bun run audit:duplication               # jscpd token duplication (D6)
 bun run audit:exclusion-parity               # sonar.coverage.exclusions <-> local registry drift check
 bun run audit:any                       # D8 any-count print
-bun run audit:invariants                # static invariant complement D10–D22 (spawn rule, vault-key allow-list, SQL writes, federation/identity/team-vault gates, policy, chatops, preflight, tribal, connector writes, share, egress dispatch chokepoint) — see CLAUDE.md § Security Invariants
-bun run audit:openapi-drift             # OpenAPI ↔ READ_ONLY_HTTP_ROUTES drift (Phase 5 T4 PR 1)
+bun run audit:invariants                # static invariant complement D10–D23 (spawn rule, vault-key allow-list, SQL writes, federation/identity/team-vault gates, policy, chatops, preflight, tribal, connector writes, share, egress dispatch chokepoint, exec runConfined) — see CLAUDE.md § Security Invariants
+bun run audit:openapi-drift             # OpenAPI ↔ HTTP_ROUTES drift (Phase 5 T4 PR 1)
 
 bun scripts/structure-audit/count-any-usage.ts --check     # D8 CI gate (fails on regression OR reduction without --update)
 bun scripts/structure-audit/count-any-usage.ts --update    # rewrite docs/structure-audit/any-baseline.json
 
-bun run audit:doc-refs                  # doc-ref drift (broken markdown links + backtick paths)
+bun run audit:doc-refs                  # doc-ref drift (broken markdown links + backtick paths) across
+                                        # CLAUDE/GEMINI, all of docs/ and .claude/{commands,agents}/*.md.
+                                        # Excluded, each with a reason in the script: docs/CHANGELOG.md,
+                                        # docs/roadmap.md, docs/superpowers/, docs/ci-secrets.md,
+                                        # docs/structure-audit/baseline.md
 bun run audit:workflow-run-triggers      # workflow_run upstreams must be write-access-only (pwn-request premise)
+bun run audit:workflow-lint              # workflow YAML validity + column-0 heredoc escapes + `bash -n` on every
+                                         # bash body + every job with `steps:` declares `timeout-minutes`
+bun run audit:readme-cli                 # every `nimbus <cmd>` in docs/README.md AND docs/cli-reference.md is
+                                         # a registered command (docs/roadmap.md is deliberately not gated)
+bun run audit:status-drift               # doc status surfaces vs canonical I<N>/V<N>, plus three derived claims:
+                                         # the I13 write-route surface (incl. the two skills), I7 allowlist size,
+                                         # the I17 LAN-admitted set
 ```
 
 Baselines: `docs/structure-audit/{any-baseline.json,baseline.md,churn-90d.json,coverage-baseline.json,db-run-census.json}`.
@@ -531,9 +540,6 @@ Bare model ids work; the engine auto-prefixes for Mastra (`claude-*` → `anthro
 
 Local model ids are passed to the local router. With Ollama running on `http://127.0.0.1:11434`, set `[llm].local_model` to any pulled model name and `[llm].prefer_local = true`; `nimbus ask` can then answer open-ended questions from indexed context even when no remote classifier key is configured.
 ```
-NIMBUS_AGENT_MODEL=claude-sonnet-4-6                # overrides [llm].remote_model       (Mastra agent)
-NIMBUS_CLASSIFIER_MODEL=claude-haiku-4-5-20251001   # overrides [llm].classifier_model   (Anthropic intent classifier)
-NIMBUS_OPENAI_CLASSIFIER_MODEL=gpt-4o-mini          # OpenAI classifier when ANTHROPIC_API_KEY is unset
 ```
 
 ## Docs site

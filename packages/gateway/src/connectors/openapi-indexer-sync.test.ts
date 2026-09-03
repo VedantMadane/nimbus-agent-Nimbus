@@ -29,13 +29,14 @@ test("indexes endpoints from a Petstore 3.0 spec under a configured root", async
         gitAware: false,
         codeIndex: false,
         dependencyGraph: false,
+        mediaIndex: false,
         exclude: [],
       },
     ],
     config: DEFAULT_OPENAPI_CONFIG,
   });
   const db = createMemoryIndexDb();
-  const r = await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT), null);
+  const r = await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT, "openapi"), null);
   expect(r.itemsUpserted).toBe(2);
   const items = db
     .query("SELECT title, type, service FROM item WHERE service = 'openapi' ORDER BY title")
@@ -57,11 +58,20 @@ test("re-running with no file changes upserts zero items", async () => {
   const root = mkdtempSync(join(tmpdir(), "openapi-sync-delta-"));
   copyFileSync(join(FIX, "petstore-3.0.yaml"), join(root, "openapi.yaml"));
   const sync = createOpenapiIndexerSyncable({
-    roots: [{ path: root, gitAware: false, codeIndex: false, dependencyGraph: false, exclude: [] }],
+    roots: [
+      {
+        path: root,
+        gitAware: false,
+        codeIndex: false,
+        dependencyGraph: false,
+        mediaIndex: false,
+        exclude: [],
+      },
+    ],
     config: DEFAULT_OPENAPI_CONFIG,
   });
   const db = createMemoryIndexDb();
-  const ctx = syncTestContext(db, EMPTY_NIMBUS_VAULT);
+  const ctx = syncTestContext(db, EMPTY_NIMBUS_VAULT, "openapi");
   const first = await sync.sync(ctx, null);
   expect(first.itemsUpserted).toBe(2);
   const second = await sync.sync(ctx, first.cursor);
@@ -81,11 +91,20 @@ test("malformed and oversize specs are skipped without aborting the sync", async
   copyFileSync(join(FIX, "not-a-spec.yaml"), join(root, "junk", "openapi.yaml"));
   copyFileSync(join(FIX, "unresolvable-ref.yaml"), join(root, "broken-ref", "openapi.yaml"));
   const sync = createOpenapiIndexerSyncable({
-    roots: [{ path: root, gitAware: false, codeIndex: false, dependencyGraph: false, exclude: [] }],
+    roots: [
+      {
+        path: root,
+        gitAware: false,
+        codeIndex: false,
+        dependencyGraph: false,
+        mediaIndex: false,
+        exclude: [],
+      },
+    ],
     config: { ...DEFAULT_OPENAPI_CONFIG, maxSpecBytes: 10 * 1024 * 1024 },
   });
   const db = createMemoryIndexDb();
-  const r = await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT), null);
+  const r = await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT, "openapi"), null);
   expect(r.itemsUpserted).toBe(3);
 });
 
@@ -94,11 +113,20 @@ test("removing an endpoint from a re-parsed spec deletes it; unchanged specs pre
   copyFileSync(join(FIX, "petstore-3.0.yaml"), join(root, "openapi.yaml"));
   copyFileSync(join(FIX, "petstore-3.1.yaml"), join(root, "swagger.yaml"));
   const sync = createOpenapiIndexerSyncable({
-    roots: [{ path: root, gitAware: false, codeIndex: false, dependencyGraph: false, exclude: [] }],
+    roots: [
+      {
+        path: root,
+        gitAware: false,
+        codeIndex: false,
+        dependencyGraph: false,
+        mediaIndex: false,
+        exclude: [],
+      },
+    ],
     config: DEFAULT_OPENAPI_CONFIG,
   });
   const db = createMemoryIndexDb();
-  const ctx = syncTestContext(db, EMPTY_NIMBUS_VAULT);
+  const ctx = syncTestContext(db, EMPTY_NIMBUS_VAULT, "openapi");
   const first = await sync.sync(ctx, null);
   expect(first.itemsUpserted).toBe(3);
 
@@ -133,11 +161,20 @@ test("uses enclosing-directory name when spec lives one level under the root", a
     join(root, "services", "payments-api", "openapi.yaml"),
   );
   const sync = createOpenapiIndexerSyncable({
-    roots: [{ path: root, gitAware: false, codeIndex: false, dependencyGraph: false, exclude: [] }],
+    roots: [
+      {
+        path: root,
+        gitAware: false,
+        codeIndex: false,
+        dependencyGraph: false,
+        mediaIndex: false,
+        exclude: [],
+      },
+    ],
     config: DEFAULT_OPENAPI_CONFIG,
   });
   const db = createMemoryIndexDb();
-  await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT), null);
+  await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT, "openapi"), null);
   const services = db.query("SELECT DISTINCT service_name FROM api_endpoint").all() as Array<{
     service_name: string;
   }>;
@@ -148,11 +185,20 @@ test("syncing emits graph_relation edges from api_endpoint to its service", asyn
   const root = mkdtempSync(join(tmpdir(), "openapi-sync-graph-"));
   copyFileSync(join(FIX, "petstore-3.0.yaml"), join(root, "openapi.yaml"));
   const sync = createOpenapiIndexerSyncable({
-    roots: [{ path: root, gitAware: false, codeIndex: false, dependencyGraph: false, exclude: [] }],
+    roots: [
+      {
+        path: root,
+        gitAware: false,
+        codeIndex: false,
+        dependencyGraph: false,
+        mediaIndex: false,
+        exclude: [],
+      },
+    ],
     config: DEFAULT_OPENAPI_CONFIG,
   });
   const db = createMemoryIndexDb();
-  await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT), null);
+  await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT, "openapi"), null);
   const rels = db
     .query(
       `SELECT type FROM graph_relation
@@ -168,11 +214,20 @@ test("skipped-by-size count is exposed via getLastSyncStats()", async () => {
   const root = mkdtempSync(join(tmpdir(), "openapi-sync-stats-"));
   copyFileSync(join(FIX, "petstore-3.0.yaml"), join(root, "openapi.yaml"));
   const sync = createOpenapiIndexerSyncable({
-    roots: [{ path: root, gitAware: false, codeIndex: false, dependencyGraph: false, exclude: [] }],
+    roots: [
+      {
+        path: root,
+        gitAware: false,
+        codeIndex: false,
+        dependencyGraph: false,
+        mediaIndex: false,
+        exclude: [],
+      },
+    ],
     config: { ...DEFAULT_OPENAPI_CONFIG, maxSpecBytes: 8 },
   });
   const db = createMemoryIndexDb();
-  await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT), null);
+  await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT, "openapi"), null);
   const stats = sync.getLastSyncStats();
   expect(stats.skippedTooLarge).toBe(1);
 });

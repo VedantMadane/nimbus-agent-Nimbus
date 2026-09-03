@@ -1,5 +1,3 @@
-import { getValidMicrosoftAccessToken } from "../auth/microsoft-access-token.ts";
-import { deleteItemByServiceExternal } from "../index/item-store.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
 import {
   deltaKey,
@@ -31,7 +29,7 @@ export function createTeamsSyncable(options: TeamsSyncableOptions): Syncable {
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();
       await options.ensureMicrosoftMcpRunning();
-      const token = await getValidMicrosoftAccessToken(ctx.vault);
+      const token = await ctx.accessToken();
       const state = parseCursor(cursor);
       let bytesTransferred = 0;
 
@@ -193,11 +191,7 @@ export function createTeamsSyncable(options: TeamsSyncableOptions): Syncable {
         const removed = msg["@removed"] !== undefined && msg["@removed"] !== null;
         const mid = msg.id;
         if (removed && mid !== undefined && mid !== "") {
-          deleteItemByServiceExternal(
-            ctx.db,
-            TEAMS_SERVICE_ID,
-            `${pair.teamId}:${pair.channelId}:${mid}`,
-          );
+          ctx.deleteItem(TEAMS_SERVICE_ID, `${pair.teamId}:${pair.channelId}:${mid}`);
           deleted += 1;
           continue;
         }

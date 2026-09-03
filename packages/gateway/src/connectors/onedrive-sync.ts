@@ -1,6 +1,3 @@
-import { getValidMicrosoftAccessToken } from "../auth/microsoft-access-token.ts";
-import { deleteItemByServiceExternal, upsertIndexedItemForSync } from "../index/item-store.ts";
-import { resolvePersonForSync } from "../people/linker.ts";
 import { normalizeEmail } from "../people/person-store.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
 import {
@@ -87,7 +84,7 @@ function upsertDriveItem(ctx: SyncContext, d: DriveItem, now: number): void {
   const authorId =
     lmEmail === undefined
       ? null
-      : resolvePersonForSync(ctx.db, {
+      : ctx.resolvePerson({
           canonicalEmail: lmEmail,
           displayName:
             lmUser?.displayName !== undefined && lmUser.displayName !== ""
@@ -95,7 +92,7 @@ function upsertDriveItem(ctx: SyncContext, d: DriveItem, now: number): void {
               : lmEmail,
         });
 
-  upsertIndexedItemForSync(ctx, {
+  ctx.upsertItem({
     service: SERVICE_ID,
     type,
     externalId: id,
@@ -123,7 +120,7 @@ export function createOneDriveSyncable(options: OneDriveSyncableOptions): Syncab
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();
       await options.ensureMicrosoftMcpRunning();
-      const token = await getValidMicrosoftAccessToken(ctx.vault);
+      const token = await ctx.accessToken();
 
       let nextUrl: string | null = null;
       if (cursor !== null && cursor !== "") {
@@ -148,13 +145,13 @@ export function createOneDriveSyncable(options: OneDriveSyncableOptions): Syncab
         const removed = item["@removed"] !== undefined && item["@removed"] !== null;
         const id = item.id;
         if (removed && id !== undefined && id !== "") {
-          deleteItemByServiceExternal(ctx.db, SERVICE_ID, id);
+          ctx.deleteItem(SERVICE_ID, id);
           deleted += 1;
           continue;
         }
         if (item.deleted !== undefined && item.deleted?.state === "deleted") {
           if (id !== undefined && id !== "") {
-            deleteItemByServiceExternal(ctx.db, SERVICE_ID, id);
+            ctx.deleteItem(SERVICE_ID, id);
             deleted += 1;
           }
           continue;

@@ -27,8 +27,13 @@ function makeFakeSpokenLog(): { spoken: string[]; tts: TtsProvider } {
 function makeFakeLlmProvider(): LlmProvider {
   return {
     providerId: "ollama",
+    isLocal: true,
     isAvailable: async () => true,
-    listModels: async () => [],
+    // Must report the model it registers under (`ROUTER_CONFIG.localModel`, "llama3.2") — route
+    // availability (Task 5) requires the daemon reachable AND the route's own modelName among
+    // the reported models; an empty listing here makes the route model_absent regardless of
+    // isAvailable().
+    listModels: async () => [{ provider: "ollama", modelName: "llama3.2" }],
     generate: async (opts) => ({
       text: `LLM response to: ${opts.prompt}`,
       tokensIn: 1,
@@ -42,7 +47,6 @@ function makeFakeLlmProvider(): LlmProvider {
 
 const ROUTER_CONFIG: LlmRouterConfig = {
   preferLocal: true,
-  remoteModel: "claude-sonnet-4-6",
   localModel: "llama3.2",
   minReasoningParams: 7,
   enforceAirGap: false,
@@ -54,7 +58,7 @@ describe("Push-to-talk round-trip", () => {
     const { spoken, tts } = makeFakeSpokenLog();
 
     const router = new LlmRouter(ROUTER_CONFIG);
-    router.registerProvider(makeFakeLlmProvider());
+    router.registerRoute(makeFakeLlmProvider(), ROUTER_CONFIG.localModel);
 
     const voice = new VoiceService({ enabled: true, stt, tts });
 

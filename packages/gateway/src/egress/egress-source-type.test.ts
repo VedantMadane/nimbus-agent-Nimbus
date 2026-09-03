@@ -27,7 +27,16 @@ describe("EGRESS_SOURCE_TYPES — frozen union", () => {
   // `outcome` is the ELEVENTH, and the first admitted as a MARKER rather than an egress class. It
   // records how a targeted fetch ended, which the authorising row structurally cannot say: that row
   // is appended BEFORE the connector call, so its `result_status` is an authorisation decision.
-  test("is exactly these eleven members, in this order", () => {
+  //
+  // `chatops` is the TWELFTH, and an EGRESS class rather than a marker — an outbound Slack/Teams
+  // post. It is a STRONGER claim than `mcp`/`http`, not weaker: those hand a brief to a LOCAL
+  // process, whereas a chat post genuinely leaves the machine to a third-party server.
+  //
+  // `browser` is the THIRTEENTH, and an EGRESS class rather than a marker — an outbound request
+  // made by the computer-use browser lane. Like `chatops` and unlike `mcp`/`http`, it is NOT
+  // narrower than its name: every request the driven browser makes passes through the one
+  // decorated `BrowserContext`.
+  test("is exactly these thirteen members, in this order", () => {
     expect(EGRESS_SOURCE_TYPES).toEqual([
       "task",
       "prune",
@@ -40,6 +49,8 @@ describe("EGRESS_SOURCE_TYPES — frozen union", () => {
       "degraded",
       "http",
       "outcome",
+      "chatops",
+      "browser",
     ]);
   });
 
@@ -64,7 +75,16 @@ describe("EGRESS_SOURCE_TYPES — frozen union", () => {
     expect(isMarkerSourceType("mcp")).toBe(false);
     // Same for `http` — the transport differs, the disclosure does not.
     expect(isMarkerSourceType("http")).toBe(false);
+    // `chatops` rows are real egress too — a post that genuinely left the machine, not bookkeeping.
+    expect(isMarkerSourceType("chatops")).toBe(false);
     // An unrecognized value must NOT be treated as a marker — an unknown row counts as egress.
     expect(isMarkerSourceType("wat")).toBe(false);
+  });
+});
+
+describe("browser source type", () => {
+  test("browser is a source type and is NOT a marker", () => {
+    expect(EGRESS_SOURCE_TYPES).toContain("browser");
+    expect(isMarkerSourceType("browser")).toBe(false);
   });
 });

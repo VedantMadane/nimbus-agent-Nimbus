@@ -47,11 +47,6 @@ export const EXCLUSIONS: readonly ExclusionPattern[] = Object.freeze([
   { kind: "exact", path: "packages/gateway/src/platform/sandbox/sandbox-wrapper.ts" },
   { kind: "exact", path: "packages/gateway/src/connectors/index.ts" },
   // `standalone/src/bin.ts` is the `nimbus-mcp` process entry point and nothing else: read argv,
-  // call `runStandalone`, exit only on failure. It was SPLIT OUT of `launcher.ts` precisely so the
-  // eligibility and consent logic could be covered — an `import.meta.main`-class shell cannot be
-  // executed by any in-process test, so leaving it inline meant either an uncoverable branch or
-  // exempting the logic along with it. Same process-entry class as `cli/src/index.ts` above.
-  { kind: "exact", path: "packages/mcp-connectors/standalone/src/bin.ts" },
   { kind: "exact", path: "packages/gateway/src/vault/factory.ts" },
 
   // ── mock.module-shadowed (real logic tested via the gateway-process.ts twin) ──
@@ -97,14 +92,6 @@ export const EXCLUSIONS: readonly ExclusionPattern[] = Object.freeze([
 
   // ── Connect-shell regexes (MCP connector server/tools, github-actions main) ──
   { kind: "pathRegex", re: /^packages\/github-actions\/[^/]+\/src\/main\.ts$/ },
-  { kind: "pathRegex", re: /^packages\/mcp-connectors\/[^/]+\/src\/server\.ts$/ },
-  // Each MCP connector's `src/tools.ts` is the same connect-shell class as its
-  // `server.ts`: thin `reg(name, desc, schema, handler)` registrations whose
-  // handlers shell out to a CLI (`Bun.spawn`) or `fetch` a remote API. The
-  // testable logic (no-row-data stripping, arg guards, response mapping) lives in
-  // shared helpers / sibling modules that ARE covered; the I/O shell is exempt,
-  // exactly like server.ts.
-  { kind: "pathRegex", re: /^packages\/mcp-connectors\/[^/]+\/src\/tools\.ts$/ },
 
   // ── Benchmarks / native ──
   // These two mirror the ONLY perf patterns Sonar carries (`**/perf/surfaces/**`,
@@ -248,6 +235,11 @@ export const EXCLUSIONS: readonly ExclusionPattern[] = Object.freeze([
   // so the gate reads 0% and it can never rejoin the floor. Not named `*types.ts`, so the basename
   // regexes above do not reach it. Guardian header on the file forbids runtime logic.
   { kind: "exact", path: "packages/gateway/src/exec/exec-result.ts" },
+  // cu-types.ts: declaration-only (types and interfaces, no executable statement) by the same
+  // guardian-header rule. Its basename already matches the `-types\.ts$` regex above, so this
+  // entry is belt-and-suspenders rather than load-bearing — listed explicitly anyway so the
+  // exemption is a reviewed fact about this file, not an inference from its name alone.
+  { kind: "exact", path: "packages/gateway/src/computer-use/cu-types.ts" },
   { kind: "exact", path: "packages/gateway/src/ipc/workflow-invoke.ts" },
   { kind: "exact", path: "packages/gateway/src/connectors/mapped-row.ts" },
   { kind: "exact", path: "packages/gateway/src/ipc/connector-rpc-handlers/context.ts" },

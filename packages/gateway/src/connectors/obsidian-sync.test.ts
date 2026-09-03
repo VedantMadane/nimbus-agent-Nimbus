@@ -26,12 +26,13 @@ test("indexes notes from a fixture vault root", async () => {
         gitAware: false,
         codeIndex: false,
         dependencyGraph: false,
+        mediaIndex: false,
         exclude: [],
       },
     ],
   });
   const db = createMemoryIndexDb();
-  const r = await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT), null);
+  const r = await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT, "obsidian"), null);
   expect(r.itemsUpserted).toBeGreaterThanOrEqual(10);
   const items = db
     .query("SELECT title, type, service FROM item WHERE service = 'obsidian'")
@@ -64,14 +65,15 @@ test("re-syncing with no file changes upserts zero items", async () => {
         gitAware: false,
         codeIndex: false,
         dependencyGraph: false,
+        mediaIndex: false,
         exclude: [],
       },
     ],
   });
   const db = createMemoryIndexDb();
-  const r1 = await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT), null);
+  const r1 = await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT, "obsidian"), null);
   expect(r1.itemsUpserted).toBe(2);
-  const r2 = await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT), r1.cursor);
+  const r2 = await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT, "obsidian"), r1.cursor);
   expect(r2.itemsUpserted).toBe(0);
 });
 
@@ -84,16 +86,17 @@ test("touching a note re-emits only that note", async () => {
         gitAware: false,
         codeIndex: false,
         dependencyGraph: false,
+        mediaIndex: false,
         exclude: [],
       },
     ],
   });
   const db = createMemoryIndexDb();
-  const r1 = await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT), null);
+  const r1 = await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT, "obsidian"), null);
   expect(r1.itemsUpserted).toBe(2);
   const future = new Date(Date.now() + 60_000);
   utimesSync(join(root, "A.md"), future, future);
-  const r2 = await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT), r1.cursor);
+  const r2 = await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT, "obsidian"), r1.cursor);
   expect(r2.itemsUpserted).toBe(1);
 });
 
@@ -106,12 +109,15 @@ test("metadata_only depth suppresses note bodies (routed through the depth choke
         gitAware: false,
         codeIndex: false,
         dependencyGraph: false,
+        mediaIndex: false,
         exclude: [],
       },
     ],
   });
   const db = createMemoryIndexDb();
-  const ctx = { ...syncTestContext(db, EMPTY_NIMBUS_VAULT), depth: "metadata_only" as const };
+  // depth goes THROUGH the builder: overriding `.depth` on the result leaves the capability bound
+  // to the old value, which is how this test caught a real regression.
+  const ctx = syncTestContext(db, EMPTY_NIMBUS_VAULT, "obsidian", "metadata_only");
   const r = await sync.sync(ctx, null);
   expect(r.itemsUpserted).toBe(2);
   const items = db
@@ -134,15 +140,16 @@ test("deleting a note removes its row on next sync (sticky delete)", async () =>
         gitAware: false,
         codeIndex: false,
         dependencyGraph: false,
+        mediaIndex: false,
         exclude: [],
       },
     ],
   });
   const db = createMemoryIndexDb();
-  const r1 = await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT), null);
+  const r1 = await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT, "obsidian"), null);
   expect(r1.itemsUpserted).toBe(2);
   rmSync(join(root, "B.md"));
-  const r2 = await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT), r1.cursor);
+  const r2 = await sync.sync(syncTestContext(db, EMPTY_NIMBUS_VAULT, "obsidian"), r1.cursor);
   expect(r2.itemsDeleted).toBe(1);
   const remaining = db.query("SELECT path FROM obsidian_notes ORDER BY path").all() as Array<{
     path: string;

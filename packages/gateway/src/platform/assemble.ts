@@ -5,6 +5,10 @@ import os from "node:os";
 import { join } from "node:path";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import type { Logger } from "pino";
+import {
+  buildChatopsAgentInvoker,
+  type ChatopsAgentInvoker,
+} from "../agent-runs/agent-chatops-invoke.ts";
 import { type AgentHttpInvoker, buildAgentHttpInvoker } from "../agent-runs/agent-http-invoke.ts";
 import { AgentRunController } from "../agent-runs/agent-run-store.ts";
 import type { SynthesisRouter } from "../agents/_lib/synthesis-llm.ts";
@@ -27,14 +31,35 @@ import {
 } from "../chatops/chatops-tool-runner-e2e-sink.ts";
 import type { ChatMessage, ReplyTarget } from "../chatops/types.ts";
 import { PairingWindowController } from "../clips/pairing-window.ts";
+import { reconcileOrphanedSessions } from "../computer-use/cu-boot-reconcile.ts";
+import { cuActionConsent, cuEnvelopeConsent } from "../computer-use/cu-consent-broker.ts";
+import { openBrowserLane } from "../computer-use/cu-lanes/browser.ts";
+import {
+  assertBrowserLaunchPolicy,
+  buildChromiumLaunchPolicy,
+} from "../computer-use/cu-lanes/browser-launch.ts";
+import { resolveChromiumPath } from "../computer-use/cu-lanes/chromium-path.ts";
+import { openTerminalLane } from "../computer-use/cu-lanes/terminal.ts";
+import {
+  assertTerminalLaunchable,
+  buildTerminalLaunchPolicy,
+} from "../computer-use/cu-lanes/terminal-launch.ts";
+import {
+  type CuShell,
+  DEFAULT_SHELL_ID,
+  resolveShellById,
+} from "../computer-use/cu-lanes/terminal-shells.ts";
+import { startCuSnapshotRetention } from "../computer-use/cu-snapshot-retention.ts";
 import { loadNimbusFilesystemRootsFromConfigDir } from "../config/filesystem-toml.ts";
 import {
   type ConnectorsConfig,
+  DEFAULT_NIMBUS_LLM_TOML,
   loadNimbusAuditFromConfigDir,
   loadNimbusAutomationFromConfigDir,
   loadNimbusBriefsFromPath,
   loadNimbusChatopsFromConfigDir,
   loadNimbusCodeExecutionFromConfigDir,
+  loadNimbusComputerUseFromConfigDir,
   loadNimbusConnectorsFromConfigDir,
   loadNimbusDecisionsFromConfigDir,
   loadNimbusEmbeddingFromPath,
@@ -44,7 +69,6 @@ import {
   loadNimbusIdentityFromConfigDir,
   loadNimbusLanFromConfigDir,
   loadNimbusLlmFromPath,
-  loadNimbusLlmPartialFromPath,
   loadNimbusOwnershipFromConfigDir,
   loadNimbusPagerdutyFromConfigDir,
   loadNimbusPreflightFromConfigDir,
@@ -56,6 +80,10 @@ import {
   loadNimbusTribalFromConfigDir,
   loadNimbusUpdaterFromConfigDir,
   type NimbusChatopsToml,
+  type NimbusComputerUseToml,
+  type NimbusLlmLocalRoute,
+  type NimbusLlmRemoteVendor,
+  type NimbusLlmToml,
   type NimbusTribalToml,
   resolveNimbusTomlForProfile,
   type TeamCredentialConnector,
@@ -64,7 +92,7 @@ import { loadNimbusWorkdayFromConfigDir } from "../config/nimbus-toml-workday.ts
 import { resolvePersona } from "../config/persona.ts";
 import { ProfileManager } from "../config/profiles.ts";
 import { loadNimbusSessionFromPath } from "../config/session-toml.ts";
-import { applyLlmTomlOverrides, Config } from "../config.ts";
+import { Config } from "../config.ts";
 import { bitbucketFetchOneUrlIsSupported } from "../connectors/bitbucket-sync.ts";
 import { createBlameIndexSyncable } from "../connectors/blame-index-sync.ts";
 import {
@@ -177,9 +205,18 @@ import { startMetricsServer } from "../ipc/metrics-server.ts";
 import type { PolicyRpcCtx } from "../ipc/policy-rpc.ts";
 import { extractKbPageRef } from "../ipc/server/dispatchers.ts";
 import type { TribalSubmitAction } from "../ipc/tribal-rpc.ts";
+import { AnthropicProvider } from "../llm/anthropic-provider.ts";
+import { isLoopbackBaseUrl } from "../llm/base-url-locality.ts";
+import type { ApiKeyResolver, CloudProviderOptions } from "../llm/cloud-provider-base.ts";
+import { GeminiProvider } from "../llm/gemini-provider.ts";
 import { LlamaCppProvider } from "../llm/llamacpp-provider.ts";
 import { OllamaProvider } from "../llm/ollama-provider.ts";
+import { OpenAiProvider } from "../llm/openai-provider.ts";
 import { LlmRegistry } from "../llm/registry.ts";
+import { makeRouteId, parseRouteRef } from "../llm/route-id.ts";
+import type { LlmProvider } from "../llm/types.ts";
+import { vendorApiKeyName } from "../llm/vendor-vault-keys.ts";
+import { XaiProvider } from "../llm/xai-provider.ts";
 import { SessionMemoryStore } from "../memory/session-memory-store.ts";
 import { buildServiceIdentityResolver } from "../metrics/service-identity.ts";
 import { runOwnershipPass } from "../ownership/ownership-pass.ts";
@@ -223,8 +260,9 @@ import {
 } from "../sync/fetch-host-boundary.ts";
 import { ProviderRateLimiter } from "../sync/rate-limiter.ts";
 import { SyncScheduler } from "../sync/scheduler.ts";
+import { unboundSyncCapabilities } from "../sync/sync-capabilities.ts";
 import { type TargetedFetchOutcome, targetedFetch } from "../sync/targeted-fetch.ts";
-import type { SyncContext } from "../sync/types.ts";
+import type { SyncContext, SyncRuntimeContext } from "../sync/types.ts";
 import { withConnectorSession } from "../teamvault/connector-session.ts";
 import {
   drainTeamListSession,
@@ -479,7 +517,7 @@ interface SchedulerWithMeshOpts {
   paths: PlatformPaths;
   vault: NimbusVault;
   db: Database;
-  syncContext: SyncContext;
+  syncContext: SyncRuntimeContext;
   localIndex: LocalIndex;
   notifications: NotificationService;
   syncLogger: Logger;
@@ -1271,40 +1309,485 @@ function bootPolicyGateWithConnectorAllowlist(
   return { policyStore, policyGate, isConnectorAllowed };
 }
 
+const OLLAMA_DEFAULT_BASE_URL = "http://127.0.0.1:11434";
+const LLAMACPP_DEFAULT_BASE_URL = "http://127.0.0.1:8080";
+
+/** A minimal logging seam so `buildLlmRegistryFromToml` stays independently callable (the
+ *  integration test constructs it with no logger at all) while production wiring passes the real
+ *  `syncLogger.warn`, matching the `log: (m) => syncLogger.warn(m)` adapter shape already used
+ *  elsewhere in this file. The default is a no-op — production always supplies `syncLogger`
+ *  explicitly (see the call in `assemblePlatformServices`), so a dropped-entry warning is never
+ *  actually silent at boot; this default only covers callers (e.g. tests) that don't need one. */
+type RouteValidationLogger = { warn: (msg: string) => void };
+const defaultRouteValidationLogger: RouteValidationLogger = { warn: () => {} };
+
+/** Resolves what base URL a `[llm.local.*]` entry actually talks to, applying the runtime's
+ *  default when `base_url` is omitted and stripping a trailing slash — the form two entries must
+ *  be compared in. Comparing the raw, unresolved field misses the case where BOTH entries omit
+ *  `base_url`: both fields are `undefined`, but both resolve to the SAME real endpoint. */
+function resolveBaseUrl(runtime: string, baseUrl: string | undefined): string {
+  const explicit = baseUrl?.trim() ?? "";
+  if (explicit !== "") return explicit.replace(/\/$/, "");
+  return runtime === "llamacpp" ? LLAMACPP_DEFAULT_BASE_URL : OLLAMA_DEFAULT_BASE_URL;
+}
+
+const KNOWN_LOCAL_RUNTIMES = new Set(["ollama", "llamacpp"]);
+
+/** The four cloud vendors this build knows how to CONSTRUCT an adapter for. */
+const REMOTE_VENDOR_IDS = ["anthropic", "openai", "gemini", "xai"] as const;
+export type RemoteVendorId = (typeof REMOTE_VENDOR_IDS)[number];
+
+function isKnownVendorId(id: string): id is RemoteVendorId {
+  return (REMOTE_VENDOR_IDS as readonly string[]).includes(id);
+}
+
+export type ResolvedRemoteVendor = {
+  vendorId: RemoteVendorId;
+  modelName: string;
+  apiKey: ApiKeyResolver;
+  baseUrl?: string;
+};
+
+/**
+ * TOTAL over `RemoteVendorId`, so adding a vendor id without adding its factory is a COMPILE
+ * ERROR rather than a silent fallthrough — the same shape `EGRESS_BEARING_CLIENT_KINDS` uses to
+ * make a new transport a compile error instead of a missing ledger row.
+ *
+ * This deliberately replaces a `switch` whose `default` would construct one particular vendor: a
+ * fifth id added without a case would then be built as THAT vendor's adapter while carrying the
+ * new vendor's model name and reading its `<id>.api_key` — prompts posted to the wrong host under
+ * a credential minted for someone else. A `default: throw` catches it at runtime; a total map
+ * catches it before the code can be committed.
+ */
+const REMOTE_PROVIDER_FACTORIES: Record<
+  RemoteVendorId,
+  (opts: CloudProviderOptions) => LlmProvider
+> = {
+  anthropic: (opts) => new AnthropicProvider(opts),
+  openai: (opts) => new OpenAiProvider(opts),
+  gemini: (opts) => new GeminiProvider(opts),
+  xai: (opts) => new XaiProvider(opts),
+};
+
+/** A vendor resolved far enough to construct the Mastra agent: key materialised, not a thunk. */
+export type AgentVendor = { providerId: string; modelId: string; apiKey: string };
+
+/**
+ * The vendor the Mastra engine agent talks to, or `undefined` when none is enabled AND keyed.
+ *
+ * `undefined` is the load-bearing case: `gateway-main.ts` then does not construct the agent at
+ * all. That matters because `@mastra/core` resolves `ANTHROPIC_API_KEY` from the ENVIRONMENT on
+ * its own the moment an agent exists — so "constructed but refusing" would leave a hole exactly
+ * the size of the default `nimbus ask`.
+ *
+ * FIRST enabled-and-keyed vendor in config order. The agent takes one model, unlike the route
+ * table which takes all of them; picking the first keeps that deterministic and lets an operator
+ * choose by ordering their `[llm.remote.*]` tables.
+ *
+ * The key is materialised HERE rather than passed as a resolver because Mastra's model config
+ * takes a string. The cost is that a key rotated after boot needs a restart FOR THE AGENT —
+ * route-table adapters still resolve per call and pick it up immediately.
+ */
+export async function resolveAgentVendor(
+  llmToml: NimbusLlmToml,
+  vault: NimbusVault,
+  logger: RouteValidationLogger = defaultRouteValidationLogger,
+): Promise<AgentVendor | undefined> {
+  for (const vendor of resolveEnabledVendors(llmToml.remoteVendors, vault, logger)) {
+    const apiKey = await vendor.apiKey();
+    if (apiKey !== undefined && apiKey.trim() !== "") {
+      return { providerId: vendor.vendorId, modelId: vendor.modelName, apiKey };
+    }
+  }
+  return undefined;
+}
+
+function makeRemoteProvider(v: ResolvedRemoteVendor): LlmProvider {
+  return REMOTE_PROVIDER_FACTORIES[v.vendorId]({
+    apiKey: v.apiKey,
+    modelName: v.modelName,
+    ...(v.baseUrl === undefined ? {} : { baseUrl: v.baseUrl }),
+  });
+}
+
+/**
+ * Validates `[llm.remote.*]` AFTER defaults are applied, here rather than in the parser.
+ *
+ * DO NOT "fix" this by moving it earlier. The instinct is to validate the raw table before
+ * defaults so a vendor problem can be isolated — but that moves validation TOWARD the parser, and
+ * a throw there is swallowed by `loadTomlSection`'s bare catch, whose outcome is not a dropped
+ * vendor but a silently reverted `[llm]` section with `enforce_air_gap` back at `false`.
+ * Post-default validation loses nothing, because an absent `enabled` and an explicit
+ * `enabled = false` mean the same thing — no field here needs absent-versus-explicit
+ * discrimination.
+ *
+ * Every rejection is warn-logged BY NAME, matching `dropUnknownRuntimeEntries` above. An entry
+ * that vanishes without a word is the shape `dropUnresolvableRoutePriorityEntries` refuses to
+ * allow.
+ */
+export function resolveEnabledVendors(
+  remoteVendors: ReadonlyMap<string, NimbusLlmRemoteVendor>,
+  vault: NimbusVault,
+  logger: RouteValidationLogger,
+): ResolvedRemoteVendor[] {
+  const out: ResolvedRemoteVendor[] = [];
+  for (const [vendorId, cfg] of remoteVendors) {
+    // Default-off. Not an error and not warned: it is the norm, and the whole point of the
+    // per-vendor opt-in.
+    if (!cfg.enabled) continue;
+    if (!isKnownVendorId(vendorId)) {
+      logger.warn(
+        `[llm] dropping [llm.remote.${vendorId}]: unknown vendor — expected one of ` +
+          REMOTE_VENDOR_IDS.join(", "),
+      );
+      continue;
+    }
+    if (cfg.model.trim() === "") {
+      logger.warn(`[llm] dropping [llm.remote.${vendorId}]: empty model`);
+      continue;
+    }
+    out.push({
+      vendorId,
+      modelName: cfg.model,
+      // Resolved PER CALL from the Vault, never from the environment: no env var may satisfy a
+      // vendor nobody opted into, and a key added after boot works with no restart. `VaultReader`
+      // answers `null` for a miss, which is normalised to `undefined` for `ApiKeyResolver`.
+      apiKey: async () => (await vault.get(vendorApiKeyName(vendorId))) ?? undefined,
+      ...(cfg.baseUrl === undefined ? {} : { baseUrl: cfg.baseUrl }),
+    });
+  }
+  return out;
+}
+
+/**
+ * Drops (and names, via `logger.warn`) any `[llm.local.*]` entry whose `runtime` is neither
+ * `"ollama"` nor `"llamacpp"` — the only two runtimes this build knows how to construct a
+ * provider for. `NimbusLlmLocalRoute.runtime` is an intentionally open string at the parser layer
+ * (Task 8), so a typo or a not-yet-supported runtime (e.g. `"vllm"`) must not silently fall
+ * through to the `runtime === "llamacpp" ? llamacpp : ollama` branches below and get constructed
+ * as an Ollama route pointed at a port that entry never asked for.
+ */
+function dropUnknownRuntimeEntries(
+  localRoutes: ReadonlyMap<string, NimbusLlmLocalRoute>,
+  logger: RouteValidationLogger,
+): Map<string, NimbusLlmLocalRoute> {
+  const kept = new Map<string, NimbusLlmLocalRoute>();
+  for (const [name, route] of localRoutes) {
+    if (!KNOWN_LOCAL_RUNTIMES.has(route.runtime)) {
+      logger.warn(
+        `[llm] dropping [llm.local.${name}]: unknown runtime "${route.runtime}" — expected ` +
+          '"ollama" or "llamacpp"',
+      );
+      continue;
+    }
+    kept.set(name, route);
+  }
+  return kept;
+}
+
+/**
+ * Task 9's validation stage — deliberately NOT in the Task 8 parser, because a throw there is
+ * swallowed by `loadTomlSection`'s bare catch and silently reverts the WHOLE `[llm]` section to
+ * defaults (including `enforce_air_gap`). Here a bad entry is logged and dropped; nothing else in
+ * `[llm]` is affected.
+ *
+ * Only a `llamacpp` base URL claimed twice is an error: `LlamaCppProvider.generate()` sends no
+ * model field, so the server answers with whatever weights it was launched with — two llama.cpp
+ * routes at one URL would report two different model names against IDENTICAL weights, a route
+ * table that lies. Ollama is exempt: `generate()` sends `this.modelName` per request to a shared
+ * daemon, so many routes at one base URL is the normal, correct case.
+ *
+ * First occurrence (file order — `localRoutes` preserves it) wins; every later collider is
+ * dropped and logged by name.
+ */
+function dropLlamacppBaseUrlCollisions(
+  localRoutes: ReadonlyMap<string, NimbusLlmLocalRoute>,
+  logger: RouteValidationLogger,
+): Map<string, NimbusLlmLocalRoute> {
+  const kept = new Map<string, NimbusLlmLocalRoute>();
+  const claimedBy = new Map<string, string>(); // resolved llamacpp base URL -> first entry name
+  for (const [name, route] of localRoutes) {
+    if (route.runtime === "llamacpp") {
+      const resolved = resolveBaseUrl(route.runtime, route.baseUrl);
+      const existing = claimedBy.get(resolved);
+      if (existing !== undefined) {
+        logger.warn(
+          `[llm] dropping [llm.local.${name}]: llamacpp base URL "${resolved}" is already ` +
+            `claimed by [llm.local.${existing}] — a llama.cpp server reports one model for the ` +
+            "whole process, so two routes at the same URL would report different model names " +
+            "against identical weights",
+        );
+        continue;
+      }
+      claimedBy.set(resolved, name);
+    }
+    kept.set(name, route);
+  }
+  return kept;
+}
+
+/**
+ * Drops (and names) any `[llm.local.*]` entry whose derived route id — `<runtime>/<model>` — was
+ * already claimed by an earlier entry. `LlmRouter.registerRoute` keys on that id and uses
+ * `Map.set`, so without this stage a second entry naming the same runtime AND model at a
+ * different `base_url` (a plausible failover pairing: the same model on a laptop and on a
+ * workstation) silently REPLACES the first, and `nimbus llm status` shows one row pointing at the
+ * second URL with nothing to explain where the other went.
+ *
+ * FIRST occurrence wins, matching `dropLlamacppBaseUrlCollisions` above — the two drop rules must
+ * not disagree about which entry survives, or which one you get depends on which check fired.
+ * Every other drop path in this slice names the offending entry; a route that vanishes without a
+ * word is the exact shape `dropUnresolvableRoutePriorityEntries` refuses to allow.
+ */
+function dropDuplicateRouteIds(
+  localRoutes: ReadonlyMap<string, NimbusLlmLocalRoute>,
+  logger: RouteValidationLogger,
+): Map<string, NimbusLlmLocalRoute> {
+  const kept = new Map<string, NimbusLlmLocalRoute>();
+  const claimedBy = new Map<string, string>(); // route id -> first entry name
+  for (const [name, route] of localRoutes) {
+    const routeId = makeRouteId(route.runtime === "llamacpp" ? "llamacpp" : "ollama", route.model);
+    const existing = claimedBy.get(routeId);
+    if (existing !== undefined) {
+      logger.warn(
+        `[llm] dropping [llm.local.${name}]: route id "${routeId}" is already claimed by ` +
+          `[llm.local.${existing}] — a route is keyed on (runtime, model), so two entries ` +
+          "naming the same pair are one route; keeping the first, and the later entry's " +
+          "base_url is NOT used",
+      );
+      continue;
+    }
+    claimedBy.set(routeId, name);
+    kept.set(name, route);
+  }
+  return kept;
+}
+
+/**
+ * Names — in the boot log, by entry name — every `[llm.local.*]` entry whose resolved base URL is
+ * NOT loopback, and is therefore registered as a REMOTE route.
+ *
+ * Nothing is dropped here. The reclassification itself happens in the provider constructors
+ * (`OllamaProvider`/`LlamaCppProvider` derive `isLocal` from the resolved base URL — see
+ * `llm/base-url-locality.ts`), which is what actually stops `[llm] enforce_air_gap` from treating
+ * a LAN daemon as air-gap-eligible. This stage exists so the reclassification is never SILENT: a
+ * route configured under a heading that reads `[llm.local.ws]` and then excluded by air-gap, or
+ * ledgered as egress, would otherwise be inexplicable from the user's seat.
+ *
+ * Dropping instead of warning was the other option and is wrong: a deliberately-configured LAN
+ * llama.cpp box is a legitimate setup, and it stays usable with air-gap off. What must not happen
+ * is it counting as local.
+ */
+function warnRemoteClassifiedLocalRoutes(
+  localRoutes: ReadonlyMap<string, NimbusLlmLocalRoute>,
+  logger: RouteValidationLogger,
+): void {
+  for (const [name, route] of localRoutes) {
+    const resolved = resolveBaseUrl(route.runtime, route.baseUrl);
+    if (isLoopbackBaseUrl(resolved)) continue;
+    logger.warn(
+      `[llm] [llm.local.${name}] base URL "${resolved}" is not loopback — registering it as a ` +
+        "REMOTE route: prompts sent to it leave this machine, so it is excluded when " +
+        "[llm] enforce_air_gap is set and its use is recorded in the egress ledger",
+    );
+  }
+}
+
+/**
+ * Resolves `[llm] route_priority` entries against the route ids that are ACTUALLY about to be
+ * registered, dropping (with a named log line) any entry that fails `parseRouteRef` or names no
+ * registered route. Silence is not acceptable here: a vanished priority entry changes which model
+ * answers with no outward sign.
+ *
+ * LIMITATION (stated, not papered over): a malformed `route_priority` VALUE — e.g.
+ * `route_priority = "ollama"`, a string rather than an array — is swallowed by
+ * `parseNimbusTomlLlmSection` (Task 8) with no diagnostic, and arrives here as simply unset. This
+ * function only ever sees entries that PARSED as an array of strings, so it cannot distinguish
+ * "not configured" from "malformed", and cannot name that entry — it validates only well-formed
+ * strings that fail `parseRouteRef` or resolve to no registered route.
+ */
+function dropUnresolvableRoutePriorityEntries(
+  routePriority: readonly string[],
+  registeredRouteIds: ReadonlySet<string>,
+  logger: RouteValidationLogger,
+): string[] {
+  const kept: string[] = [];
+  for (const entry of routePriority) {
+    let parsed: { providerId: string; modelName: string };
+    try {
+      parsed = parseRouteRef(entry);
+    } catch (err) {
+      logger.warn(
+        `[llm] dropping route_priority entry "${entry}": malformed — ${String(err instanceof Error ? err.message : err)}`,
+      );
+      continue;
+    }
+    const routeId = makeRouteId(parsed.providerId, parsed.modelName);
+    if (!registeredRouteIds.has(routeId)) {
+      logger.warn(
+        `[llm] dropping route_priority entry "${entry}": does not name a registered route`,
+      );
+      continue;
+    }
+    kept.push(routeId);
+  }
+  return kept;
+}
+
 /** Load the [llm] config from the active TOML, apply the model overrides, and build the provider
- *  registry (Ollama + llama.cpp local providers). */
-function buildLlmRegistryFromToml(db: Database, activeTomlPath: string): LlmRegistry {
+ *  registry — one route per `[llm.local.<name>]` entry when any are configured, else today's two
+ *  built-in Ollama + llama.cpp providers (unchanged behaviour). Also runs the validation Task 8
+ *  deliberately does not: dropping (never aborting boot on) a duplicate llamacpp base URL or an
+ *  unresolvable `route_priority` entry. `logger` defaults to a no-op so this stays independently
+ *  callable (e.g. from a test) without a real Gateway logger; production wiring always supplies
+ *  `syncLogger`, so a dropped-entry warning is never actually silent at boot. */
+export async function buildLlmRegistryFromToml(
+  db: Database,
+  activeTomlPath: string,
+  vault: NimbusVault,
+  logger: RouteValidationLogger = defaultRouteValidationLogger,
+): Promise<LlmRegistry> {
   const llmToml = loadNimbusLlmFromPath(activeTomlPath);
-  const llmTomlPartial = loadNimbusLlmPartialFromPath(activeTomlPath);
-  const llmOverrides: { agentModel?: string; classifierModel?: string } = {};
-  if (llmTomlPartial.remoteModel !== undefined) {
-    llmOverrides.agentModel = llmTomlPartial.remoteModel;
+  const knownRuntimeLocalRoutes = dropUnknownRuntimeEntries(llmToml.localRoutes, logger);
+  const uncollidedLocalRoutes = dropLlamacppBaseUrlCollisions(knownRuntimeLocalRoutes, logger);
+  const validatedLocalRoutes = dropDuplicateRouteIds(uncollidedLocalRoutes, logger);
+  warnRemoteClassifiedLocalRoutes(validatedLocalRoutes, logger);
+
+  // `local_model = ""` parses to the empty string and survives `loadNimbusLlmFromPath` (the
+  // `[llm]` parser assigns `parseString(valRaw)` unconditionally). It then reaches
+  // `makeRouteId`, which THROWS on an empty model name — and this function is called from
+  // `assemblePlatformServices` with nothing between it and boot, so a one-character config typo
+  // took the whole Gateway down with `modelName must not be empty`. Nothing in assembly may
+  // abort boot: keep the shipped default and say so by name.
+  const localModel = llmToml.localModel.trim();
+  const effectiveLocalModel =
+    localModel === "" ? DEFAULT_NIMBUS_LLM_TOML.localModel : llmToml.localModel;
+  if (localModel === "") {
+    logger.warn(
+      `[llm] local_model is empty — keeping the default "${DEFAULT_NIMBUS_LLM_TOML.localModel}"; ` +
+        "an empty model name cannot name a route",
+    );
   }
-  if (llmTomlPartial.classifierModel !== undefined) {
-    llmOverrides.classifierModel = llmTomlPartial.classifierModel;
-  }
-  applyLlmTomlOverrides(llmOverrides);
+
+  // The route ids that WILL be registered below — computed up front (without touching the
+  // registry) so route_priority can be validated against the real, post-collision-check set
+  // before the router is constructed, since `LlmRouterConfig.routePriority` is set at
+  // construction time.
+  const localRouteIdsToRegister: string[] =
+    validatedLocalRoutes.size > 0
+      ? [...validatedLocalRoutes.values()].map((route) =>
+          makeRouteId(route.runtime === "llamacpp" ? "llamacpp" : "ollama", route.model),
+        )
+      : [makeRouteId("ollama", effectiveLocalModel), makeRouteId("llamacpp", effectiveLocalModel)];
+
+  // REMOTE route ids belong in this set too, and leaving them out was a real bug: the vendor
+  // loop registers them AFTER the router is constructed, but `routePriority` is frozen into
+  // `LlmRouterConfig` at construction — so a `[llm.remote.*]` id named in `route_priority` was
+  // dropped as "does not name a registered route" and could never be honoured. With
+  // `prefer_local = true` that left an enabled cloud vendor effectively unreachable, since
+  // `byPreference` always put the local routes first.
+  //
+  // Keyless vendors are INCLUDED here on purpose. Whether a key resolves is not known until the
+  // async registration loop below, and over-including is safe: `orderedRoutes` skips an id that
+  // did not end up registered, and the vendor loop warns by name when it drops one. Excluding
+  // them would resurrect this bug for anyone whose key arrives after boot.
+  // Resolved ONCE and reused by the registration loop below: `resolveEnabledVendors` warns by
+  // name for an unknown vendor or an empty model, so calling it twice would emit every warning
+  // twice.
+  const enabledVendors = resolveEnabledVendors(llmToml.remoteVendors, vault, logger);
+  const remoteRouteIdsToRegister: string[] = enabledVendors.map((v) =>
+    makeRouteId(v.vendorId, v.modelName),
+  );
+
+  const routeIdsToRegister: string[] = [...localRouteIdsToRegister, ...remoteRouteIdsToRegister];
+
+  const validatedRoutePriority = dropUnresolvableRoutePriorityEntries(
+    llmToml.routePriority,
+    new Set(routeIdsToRegister),
+    logger,
+  );
+
   const llmRegistry = new LlmRegistry({
     db,
     config: {
       preferLocal: llmToml.preferLocal,
-      remoteModel: llmToml.remoteModel,
-      localModel: llmToml.localModel,
+      localModel: effectiveLocalModel,
       minReasoningParams: llmToml.minReasoningParams,
       enforceAirGap: llmToml.enforceAirGap,
+      routePriority: validatedRoutePriority,
+      // Unlike `routePriority`, an unresolvable entry is NOT dropped here: the router's own
+      // `orderedRoutes` already fails open on a pin naming an unregistered or unavailable route
+      // (falls through to normal ordering, never comes up empty), so pre-validating against
+      // `routeIdsToRegister` would only duplicate that behaviour with a warn-log for a case that
+      // is expected to happen routinely (a pinned local model that has not been pulled yet, or a
+      // pinned vendor route that is momentarily down).
+      //
+      // Spread-conditional, not `taskPins: llmToml.taskPins`: under `exactOptionalPropertyTypes`
+      // an explicit `taskPins: undefined` is a different type from an absent key.
+      ...(llmToml.taskPins === undefined ? {} : { taskPins: llmToml.taskPins }),
     },
   });
-  llmRegistry.addProvider(
-    new OllamaProvider("http://127.0.0.1:11434", llmToml.localModel, llmToml.localContextTokens),
-  );
-  const llamacppBaseUrl = llmToml.llamacppServerPath.trim();
-  llmRegistry.addProvider(
-    new LlamaCppProvider(llamacppBaseUrl === "" ? undefined : llamacppBaseUrl, llmToml.localModel),
-  );
+
+  if (validatedLocalRoutes.size > 0) {
+    for (const route of validatedLocalRoutes.values()) {
+      const baseUrl = resolveBaseUrl(route.runtime, route.baseUrl);
+      if (route.runtime === "llamacpp") {
+        llmRegistry.addRoute(new LlamaCppProvider(baseUrl, route.model), route.model);
+      } else {
+        llmRegistry.addRoute(
+          new OllamaProvider(baseUrl, route.model, llmToml.localContextTokens),
+          route.model,
+        );
+      }
+    }
+  } else {
+    llmRegistry.addRoute(
+      new OllamaProvider(OLLAMA_DEFAULT_BASE_URL, effectiveLocalModel, llmToml.localContextTokens),
+      effectiveLocalModel,
+    );
+    const llamacppBaseUrl = llmToml.llamacppServerPath.trim();
+    // The legacy single-route path reaches the same hazard through a different key: an
+    // `[llm] llamacpp_server_path` pointed at a LAN box also produces a non-local provider now,
+    // and that must be as visible here as it is for a `[llm.local.*]` entry.
+    if (llamacppBaseUrl !== "" && !isLoopbackBaseUrl(llamacppBaseUrl)) {
+      logger.warn(
+        `[llm] llamacpp_server_path "${llamacppBaseUrl}" is not loopback — registering the ` +
+          "llama.cpp route as REMOTE: it is excluded when [llm] enforce_air_gap is set",
+      );
+    }
+    llmRegistry.addRoute(
+      new LlamaCppProvider(
+        llamacppBaseUrl === "" ? undefined : llamacppBaseUrl,
+        effectiveLocalModel,
+      ),
+      effectiveLocalModel,
+    );
+  }
   // Fill in `parameterCount` so `[llm] min_reasoning_params` can fire at all (F8). Fire-and-
-  // forget: it is one `/api/tags` call, nothing downstream blocks on it, and a provider that is
-  // down simply leaves the floor fail-open exactly as it was.
-  void llmRegistry.refreshProviderMeta(llmToml.localModel);
+  // forget: nothing downstream blocks on it, and a provider that is down simply leaves the floor
+  // fail-open exactly as it was. Called with NO argument — one pass over every registered local
+  // route, each matched against its OWN `route.modelName` inside `refreshProviderMeta` — never a
+  // single shared name looped across all routes (Task 9 review, finding 1: that shape cross-
+  // assigned one route's parameterCount onto another route sharing the same daemon). One
+  // `listModels()` call per local route, not per route × distinct model name.
+  // Registering a vendor HERE is what turns I29's `model` egress class from wired-but-zero-row
+  // into a live one: `addRoute` passes every non-local provider through `wrapLedgeredProvider`
+  // (slice 2a), so each of these routes ledgers before every generate without the adapter
+  // cooperating. A vendor that is enabled but whose key does not resolve is dropped with a
+  // warning rather than registered, so a keyless route never enters the priority walk at all.
+  for (const vendor of enabledVendors) {
+    const key = await vendor.apiKey();
+    if (key === undefined || key.trim() === "") {
+      logger.warn(
+        `[llm] dropping [llm.remote.${vendor.vendorId}]: enabled but no ` +
+          `${vendorApiKeyName(vendor.vendorId)} in the Vault`,
+      );
+      continue;
+    }
+    llmRegistry.addRoute(makeRemoteProvider(vendor), vendor.modelName);
+  }
+
+  void llmRegistry.refreshProviderMeta();
   return llmRegistry;
 }
 
@@ -1795,7 +2278,7 @@ function buildTeamCredentialContexts(deps: {
  *  and wire it into the IPC + HTTP sidecar opts; returns the live ChatopsBoot (or undefined when
  *  disabled). Extracted from assemblePlatformServices to keep its cognitive complexity in budget;
  *  the chatops↔tribal reply cycle is preserved by rebinding `tribalSendHolder.current` here. */
-function bootChatopsIntoAssembly(deps: {
+async function bootChatopsIntoAssembly(deps: {
   chatopsCfg: ReturnType<typeof loadNimbusChatopsFromConfigDir>;
   policyGate: Parameters<typeof buildChatopsBoot>[0]["policyGate"];
   tribalBoot: TribalBoot | undefined;
@@ -1810,7 +2293,7 @@ function bootChatopsIntoAssembly(deps: {
   httpSidecarOpts: HttpSidecarOpts;
   sidecarStops: Array<() => void>;
   tribalSendHolder: { current: (target: ReplyTarget, text: string) => Promise<void> };
-}): ChatopsBoot | undefined {
+}): Promise<ChatopsBoot | undefined> {
   const {
     chatopsCfg,
     policyGate,
@@ -1833,8 +2316,10 @@ function bootChatopsIntoAssembly(deps: {
   // real bot-credentialed connector spawn + mesh dispatch for a file-backed mock — the "mock
   // Slack/Teams transport" the real-gateway e2e drives. Unset in production (the real spawn).
   const chatopsE2eSinkDir = processEnvGet("NIMBUS_CHATOPS_E2E_SINK_DIR");
-  const chatopsBoot = buildChatopsBoot({
+  const chatopsBoot = await buildChatopsBoot({
     cfg: chatopsCfg,
+    db,
+    vault,
     policyGate,
     ...(tribalBoot === undefined ? {} : { onInboundMessage: tribalBoot.onInboundMessage }),
     ...(tribalInterceptCommand === undefined ? {} : { interceptCommand: tribalInterceptCommand }),
@@ -1889,6 +2374,9 @@ function bootChatopsIntoAssembly(deps: {
         }
       : {}),
     log: (m) => syncLogger.warn(m),
+    // Design §13.1: an egress-ledger append failure on an outbound post must be LOUD at `error`,
+    // not folded into the generic `warn` seam above.
+    logError: (fields, msg) => syncLogger.error(fields, msg),
   });
   ipcOpts.chatopsRpcCtx = chatopsBoot.rpcCtx;
   const teamsSurface = chatopsBoot.teamsSurface;
@@ -2076,6 +2564,50 @@ function bootAgentsIntoHttpSidecar(deps: {
     router: deps.llmRouter,
     ...(deps.selfIdentity === undefined ? {} : { selfIdentity: deps.selfIdentity }),
   });
+}
+
+/**
+ * Bind the ChatOps agent-intent invoker (`@nimbus agent <name> k=v ...`) onto a booted ChatOps
+ * graph. Mirrors `bootAgentsIntoHttpSidecar` immediately above it — same db/index/configDir/
+ * llmRouter/selfIdentity shape — because both build a `buildChatopsAgentInvoker`/
+ * `buildAgentHttpInvoker` deps object from the exact same boot-time collaborators.
+ *
+ * FIX 1 (whole-branch review): this used to be wired in `gateway-main.ts`, AFTER
+ * `assemblePlatformServices` had already returned — a point at which `PlatformServices` carries
+ * no federation-identity field at all, so that call site structurally could not supply
+ * `selfIdentity` and always bound the invoker without one. `ipc/agents-rpc.ts`'s
+ * `federatedAgentBase` falls back to `ZERO_IDENTITY` in that case, so all four
+ * `federatedAgentBase` callers reachable from chat (`ghost`, `conflicts`, `huddle`, `janitor`)
+ * fanned out to peers with a zero keypair and failed every peer call. Binding here instead —
+ * inside `assemblePlatformServices`, right after `chatopsBoot` exists and AFTER
+ * `bootFederationIntoIpcOpts` has populated `ipcOpts.federationIdentity` — gives the invoker the
+ * same real identity the HTTP agent invoker already gets.
+ *
+ * `buildInvoker` is DI (defaults to the real `buildChatopsAgentInvoker`) purely so a test can
+ * capture the deps this function assembles without a full federated dispatch or `mock.module`.
+ */
+export function bootChatopsAgentInvoker(deps: {
+  // `Pick`, not the full `ChatopsBoot` — this function only ever calls `bindAgentInvoker`, and the
+  // narrower type lets a test supply a minimal fake rather than a full `ChatopsBoot` double.
+  chatopsBoot: Pick<ChatopsBoot, "bindAgentInvoker"> | undefined;
+  db: Database;
+  localIndex: LocalIndex;
+  configDir: string;
+  selfIdentity: Parameters<typeof createIpcServer>[0]["federationIdentity"];
+  llmRouter: SynthesisRouter | undefined;
+  buildInvoker?: (deps: Parameters<typeof buildChatopsAgentInvoker>[0]) => ChatopsAgentInvoker;
+}): void {
+  if (deps.chatopsBoot === undefined) return;
+  const build = deps.buildInvoker ?? buildChatopsAgentInvoker;
+  deps.chatopsBoot.bindAgentInvoker(
+    build({
+      db: deps.db,
+      index: deps.localIndex,
+      configDir: deps.configDir,
+      router: deps.llmRouter,
+      ...(deps.selfIdentity === undefined ? {} : { selfIdentity: deps.selfIdentity }),
+    }),
+  );
 }
 
 /**
@@ -2312,7 +2844,17 @@ export async function assemblePlatformServices(
   // design review raised (Q2).
   resolvePersona(paths.configDir, syncLogger);
   const sessionToml = loadNimbusSessionFromPath(activeTomlPath);
-  const llmRegistry = buildLlmRegistryFromToml(db, activeTomlPath);
+  // AWAITED, never fire-and-forget: the registry must be fully populated before the router
+  // answers anything, or a remote route could be missing from the first turn after boot.
+  const llmRegistry = await buildLlmRegistryFromToml(db, activeTomlPath, vault, {
+    warn: (m: string) => syncLogger.warn(m),
+  });
+  // `undefined` here means the Mastra engine agent is NOT CONSTRUCTED at all (gateway-main.ts),
+  // which is what makes `enabled = false` mean no remote inference anywhere — including the
+  // default `nimbus ask`, which Mastra would otherwise serve off an environment credential.
+  const agentVendor = await resolveAgentVendor(loadNimbusLlmFromPath(activeTomlPath), vault, {
+    warn: (m: string) => syncLogger.warn(m),
+  });
 
   const { localIndex, scheduleItemEmbedding, rt } = createLocalIndexWithEmbeddingRuntime(
     db,
@@ -2368,7 +2910,13 @@ export async function assemblePlatformServices(
     );
   });
 
-  const syncBase: SyncContext = {
+  // Capabilities are NOT bound here, deliberately. This context is built ONCE and shared by every
+  // service, so a `getSecret` bound at this point would carry whichever service id happened to be
+  // chosen and be scoped to the wrong connector for all but one of them. They bind per service in
+  // `sync/scheduler.ts` `contextForService`, which both `runJob` and `syncContextFor` route
+  // through — the first points that know which connector is running.
+  const syncBase: SyncRuntimeContext = {
+    ...unboundSyncCapabilities(),
     vault,
     db,
     logger: syncLogger,
@@ -2380,7 +2928,7 @@ export async function assemblePlatformServices(
     depth: "full",
     ...teamCredentialExtras,
   };
-  const syncContext: SyncContext = scheduleItemEmbedding
+  const syncContext: SyncRuntimeContext = scheduleItemEmbedding
     ? { ...syncBase, scheduleItemEmbedding }
     : syncBase;
 
@@ -2650,7 +3198,7 @@ export async function assemblePlatformServices(
   // does not exist yet); the local-consent fallback binds to the delegated-approval broker after
   // the IPC server exists. Identity disabled → every chat user resolves unmapped (fail-closed).
   // (`chatopsBoot` is declared above so the tribal in-chat capture interceptor can late-bind to it.)
-  chatopsBoot = bootChatopsIntoAssembly({
+  chatopsBoot = await bootChatopsIntoAssembly({
     chatopsCfg,
     policyGate,
     tribalBoot,
@@ -2665,6 +3213,22 @@ export async function assemblePlatformServices(
     httpSidecarOpts,
     sidecarStops,
     tribalSendHolder,
+  });
+
+  // ChatOps agent-intent path (Task 9 / FIX 1): `@nimbus agent <name> k=v ...` runs a real
+  // built-in agent through `dispatchAgentsRpc`. Bound HERE rather than post-boot in
+  // `gateway-main.ts` so it can carry the real `federationIdentity` — see
+  // `bootChatopsAgentInvoker`'s doc comment above for why the old call site could not.
+  bootChatopsAgentInvoker({
+    chatopsBoot,
+    db,
+    localIndex,
+    configDir: paths.configDir,
+    // The fix: `ipcOpts.federationIdentity` is populated by `bootFederationIntoIpcOpts` above
+    // (undefined when `[federation]` is disabled — `federatedAgentBase` falls back to
+    // `ZERO_IDENTITY` in that case, same as the HTTP invoker).
+    selfIdentity: ipcOpts.federationIdentity,
+    llmRouter: llmRegistry.llmRouter,
   });
 
   // Observability snapshot (Task 15). Cheap, synchronous readers assembled here where every
@@ -2739,6 +3303,143 @@ export async function assemblePlatformServices(
       newId: () => randomUUID(),
     },
   };
+
+  // I35 (S2 slice 2): the computer-use surface. DEFAULT OFF — `enabled` and `allowed_lanes` are
+  // read from `[computer_use]`, and the gate refuses before consent when either is empty, so wiring
+  // the ctx unconditionally enables nothing. The org-policy half is read LAZILY through
+  // `policyGate.enforced()` rather than snapshotted, so a policy installed after boot tightens the
+  // next session rather than the next restart.
+  //
+  // `resolveBrowserPath`/`buildLaunchPolicy`/`assertLaunchable`/`openLane` are the four `CuGateDeps`
+  // seams the browser driver owns, and THIS IS THE ONLY FILE THAT SUPPLIES THEM (static rule
+  // D26(c) confines `openBrowserLane` to this file plus its own definition, the same shape D22(f)
+  // uses for `wrapLedgeredEmbedder`). Injecting them rather than importing the driver into
+  // `cu-gate.ts` is what keeps the gate testable with no browser installed and clear of the
+  // D26(b) driver-capability confinement.
+  //
+  // `[computer_use] browser_profile_dir` defaults to the EMPTY string, meaning "use
+  // `<configDir>/computer-use/profile`" (spec § 9). That default is resolved HERE, at the one layer
+  // that knows `configDir`, and never inside the gate: `assertBrowserLaunchPolicy` refuses an empty
+  // or relative profile directory outright, because Chromium with no `--user-data-dir` runs against
+  // the OWNER'S REAL PROFILE — their cookies, sessions and history. An unresolved default must fail
+  // the launch assertion, not fall back to something plausible.
+  const computerUseCfg = loadNimbusComputerUseFromConfigDir(paths.configDir);
+  const cuBrowserProfileDir =
+    computerUseCfg.browserProfileDir === ""
+      ? join(paths.configDir, "computer-use", "profile")
+      : computerUseCfg.browserProfileDir;
+  const cuConfig: NimbusComputerUseToml = {
+    ...computerUseCfg,
+    browserProfileDir: cuBrowserProfileDir,
+  };
+
+  // Reconcile `cu_session` rows orphaned by a previous gateway process, BEFORE any session of this
+  // one can be opened (see `cu-boot-reconcile.ts`): the durable table survives a restart and the
+  // gate's in-memory `liveSessions` map does not, so without this they disagree permanently — a
+  // session shows open forever, `sessionClose` answers `not_found`, and the CLI's watch loop never
+  // exits. Best-effort, matching `appendBootMarkerOrWarn`: a bookkeeping failure must not abort
+  // gateway startup, and staying silent about it is what would make it a bug rather than an event.
+  try {
+    const reconciled = reconcileOrphanedSessions(db, { now: () => Date.now() });
+    if (reconciled.reconciled > 0) {
+      syncLogger.info(
+        { sessions: reconciled.reconciled },
+        "computer-use: closed sessions orphaned by a previous gateway process",
+      );
+    }
+  } catch (e) {
+    syncLogger.warn(
+      { err: e instanceof Error ? e.message : String(e) },
+      "computer-use: could not reconcile orphaned sessions; `nimbus computer sessions` may show a stale open session",
+    );
+  }
+
+  ipcOpts.computerRpcCtx = {
+    envelopeConsent: cuEnvelopeConsent,
+    actionConsent: cuActionConsent,
+    gateDeps: {
+      config: cuConfig,
+      get enforced() {
+        return policyGate.enforced();
+      },
+      db,
+      now: () => Date.now(),
+      newId: () => randomUUID(),
+      lanes: {
+        browser: {
+          resolveBrowserPath: resolveChromiumPath,
+          buildLaunchPolicy: buildChromiumLaunchPolicy,
+          assertLaunchable: assertBrowserLaunchPolicy,
+          openLane: (opts) => openBrowserLane(opts),
+        },
+        // THE ONLY PRODUCTION SITE that may name `openTerminalLane` (static rule D26(c)). Injecting
+        // it rather than importing the driver into `cu-gate.ts` is what keeps the gate testable with
+        // no shell present and clear of the driver-capability confinement.
+        terminal: {
+          defaultShellId: DEFAULT_SHELL_ID,
+          resolveShellPath: (shellId) => {
+            let shell: CuShell;
+            try {
+              shell = resolveShellById(shellId);
+            } catch {
+              // `CuShellError("ERR_CU_UNKNOWN_SHELL")`, converted to a STATUS rather than allowed
+              // to propagate: this seam's contract is to report what it found, and a throw crossing
+              // into the gate would be flattened to `ERR_CU_FAILED` by its outer catch.
+              return { status: "unknown_shell" };
+            }
+            const shellPath = shell.detect();
+            return shellPath === null
+              ? { status: "not_installed" }
+              : { status: "ok", shellPath, argv: shell.argv(), envOverlay: shell.envOverlay() };
+          },
+          buildLaunchPolicy: ({ sessionId, shellId, shellPath, cwd }) =>
+            buildTerminalLaunchPolicy({
+              sessionId,
+              shell: resolveShellById(shellId),
+              shellPath,
+              cwd,
+            }),
+          // Reuses the runner constructed at the top of this function rather than probing again:
+          // `createSandboxRunner` synchronously spawns the Windows helper with `--check-caps`
+          // (creating and deleting a throwaway AppContainer profile), and a second call pays that
+          // cost for an answer that cannot differ within one process.
+          assertLaunchable: assertTerminalLaunchable(sandboxRunner),
+          openLane: (opts) => openTerminalLane(opts),
+        },
+      },
+      // `CuGateDeps.requestApproval` takes the UNION of the two approval-input shapes; routed on
+      // the `promptKind` DISCRIMINANT. This used to probe `"seq" in input` — a structural property
+      // standing in for a tagged union, sound only because `seq` happened to exist on one shape and
+      // not the other. Adding a `seq` to the envelope input would have silently routed every
+      // session-open prompt to the ACTION broker, whose renderer draws a different prompt entirely:
+      // the owner would be asked to approve "a browser action" while the origin lists and budgets
+      // they were actually granting went unshown. `switch` on a literal makes a third prompt kind a
+      // compile error here instead.
+      requestApproval: (input) => {
+        const ttlMs = (ipcOpts.federationConsentTimeoutSeconds ?? 30) * 1000 + 5000;
+        switch (input.promptKind) {
+          case "envelope":
+            return cuEnvelopeConsent.request(input, ttlMs);
+          case "action":
+            return cuActionConsent.request(input, ttlMs);
+          default: {
+            const exhaustive: never = input;
+            throw new Error(`unrecognised computer-use approval kind: ${String(exhaustive)}`);
+          }
+        }
+      },
+    },
+  };
+
+  // Snapshot retention (Task 15, spec § 8.4): the same daily-cadence sidecar shape as
+  // `startToolCallLogRetention` above, driven by `[computer_use] snapshot_retention_days`. NULLs
+  // `dom_before`/`dom_after` on `cu_action` rows past the window; the row itself and its
+  // `audit_log` decision are permanent. Deliberately NOT routed through `egress.prune` (I29) —
+  // `cu_action` is not the egress ledger and gets its own, unchained prune.
+  const cuSnapshotRetention = startCuSnapshotRetention(db, {
+    retentionDays: computerUseCfg.snapshotRetentionDays,
+  });
+  sidecarStops.push(() => cuSnapshotRetention.stop());
 
   const shareHttpSink = loadNimbusShareHttpSink(paths.configDir);
   ipcOpts.shareRpcCtx = {
@@ -2824,6 +3525,16 @@ export async function assemblePlatformServices(
   // bug). The gate is still fail-closed either way: no answer means no spawn.
   execConsent.setBroadcast((method, params) => ipc.broadcast(method, asBroadcastParams(params)));
 
+  // I35 (S2 slice 2): the computer-use approval prompts (session-open envelope + per-action) reach
+  // the local owner via the same broadcast channel; they answer through computer.approvalRespond.
+  // UNCONDITIONAL for the same reason as share/exec above.
+  cuEnvelopeConsent.setBroadcast((method, params) =>
+    ipc.broadcast(method, asBroadcastParams(params)),
+  );
+  cuActionConsent.setBroadcast((method, params) =>
+    ipc.broadcast(method, asBroadcastParams(params)),
+  );
+
   if (federationBooted) {
     federationConsent.setBroadcast((method, params) =>
       ipc.broadcast(method, asBroadcastParams(params)),
@@ -2896,6 +3607,7 @@ export async function assemblePlatformServices(
     openUrl: openUrlInDefaultBrowser,
     sandboxRunner,
     llmRegistry,
+    ...(agentVendor === undefined ? {} : { agentVendor }),
     connectorWriteDeps,
     embeddingReadiness,
     ...(sessionMemoryStore === undefined ? {} : { sessionMemoryStore }),

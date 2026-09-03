@@ -1,26 +1,40 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { readdir, readFile } from "node:fs/promises";
-import { relative, resolve, sep } from "node:path";
+import { tmpdir } from "node:os";
+import { join, relative, resolve, sep } from "node:path";
 import { encodeBase64, generateEd25519Keypair } from "@nimbus-dev/sdk";
 import {
   checkAgentEmitterImportConfinement,
+  checkEgressChokepointConfinement,
+  checkEmbeddingConstructorConfinement,
   checkWrapServerSpecInvariant,
 } from "../../../scripts/structure-audit/check-nimbus-invariants.ts";
-import { stripComments } from "../../../scripts/structure-audit/lib.ts";
+import { stripComments, stripStringLiterals } from "../../../scripts/structure-audit/lib.ts";
 import type { ExpertBrief } from "./agents/_lib/findings.ts";
 import { type ApiScope, LEGACY_SCOPES } from "./clips/api-scopes.ts";
 import { CLIP_TOKENS_VAULT_KEY, verifyApiToken } from "./clips/clip-token-store.ts";
 import { PairingWindowController } from "./clips/pairing-window.ts";
+import { classifyTerminalAction } from "./computer-use/cu-classify.ts";
+import { buildTerminalLaunchPolicy } from "./computer-use/cu-lanes/terminal-launch.ts";
+import { DEFAULT_SHELL_ID, resolveShellById } from "./computer-use/cu-lanes/terminal-shells.ts";
+import { TerminalLineBuffer } from "./computer-use/cu-terminal-buffer.ts";
 import { CONNECTOR_WRITES } from "./connectors/connector-write-registry.ts";
 import { COVERAGE_CLASSES, THIS_BINARY_COVERAGE } from "./egress/egress-coverage.ts";
 import { makeEgressSink, NULL_EGRESS_SINK } from "./egress/egress-ledger.ts";
 import { EGRESS_SOURCE_TYPES, MARKER_SOURCE_TYPES } from "./egress/egress-source-type.ts";
 import { egressHead } from "./egress/egress-verify.ts";
 import { HITL_REQUIRED } from "./engine/executor.ts";
-import { CURRENT_SCHEMA_VERSION } from "./index/local-index.ts";
+import { CURRENT_SCHEMA_VERSION, LocalIndex } from "./index/local-index.ts";
 import { runIndexedSchemaMigrations } from "./index/migrations/runner.ts";
+import { dispatchAgentsRpc } from "./ipc/agents-rpc.ts";
 import { HttpWriteRateLimiter } from "./ipc/http-rate-limit.ts";
+import { AnthropicProvider } from "./llm/anthropic-provider.ts";
+import { GeminiProvider } from "./llm/gemini-provider.ts";
+import { LlamaCppProvider } from "./llm/llamacpp-provider.ts";
+import { OllamaProvider } from "./llm/ollama-provider.ts";
+import { OpenAiProvider } from "./llm/openai-provider.ts";
+import { XaiProvider } from "./llm/xai-provider.ts";
 import { type LocalBaseline, PolicyGate } from "./policy/policy-gate.ts";
 import { signPolicy } from "./policy/policy-signing.ts";
 import { PolicyStore } from "./policy/policy-store.ts";
@@ -324,6 +338,18 @@ describe("I5 — LAN method allowlist is intrinsic to LanServer", () => {
     expect(() => checkLanMethodAllowed("exec.anythingAddedLater", peer)).toThrow();
   });
 
+  test("FORBIDDEN_OVER_LAN blocks the whole computer namespace (S2 slice 2 — computer-use gate)", async () => {
+    const { checkLanMethodAllowed } = await import("./ipc/lan-rpc.ts");
+    const peer = { peerId: "peer:x", writeAllowed: true };
+    // computer.act drives the owner's machine. computer.approvalRespond matters just as much:
+    // admitting it would let a paired peer APPROVE an actuation on the owner's machine, defeating
+    // the computer-use gate without ever calling computer.act over the wire.
+    expect(() => checkLanMethodAllowed("computer.act", peer)).toThrow();
+    expect(() => checkLanMethodAllowed("computer.approvalRespond", peer)).toThrow();
+    // Namespace-level, so a future computer.* verb is forbidden by default rather than by memory.
+    expect(() => checkLanMethodAllowed("computer.anythingAddedLater", peer)).toThrow();
+  });
+
   test("FORBIDDEN_OVER_LAN blocks filesystem.ensureRoot (Stage 2a)", async () => {
     const { checkLanMethodAllowed } = await import("./ipc/lan-rpc.ts");
     const peer = { peerId: "peer:x", writeAllowed: true };
@@ -530,6 +556,51 @@ describe("I11 — Tool-result envelope on the LLM-facing path", () => {
     const src = await read("packages/gateway/src/connectors/lazy-mesh/mesh.ts");
     expect(src).toMatch(/wrapToolOutput\(/);
     expect(src).toMatch(/writeToolCallLog\(/);
+  });
+
+  // (Task 12 review round 1, finding 4) A THIRD I11 wiring site: computer-use's model-callable
+  // browser tools. This invariant's docs previously named only the two sites above; the wiring
+  // landed without an update to either this file or SECURITY-INVARIANTS.md, which is exactly the
+  // drift the triple rule (wiring + docs + test in one commit) exists to prevent.
+  test("cu-tools.ts (computer-use) wraps textual tool results with envelope AND writes tool_call_log", async () => {
+    const src = await read("packages/gateway/src/computer-use/cu-tools.ts");
+    expect(src).toMatch(/wrapToolOutput\(/);
+    expect(src).toMatch(/writeToolCallLog\(/);
+  });
+
+  test("cu-tools.ts's four textual browser tools each independently route through the shared runTextualAction wrap+log site", async () => {
+    // Per-tool, not per-file, AND bounded to each tool's OWN block (fix round 2). A per-file
+    // check (above) cannot catch ONE tool silently skipping the shared wrap+log helper while its
+    // siblings still pass -- that motivated a per-tool check in round 1, but that check used a
+    // non-greedy pattern that does not stop at the end of a tool's own block: it is satisfied by
+    // ANY later tool's call site in source order, so mutating any tool but the LAST one
+    // (browser_read) to bypass runTextualAction still passed. The fix here slices each tool's
+    // block to end at the NEXT tool's own id declaration (or end of file), so the search can
+    // never reach past a sibling tool's boundary.
+    const src = stripComments(await read("packages/gateway/src/computer-use/cu-tools.ts"));
+    const tools = ["browser_navigate", "browser_click", "browser_type", "browser_read"];
+    for (const tool of tools) {
+      const marker = `id: "${tool}"`;
+      const start = src.indexOf(marker);
+      expect(start).toBeGreaterThanOrEqual(0);
+      const nextIdx = src.indexOf('id: "', start + marker.length);
+      const block = nextIdx === -1 ? src.slice(start) : src.slice(start, nextIdx);
+      expect(block).toContain("runTextualAction(");
+    }
+  });
+
+  test("cu-tools.ts's browser_screenshot is a DOCUMENTED I11 exception: no wrapToolOutput, but still writeToolCallLog", async () => {
+    // The screenshot channel cannot be covered by a textual envelope (spec: the defense is
+    // lexical, the attack is not) — this pins that the exception is real (no wrapToolOutput call
+    // anywhere in that tool's own execute block) AND still forensically logged, AND that the file
+    // says so out loud rather than silently under-covering.
+    const src = await read("packages/gateway/src/computer-use/cu-tools.ts");
+    const screenshotStart = src.indexOf('id: "browser_screenshot"');
+    expect(screenshotStart).toBeGreaterThanOrEqual(0);
+    const screenshotBlock = src.slice(screenshotStart);
+    expect(screenshotBlock).not.toMatch(/wrapToolOutput\(/);
+    expect(screenshotBlock).toMatch(/writeToolCallLog\(/);
+    expect(src).toMatch(/no textual envelope can defend/i);
   });
 
   test("db/tool-call-log.ts exports writeToolCallLog and readToolCallLog", async () => {
@@ -1838,20 +1909,26 @@ describe("I29 — egress-ledger completeness over the executor chokepoint", () =
     await expect(exec3.execute({ type: "search.run", payload: {} })).rejects.toThrow();
   });
 
-  test("D22 confines connectors.dispatch to executor.ts, the egress append to egress/*, the agent brief append to agents-rpc.ts, and emitter imports to agents-rpc.ts", async () => {
+  test("D22 confines connectors.dispatch to executor.ts, the egress append to egress/*, the agent brief append to agents-rpc.ts, emitter imports to agents-rpc.ts, and registerRoute to llm/registry.ts", async () => {
     const audit = await read("scripts/structure-audit/check-nimbus-invariants.ts");
     expect(audit).toContain("D22-connectors-dispatch");
     expect(audit).toContain("D22-egress-append");
     expect(audit).toContain("D22-agent-brief-egress");
     expect(audit).toContain("D22-agent-emitter-import");
+    // (e) — the route-table chokepoint. Unlike (a), this one does NOT rest on its own name alone:
+    // the "checker actually rejects an unwrapped route registration" test below drives
+    // `checkEgressChokepointConfinement` directly, so a deleted rule body fails there too.
+    expect(audit).toContain("D22-register-route");
 
-    // The four assertions above are string-presence checks, and all four of those strings are
+    // The five assertions above are string-presence checks, and all five of those strings are
     // `rule:` literals INSIDE the check functions — so they scan for a token that lives in the
     // definition being scanned for. Deleting the `run()` block that INVOKES the checks leaves
     // every one of them green while `audit:invariants` stops executing D22 entirely.
     //
-    // Rules (b) and (c) survive that by luck: each has an independent tree-scan further down this
-    // file. Rule (a), the `connectors.dispatch` confinement, has none — so its only enforcement is
+    // Rules (b), (c) and (e) survive that by luck or by design: (b) and (c) each have an
+    // independent tree-scan further down this file, and (e) is driven directly through
+    // `checkEgressChokepointConfinement` by the "rejects an unwrapped route registration" test.
+    // Rule (a), the `connectors.dispatch` confinement, has none — so its only enforcement is
     // the invocation, and its only assertion was the presence of its own name.
     //
     // Same wiring shape as the scan-floor assertion in the audit script's own suite: prove the
@@ -2077,17 +2154,36 @@ describe("I29 — egress-ledger completeness over the executor chokepoint", () =
     // `targetedFetch`'s deps — both closures around ONE appender, `egress/sync-egress.ts`'s
     // `recordSyncEgress`. `per-run`, not `per-call`, because the scheduler side appends ONE row per
     // paginated run (many upstream calls), the weaker of the two shapes this class actually backs.
-    // `model` is now the FIFTH non-`none` class: its ONE appender (`egress/synthesis-egress.ts`'s
-    // `recordSynthesisEgress`) lands in the same commit as this raise. Its only caller is the
-    // synthesis wiring (`agents/_lib/synthesis-llm.ts`, under `[agents] synthesis = "local"` or
-    // `"allow-remote"`), reached in production from `ipc/server/dispatchers.ts` and
-    // `agent-runs/agent-http-invoke.ts` (Task 6's `buildAgentSynthesisRunner`). The
-    // local-vs-remote split is enforced INSIDE the appender (a required `remote: boolean` argument;
-    // `false` appends nothing), not left to that future caller, so a wiring mistake there cannot
-    // fabricate a `model` row for a local generation. It is `per-call` over exactly that, and NOT
-    // "all inference": embeddings still append nothing (`PROSE_HEAVY_TYPES` routes to OpenAI with no
-    // appender), so widening this list further for embeddings would repeat the exact defect this
-    // vector exists to catch. `peer`/`session` stay `none` until THEIR appenders land — raising an
+    // `model` is now the FIFTH non-`none` class, backed by THREE appenders: the route-table
+    // provider wrapper (`egress/model-egress.ts`'s `wrapLedgeredProvider`, applied at
+    // `LlmRegistry.addRoute`, covering `LlmRouter.generate`/`generateMarkdown`/every
+    // `selectProvider()` caller — synthesis among them, via `agents/_lib/synthesis-llm.ts` under
+    // `[agents] synthesis = "local"` or `"allow-remote"`, reached in production from
+    // `ipc/server/dispatchers.ts` and `agent-runs/agent-http-invoke.ts`'s
+    // `buildAgentSynthesisRunner`); the Mastra engine agent (`egress/mastra-model-egress.ts`'s
+    // `wrapLedgeredMastraModel`, since that agent resolves its model through `@mastra/core` outside
+    // the route table entirely); and remote embeddings (`egress/embedding-egress.ts`'s
+    // `wrapLedgeredEmbedder`, applied at each of the embedding pipeline's three construction sites).
+    // The local-vs-remote split is enforced INSIDE each wrapper — derived from `provider.isLocal` /
+    // the embedder's own locality, never a caller-supplied boolean — so a wiring mistake at a call
+    // site cannot fabricate a `model` row for a local generation or embed. It is `per-call` over all
+    // three, and the class now carries no NAMED exclusion: a local provider, a locally-run Mastra
+    // model, or a local embedder (MiniLM) each append nothing by design, not as a gap — that is the
+    // bound that survives, not a claim that no vector or prompt can ever leave unrecorded.
+    // `chatops` is now the SIXTH non-`none` class, per-call, and unlike `mcp`/`http` it is NOT
+    // narrower than its name: its appender (`egress/chatops-egress.ts`'s `buildLedgeredChatPosts`)
+    // decorates the single `post` closure that every chat consumer shares, so one row is appended
+    // per outbound post regardless of which consumer sent it.
+    // `browser` is the SEVENTH non-`none` class, `per-run`, RAISED in the same commit as its
+    // production caller — `computer-use/cu-lanes/browser.ts`'s `openBrowserLane`, which wraps the
+    // CDP-backed context it constructs and enables `Fetch` interception THROUGH the wrapper, so
+    // every request is decided and ledgered before it is allowed to proceed. `per-run` rather than
+    // `per-call`: one row per (destination origin, verdict) pair, so a row can stand for many
+    // requests to that origin. This entry was raised ONCE before, early and wrongly — on the
+    // reasoning that the appender's own commit would follow immediately, which it did not, because
+    // the driver task was re-planned mid-slice — and was restored to `none` until a caller existed.
+    // That caller now exists and is pinned by the D26(c) test in the I35 block below.
+    // `peer`/`session` stay `none` until THEIR appenders land — raising an
     // entry without a landed appender behind it is a review moment, not a test to re-bank. (An
     // earlier version of this comment pointed to an `EgressCompleteness.tier` #1057 note in
     // `egress/egress-verify.ts` for whoever landed the fifth class to read; that field existed and
@@ -2095,7 +2191,15 @@ describe("I29 — egress-ledger completeness over the executor chokepoint", () =
     // is gone; the coverage vector is the only claim" — so the pointer was stale, not fictional, and
     // there was nothing left in that file to settle or re-defer.)
     const claimed = COVERAGE_CLASSES.filter((c) => THIS_BINARY_COVERAGE[c] !== "none");
-    expect([...claimed].sort()).toEqual(["http", "mcp", "model", "sync", "task"]);
+    expect([...claimed].sort()).toEqual([
+      "browser",
+      "chatops",
+      "http",
+      "mcp",
+      "model",
+      "sync",
+      "task",
+    ]);
   });
 
   test("the executor's egress sink is a REQUIRED constructor parameter", async () => {
@@ -2150,6 +2254,157 @@ describe("I29 — egress-ledger completeness over the executor chokepoint", () =
     makeEgressSink(db).append(entry);
     expect(egressHead(db).count).toBe(1);
     db.close();
+  });
+
+  // The route table is the boundary the model-class appender sits on. A file that calls
+  // `registerRoute` directly enters that table WITHOUT `addRoute`'s `wrapLedgeredProvider`,
+  // so its provider would generate with no ledger row -- I29's `model` class silently
+  // incomplete, with the static audit green.
+  test("I29/D22(e): registerRoute is named only by registry.ts and its own definition", async () => {
+    const files = await readDirFiles("packages/gateway/src");
+    const callers = files
+      .filter((f) => /\bregisterRoute\b/.test(stripComments(f.contents)))
+      .map((f) => `packages/gateway/src/${f.rel}`)
+      .sort();
+    expect(callers).toEqual([
+      "packages/gateway/src/llm/registry.ts",
+      "packages/gateway/src/llm/router.ts",
+    ]);
+  });
+
+  // D22(e) stops a SECOND file entering the route table unwrapped. This stops the ONE
+  // permitted file entering it with nothing to ledger to: `addRoute` hands `this.db` to
+  // `wrapLedgeredProvider`, so an optional `db` meant a registry could exist that could not
+  // record egress. That was a runtime refusal until 2026-08-28 and is now a type error --
+  // asserted here on the SOURCE, because a type error is invisible to a runtime suite and
+  // would otherwise be pinned nowhere the invariant's own tests can see.
+  test("I29: LlmRegistryOptions.db is non-optional, so an unledgerable registry cannot exist", async () => {
+    // Resolved from REPO_ROOT, never cwd — every other file-reading helper here does the
+    // same. A bare relative path passes locally (repo root) and fails in the coverage step,
+    // which runs with a different working directory: ENOENT, not a real invariant breach.
+    const src = stripComments(
+      await readFile(resolve(REPO_ROOT, "packages/gateway/src/llm/registry.ts"), "utf8"),
+    );
+    const optionsBlock = /export type LlmRegistryOptions = \{([\s\S]*?)\}/.exec(src)?.[1] ?? "";
+    expect(optionsBlock).not.toBe("");
+    // The whole assertion: `db: Database`, never `db?: Database`.
+    expect(/\bdb\s*\?\s*:/.test(optionsBlock)).toBe(false);
+    expect(/\bdb\s*:\s*Database\b/.test(optionsBlock)).toBe(true);
+  });
+
+  test("I29: the checker actually rejects an unwrapped route registration", () => {
+    const violations = checkEgressChokepointConfinement([
+      {
+        relPath: "packages/gateway/src/platform/assemble.ts",
+        contents: "router.registerRoute(provider, 'm');",
+      },
+    ]);
+    expect(violations.map((v) => v.rule)).toContain("D22-register-route");
+  });
+
+  test("I29: every remote-embedder construction site wraps with the appender", async () => {
+    // Rule (f) stops a NEW file calling the appender; this stops an EXISTING construction site
+    // quietly dropping it. Asserted on source because the sites build real network clients.
+    //
+    // A plain `toContain("createOpenAIEmbedder")` + `toMatch(/wrapLedgeredEmbedder\(/)` pair --
+    // the previous shape of this test -- proves only CO-OCCURRENCE: a SECOND, unwrapped
+    // `createOpenAIEmbedder(...)` added anywhere else in the same file would satisfy both
+    // assertions while the second call shipped un-ledgered. Delegating to
+    // `checkEmbeddingConstructorConfinement` proves ASSOCIATION instead -- every call is
+    // paren-matched as textually nested inside a `wrapLedgeredEmbedder(...)` argument list --
+    // against the REAL file contents, so this fails the moment a real site regresses.
+    const sites = [
+      "packages/gateway/src/embedding/create-routing-runtime.ts",
+      "packages/gateway/src/embedding/create-embedding-runtime.ts",
+      "packages/gateway/src/ipc/index-reembed-rpc.ts",
+    ];
+    for (const rel of sites) {
+      const contents = await readFile(resolve(REPO_ROOT, rel), "utf8");
+      const violations = checkEmbeddingConstructorConfinement([{ relPath: rel, contents }]);
+      expect(violations).toEqual([]);
+    }
+  });
+
+  test("I29: an unwrapped createOpenAIEmbedder call in an approved file is still caught", () => {
+    // The regression this closes: the allow-list used to skip ALL checking once a file's path
+    // matched, so a SECOND, bare `createOpenAIEmbedder(...)` added to an already-approved file
+    // -- as opposed to a brand-new file -- was invisible to every guard. This fixture is exactly
+    // that shape: a real appender call earns the file its place on the allow-list, and a second,
+    // unwrapped construction sits right beside it, unassociated with any `wrapLedgeredEmbedder`.
+    const unwrappedFixture = [
+      "const wrapped = wrapLedgeredEmbedder(db, await createOpenAIEmbedder({ apiKey }));",
+      "const rogue = await createOpenAIEmbedder({ apiKey: other });",
+    ].join("\n");
+    const violations = checkEmbeddingConstructorConfinement([
+      {
+        relPath: "packages/gateway/src/embedding/create-routing-runtime.ts",
+        contents: unwrappedFixture,
+      },
+    ]);
+    expect(violations.map((v) => v.rule)).toEqual(["embedding-constructor-confined"]);
+    expect(violations[0]?.snippet).toContain("rogue");
+  });
+});
+
+describe("I34 — locality is declared once, and a cloud adapter can never claim to be local", () => {
+  // Air-gap refusal AND the I29 `model` appender both read `provider.isLocal`. A wrong
+  // `true` is one word and silent in both directions: the prompt leaves under a setting
+  // that promised it would not, and no ledger row records that it did.
+
+  test("a local runtime pointed at a LAN box is NOT local", () => {
+    // Slice 1's fix. `base_url` is user-configurable and `[llm.local.*]` accepts a remote
+    // host, so a hardcoded `true` here defeated `enforce_air_gap` entirely.
+    expect(new OllamaProvider("http://192.168.1.50:11434", "m").isLocal).toBe(false);
+    expect(new LlamaCppProvider("http://192.168.1.50:8080", "m").isLocal).toBe(false);
+  });
+
+  test("a local runtime on loopback IS local", () => {
+    expect(new OllamaProvider("http://127.0.0.1:11434", "m").isLocal).toBe(true);
+    expect(new LlamaCppProvider("http://localhost:8080", "m").isLocal).toBe(true);
+  });
+
+  test("locality is derived from the base URL, never from a vendor id", async () => {
+    // One definition site. Three copies of this fact is what produced the hardcoded-env
+    // bug in the Windows sandbox work; `LOCAL_PROVIDER_IDS` and its two duplicates were
+    // deleted in slice 1 and must not come back.
+    const files = await readDirFiles("packages/gateway/src");
+    const offenders = files
+      .filter((f) => /LOCAL_PROVIDER_IDS|LOCAL_PROVIDERS\s*=/.test(stripComments(f.contents)))
+      .map((f) => f.rel);
+    expect(offenders).toEqual([]);
+  });
+
+  test("every cloud adapter reports isLocal === false, even on a loopback base_url", () => {
+    // The INVERSE of the local-runtime rule above, and the case slice 2a could not write because
+    // no cloud adapter existed. A LiteLLM-style proxy on 127.0.0.1 FORWARDS to the vendor, so
+    // deriving locality from the URL here would reopen the air-gap bypass slice 1 closed --
+    // through the opposite door.
+    const apiKey = async (): Promise<string | undefined> => "k";
+    const baseUrl = "http://127.0.0.1:4000";
+    expect(new AnthropicProvider({ apiKey, modelName: "m", baseUrl }).isLocal).toBe(false);
+    expect(new OpenAiProvider({ apiKey, modelName: "m", baseUrl }).isLocal).toBe(false);
+    expect(new GeminiProvider({ apiKey, modelName: "m", baseUrl }).isLocal).toBe(false);
+    expect(new XaiProvider({ apiKey, modelName: "m", baseUrl }).isLocal).toBe(false);
+  });
+
+  test("no cloud adapter derives locality from the base URL", async () => {
+    // Structural complement to the four value assertions above: a future adapter that imported
+    // `isLoopbackBaseUrl` would be DERIVING locality, which is exactly the mistake I34 names.
+    // Scoped to the cloud adapters -- the two local runtimes import it correctly and by design.
+    const files = await readDirFiles("packages/gateway/src/llm");
+    const offenders = files
+      .filter((f) => /-provider.ts$/.test(f.rel) && !/^(ollama|llamacpp)-/.test(f.rel))
+      .filter((f) => /isLoopbackBaseUrl/.test(stripComments(f.contents)))
+      .map((f) => f.rel);
+    expect(offenders).toEqual([]);
+  });
+
+  test("isLoopbackBaseUrl has exactly one definition site", async () => {
+    const files = await readDirFiles("packages/gateway/src");
+    const definers = files
+      .filter((f) => /export function isLoopbackBaseUrl\b/.test(stripComments(f.contents)))
+      .map((f) => `packages/gateway/src/${f.rel}`);
+    expect(definers).toEqual(["packages/gateway/src/llm/base-url-locality.ts"]);
   });
 });
 
@@ -2442,5 +2697,505 @@ describe("I32 — clip source metadata is whitelist-constructed, so a page canno
       /const leadImage = boundedExact\(o\["leadImage"\], SOURCE_LEAD_IMAGE_MAX\)/,
     );
     expect(src).toMatch(/const publishedAt = epochMs\(o\["publishedAt"\]\)/);
+  });
+});
+
+describe("I35 — computer-use actuation only inside an approved envelope", () => {
+  test("performActuation is called only from cu-gate.ts (and defined ONCE in cu-actuate.ts)", async () => {
+    // Review finding: the earlier version collected DISTINCT FILE PATHS containing a match, not
+    // OCCURRENCE COUNTS — so a second, illegitimate direct call added anywhere else inside
+    // `cu-actuate.ts` (which is already expected to appear once, for its own declaration) would
+    // leave the file SET unchanged and this test would stay green. Counting matches per file, not
+    // just membership, closes that — matching the same fix just applied to the static audit
+    // (`check-nimbus-invariants.ts`'s `checkActuationConfinement`).
+    const files = await readDirFiles("packages/gateway/src");
+    const matchesByFile = new Map<string, number>();
+    for (const f of files) {
+      const n = (stripComments(f.contents).match(/\bperformActuation\s*\(/g) ?? []).length;
+      if (n > 0) matchesByFile.set(`packages/gateway/src/${f.rel}`, n);
+    }
+    expect(Object.fromEntries(matchesByFile)).toEqual({
+      "packages/gateway/src/computer-use/cu-actuate.ts": 1, // the declaration, exactly once
+      // TWO legitimate calls, one per lane arm of `runActionExclusive` — pinned as a COUNT rather
+      // than as "the gate contains at least one", because that is what makes a THIRD call, added
+      // anywhere in this file, a failure a reader has to justify rather than a silent widening of
+      // the one function that turns a model proposal into a real interaction with the host.
+      "packages/gateway/src/computer-use/cu-gate.ts": 2,
+    });
+  });
+
+  test("performActuation is never IMPORTED outside cu-gate.ts, under any alias", async () => {
+    // Second review finding on the same test: a call-text scan (however precisely counted) is
+    // defeated by an ALIASED import — `import { performActuation as invoke }` followed by
+    // `invoke(lane, req)` contains no `performActuation(` call-shaped text anywhere, so the test
+    // above would stay green while a second, unauthorized path to the host exists. Closed at the
+    // IMPORT, not the call: no file other than the gate may import the symbol under any local
+    // name — if it can never enter scope elsewhere, there is no alias left to call it through.
+    // Same fix mirrored onto the static audit's `checkActuationConfinement`.
+    const files = await readDirFiles("packages/gateway/src");
+    const importers = files
+      .filter((f) => f.rel !== "computer-use/cu-gate.ts")
+      .filter((f) =>
+        /\bimport\s*\{[^}]*\bperformActuation\b[^}]*\}\s*from/.test(stripComments(f.contents)),
+      )
+      .map((f) => `packages/gateway/src/${f.rel}`)
+      .sort();
+    expect(importers).toEqual([]);
+  });
+
+  test("no browser-DRIVING CAPABILITY exists outside cu-lanes/", async () => {
+    // D26(b), WIDENED when the real driver landed. The old assertion scanned for a `playwright`
+    // import only -- and the shipped driver is raw CDP over a WebSocket with no dependency at all,
+    // so a file opening its own socket and clicking would have passed it silently. A CDP client
+    // cannot do anything without NAMING a protocol method, whatever transport it uses, so the
+    // method literal is what actually carries the confinement.
+    const files = await readDirFiles("packages/gateway/src");
+    const libRe =
+      /(?:from\s*|import\s*\(\s*|require\s*\(\s*)["'](?:playwright(?:-core)?|puppeteer(?:-core)?|chrome-remote-interface|selenium-webdriver|chrome-launcher)["']/;
+    const cdpRe =
+      /["'`](?:Page|DOM|DOMDebugger|Runtime|Input|Target|Fetch|Network|Browser|Emulation|Security|Storage|Overlay|Accessibility)\.[A-Za-z][A-Za-z0-9]*["'`]/;
+    const offenders = files
+      .filter((f) => !f.rel.startsWith("computer-use/cu-lanes/"))
+      .filter((f) => !f.rel.endsWith(".test.ts"))
+      .filter((f) => {
+        const src = stripComments(f.contents);
+        return libRe.test(src) || cdpRe.test(src);
+      })
+      .map((f) => `packages/gateway/src/${f.rel}`)
+      .sort();
+    expect(offenders).toEqual([]);
+  });
+
+  test.each([
+    ["openBrowserLane", "packages/gateway/src/computer-use/cu-lanes/browser.ts"],
+    ["openTerminalLane", "packages/gateway/src/computer-use/cu-lanes/terminal.ts"],
+  ])(
+    "D26(c): %s is named ONLY by its definition and the one wiring site",
+    async (symbol, definition) => {
+      // Confining the driver capability to `cu-lanes/` is not enough on its own: a wiring layer has
+      // to reach into that directory once per lane to hand the constructor to the gate, and that one
+      // legitimate import is enough for a second, illegitimate one to hide beside it. Any file that
+      // can import a lane constructor gets a live lane and can drive it — `lane.click()`, or
+      // `lane.write()` on the terminal — with no envelope, no classification, no consent, no audit
+      // row, while D26(a) sees no `performActuation(` and D26(b) sees no protocol text, because the
+      // capability arrived as a function VALUE. Same shape as D22(f) for `wrapLedgeredEmbedder`.
+      //
+      // GENERALISED over both constructors rather than left browser-only: the static rule covers
+      // both, and a runtime test that knew about only one would leave the newer constructor
+      // asserted by the backstop alone — with the authoritative half silent about it.
+      const files = await readDirFiles("packages/gateway/src");
+      const namers = files
+        .filter((f) => !f.rel.endsWith(".test.ts"))
+        .filter((f) => new RegExp(String.raw`\b${symbol}\b`).test(stripComments(f.contents)))
+        .map((f) => `packages/gateway/src/${f.rel}`)
+        .sort();
+      expect(namers).toEqual([definition, "packages/gateway/src/platform/assemble.ts"].sort());
+    },
+  );
+
+  test("the MODEL-FACING tool layer cannot construct a lane (CuRunDeps has no openLane)", async () => {
+    // The whole `CuGateDeps` used to be handed to `cu-tools.ts` and, through it, to
+    // `engine/agent.ts`. Removing the capability is the fix rather than a third static rule over
+    // it: a layer that cannot NAME a lane constructor cannot construct one, and that holds for code
+    // nobody has written yet.
+    const gate = await read("packages/gateway/src/computer-use/cu-gate.ts");
+    // Sliced to the END OF THE DECLARATION, not to the next named interface. It used to run to
+    // `export interface CuGateDeps`, which silently widened to cover everything declared in
+    // between — and the moment the per-lane seam groups landed there, the slice contained the very
+    // capability names it exists to assert are absent. A slice bounded by an unrelated landmark is
+    // a test that changes meaning when a neighbour moves.
+    const runDepsStart = gate.indexOf("export interface CuRunDeps");
+    expect(runDepsStart).toBeGreaterThanOrEqual(0);
+    const runDeps = gate.slice(runDepsStart, gate.indexOf("\n}", runDepsStart) + 2);
+    expect(runDeps.length).toBeGreaterThan(0);
+    expect(runDeps).toContain("requestApproval"); // proves the slice really covers the interface
+    for (const capability of [
+      "openLane",
+      "buildLaunchPolicy",
+      "assertLaunchable",
+      "resolveBrowserPath",
+      "lanes",
+    ]) {
+      expect(runDeps).not.toContain(capability);
+    }
+    // And the tool layer takes the narrowed shape, not the full one.
+    const tools = await read("packages/gateway/src/computer-use/cu-tools.ts");
+    expect(tools).toContain("CuRunDeps");
+    expect(stripComments(tools)).not.toContain("CuGateDeps");
+    const agent = await read("packages/gateway/src/engine/agent.ts");
+    expect(stripComments(agent)).not.toContain("CuGateDeps");
+  });
+
+  test("the pre-consent launch assertion is over the policy that ACTUALLY launches", async () => {
+    // I35 re-verify item 2. `browserLanePolicy` was a `SandboxPolicy` asserted against
+    // `canConfine` and then never used to launch anything -- a statement about the wrong object.
+    // The gate now builds ONE launch policy, asserts it, and passes the SAME binding to
+    // `openLane`; the driver spawns its `argv` verbatim.
+    const gate = stripComments(await read("packages/gateway/src/computer-use/cu-gate.ts"));
+    expect(gate).not.toContain("browserLanePolicy");
+    // The gate never probes the runner itself. The TERMINAL lane's assertion IS `canConfine`, but
+    // it is reached through the injected `assertLaunchable` seam, which is what keeps this file
+    // free of both the PAL and `cu-lanes/`.
+    expect(gate).not.toContain("canConfine");
+
+    // PER LANE, and asserted as the PROPERTY rather than as one lane's literal source line: each
+    // lane builds ONE launch policy, asserts THAT binding, and carries it to `openLane` on the
+    // `PreparedLane` it returns. Pinning a source string instead made this test fail the moment
+    // the seams were grouped per lane, even though the property it exists to protect was intact.
+    for (const lane of ["browser", "terminal"]) {
+      expect(gate).toContain(`deps.lanes.${lane}.buildLaunchPolicy(`);
+      expect(gate).toContain(`deps.lanes.${lane}.assertLaunchable(launch)`);
+    }
+    // The SAME binding, not a rebuild: both `openLane` calls take the prepared object. A
+    // `buildLaunchPolicy` call inside an `openLane` argument would typecheck and silently
+    // reintroduce the drift this replaced, so it must appear nowhere in that position.
+    expect((gate.match(/launch: prepared\.launch/g) ?? []).length).toBe(2);
+    expect(gate).not.toMatch(/openLane\([^)]*buildLaunchPolicy/);
+
+    // And each driver spawns what it was handed, verbatim.
+    const browserDriver = stripComments(
+      await read("packages/gateway/src/computer-use/cu-lanes/browser.ts"),
+    );
+    expect(browserDriver).toContain("opts.launch.argv");
+    const terminalDriver = stripComments(
+      await read("packages/gateway/src/computer-use/cu-lanes/terminal.ts"),
+    );
+    expect(terminalDriver).toContain("launch.shellPath");
+    expect(terminalDriver).toContain("launch.argv");
+    expect(terminalDriver).toContain("launch.policy");
+  });
+
+  test("I35 terminal: the classifier has no observing branch and cannot be told anything", async () => {
+    // TWO independent proofs, because either alone is a weaker claim than the invariant makes.
+    // By ARITY: the function takes the composed line and nothing else, so the model's own
+    // description cannot be passed to it, let alone consulted — I3 transplanted, and stronger here
+    // than on the browser lane, where the separation rests on which fields an input object carries.
+    expect(classifyTerminalAction.length).toBe(1);
+    // And by exhaustion over adversarial shapes, including ones a future edit might special-case.
+    for (const line of ["ls", "", "  ", "cat x # observing", "READ-ONLY", "y".repeat(9000)]) {
+      expect(classifyTerminalAction(line).cls).toBe("actuating");
+    }
+    // No branch in the source can return `observing` at all — read from disk rather than reasoned
+    // No branch in the BODY can return `observing`. Read from disk rather than reasoned about, so
+    // a future edit that adds one fails here even if every input above still classifies
+    // `actuating` by luck of which cases were chosen.
+    //
+    // The slice is anchored on the BODY OPENING, not on the first newline-brace after the
+    // declaration. `classifyTerminalAction` declares a multi-line inline return type, so that first
+    // newline-brace is the closing brace of the TYPE — slicing there ended the region before the
+    // body began, and the assertion passed no matter what the body contained. A guard that cannot
+    // fail is worse than no guard, because it is counted as one.
+    const classify = stripComments(await read("packages/gateway/src/computer-use/cu-classify.ts"));
+    const decl = classify.indexOf("export function classifyTerminalAction");
+    expect(decl).toBeGreaterThanOrEqual(0);
+    const bodyStart = classify.indexOf("} {", decl) + 3;
+    const body = classify.slice(bodyStart, classify.indexOf("\n}", bodyStart));
+    // POSITIVE CONTROL: prove the slice actually covers the body before asserting about it.
+    expect(body).toContain("actuating");
+    expect(body).not.toContain("observing");
+  });
+
+  test("I35 terminal: a control character is refused, not buffered, and leaves the buffer alone", () => {
+    const b = new TerminalLineBuffer();
+    b.append("safe-command");
+    for (const cp of [0x03, 0x04, 0x1b, 0x00, 0x7f]) {
+      expect(b.append(String.fromCodePoint(cp)).status).toBe("refused");
+    }
+    expect(b.pending()).toBe("safe-command");
+  });
+
+  test("I35 terminal: a bidirectional override is refused — the consent prompt cannot be made to lie", () => {
+    // Trojan Source (CVE-2021-42574). Harmless to the shell, dangerous to the HUMAN — and on this
+    // lane the owner's approval prompt is the ENTIRE boundary, so a character that changes what the
+    // line RENDERS as attacks the only defense there is.
+    const b = new TerminalLineBuffer();
+    for (const cp of [0x202e, 0x2066, 0x200b, 0x2028, 0xfeff]) {
+      expect(b.append(`echo ${String.fromCodePoint(cp)} hi`).status).toBe("refused");
+    }
+    // Ordinary right-to-left TEXT is untouched: those are letters, not overrides.
+    expect(b.append("echo مرحبا").status).toBe("buffered");
+  });
+
+  test("I35 terminal: permissions.network is empty by construction and a grant is REFUSED", () => {
+    const fixture = {
+      sessionId: "s1",
+      shell: resolveShellById(DEFAULT_SHELL_ID),
+      shellPath: join(tmpdir(), "fake-shell"),
+      cwd: join(tmpdir(), "cu-work"),
+    };
+    expect(buildTerminalLaunchPolicy(fixture).policy.permissions.network).toEqual([]);
+    // Refused, not dropped. Dropping would let a caller believe it had been granted something and
+    // would make spec § 6.2's "this lane adds no egress class" a convention instead of a property.
+    expect(() => buildTerminalLaunchPolicy({ ...fixture, network: ["evil.example"] })).toThrow();
+  });
+
+  test("I35 terminal: the lane adds NO egress coverage class", async () => {
+    // Spec § 6.2's zero-row claim is STRUCTURAL — the sandbox makes the request impossible — not an
+    // appender that happened not to fire. A future network grant must land its appender first, and
+    // a class appearing here without one would be the disclosed-gap defect this repo has recorded
+    // twice already.
+    expect(COVERAGE_CLASSES as readonly string[]).not.toContain("terminal");
+    expect(COVERAGE_CLASSES as readonly string[]).not.toContain("shell");
+    // And nothing in the terminal lane appends to the ledger at all.
+    for (const rel of [
+      "computer-use/cu-lanes/terminal.ts",
+      "computer-use/cu-lanes/terminal-launch.ts",
+      "computer-use/cu-lanes/terminal-shells.ts",
+      "computer-use/cu-terminal-buffer.ts",
+    ]) {
+      const src = stripComments(await read(`packages/gateway/src/${rel}`));
+      expect(src).not.toContain("appendEgressEntry");
+      expect(src).not.toContain("egress_ledger");
+    }
+  });
+
+  test("I35 terminal: the gate reads the approved line ONCE and writes it verbatim", async () => {
+    // The bytes the owner approved are the bytes that execute. Re-deriving the line from the buffer
+    // at write time would be the TOCTOU that defeats the whole gate, since the human IS the
+    // boundary on this lane — the same rule I33 states for reading an execution's script once.
+    const gate = stripComments(await read("packages/gateway/src/computer-use/cu-gate.ts"));
+    expect(gate).toContain("const line = appended.line;");
+    expect(gate).toContain('performActuation(handle, { kind: "terminal_write", text: line })');
+    // Nothing re-reads the buffer between the approval and the write.
+    const afterConsent = gate.slice(gate.indexOf("const line = appended.line;"));
+    expect(afterConsent.slice(0, afterConsent.indexOf("performActuation"))).not.toContain(
+      "buffer.append",
+    );
+  });
+
+  test("I35 terminal: the driver appends nothing to what it is told to write", async () => {
+    // No sentinel, no prelude, no echo. This is why command completion is detected by output
+    // quiescence rather than by anything the driver writes.
+    const driver = stripComments(
+      await read("packages/gateway/src/computer-use/cu-lanes/terminal.ts"),
+    );
+    const writes = driver.match(/child\.stdin\?\.write\([^\n]*/g) ?? [];
+    expect(writes).toHaveLength(1);
+    // Matched as a REGEX rather than as a literal `"${bytes}"`, which reads as a mistaken template
+    // string (and biome flags it as one).
+    expect(writes[0]).toMatch(/\$\{bytes\}/);
+    // One newline, and nothing else concatenated onto it.
+    expect(writes[0]).not.toContain("echo");
+    expect(writes[0]).not.toMatch(/\+/);
+  });
+
+  test("the browser egress class has a PRODUCTION caller, and its coverage says so", async () => {
+    // `THIS_BINARY_COVERAGE.browser` may only be non-"none" in the same commit as the appender's
+    // production caller -- `egress-coverage.ts`'s own rule, and the defect that vector exists to
+    // prevent.
+    const files = await readDirFiles("packages/gateway/src");
+    const callers = files
+      .filter((f) => !f.rel.endsWith(".test.ts"))
+      .filter((f) => /\bwrapLedgeredBrowserContext\b/.test(stripComments(f.contents)))
+      .map((f) => `packages/gateway/src/${f.rel}`)
+      .sort();
+    expect(callers).toEqual([
+      "packages/gateway/src/computer-use/cu-lanes/browser.ts",
+      "packages/gateway/src/egress/browser-egress.ts",
+    ]);
+    expect(THIS_BINARY_COVERAGE.browser).toBe("per-run");
+  });
+
+  test("the browser egress appender GUARDS the resource type rather than casting it", async () => {
+    // The cast claimed an exhaustiveness that did not hold, and the raw-CDP driver made it live:
+    // CDP reports PascalCase, the union is lowercase, so under the cast every live type -- the
+    // page's own document included -- fell to the gated branch.
+    const src = stripComments(await read("packages/gateway/src/egress/browser-egress.ts"));
+    expect(src).not.toContain("as CuResourceType");
+    expect(src).toContain('toCuResourceType(rawResourceType) ?? "other"');
+  });
+
+  test("the classifier takes no model-supplied field", async () => {
+    // I3 transplanted: the gate reads a property the gateway derived, never one the caller supplied.
+    //
+    // This scan has failed three different ways across three rounds, each a smarter version of the
+    // last, each defeated by a different quoting construct. Recorded here so a future "simplify
+    // this" pass does not reintroduce any of them:
+    //
+    //   1. A naive `indexOf("}", ...)` truncated at an inline object type's own closing brace
+    //      (e.g. `readonly bounds: { w: number };`), ending the slice before a banned field that
+    //      followed it.
+    //   2. A brace-depth counter over RAW source fixed (1), but a `}` written inside PROSE (a
+    //      JSDoc comment describing "the closing token `}`", say) still incremented the raw
+    //      scanner's depth, ending the slice early the same way.
+    //   3. A brace-depth counter over `stripComments`-only source fixed (2), but `stripComments`
+    //      deliberately PRESERVES string-literal contents (a different helper's job), so a `}`
+    //      inside a string literal (`readonly tag: "a}b";`) still closed the scan early.
+    //
+    // The fix composes the repo's own two strippers rather than hand-rolling string-awareness of
+    // a fourth kind: `stripStringLiterals(stripComments(src))` removes comment text AND blanks
+    // every quoted/template string body (preserving only `${...}` substitutions, which are real
+    // code and whose braces must stay balanced) before the depth counter ever runs. This is "the
+    // guard" the docs call out by name (a TS interface cannot be reflected at runtime), so its own
+    // blind spots matter more than most -- do not narrow this composition back to one stripper.
+    const rawSrc = await read("packages/gateway/src/computer-use/cu-classify.ts");
+    const src = stripStringLiterals(stripComments(rawSrc));
+    const start = src.indexOf("interface BrowserActionInput");
+    const openBrace = src.indexOf("{", start);
+    let depth = 0;
+    let end = -1;
+    for (let i = openBrace; i < src.length; i++) {
+      if (src[i] === "{") depth++;
+      else if (src[i] === "}") {
+        depth--;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    expect(end).toBeGreaterThan(-1);
+    const iface = src.slice(start, end);
+    // ALLOWLIST, not a denylist: red-proved that a denylist is the wrong shape for this guard.
+    // `not.toContain("intent:")` (an earlier version of this check) is defeated by
+    // `readonly modelIntent?: string;`, which contains `Intent:` — capital I, never matched by a
+    // lowercase, colon-anchored substring search — and a denylist can only ever enumerate the
+    // field NAMES someone already thought to ban, never the ones nobody has invented yet. This
+    // repo's own rule is to write a guard as what CANNOT pass: parse the field names the interface
+    // actually declares and assert the set is EXACTLY the five permitted ones. Any new field —
+    // whatever it is called, whatever it is cased — fails until someone consciously widens the
+    // allowlist below, which is the point: adding a model-controllable field is a decision, not an
+    // accident this scan lets slide.
+    //
+    // Field names are read off `^\s*readonly (\w+)\??:` lines within the brace-depth-bounded
+    // interface body — the same slice the old denylist scanned — so a JSDoc block that merely
+    // MENTIONS a field name inside prose (e.g. "the closing brace `}`" or a `{@link foo}`) cannot
+    // masquerade as a declared field: `stripComments` has already removed comment text from `src`
+    // before this slice was taken, and the regex additionally requires the `readonly NAME?:`
+    // shape a JSDoc construct never produces.
+    const fields = [...iface.matchAll(/^\s*readonly (\w+)\??:/gm)]
+      .map((m) => m[1] as string)
+      .sort();
+    expect(fields).toEqual(["currentOrigin", "kind", "node", "submitsForm", "targetOrigin"].sort());
+  });
+
+  test("no computer.* method is exposed to the Tauri renderer (I7)", async () => {
+    const rs = await read("packages/ui/src-tauri/src/gateway_bridge.rs");
+    expect(rs).not.toContain("computer.");
+  });
+
+  test("the browser lane never writes a screenshot to disk", async () => {
+    // Spec § 7. The property this test is NAMED for is that captured screenshot bytes never reach
+    // a persisting API anywhere in the file — not merely that one particular `screenshot(` call
+    // site lacks a `path:` option. An earlier version of this test scanned only a 400-byte window
+    // after the first `indexOf("screenshot(")` hit and asserted the window lacked `path:`; that
+    // is redundant with the type system today (`BrowserLane.screenshot()` takes no parameters, so
+    // a `path:` option there is already a compile error) and blind to the real hazard, red-proved
+    // by inserting `await Bun.write("/tmp/leak.png", bytes);` right after the captured bytes and
+    // returning their digest as before — the old test stayed green because the write sat past the
+    // 400-byte window and the returned bytes were never the thing being scanned.
+    //
+    // This version scans the WHOLE file for every persisting API this repo uses to write bytes to
+    // disk — `Bun.write`, `writeFile`/`writeFileSync`, `createWriteStream`, and any `fs.`-prefixed
+    // write call — rather than a slice following one call site. `cu-lanes/browser.ts` (the
+    // deferred driver, see plan Task 9) does not exist yet, so today's honest scan target is
+    // `cu-actuate.ts`, the only file in the shipped surface that touches screenshot bytes at all.
+    // Once the real driver lands at `cu-lanes/browser.ts`, this picks it up automatically and must
+    // be re-verified there.
+    //
+    // `stripStringLiterals(stripComments(src))` is applied before scanning: `cu-actuate.ts`'s own
+    // doc comment quotes `lane.screenshot(); return null;` as an example of a fixed defect, and a
+    // raw-source scan for a persisting-API name could be defeated by exactly that kind of comment
+    // (or by one hiding inside a string literal) — this repo has been bitten by that exact class of
+    // false-negative three times over in the sibling classifier-field test below, which is why both
+    // strippers are composed here too rather than a bespoke one-off check.
+    // Absolute (REPO_ROOT-anchored), not a bare relative string: CI's coverage job `cd`s into
+    // `packages/gateway` before running `bun test`, so a relative `Bun.file("packages/...")` call
+    // resolves against the WRONG cwd there (ENOENT) even though it resolves fine from repo root —
+    // exactly the failure this file's own `read()` helper exists to avoid everywhere else.
+    const laneFile = resolve(REPO_ROOT, "packages/gateway/src/computer-use/cu-lanes/browser.ts");
+    const target = (await Bun.file(laneFile).exists())
+      ? laneFile
+      : resolve(REPO_ROOT, "packages/gateway/src/computer-use/cu-actuate.ts");
+    const rawSrc = await Bun.file(target).text();
+    const src = stripStringLiterals(stripComments(rawSrc));
+    // Sanity guard: the scan target must actually HANDLE screenshot bytes, or this test would
+    // vacuously pass against a file that no longer captures any. Widened from `screenshot(` when
+    // the real driver became the target: it declares `screenshot: async () => {` (a method on the
+    // returned `BrowserLane`, not a call), and `stripStringLiterals` blanks the
+    // `"Page.captureScreenshot"` literal, so the old call-shaped guard matched nothing there and
+    // the test failed for the right reason on the right file.
+    expect(src).toContain("screenshot");
+    expect(src).toContain("Uint8Array");
+    const persistingApis = [
+      /\bBun\.write\s*\(/,
+      /\bwriteFileSync\s*\(/,
+      /\bwriteFile\s*\(/,
+      /\bcreateWriteStream\s*\(/,
+      /\bfs\.\w*[Ww]rite\w*\s*\(/,
+    ];
+    for (const pattern of persistingApis) {
+      expect(src).not.toMatch(pattern);
+    }
+  });
+});
+
+describe("I36 — a browser-reachable file question never reaches the federation", () => {
+  // BEHAVIOURAL, not an import check: the finding that prompted this asked for the guard's
+  // behaviour to be verified, and a grep would pass against a guard that read the value and
+  // threw nothing. `agents.ghost` and `agents.conflicts` fan out whenever `namespaces` is
+  // non-empty, and the forge shape is what a browser — HTTP, `agents` scope — can produce.
+  const COORD = { service: "github", repo: "acme/web", refAndPath: "main/src/foo.ts" };
+
+  function dbWithCheckout(): Database {
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    db.run(
+      "INSERT INTO graph_entity (id, type, external_id, label, service, metadata) VALUES ('ws:/r', 'workspace', 'filesystem:/r', '/r', 'filesystem', '{}')",
+    );
+    db.run(
+      "INSERT INTO graph_entity (id, type, external_id, label, service, metadata) VALUES ('repo:g', 'repo', 'github:acme/web', 'acme/web', 'github', '{}')",
+    );
+    db.run(
+      "INSERT INTO graph_relation (from_id, to_id, type, created_at) VALUES ('ws:/r', 'repo:g', 'tracks_remote', 0)",
+    );
+    db.run(
+      "INSERT INTO graph_entity (id, type, external_id, label, service, metadata) VALUES ('file:/r:src/foo.ts', 'source_file', 'file:/r:src/foo.ts', 'src/foo.ts', 'filesystem', '{}')",
+    );
+    return db;
+  }
+
+  test("a forge coordinate carrying namespaces is REFUSED, and nothing goes over the wire", async () => {
+    const db = dbWithCheckout();
+    let sent = 0;
+    const ctx = {
+      db,
+      notify: () => {},
+      sendOverWire: () => {
+        sent += 1;
+        return Promise.resolve(null);
+      },
+    } as unknown as Parameters<typeof dispatchAgentsRpc>[2];
+
+    for (const method of ["agents.ghost", "agents.conflicts"]) {
+      // Both spellings the parser accepts.
+      for (const extra of [{ namespaces: ["peer-1"] }, { namespace: "peer-1" }]) {
+        await expect(dispatchAgentsRpc(method, { ...COORD, ...extra }, ctx)).rejects.toThrow(
+          /locally only/,
+        );
+      }
+    }
+    expect(sent).toBe(0);
+  });
+
+  test("the bound is on the SHAPE: a local path with namespaces is ACCEPTED", async () => {
+    // What this proves, exactly: the refusal is scoped to the forge shape, so a terminal
+    // caller naming a path on their own disk may still ask for federation.
+    //
+    // It does NOT prove the namespaces stay active downstream, and it deliberately does
+    // not try. Measured rather than assumed: dispatching this with a `sendOverWire` spy
+    // records ZERO wire calls, because fan-out additionally needs a KnownNamespaceStore,
+    // a self identity and an index that this context does not build. Asserting "one wire
+    // call" here would fail against correct code. That property belongs to `ghost`'s own
+    // federation tests, where the fixture exists; the invariant this block guards is the
+    // shape distinction, and that is what is asserted.
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    const out = await dispatchAgentsRpc(
+      "agents.ghost",
+      { file: "src/foo.ts", namespaces: ["peer-1"] },
+      { db, notify: () => {} } as unknown as Parameters<typeof dispatchAgentsRpc>[2],
+    );
+    expect(out.kind).toBe("hit");
   });
 });

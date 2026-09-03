@@ -22,8 +22,6 @@ const ENV_BY_DOTTED: Readonly<Record<string, string>> = {
   "telemetry.enabled": "NIMBUS_TELEMETRY_ENABLED",
   "telemetry.endpoint": "NIMBUS_TELEMETRY_ENDPOINT",
   "telemetry.flush_interval_seconds": "NIMBUS_TELEMETRY_FLUSH_SECONDS",
-  "llm.remote_model": "NIMBUS_AGENT_MODEL",
-  "llm.classifier_model": "NIMBUS_CLASSIFIER_MODEL",
 };
 
 function stripComment(line: string): string {
@@ -96,22 +94,62 @@ function writeUtf8FileAtomicReplace(path: string, content: string): void {
   }
 }
 
+/**
+ * Split `section.key` into its two halves, REFUSING anything that names a nested table.
+ *
+ * Both the reader and the writer below used `dotted.indexOf(".")` — a split on the FIRST dot — so
+ * `llm.tasks.classification` yielded section `llm`, key `tasks.classification`. The writer put that
+ * verbatim under `[llm]`, where `parseLlmTaskPins` (which scans for a literal `[llm.tasks]` table)
+ * never sees it: the command succeeded, the file changed, and the setting did nothing. The reader
+ * then read the same inert line back and echoed it, so `get` appeared to CONFIRM the write.
+ *
+ * The bug was unreachable until `[llm.tasks]` shipped, because no key had two dots. It is refused
+ * rather than fixed by splitting on the LAST dot: last-dot happens to be safe today only because
+ * every caller is single-dot, and it re-introduces the same ambiguity the moment a third dotted
+ * shape appears. A refusal is fail-closed and has no parsing to get wrong.
+ */
+export function splitFlatDottedKey(dotted: string): { section: string; key: string } {
+  const dot = dotted.indexOf(".");
+  if (dot <= 0) {
+    throw new Error(`Invalid key (expected section.name): ${dotted}`);
+  }
+  const key = dotted.slice(dot + 1);
+  // `telemetry.` split cleanly into section `telemetry` + an EMPTY key, and the writer emitted
+  // ` = value` — a syntactically invalid line written into the user's config, which can break
+  // parsing of the whole file. Same error as the dotless case: both mean "this is not section.key".
+  if (key === "") {
+    throw new Error(`Invalid key (expected section.name): ${dotted}`);
+  }
+  if (key.includes(".")) {
+    throw new Error(
+      `\`${dotted}\` addresses a nested table, which this flat section.key surface cannot ` +
+        `express. Edit the table in nimbus.toml directly.`,
+    );
+  }
+  return { section: dotted.slice(0, dot), key };
+}
+
 export function getTomlValueFromFile(tomlPath: string, dotted: string): string | undefined {
+  // A dotless key is "not addressable here", which for a READ is simply "not set" — callers rely
+  // on that, so it stays a soft `undefined` rather than a throw.
+  if (dotted.indexOf(".") <= 0) {
+    return undefined;
+  }
+  // Validate the KEY before touching the filesystem. Reading first meant the same nested key threw
+  // on an existing file and returned `undefined` on a missing one, so the refusal depended on
+  // whether the file happened to exist rather than on the key itself.
+  const { section, key } = splitFlatDottedKey(dotted);
   let raw: string;
   try {
     raw = readFileSync(tomlPath, "utf8");
   } catch (e: unknown) {
+    // A missing file is still an ordinary "not set" for a WELL-FORMED key — otherwise
+    // `nimbus config get` would start erroring on a fresh machine.
     if (e !== null && typeof e === "object" && "code" in e && e.code === "ENOENT") {
       return undefined;
     }
     throw e;
   }
-  const dot = dotted.indexOf(".");
-  if (dot <= 0) {
-    return undefined;
-  }
-  const section = dotted.slice(0, dot);
-  const key = dotted.slice(dot + 1);
   return parseSectionKey(raw, section, key);
 }
 
@@ -174,12 +212,7 @@ function writeNewSectionToToml(
 }
 
 export function setTomlValueInFile(tomlPath: string, dotted: string, value: string): void {
-  const dot = dotted.indexOf(".");
-  if (dot <= 0) {
-    throw new Error(`Invalid key (expected section.name): ${dotted}`);
-  }
-  const section = dotted.slice(0, dot);
-  const key = dotted.slice(dot + 1);
+  const { section, key } = splitFlatDottedKey(dotted);
   const formattedValue = formatTomlValue(value);
   let full = "";
   try {

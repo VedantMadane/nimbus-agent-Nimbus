@@ -1,4 +1,5 @@
 import { extensionProcessEnv } from "../../extensions/spawn-env.ts";
+import { spawnCapture } from "../../platform/spawn-capture.ts";
 import {
   syncPassCursorParseEmpty,
   syncPassCursorSuccess,
@@ -42,6 +43,22 @@ function hasUsableAwsCredentialFields(f: AwsCredentialFields): boolean {
  * every AWS-CLI-derived syncable (`athena`/`cloudwatch`/`sagemaker`) without duplicating the
  * usable-combination formula and risking drift between the two call sites.
  */
+/**
+ * The same fields, read through a connector's SHARED-credential capability instead of a vault
+ * handle. Both forms exist deliberately: `hasUsableAwsCredentials` below is called by
+ * `sync/connector-configured.ts` for I29's derived check, which runs gateway-side and legitimately
+ * holds the vault, while a syncable has only its capability.
+ */
+async function readAwsCredentialFieldsVia(
+  getShared: SyncContext["getSharedSecret"],
+): Promise<AwsCredentialFields> {
+  const ak = (await getShared("aws", "access_key_id"))?.trim() ?? "";
+  const sk = (await getShared("aws", "secret_access_key"))?.trim() ?? "";
+  const reg = (await getShared("aws", "default_region"))?.trim() ?? "";
+  const prof = (await getShared("aws", "profile"))?.trim() ?? "";
+  return { ak, sk, reg, prof };
+}
+
 export async function hasUsableAwsCredentials(vault: NimbusVault): Promise<boolean> {
   return hasUsableAwsCredentialFields(await readAwsCredentialFields(vault));
 }
@@ -62,7 +79,7 @@ export async function hasUsableAwsCredentials(vault: NimbusVault): Promise<boole
 export async function awsCredentialsExtra(
   ctx: SyncContext,
 ): Promise<Record<string, string> | null> {
-  const fields = await readAwsCredentialFields(ctx.vault);
+  const fields = await readAwsCredentialFieldsVia(ctx.getSharedSecret);
   if (!hasUsableAwsCredentialFields(fields)) {
     return null;
   }
@@ -98,14 +115,14 @@ export async function awsCliJson(
   if (extra === null) {
     return { ok: false, text: "" };
   }
-  const proc = Bun.spawn(["aws", ...args, "--output", "json"], {
+  // `spawnCapture`, not `Bun.spawn`: the Gateway runs detached, so on Windows every
+  // console-subsystem child gets a NEW console and a visible window. `cloudwatch` and
+  // `sagemaker` spawn one of these PER INDEXED ITEM via `runAwsCliPaginatedWalk`, so the
+  // unhidden version flashed dozens of windows per sync tick. See `platform/spawn-capture.ts`.
+  const r = await spawnCapture(["aws", ...args, "--output", "json"], {
     env: extensionProcessEnv(extra),
-    stdout: "pipe",
-    stderr: "pipe",
   });
-  const code = await proc.exited;
-  const out = await new Response(proc.stdout).text();
-  return { ok: code === 0, text: out };
+  return { ok: r.ok, text: r.stdout };
 }
 
 // ---------------------------------------------------------------------------

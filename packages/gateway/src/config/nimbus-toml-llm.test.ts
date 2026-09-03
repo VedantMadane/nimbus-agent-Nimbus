@@ -24,16 +24,17 @@ describe("parseNimbusTomlLlmSection", () => {
     expect(parseNimbusTomlLlmSection(src)).toEqual({ preferLocal: false });
   });
 
-  test("parses remote_model string", () => {
-    const src = `[llm]\nremote_model = "claude-sonnet-4-6"\n`;
-    expect(parseNimbusTomlLlmSection(src)).toEqual({ remoteModel: "claude-sonnet-4-6" });
+  // Both keys were REMOVED on 2026-08-28. A stale one in an existing nimbus.toml must be
+  // IGNORED like any unrecognised [llm] key — never parsed into a field nothing reads, and
+  // never an error, which would revert the whole section and take the live keys with it.
+  test("remote_model and classifier_model are ignored, not parsed", () => {
+    const src = `[llm]\nremote_model = "claude-sonnet-4-6"\nclassifier_model = "haiku"\n`;
+    expect(parseNimbusTomlLlmSection(src)).toEqual({});
   });
 
-  test("parses classifier_model string", () => {
-    const src = `[llm]\nclassifier_model = "claude-haiku-4-5-20251001"\n`;
-    expect(parseNimbusTomlLlmSection(src)).toEqual({
-      classifierModel: "claude-haiku-4-5-20251001",
-    });
+  test("a stale key does not stop the rest of the section parsing", () => {
+    const src = `[llm]\nremote_model = "claude-sonnet-4-6"\nprefer_local = true\n`;
+    expect(parseNimbusTomlLlmSection(src)).toEqual({ preferLocal: true });
   });
 
   test("parses local_model string", () => {
@@ -92,6 +93,39 @@ describe("parseNimbusTomlLlmSection", () => {
     const src = `[llm]\nprefer_local = true\n[embedding]\nenabled = false\n`;
     expect(parseNimbusTomlLlmSection(src)).toEqual({ preferLocal: true });
   });
+
+  test("parses [llm.tasks] into a task -> routeId map", () => {
+    const src = `[llm.tasks]\nclassification = "ollama/llama3.2:latest"\nreasoning = "ollama/qwen3:14b"\n`;
+    const cfg = parseNimbusTomlLlmSection(src);
+    expect(cfg.taskPins?.get("classification")).toBe("ollama/llama3.2:latest");
+    expect(cfg.taskPins?.get("reasoning")).toBe("ollama/qwen3:14b");
+  });
+
+  test("an UNKNOWN task type is dropped, and the rest of the table survives", () => {
+    // Same posture as route_priority: a bad entry must never revert the whole section, because
+    // `loadTomlSection`'s bare catch would take `enforce_air_gap` down with it.
+    const src = `[llm.tasks]\nteleportation = "ollama/x"\nreasoning = "ollama/qwen3:14b"\n`;
+    const cfg = parseNimbusTomlLlmSection(src);
+    expect(cfg.taskPins?.has("teleportation" as never)).toBe(false);
+    expect(cfg.taskPins?.get("reasoning")).toBe("ollama/qwen3:14b");
+  });
+
+  test("absent [llm.tasks] leaves taskPins undefined, not an empty map", () => {
+    expect(parseNimbusTomlLlmSection(`[llm]\nprefer_local = true\n`).taskPins).toBeUndefined();
+  });
+
+  test("a malformed [llm.tasks] entry does not revert the rest of the [llm] section", () => {
+    // The hazard is specific and severe: a throw inside the [llm] parser is swallowed by
+    // `loadTomlSection`'s bare catch, which reverts the WHOLE section — so a typo in a task pin
+    // would silently switch `enforce_air_gap` back off while the owner believed it was on.
+    // Red-proved during implementation: forcing a throw here reverted enforce_air_gap true->false.
+    const src = `[llm]\nenforce_air_gap = true\nprefer_local = true\n[llm.tasks]\nteleportation = "ollama/x"\nreasoning = "ollama/qwen3:14b"\n`;
+    const cfg = parseNimbusTomlLlmSection(src);
+    expect(cfg.enforceAirGap).toBe(true); // the security control survives
+    expect(cfg.preferLocal).toBe(true); // and so does the rest of the section
+    expect(cfg.taskPins?.get("reasoning")).toBe("ollama/qwen3:14b"); // valid sibling kept
+    expect(cfg.taskPins?.has("teleportation" as never)).toBe(false); // bad key dropped
+  });
 });
 
 describe("DEFAULT_NIMBUS_LLM_TOML", () => {
@@ -128,8 +162,8 @@ describe("loadNimbusLlmPartialFromPath", () => {
   test("returns only explicitly-set keys (no defaults)", () => {
     const dir = mkdtempSync(join(tmpdir(), "nimbus-llm-partial-"));
     const tomlPath = join(dir, "nimbus.toml");
-    writeFileSync(tomlPath, `[llm]\nremote_model = "claude-opus-4-8"\n`);
-    expect(loadNimbusLlmPartialFromPath(tomlPath)).toEqual({ remoteModel: "claude-opus-4-8" });
+    writeFileSync(tomlPath, `[llm]\nlocal_model = "qwen3:8b"\n`);
+    expect(loadNimbusLlmPartialFromPath(tomlPath)).toEqual({ localModel: "qwen3:8b" });
   });
 
   test("returns empty object when [llm] section is absent", () => {

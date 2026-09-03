@@ -17,8 +17,10 @@
  * silently land outside `MARKER_SOURCE_TYPES` and get miscounted as outbound egress, or inside it and
  * get miscounted as bookkeeping. The union therefore lands COMPLETE, including members whose
  * appenders do not exist yet (`boot`, `degraded` arrive with the boot marker; `sync` and `model`
- * have since landed their appenders — `egress/sync-egress.ts`, `egress/synthesis-egress.ts` — and
- * their `THIS_BINARY_COVERAGE` entries are raised accordingly; `peer` and `session` remain pending,
+ * have since landed their appenders — `egress/sync-egress.ts` for `sync`; for `model`,
+ * `egress/model-egress.ts` (route-table generates), `egress/mastra-model-egress.ts` (the Mastra
+ * engine agent), and `egress/embedding-egress.ts` (remote embeddings) — and their
+ * `THIS_BINARY_COVERAGE` entries are raised accordingly; `peer` and `session` remain pending,
  * arriving in later phases).
  *
  * The union was frozen at eight members in #1038. `mcp` was added deliberately in the
@@ -60,6 +62,40 @@
  * marker, so every outcome row would count as outbound unless the counting predicate grew a
  * method-level special case. That would reintroduce by hand the miscount `MARKER_SOURCE_TYPES`
  * exists to make structural.
+ *
+ * `chatops` is the twelfth member, and an EGRESS class rather than a marker. It records an
+ * outbound Slack/Teams post. It is a STRONGER claim than `mcp`/`http`, not a weaker one: those
+ * two hand a brief to a LOCAL process, whereas a chat post genuinely leaves the machine to a
+ * third-party server.
+ *
+ * Reusing an existing member was rejected for the fourth time, and this time the candidates are
+ * worse than before: `task` would imply the executor gated it (it does not — the post path never
+ * reaches `connectors.dispatch`), and `mcp`/`http` would merge a real third-party send with a
+ * local hand-off under one permanent string.
+ *
+ * Unlike `mcp` and `http`, this class is NOT narrower than its name: it covers every outbound
+ * post on the `chatops-boot.ts` `post` closure — operational replies, HITL approval cards,
+ * tribal suggestions, and agent briefs once those land.
+ *
+ * `browser` is the thirteenth member and an EGRESS class rather than a marker. It records an
+ * outbound request made by the computer-use browser lane — a real request to a third-party server
+ * from the user's machine, carrying the sandboxed profile's cookies.
+ *
+ * Reusing an existing member was rejected for the FIFTH time. `session` must go on claiming `none`
+ * coverage until its own appenders (telemetry, updater, JWKS) land, so recording browser
+ * navigations under it would record them and disclaim them in the same breath — the identical
+ * reason `mcp`, `http` and `chatops` each rejected it. `task` would imply the executor gated the
+ * request; it did not, and this path never reaches `connectors.dispatch`. `chatops` is a different
+ * destination class entirely.
+ *
+ * Like `chatops` and unlike `mcp`/`http`, this class is NOT narrower than its name: every request
+ * the driven browser makes passes through the one decorated context, because
+ * `cu-lanes/browser.ts`'s `openBrowserLane` enables `Fetch` interception THROUGH
+ * `wrapLedgeredBrowserContext` rather than beside it. LIVE as of the raw-CDP driver (2026-08-31):
+ * `COVERAGE_CLASSES`' `browser` entry is `"per-run"` in `egress-coverage.ts`, raised in the same
+ * commit as that caller. The bound that survives is section 3.5.1's, not this class's: `script` and
+ * `image` subresources load from any origin, so a URL-carried beacon is ROWED BY ORIGIN rather than
+ * prevented -- a count of N is a list of hosts contacted, never a count of requests.
  */
 export const EGRESS_SOURCE_TYPES = [
   "task", // gated connector action
@@ -73,6 +109,8 @@ export const EGRESS_SOURCE_TYPES = [
   "degraded", // lost-append recovery marker
   "http", // agent brief served over the local HTTP API
   "outcome", // how a targeted fetch ended — a marker, never counted as egress
+  "chatops", // an outbound Slack/Teams post
+  "browser", // an outbound request made by the computer-use browser lane
 ] as const;
 
 export type EgressSourceType = (typeof EGRESS_SOURCE_TYPES)[number];

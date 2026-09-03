@@ -9,6 +9,7 @@ import {
   runCatchupCli,
   runChatops,
   runClip,
+  runComputer,
   runConfig,
   runConflictsCli,
   runConnector,
@@ -33,6 +34,7 @@ import {
   runLan,
   runLlm,
   runMcpServer,
+  runMediaCmd,
   runMetricsCli,
   runNegotiateCommand,
   runOwnersCommand,
@@ -129,6 +131,7 @@ const COMMAND_HANDLERS: Readonly<Record<string, CommandHandler>> = {
   scaffold: runScaffold,
   lan: runLan,
   llm: runLlm,
+  media: runMediaCmd,
   metrics: runMetricsCli,
   stats: runStats,
   negotiate: runNegotiateCommand,
@@ -148,6 +151,7 @@ const COMMAND_HANDLERS: Readonly<Record<string, CommandHandler>> = {
   egress: runEgress,
   exec: runExec,
   clip: runClip,
+  computer: runComputer,
 };
 
 const HELP_ALIASES = new Set(["help", "--help", "-h"]);

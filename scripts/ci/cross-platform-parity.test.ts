@@ -10,7 +10,7 @@ import { REPO_ROOT } from "../structure-audit/lib.ts";
  *
  * They did not, from whenever `pr-quality-cross-platform` was introduced until 2026-08-23. The
  * PR leg ran `bun test packages/<pkg>/src`; the push leg ran
- * `bun test packages/gateway packages/cli packages/mcp-connectors scripts` in one process. The
+ * `bun test packages/gateway packages/cli scripts` in one process. The
  * difference was not academic — over the 200 CI runs on `main` between 2026-08-02 and
  * 2026-08-22, 50 failed, 35 had a failing macOS job, and 33 of those 35 were in files the PR
  * gate never loaded at all (`scripts/`, `test/integration/`, `test/e2e/`). Every one of them was
@@ -63,7 +63,14 @@ describe("PR cross-platform legs run the same tests as the push matrix", () => {
   // Identified by the wall-clock wrapper, which is unique to this step in ci.yml. Keying on
   // the step NAME would break the moment the step is renamed; keying on `packages/…` would
   // match any future `bun test` added to the file.
-  const prLines = matchingLines(CI_YML, (l) => l.includes("run-with-timeout.ts 900 bun test"));
+  //
+  // The cap SECONDS are matched as a number, not as the literal `900` this used to hard-code.
+  // That literal made a routine cap change (900 -> 1080, when a healthy run crossed the
+  // previous comment's own ~700 s tripwire) fail this test for a reason unrelated to parity,
+  // and worse, a careless "fix" is to relax the predicate until it matches nothing again --
+  // which the length assertion below is here to catch, but only if the predicate still
+  // identifies the step at all. The cap's VALUE is not this file's subject; the test PATHS are.
+  const prLines = matchingLines(CI_YML, (l) => /run-with-timeout\.ts \d+ bun test/.test(l));
 
   // Identified by the JUnit outfile, which names the unit shard and appears exactly once.
   const pushLines = matchingLines(
@@ -100,8 +107,12 @@ describe("PR cross-platform legs run the same tests as the push matrix", () => {
     ]) {
       expect(paths).toContain("packages/gateway");
       expect(paths).toContain("packages/cli");
-      expect(paths).toContain("packages/mcp-connectors");
       expect(paths).toContain("scripts");
+      // `packages/mcp-connectors` was in this list until the connectors were extracted to their
+      // own repository. It is asserted ABSENT rather than simply dropped: a path that no longer
+      // exists would make `bun test` exit non-zero on both legs, so re-adding it is a mistake the
+      // equality check above cannot catch — both lists would agree, and both would be wrong.
+      expect(paths).not.toContain("packages/mcp-connectors");
       for (const p of paths) {
         expect(p.endsWith("/src")).toBe(false);
       }

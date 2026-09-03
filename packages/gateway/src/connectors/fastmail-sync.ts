@@ -12,7 +12,6 @@ import {
   previewFor,
 } from "@nimbus-dev/sdk";
 
-import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import {
   syncPassCursorHttpEmpty,
   syncPassCursorParseEmpty,
@@ -20,7 +19,6 @@ import {
 } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { connectorFetch, type FetchOutcome } from "./_lib/fetch-outcome.ts";
-import { readConnectorSecret } from "./connector-vault.ts";
 import { type FastmailEmailInput, mapFastmailEmailToItem } from "./fastmail-email-mapping.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 
@@ -50,11 +48,11 @@ function trimTrailingSlash(s: string): string {
 }
 
 async function loadCreds(ctx: SyncContext): Promise<FastmailCreds | null> {
-  const apiToken = (await readConnectorSecret(ctx.vault, "fastmail", "api_token"))?.trim() ?? "";
+  const apiToken = (await ctx.getSecret("api_token"))?.trim() ?? "";
   if (apiToken === "") {
     return null;
   }
-  const baseRaw = (await readConnectorSecret(ctx.vault, "fastmail", "base_url"))?.trim() ?? "";
+  const baseRaw = (await ctx.getSecret("base_url"))?.trim() ?? "";
   return { baseUrl: trimTrailingSlash(baseRaw === "" ? DEFAULT_BASE_URL : baseRaw), apiToken };
 }
 
@@ -194,7 +192,7 @@ export function createFastmailSyncable(options: FastmailSyncableOptions): Syncab
         }
         const mapped = mapFastmailEmailToItem(normalized, { syncedAt: now });
         if (mapped !== null) {
-          upsertIndexedItemForSync(ctx, mapped);
+          ctx.upsertItem(mapped);
           upserted += 1;
         }
       }

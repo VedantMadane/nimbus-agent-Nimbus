@@ -1,7 +1,5 @@
-import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { usableActorEmail } from "./actor-email.ts";
-import { readConnectorSecret } from "./connector-vault.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import {
   extractPagerdutyActors,
@@ -107,7 +105,7 @@ function upsertPagerdutyIncident(
   const updated = stringField(row, "updated_at") ?? stringField(row, "created_at");
   const modifiedAt = updated === undefined ? now : Date.parse(updated);
 
-  upsertIndexedItemForSync(ctx, {
+  ctx.upsertItem({
     service: SERVICE_ID,
     type: "incident",
     externalId: id,
@@ -280,7 +278,7 @@ export function createPagerdutySyncable(options: PagerdutySyncableOptions): Sync
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();
       await options.ensurePagerdutyMcpRunning();
-      const token = await readConnectorSecret(ctx.vault, "pagerduty", "api_token");
+      const token = await ctx.getSecret("api_token");
       if (token === null || token.trim() === "") {
         return syncNoopResult(cursor, t0);
       }

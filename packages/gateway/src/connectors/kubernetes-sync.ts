@@ -1,8 +1,7 @@
 import { extensionProcessEnv } from "../extensions/spawn-env.ts";
-import { upsertIndexedItemForSync } from "../index/item-store.ts";
+import { spawnCapture } from "../platform/spawn-capture.ts";
 import { syncPassCursorParseEmpty } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
-import { readConnectorSecret } from "./connector-vault.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, stringField } from "./unknown-record.ts";
 
@@ -74,7 +73,7 @@ async function syncKubernetesDeploymentsList(
       continue;
     }
     const extId = `deploy:${ns}/${name}`;
-    upsertIndexedItemForSync(ctx, {
+    ctx.upsertItem({
       service: SERVICE_ID,
       type: "k8s_workload",
       externalId: extId,
@@ -110,14 +109,13 @@ async function kubectlDeploymentsJson(
     args.push("--context", context.trim());
   }
   args.push("get", "deployments", "-A", "-o", "json");
-  const proc = Bun.spawn(args, {
+  // `spawnCapture`, not `Bun.spawn`: the Gateway runs detached, so on Windows an unhidden
+  // console-subsystem child pops a visible window on every sync tick. See
+  // `platform/spawn-capture.ts`.
+  const r = await spawnCapture(args, {
     env: extensionProcessEnv({ KUBECONFIG: kubeconfig }),
-    stdout: "pipe",
-    stderr: "pipe",
   });
-  const code = await proc.exited;
-  const out = await new Response(proc.stdout).text();
-  return { ok: code === 0, text: out };
+  return { ok: r.ok, text: r.stdout };
 }
 
 export type KubernetesSyncableOptions = {
@@ -133,12 +131,12 @@ export function createKubernetesSyncable(options: KubernetesSyncableOptions): Sy
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();
       await options.ensureKubernetesMcpRunning();
-      const kubePath = await readConnectorSecret(ctx.vault, "kubernetes", "kubeconfig");
+      const kubePath = await ctx.getSecret("kubeconfig");
       if (kubePath === null || kubePath.trim() === "") {
         return syncNoopResult(cursor, t0);
       }
       const kc = kubePath.trim();
-      const ctxNameRaw = await readConnectorSecret(ctx.vault, "kubernetes", "context");
+      const ctxNameRaw = await ctx.getSecret("context");
       const kctx = ctxNameRaw !== null && ctxNameRaw.trim() !== "" ? ctxNameRaw.trim() : null;
 
       await ctx.rateLimiter.acquire("kubernetes");

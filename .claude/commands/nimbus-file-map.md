@@ -75,7 +75,7 @@ Curated pointer index. Source of truth is the working tree — verify a path wit
 
 ## Connectors + MCP Mesh
 
-A **standard connector** is a triple — `connectors/<x>-sync.ts` (sync handler) + `connectors/<x>-<noun>-mapping.ts` (pure item mapper) + `mcp-connectors/<x>/src/server.ts` (read-only `<x>_list/get/search`). ~77 connectors follow this shape: **derive the path from the connector name.** The file is the source of truth for auth, pagination, cursor shape (`{ pass }`), and `MAX_*` caps — that per-connector detail is deliberately **not** mirrored here, because it drifts. Below: shared infra, then the connectors that **deviate** from the standard shape.
+A **standard connector** is a triple — `connectors/<x>-sync.ts` (sync handler) + `connectors/<x>-<noun>-mapping.ts` (pure item mapper) + `connectors/<x>/src/server.ts` (read-only `<x>_list/get/search`). ~77 connectors follow this shape: **derive the path from the connector name.** The file is the source of truth for auth, pagination, cursor shape (`{ pass }`), and `MAX_*` caps — that per-connector detail is deliberately **not** mirrored here, because it drifts. Below: shared infra, then the connectors that **deviate** from the standard shape.
 
 ### Shared connector infra
 
@@ -98,7 +98,7 @@ Everything else follows the standard triple. These break from it in a way worth 
 |---|---|---|
 | **3-legged OAuth via registry** | hubspot, miro, canva, figma, salesforce, zoom | Auth flows through `OAUTH_PROVIDERS` (`auth/oauth-registry.ts`), not a static PAT. Salesforce carries a per-tenant `instance_url`; zoom also emits `zoom:transcript` (`zoom-transcript-mapping.ts` + `vttToPlainText`). |
 | **OAuth sub-service** | google-meet | Extends the existing `google` provider (NOT a new `OAuthProvider`); reads `getValidGoogleAccessToken(vault, "google_meet")`; rides the shared google bundle spawn slot. |
-| **Tier-3 metadata-only, reuses cloud creds** | bigquery · cloud-logging · vertex-ai (reuse `gcp.*`) · athena · cloudwatch · sagemaker (reuse `aws.*` via `_lib/aws-cli.ts`) | No own vault key. **METADATA only** — schema/counts/config, never row/log/inference data. Each `mcp-connectors/<x>/test/no-row-data.test.ts` calls `assertNoRowDataTools`; server `src/tools.ts` exports `<X>_TOOL_NAMES` + a `cliArg` flag-smuggle guard where it shells out. |
+| **Tier-3 metadata-only, reuses cloud creds** | bigquery · cloud-logging · vertex-ai (reuse `gcp.*`) · athena · cloudwatch · sagemaker (reuse `aws.*` via `_lib/aws-cli.ts`) | No own vault key. **METADATA only** — schema/counts/config, never row/log/inference data. Each `connectors/<x>/test/no-row-data.test.ts` calls `assertNoRowDataTools`; server `src/tools.ts` exports `<X>_TOOL_NAMES` + a `cliArg` flag-smuggle guard where it shells out. |
 | **Tier-3 metadata-only, own per-tenant key** | elasticsearch (`elasticsearch.url` + `.api_key`, REST via `connectorFetch`) · great-expectations (`great_expectations.results_dir`, filesystem-read, no network/creds) | Own key but still no-row-data (same `assertNoRowDataTools` gate). great-expectations' mapper is the strip site — copies aggregate scalars only, never the `unexpected_*` sample lists. |
 | **Read connector with a HITL write tool** | obsidian | Emits `obsidian_note` + `backlinks` edges; the MCP server also exposes the HITL-gated `obsidian_append_to_daily_note`. |
 | **Email (Tier-4), HITL send** | imap, fastmail, protonmail | `<svc>:email` — HEADERS + capped plain-text PREVIEW + attachment METADATA only, NEVER attachment bytes or full body; all → `PROSE_HEAVY_TYPES`. imap/protonmail use imapflow (IMAP) + nodemailer (SMTP) — protonmail via the ProtonMail Bridge loopback (`secure:false`, self-signed); the gateway sync reuses the shared `_lib/imap-client.ts` `fetchImapMessages` + `ImapMessageInput`. fastmail is native JMAP over HTTPS (`jmap-core.ts`, session + batched `Email/query`+`get` with `maxBodyValueBytes`). Each exposes a HITL-gated `<svc>_mail_send` gated by the existing `email.send` action type (no executor change). per-tenant host:port added to the sandbox at spawn. |
@@ -190,7 +190,7 @@ Everything else follows the standard triple. These break from it in a way worth 
 | `packages/gateway/src/ipc/voice-rpc.ts` | `dispatchVoiceRpc` — `voice.*` |
 | `packages/gateway/src/ipc/updater-rpc.ts` | `dispatchUpdaterRpc` — `updater.getStatus/checkNow/applyUpdate/rollback` |
 | `packages/gateway/src/ipc/http-server.ts` | Read-only local HTTP API (`localhost`, `SQLITE_OPEN_READONLY`) |
-| `packages/gateway/src/ipc/http-routes.ts` | `READ_ONLY_HTTP_ROUTES` — source of truth for OpenAPI drift gate |
+| `packages/gateway/src/ipc/http-routes.ts` | `HTTP_ROUTES` — source of truth for OpenAPI drift gate |
 | `packages/gateway/src/ipc/openapi-loader.ts` | `loadOpenApiJsonBytes` — cached YAML→JSON for `GET /v1/openapi.json` |
 | `packages/gateway/openapi/v1.yaml` | OpenAPI 3.1 schema; serves `/v1/metrics/dora`, `/v1/preflight/deploy`, `POST /v1/deployments` |
 | `packages/gateway/src/ipc/metrics-server.ts` | Prometheus endpoint (`localhost`, off by default) |
@@ -246,7 +246,8 @@ Everything else follows the standard triple. These break from it in a way worth 
 | File | Purpose |
 |---|---|
 | `packages/gateway/src/clips/*` | Gateway web-clip surface — `PairingWindowController` (I30) + `clip-token-store.ts`; ingest via `POST /v1/clips` (the browser extension itself is the standalone repo below) |
-| _(standalone repo)_ | `@nimbus-dev/sdk` — [nimbus-agent/nimbus-sdk](https://github.com/nimbus-agent/nimbus-sdk) (npm, MIT) — extension-authoring contract; `mcp-connectors/*` consume the published package |
+| _(standalone repo)_ | `@nimbus-dev/sdk` — [nimbus-agent/nimbus-sdk](https://github.com/nimbus-agent/nimbus-sdk) (npm, MIT) — extension-authoring contract; the connectors consume the published package |
+| _(standalone repo)_ | `@nimbus-dev/connectors` — [nimbus-agent/nimbus-mcp-servers](https://github.com/nimbus-agent/nimbus-mcp-servers) (npm, AGPL-3.0-only) — all 94 first-party MCP connectors as ONE package; the gateway bundles them into its binary via `BUNDLED_CONNECTORS`. Per-connector SYNC handlers stay here in `gateway/src/connectors/` |
 | _(standalone repo)_ | `@nimbus-dev/client` — [nimbus-agent/nimbus-client](https://github.com/nimbus-agent/nimbus-client) (npm, MIT) — `NimbusClient`, `MockClient`; `packages/cli` and the VS Code extension consume the published package |
 | _(standalone repo)_ | VS Code extension — [nimbus-agent/nimbus-vscode](https://github.com/nimbus-agent/nimbus-vscode) (Marketplace + Open VSX) |
 | _(standalone repo)_ | Web clipper — [nimbus-agent/nimbus-web-clipper](https://github.com/nimbus-agent/nimbus-web-clipper) (Chrome + Firefox MV3) |
@@ -281,9 +282,9 @@ Everything else follows the standard triple. These break from it in a way worth 
 | File | Purpose |
 |---|---|
 | `scripts/structure-audit/lib.ts` | Shared B3 helpers — `REPO_ROOT`, `stripComments`, `countAnyInSource`, `iterateSourceFiles` |
-| `scripts/structure-audit/check-doc-references.ts` | Doc-ref drift audit (broken `[text](path)` and backtick path refs) |
-| `scripts/structure-audit/check-nimbus-invariants.ts` | Static-time complement to `security-invariants.test.ts` (I1 + vault-key allowlist + static rules D10–D22) |
-| `scripts/structure-audit/check-openapi-drift.ts` | OpenAPI drift detector — `v1.yaml` vs `READ_ONLY_HTTP_ROUTES` |
+| `scripts/structure-audit/check-doc-references.ts` | Doc-ref drift audit (broken `[text](path)` and backtick path refs) over CLAUDE/GEMINI + all of `docs/` + the skills; `DOCS_EXCLUDED_PREFIXES` names the few docs that are out and why |
+| `scripts/structure-audit/check-nimbus-invariants.ts` | Static-time complement to `security-invariants.test.ts` (I1 + vault-key allowlist + static rules D10–D23) |
+| `scripts/structure-audit/check-openapi-drift.ts` | OpenAPI drift detector — `v1.yaml` vs `HTTP_ROUTES` |
 | `docs/structure-audit/baseline.md` | Phase 1 baseline reference; per-dimension state + Phase 2 thresholds |
 
 ## Security Scan
@@ -327,7 +328,7 @@ Everything else follows the standard triple. These break from it in a way worth 
 |---|---|
 | `docs/architecture.md` | Full subsystem design — read before modifying any subsystem |
 | `docs/roadmap.md` | Phases, acceptance criteria, delivered summary |
-| `docs/SECURITY-INVARIANTS.md` | I1–I30 rationale (I28 reserved) + anti-patterns + audit cross-references |
+| `docs/SECURITY-INVARIANTS.md` | I1–I35 rationale (I28 reserved) + anti-patterns + audit cross-references |
 | `docs/release/manual-smoke-headless.md` | Reusable manual smoke checklist; per-platform results matrix |
 | `docs/cli/use-in-ci.md` | CI integration examples (GitHub Actions, GitLab, Jenkins) using `nimbus query --json` |
 | `docs/templates/nimbus-pre-commit.sh` | Bash pre-commit template — `nimbus diag` reachability + incident/CI gates |

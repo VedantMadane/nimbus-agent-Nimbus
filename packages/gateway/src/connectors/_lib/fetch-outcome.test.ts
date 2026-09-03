@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import os from "node:os";
 import type { Logger } from "pino";
+import { unboundSyncCapabilities } from "../../sync/sync-capabilities.ts";
 import type { SyncContext } from "../../sync/types.ts";
 import { connectorFetch } from "./fetch-outcome.ts";
 
@@ -35,8 +36,7 @@ function makeCtx(opts: {
     },
   };
   return {
-    vault: {} as SyncContext["vault"],
-    db: {} as SyncContext["db"],
+    ...unboundSyncCapabilities(),
     logger,
     rateLimiter: rateLimiter as SyncContext["rateLimiter"],
     ...PERSONAL_SYNC_EXTRAS,
@@ -122,11 +122,10 @@ describe("connectorFetch", () => {
       return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
     }) as unknown as typeof fetch;
     const ctx = {
-      vault: {} as SyncContext["vault"],
-      db: {} as SyncContext["db"],
       logger: { warn() {} } as unknown as Logger,
       rateLimiter: rateLimiter as SyncContext["rateLimiter"],
       ...PERSONAL_SYNC_EXTRAS,
+      ...unboundSyncCapabilities(),
     };
 
     await connectorFetch(ctx, "argocd", "https://api/x", {}, fetchFn);

@@ -1,9 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
-import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { syncPassCursorSuccess } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
-import { readConnectorSecret } from "./connector-vault.ts";
 import { type LocalDbQueryInput, mapLocalDbQueryToItem } from "./localdb-query-mapping.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 
@@ -28,7 +26,7 @@ export type LocalDbSyncableOptions = {
 };
 
 async function loadScriptsDir(ctx: SyncContext): Promise<string | null> {
-  const raw = (await readConnectorSecret(ctx.vault, "localdb", "scripts_dir"))?.trim() ?? "";
+  const raw = (await ctx.getSecret("scripts_dir"))?.trim() ?? "";
   return raw === "" ? null : resolve(raw);
 }
 
@@ -113,7 +111,7 @@ export function createLocaldbSyncable(options: LocalDbSyncableOptions): Syncable
         }
         const mapped = mapLocalDbQueryToItem(input, { syncedAt: now });
         if (mapped !== null) {
-          upsertIndexedItemForSync(ctx, mapped);
+          ctx.upsertItem(mapped);
           upserted += 1;
         }
       }

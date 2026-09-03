@@ -6,9 +6,21 @@ export type AgentUnavailableReason =
   | "model_not_found"
   | "provider_error"
   | "network_error"
+  // The owner set `[llm] enforce_air_gap = true`. Distinct from `no_api_key`: a key may well be
+  // configured and reachable — we refuse to use it. Callers that degrade to a local answer treat
+  // this the same as a missing key, which is why it is a reason and not a thrown TypeError.
+  | "air_gap"
   | "unknown";
 
-export type AgentProviderName = "anthropic" | "openai";
+/**
+ * A vendor that can appear in a user-facing agent error.
+ *
+ * Kept in step with `REMOTE_VENDOR_IDS` (`platform/assemble.ts`). Slice 2b added `gemini` and
+ * `xai` as registrable vendors but not here, so their failures rendered as the generic "the LLM
+ * provider" — and on a Gemini-only install a classifier 401 read as an *Anthropic* problem,
+ * which sent diagnosis in the wrong direction.
+ */
+export type AgentProviderName = "anthropic" | "openai" | "gemini" | "xai";
 
 export type AgentUnavailableInit = {
   reason: AgentUnavailableReason;
@@ -63,10 +75,21 @@ export class GatewayAgentUnavailableError extends Error {
   }
 }
 
+/**
+ * TOTAL over `AgentProviderName`, so adding a vendor id without a label is a COMPILE error rather
+ * than a silent downgrade to the generic string — the failure mode that made a Gemini error read
+ * as an anonymous one. `undefined` still maps to the generic label, which is the honest answer
+ * when the provider genuinely is not known.
+ */
+const PROVIDER_LABELS: Record<AgentProviderName, string> = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  gemini: "Gemini",
+  xai: "xAI",
+};
+
 function providerLabel(provider: AgentProviderName | undefined): string {
-  if (provider === "anthropic") return "Anthropic";
-  if (provider === "openai") return "OpenAI";
-  return "the LLM provider";
+  return provider === undefined ? "the LLM provider" : PROVIDER_LABELS[provider];
 }
 
 function buildAgentErrorMessage(init: AgentUnavailableInit): string {
@@ -81,13 +104,20 @@ function buildAgentErrorMessage(init: AgentUnavailableInit): string {
     case "rate_limited":
       return `${provider} rate limit hit. Wait a moment and retry, or upgrade your usage tier.`;
     case "model_not_found":
-      return `${provider} returned 404 for the configured model. Check NIMBUS_AGENT_MODEL / NIMBUS_CLASSIFIER_MODEL (or NIMBUS_OPENAI_CLASSIFIER_MODEL when using OpenAI) or your access tier.`;
+      // Names no env var: `NIMBUS_AGENT_MODEL` / `NIMBUS_CLASSIFIER_MODEL` were removed, and
+      // sending someone to check a variable nothing reads is worse than saying nothing. The
+      // "vendors retire model ids" clause is there because that is the common cause in practice:
+      // `gemini-2.5-pro` still appears in `GET /v1beta/models` while `generateContent` on it
+      // 404s for keys issued after its retirement.
+      return `${provider} returned 404 for the configured model. Check the \`model\` in your [llm.remote.*] block against the vendor's current model list, and your access tier — vendors retire model ids.`;
     case "provider_error": {
       const detail = init.detail !== undefined && init.detail !== "" ? ` ${init.detail}` : "";
       return `${provider} request failed.${detail}`;
     }
     case "network_error":
       return `Could not reach ${provider}. Check your network connection.`;
+    case "air_gap":
+      return "Air-gap mode is on ([llm] enforce_air_gap = true), so the remote intent classifier was not called. Configure a local model ([llm] local_model with Ollama or llama.cpp) to answer without leaving the machine, or unset enforce_air_gap.";
     case "unknown":
       return "Agent unavailable. Check the gateway log for details.";
   }

@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-
+import { EventEmitter } from "node:events";
 import {
   createCloudLoggingSyncable,
   type RunGcloud,
 } from "../../../src/connectors/cloud-logging-sync.ts";
+import { spawnCaptureInternals } from "../../../src/platform/spawn-capture.ts";
 import {
   type ConnectorSyncFixture,
   createConnectorSyncFixture,
@@ -50,7 +51,7 @@ describe("cloud-logging-sync — credential short-circuit", () => {
   test("no gcp vault keys → noop, runner never called, cursor preserved", async () => {
     const { run, calls } = makeRunner([]);
     const res = await createCloudLoggingSyncable({ ...ENSURE, runGcloud: run }).sync(
-      fx.createSyncContext(),
+      fx.createSyncContext("cloud_logging"),
       "prev",
     );
     expect(res.itemsUpserted).toBe(0);
@@ -62,7 +63,7 @@ describe("cloud-logging-sync — credential short-circuit", () => {
     await fx.vault.set("gcp.credentials_json_path", "/etc/gcp.json");
     const { run, calls } = makeRunner([]);
     await createCloudLoggingSyncable({ ...ENSURE, runGcloud: run }).sync(
-      fx.createSyncContext(),
+      fx.createSyncContext("cloud_logging"),
       null,
     );
     expect(calls).toHaveLength(0);
@@ -94,7 +95,7 @@ describe("cloud-logging-sync — sink metadata walk", () => {
       },
     ]);
     const res = await createCloudLoggingSyncable({ ...ENSURE, runGcloud: run }).sync(
-      fx.createSyncContext(),
+      fx.createSyncContext("cloud_logging"),
       null,
     );
     expect(res.itemsUpserted).toBe(2);
@@ -128,7 +129,7 @@ describe("cloud-logging-sync — sink metadata walk", () => {
   test("gcloud failure → parse-empty pass cursor, 0 upserts, no throw", async () => {
     const { run } = makeRunner([{ ok: false }]);
     const res = await createCloudLoggingSyncable({ ...ENSURE, runGcloud: run }).sync(
-      fx.createSyncContext(),
+      fx.createSyncContext("cloud_logging"),
       null,
     );
     expect(res.itemsUpserted).toBe(0);
@@ -138,7 +139,7 @@ describe("cloud-logging-sync — sink metadata walk", () => {
   test("non-array gcloud output → 0 upserts, success cursor", async () => {
     const { run } = makeRunner([{ body: { error: "unexpected" } }]);
     const res = await createCloudLoggingSyncable({ ...ENSURE, runGcloud: run }).sync(
-      fx.createSyncContext(),
+      fx.createSyncContext("cloud_logging"),
       null,
     );
     expect(res.itemsUpserted).toBe(0);
@@ -148,7 +149,7 @@ describe("cloud-logging-sync — sink metadata walk", () => {
   test("skips entries with no sink name", async () => {
     const { run } = makeRunner([{ body: [{ destination: "x" }, { name: "good-sink" }] }]);
     const res = await createCloudLoggingSyncable({ ...ENSURE, runGcloud: run }).sync(
-      fx.createSyncContext(),
+      fx.createSyncContext("cloud_logging"),
       null,
     );
     expect(res.itemsUpserted).toBe(1);
@@ -157,7 +158,7 @@ describe("cloud-logging-sync — sink metadata walk", () => {
   test("emits no notifications and reports bytesTransferred", async () => {
     const { run } = makeRunner([{ body: [{ name: "s" }] }]);
     const res = await createCloudLoggingSyncable({ ...ENSURE, runGcloud: run }).sync(
-      fx.createSyncContext(),
+      fx.createSyncContext("cloud_logging"),
       null,
     );
     expect(fx.notifications.emitted).toHaveLength(0);
@@ -175,21 +176,14 @@ describe("cloud-logging-sync — sink metadata walk", () => {
       },
     ]);
     const res = await createCloudLoggingSyncable({ ...ENSURE, runGcloud: run }).sync(
-      fx.createSyncContext(),
+      fx.createSyncContext("cloud_logging"),
       null,
     );
     expect(res.itemsUpserted).toBe(3);
   });
 });
 
-// Exercise the real (non-DI) `gcloudLoggingSinksList` runner body without spawning
-// a real subprocess: mock Bun.spawn to return a fake process. `new Response(<string>)`
-// reads the canned stdout, so the spawn → exited → parse path is covered hermetically.
-function fakeProc(code: number, stdout: string): ReturnType<typeof Bun.spawn> {
-  return { exited: Promise.resolve(code), stdout } as unknown as ReturnType<typeof Bun.spawn>;
-}
-
-describe("cloud-logging-sync — default gcloud runner (hermetic Bun.spawn mock)", () => {
+describe("cloud-logging-sync — default gcloud runner (hermetic spawn mock)", () => {
   let fx: ConnectorSyncFixture;
   beforeEach(async () => {
     fx = createConnectorSyncFixture();
@@ -201,9 +195,13 @@ describe("cloud-logging-sync — default gcloud runner (hermetic Bun.spawn mock)
     const sinks = [
       { name: "s1", destination: "storage.googleapis.com/b", filter: "severity>=ERROR" },
     ];
-    const spy = spyOn(Bun, "spawn").mockReturnValue(fakeProc(0, JSON.stringify(sinks)));
+    const spy = spyOn(spawnCaptureInternals, "spawn").mockImplementation((() =>
+      fakeChild(0, JSON.stringify(sinks))) as never);
     try {
-      const res = await createCloudLoggingSyncable(ENSURE).sync(fx.createSyncContext(), null);
+      const res = await createCloudLoggingSyncable(ENSURE).sync(
+        fx.createSyncContext("cloud_logging"),
+        null,
+      );
       expect(res.itemsUpserted).toBe(1);
       expect(spy).toHaveBeenCalled();
     } finally {
@@ -212,11 +210,14 @@ describe("cloud-logging-sync — default gcloud runner (hermetic Bun.spawn mock)
   });
 
   test("spawn throws (gcloud absent) → graceful empty pass, no throw", async () => {
-    const spy = spyOn(Bun, "spawn").mockImplementation(() => {
+    const spy = spyOn(spawnCaptureInternals, "spawn").mockImplementation((() => {
       throw new Error("ENOENT: gcloud not found");
-    });
+    }) as never);
     try {
-      const res = await createCloudLoggingSyncable(ENSURE).sync(fx.createSyncContext(), null);
+      const res = await createCloudLoggingSyncable(ENSURE).sync(
+        fx.createSyncContext("cloud_logging"),
+        null,
+      );
       expect(res.itemsUpserted).toBe(0);
       expect(res.cursor).toBe(PASS_1_CURSOR);
     } finally {
@@ -224,3 +225,25 @@ describe("cloud-logging-sync — default gcloud runner (hermetic Bun.spawn mock)
     }
   });
 });
+
+/**
+ * A `node:child_process` stand-in. The connector CLI runners moved off `Bun.spawn` to
+ * `platform/spawn-capture.ts`, which spawns with `windowsHide` — the Gateway runs detached, so an
+ * unhidden child pops a console window on every sync tick. These tests stub the seam that module
+ * exports rather than `Bun.spawn`, which it no longer uses.
+ */
+function fakeChild(exitCode: number, stdout: string): unknown {
+  const proc = new EventEmitter() as EventEmitter & {
+    stdout: EventEmitter;
+    stderr: EventEmitter;
+    kill: () => void;
+  };
+  proc.stdout = new EventEmitter();
+  proc.stderr = new EventEmitter();
+  proc.kill = (): void => {};
+  queueMicrotask(() => {
+    if (stdout !== "") proc.stdout.emit("data", Buffer.from(stdout));
+    proc.emit("close", exitCode);
+  });
+  return proc;
+}

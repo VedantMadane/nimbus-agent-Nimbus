@@ -1,4 +1,3 @@
-import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { clampSyncTitle, syncPassCursorParseEmpty } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { awsCliJson, awsCredentialsExtra } from "./_lib/aws-cli.ts";
@@ -86,7 +85,7 @@ async function syncAwsLambdaListPage(
       continue;
     }
     const title = name ?? id;
-    upsertIndexedItemForSync(ctx, {
+    ctx.upsertItem({
       service: SERVICE_ID,
       type: "lambda_function",
       externalId: id,
@@ -119,7 +118,15 @@ export function createAwsSyncable(options: AwsSyncableOptions): Syncable {
   const initialSyncDepthDays = 1;
   return {
     serviceId: SERVICE_ID,
-    defaultIntervalMs: 120 * 1000,
+    // 10 minutes, matching every sibling AWS-CLI syncable (`cloudwatch`, `sagemaker`,
+    // `athena`). This was 120 s, which made `aws` re-list Lambda functions FIVE TIMES more
+    // often than any of them for no stated reason — a real outbound API call every two
+    // minutes, indefinitely, on any machine with `aws.*` credentials in the Vault.
+    //
+    // The cost was not only traffic. Each run shells out to the AWS CLI, and until
+    // `platform/spawn-capture.ts` landed that spawn popped a console window on Windows, so
+    // the shortest interval in the group was also the most visible symptom.
+    defaultIntervalMs: 10 * 60 * 1000,
     initialSyncDepthDays,
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();

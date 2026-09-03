@@ -11,6 +11,7 @@ import { API_ENDPOINT_V25_SCHEMA_SQL } from "../api-endpoint-v25-sql.ts";
 import { AUDIT_CHAIN_V18_SCHEMA_SQL } from "../audit-chain-v18-sql.ts";
 import { AUDIT_SESSION_V24_SCHEMA_SQL } from "../audit-session-v24-sql.ts";
 import { BODY_STORE_V48_SQL, ITEM_FTS_UPDATE_TRIGGER_SQL } from "../body-store-v48-sql.ts";
+import { COMPUTER_USE_V57_SQL } from "../computer-use-v57-sql.ts";
 import { CONNECTOR_CONFIGURED_V56_SQL } from "../connector-configured-v56-sql.ts";
 import { CONNECTOR_DEPTH_V21_SQL } from "../connector-depth-v21-sql.ts";
 import { CONNECTOR_HEALTH_V13_SQL } from "../connector-health-v13-sql.ts";
@@ -41,6 +42,7 @@ import { KNOWN_NAMESPACES_V38_SQL } from "../known-namespaces-v38-sql.ts";
 import { LAN_PEERS_V19_SQL } from "../lan-peers-v19-sql.ts";
 import { LLM_CONTEXT_WINDOW_V16_ALTER_SQL, LLM_MODELS_V16_SQL } from "../llm-models-v16-sql.ts";
 import { LLM_TASK_DEFAULTS_V20_SQL } from "../llm-task-defaults-v20-sql.ts";
+import { MEDIA_PASS_V58_SQL } from "../media-pass-v58-sql.ts";
 import {
   OBSIDIAN_NOTES_V26_SCHEMA_SQL,
   OBSIDIAN_NOTES_V26_SEED_SQL,
@@ -557,6 +559,8 @@ const INDEXED_SCHEMA_STEPS: readonly IndexedSchemaStep[] = [
     "sync_state.configured (never-set-up connectors)",
     CONNECTOR_CONFIGURED_V56_SQL,
   ),
+  simpleStep(56, 57, "computer-use session + action stream", COMPUTER_USE_V57_SQL),
+  simpleStep(57, 58, "multimodal understanding pass cursor", MEDIA_PASS_V58_SQL),
 ];
 
 const BACKFILL_LABELS: readonly string[] = [

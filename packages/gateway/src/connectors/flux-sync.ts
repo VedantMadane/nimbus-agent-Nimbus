@@ -1,9 +1,7 @@
 import { FLUX_KINDS, trimTrailingSlash } from "@nimbus-dev/sdk";
-import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { syncPassCursorSuccess } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { connectorFetch } from "./_lib/fetch-outcome.ts";
-import { readConnectorSecret } from "./connector-vault.ts";
 import { mapFluxResourceToItem } from "./flux-resource-mapping.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord } from "./unknown-record.ts";
@@ -27,8 +25,8 @@ interface FluxCreds {
 }
 
 async function loadCreds(ctx: SyncContext): Promise<FluxCreds | null> {
-  const apiUrl = (await readConnectorSecret(ctx.vault, "flux", "api_url"))?.trim() ?? "";
-  const token = (await readConnectorSecret(ctx.vault, "flux", "token"))?.trim() ?? "";
+  const apiUrl = (await ctx.getSecret("api_url"))?.trim() ?? "";
+  const token = (await ctx.getSecret("token"))?.trim() ?? "";
   if (apiUrl === "" || token === "") {
     return null;
   }
@@ -79,7 +77,7 @@ export function createFluxSyncable(options: FluxSyncableOptions): Syncable {
           if (mapped === null) {
             continue;
           }
-          upsertIndexedItemForSync(ctx, mapped);
+          ctx.upsertItem(mapped);
           totalUpserted += 1;
         }
       }

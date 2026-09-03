@@ -9,8 +9,8 @@ import { LocalIndex } from "../index/local-index.ts";
 import {
   AgentsRpcError,
   dispatchAgentsRpc,
-  HTTP_AGENT_NAMES,
-  resolveHttpAgentMethod,
+  EXTERNAL_AGENT_NAMES,
+  resolveExternalAgentMethod,
 } from "./agents-rpc.ts";
 
 function makeCtx(db: Database, extras?: { runner?: SynthesisRunner; configDir?: string }) {
@@ -128,8 +128,26 @@ describe("dispatchAgentsRpc", () => {
       dispatchAgentsRpc("agents.expert", ["not", "an", "object"], makeCtx(freshDb())),
     ).rejects.toMatchObject({
       rpcCode: -32602,
-      message: expect.stringContaining("requires { topicOrFile: string }"),
+      // The message now names both arms — `expert` grew an `itemUrl` arm, and a message
+      // that mentioned only `topicOrFile` would send a caller to the wrong one.
+      message: expect.stringContaining("exactly one of { topicOrFile } or { itemUrl }"),
     });
+  });
+
+  test("agents.expert requires exactly one arm", async () => {
+    const ctx = makeCtx(freshDb());
+    for (const params of [
+      {},
+      { topicOrFile: "x", itemUrl: "https://acme.atlassian.net/browse/A-1" },
+    ]) {
+      await expect(dispatchAgentsRpc("agents.expert", params, ctx)).rejects.toThrow(/exactly one/);
+    }
+    for (const params of [
+      { topicOrFile: "x" },
+      { itemUrl: "https://acme.atlassian.net/browse/A-1" },
+    ]) {
+      expect((await dispatchAgentsRpc("agents.expert", params, ctx)).kind).toBe("hit");
+    }
   });
 
   test("agents.expert eventually emits expert.briefReady", async () => {
@@ -592,6 +610,57 @@ describe("dispatchAgentsRpc — ctx.runner threading proof for the remaining age
     });
   });
 
+  // The `hasRef === hasPrUrl` equality this replaced read "exactly one" only while there
+  // were exactly two arms — at three it silently means "an odd number", so all three
+  // supplied together would have been ACCEPTED. Tested as a count, at every arity.
+  test("agents.why requires exactly one of three arms", async () => {
+    const ctx = makeCtx(freshDb());
+    const rejects = [
+      {},
+      { ref: "x", prUrl: "https://github.com/a/b/pull/1" },
+      { ref: "x", itemUrl: "https://acme.atlassian.net/browse/A-1" },
+      { prUrl: "https://github.com/a/b/pull/1", itemUrl: "https://acme.atlassian.net/browse/A-1" },
+      // The three-arm case the old equality would have let through.
+      {
+        ref: "x",
+        prUrl: "https://github.com/a/b/pull/1",
+        itemUrl: "https://acme.atlassian.net/browse/A-1",
+      },
+    ];
+    for (const params of rejects) {
+      await expect(dispatchAgentsRpc("agents.why", params, ctx)).rejects.toThrow(/exactly one/);
+    }
+  });
+
+  test("agents.why accepts each single arm", async () => {
+    const ctx = makeCtx(freshDb());
+    for (const params of [
+      { ref: "x" },
+      { prUrl: "https://github.com/a/b/pull/1" },
+      { itemUrl: "https://acme.atlassian.net/browse/A-1" },
+    ]) {
+      const out = await dispatchAgentsRpc("agents.why", params, ctx);
+      expect(out.kind).toBe("hit");
+    }
+  });
+
+  test("itemUrl inherits the prUrl arm's guards", async () => {
+    const ctx = makeCtx(freshDb());
+    await expect(
+      dispatchAgentsRpc(
+        "agents.why",
+        { itemUrl: "https://u:p@acme.atlassian.net/browse/A-1" },
+        ctx,
+      ),
+    ).rejects.toThrow(/userinfo/);
+    await expect(dispatchAgentsRpc("agents.why", { itemUrl: "   " }, ctx)).rejects.toThrow(
+      /chars after trim/,
+    );
+    await expect(dispatchAgentsRpc("agents.why", { itemUrl: 7 }, ctx)).rejects.toThrow(
+      /itemUrl must be a string/,
+    );
+  });
+
   test("agents.why with runner set actually synthesizes", async () => {
     const ctx = makeCtx(freshDb(), { runner: okRunner() });
     const out = await dispatchAgentsRpc("agents.why", { ref: "x" }, ctx);
@@ -972,9 +1041,22 @@ describe("dispatchAgentsRpc — agents.negotiate", () => {
   });
 });
 
-describe("the HTTP-invokable agent set", () => {
+describe("the externally-invokable agent set", () => {
+  test("the external agent set is exactly eleven and excludes the four", () => {
+    expect(EXTERNAL_AGENT_NAMES.length).toBe(11);
+    for (const excluded of ["preflight", "premortem", "whyPeek", "negotiate"]) {
+      expect(EXTERNAL_AGENT_NAMES).not.toContain(excluded);
+      expect(resolveExternalAgentMethod(excluded)).toBeNull();
+    }
+  });
+
+  test("resolveExternalAgentMethod does not resolve prototype keys", () => {
+    expect(resolveExternalAgentMethod("constructor")).toBeNull();
+    expect(resolveExternalAgentMethod("toString")).toBeNull();
+  });
+
   test("is exactly the eleven asynchronous, non-preflight, non-premortem agents", () => {
-    expect([...HTTP_AGENT_NAMES]).toEqual([
+    expect([...EXTERNAL_AGENT_NAMES]).toEqual([
       "catchup",
       "conflicts",
       "decisions",
@@ -989,59 +1071,59 @@ describe("the HTTP-invokable agent set", () => {
     ]);
   });
 
-  test("premortem is not reachable over HTTP", () => {
+  test("premortem is not reachable over any external surface", () => {
     // `runPremortem` writes paused watcher rows (and can delete tombstones via `repropose`)
-    // with no HITL gate — an external HTTP caller must not be able to trigger that unprompted,
+    // with no HITL gate — an external caller must not be able to trigger that unprompted,
     // the same reasoning `agents.preflight` is excluded for. Also carried over from the MCP tool
     // surface, which defines no premortem tool.
-    expect(resolveHttpAgentMethod("premortem")).toBeNull();
-    expect(HTTP_AGENT_NAMES).not.toContain("premortem");
+    expect(resolveExternalAgentMethod("premortem")).toBeNull();
+    expect(EXTERNAL_AGENT_NAMES).not.toContain("premortem");
   });
 
-  test("preflight is not reachable over HTTP", () => {
+  test("preflight is not reachable over any external surface", () => {
     // I24: agents.preflight is the federated-action path. A caller that can invoke it can queue
     // consent prompts on the owner's machine — an external caller must never originate one.
-    expect(resolveHttpAgentMethod("preflight")).toBeNull();
-    expect(HTTP_AGENT_NAMES).not.toContain("preflight");
+    expect(resolveExternalAgentMethod("preflight")).toBeNull();
+    expect(EXTERNAL_AGENT_NAMES).not.toContain("preflight");
   });
 
-  test("whyPeek is not reachable over HTTP", () => {
+  test("whyPeek is not reachable over any external surface", () => {
     // Synchronous by design (the why-lens hover): it returns its payload inline and calls notify
     // NEVER, so on the {runId}+poll contract it would create a run that can never complete and
     // would poll until the TTL turned a success into a 410. Exposing it needs its own
     // inline-result route, which is a later decision — not a second response shape bolted on here.
-    expect(resolveHttpAgentMethod("whyPeek")).toBeNull();
-    expect(HTTP_AGENT_NAMES).not.toContain("whyPeek");
+    expect(resolveExternalAgentMethod("whyPeek")).toBeNull();
+    expect(EXTERNAL_AGENT_NAMES).not.toContain("whyPeek");
   });
 
-  test("agents.negotiate is NOT on the HTTP agent surface", () => {
+  test("agents.negotiate is NOT on the external agent surface", () => {
     // Unlike the three exclusions above, negotiate is a pure read with no side effects — it is
-    // excluded for a different reason: combined with `--person`, HTTP exposure would let any
-    // holder of the `agents` token assemble a contribution dossier on any indexed person without
-    // the owner initiating it. CLI and Tauri are same-machine, owner-initiated; the local HTTP
-    // API is not.
-    expect(resolveHttpAgentMethod("negotiate")).toBeNull();
-    expect(HTTP_AGENT_NAMES).not.toContain("negotiate");
+    // excluded for a different reason: combined with `--person`, external exposure would let any
+    // holder of the `agents` token/scope assemble a contribution dossier on any indexed person
+    // without the owner initiating it. CLI and Tauri are same-machine, owner-initiated; the local
+    // HTTP API and ChatOps are not.
+    expect(resolveExternalAgentMethod("negotiate")).toBeNull();
+    expect(EXTERNAL_AGENT_NAMES).not.toContain("negotiate");
   });
 
   test("ghost and huddle stay in, as they did for MCP", () => {
-    expect(resolveHttpAgentMethod("ghost")).toBe("agents.ghost");
-    expect(resolveHttpAgentMethod("huddle")).toBe("agents.huddle");
+    expect(resolveExternalAgentMethod("ghost")).toBe("agents.ghost");
+    expect(resolveExternalAgentMethod("huddle")).toBe("agents.huddle");
   });
 
   test("the resolver is prototype-safe and rejects anything unserved", () => {
     // A caller-supplied path segment reaches this. `Object.hasOwn` (not `in`) is what stops
     // "constructor" / "__proto__" / "toString" resolving against the object prototype.
     for (const junk of ["__proto__", "constructor", "toString", "", "expert.extra", "Expert"]) {
-      expect(resolveHttpAgentMethod(junk)).toBeNull();
+      expect(resolveExternalAgentMethod(junk)).toBeNull();
     }
   });
 
   test("every published name resolves back to a served method", () => {
     // The list and the resolver are two derivations of the same map; this pins them together so a
     // name cannot be advertised by GET /v1/agents and then 404 on invocation.
-    for (const name of HTTP_AGENT_NAMES) {
-      expect(resolveHttpAgentMethod(name)).toBe(`agents.${name}`);
+    for (const name of EXTERNAL_AGENT_NAMES) {
+      expect(resolveExternalAgentMethod(name)).toBe(`agents.${name}`);
     }
   });
 });
@@ -1211,5 +1293,166 @@ describe("I29 — externally-originated agent briefs are ledgered", () => {
     ).catch(() => undefined);
     const rows = db.query(`SELECT method FROM egress_ledger`).all() as Array<{ method: string }>;
     expect(rows.map((r) => r.method)).toEqual(["agents.whyPeek"]);
+  });
+});
+
+/**
+ * Every URL-shaped agent param goes through `requireUrlArm`, which rejects userinfo.
+ *
+ * Pinned across ALL THREE call sites rather than once: the guard is shared today, and this
+ * is what fails if someone later inlines a fourth arm's validation instead of reusing it.
+ * A `user:pass@` URL forwarded downstream would land plaintext credentials in a brief's
+ * rendered query and in the egress ledger.
+ */
+describe("credentials never survive a URL param", () => {
+  const CREDENTIALED = "https://user:secret@acme.atlassian.net/browse/A-1";
+
+  test("why rejects userinfo on both URL arms", async () => {
+    const ctx = makeCtx(freshDb());
+    for (const params of [{ prUrl: CREDENTIALED }, { itemUrl: CREDENTIALED }]) {
+      await expect(dispatchAgentsRpc("agents.why", params, ctx)).rejects.toThrow(/userinfo/);
+    }
+  });
+
+  test("expert rejects userinfo on itemUrl", async () => {
+    const ctx = makeCtx(freshDb());
+    await expect(
+      dispatchAgentsRpc("agents.expert", { itemUrl: CREDENTIALED }, ctx),
+    ).rejects.toThrow(/userinfo/);
+  });
+
+  test("ownership rejects userinfo on itemUrl", async () => {
+    const ctx = makeCtx(freshDb());
+    await expect(
+      dispatchAgentsRpc("agents.ownership", { itemUrl: CREDENTIALED }, ctx),
+    ).rejects.toThrow(/userinfo/);
+  });
+
+  test("the secret never appears in the rejection message", async () => {
+    const ctx = makeCtx(freshDb());
+    const err = await dispatchAgentsRpc("agents.why", { itemUrl: CREDENTIALED }, ctx).catch(
+      (e: unknown) => e,
+    );
+    expect(String((err as Error).message)).not.toContain("secret");
+  });
+});
+
+/**
+ * The forge-file arm: `{ service, repo, refAndPath }` instead of a local `{ file }`.
+ *
+ * A browser has a forge coordinate and nothing else — it does not know the reader's
+ * filesystem and must not guess at one. `requireFileParam` resolves the coordinate against
+ * the checkout before any agent sees it, so the agents keep taking a local path.
+ */
+describe("the forge-file arm", () => {
+  function seedCheckout(db: Database): void {
+    db.run(
+      "INSERT INTO graph_entity (id, type, external_id, label, service, metadata) VALUES ('ws:/r', 'workspace', 'filesystem:/r', '/r', 'filesystem', '{}')",
+    );
+    db.run(
+      "INSERT INTO graph_entity (id, type, external_id, label, service, metadata) VALUES ('repo:g', 'repo', 'github:acme/web', 'acme/web', 'github', '{}')",
+    );
+    db.run(
+      "INSERT INTO graph_relation (from_id, to_id, type, created_at) VALUES ('ws:/r', 'repo:g', 'tracks_remote', 0)",
+    );
+    db.run(
+      "INSERT INTO graph_entity (id, type, external_id, label, service, metadata) VALUES ('file:/r:src/foo.ts', 'source_file', 'file:/r:src/foo.ts', 'src/foo.ts', 'filesystem', '{}')",
+    );
+  }
+
+  const COORD = { service: "github", repo: "acme/web", refAndPath: "main/src/foo.ts" };
+
+  test("ghost and conflicts accept a forge coordinate", async () => {
+    const db = freshDb();
+    seedCheckout(db);
+    const ctx = makeCtx(db);
+    for (const method of ["agents.ghost", "agents.conflicts"]) {
+      const out = await dispatchAgentsRpc(method, COORD, ctx);
+      expect(out.kind).toBe("hit");
+    }
+  });
+
+  test("an untracked remote and an unindexed path are distinguishable on the wire", async () => {
+    const empty = makeCtx(freshDb());
+    await expect(dispatchAgentsRpc("agents.ghost", COORD, empty)).rejects.toThrow(
+      /remote_not_tracked/,
+    );
+
+    const db = freshDb();
+    seedCheckout(db);
+    await expect(
+      dispatchAgentsRpc("agents.ghost", { ...COORD, refAndPath: "main/src/nope.ts" }, makeCtx(db)),
+    ).rejects.toThrow(/file_not_indexed/);
+  });
+
+  test("the two shapes are mutually exclusive", async () => {
+    const db = freshDb();
+    seedCheckout(db);
+    await expect(
+      dispatchAgentsRpc("agents.ghost", { ...COORD, file: "src/foo.ts" }, makeCtx(db)),
+    ).rejects.toThrow(/mutually exclusive/);
+  });
+
+  test("a local file path still works, unchanged", async () => {
+    const db = freshDb();
+    const out = await dispatchAgentsRpc("agents.ghost", { file: "src/foo.ts" }, makeCtx(db));
+    expect(out.kind).toBe("hit");
+  });
+
+  // Federation fan-out must never arrive by accident. `ghost` and `conflicts` reach peers
+  // only when `namespaces` is supplied, and the browser supplies none — so the forge arm
+  // must not manufacture any. A loopback-only client turning two local reads into network
+  // calls is the failure this pins.
+  // The absence case below proves the arm invents no namespaces. This proves it REFUSES
+  // supplied ones — the actual hole, since a holder of an `agents`-scoped token could
+  // otherwise turn a browser-reachable file question into peer network calls.
+  test("the forge arm refuses supplied namespaces rather than fanning out", async () => {
+    const db = freshDb();
+    seedCheckout(db);
+    let sent = 0;
+    const ctx = {
+      ...makeCtx(db),
+      sendOverWire: () => {
+        sent += 1;
+        return Promise.resolve(null);
+      },
+    } as unknown as Parameters<typeof dispatchAgentsRpc>[2];
+
+    for (const method of ["agents.ghost", "agents.conflicts"]) {
+      for (const extra of [{ namespaces: ["peer-1"] }, { namespace: "peer-1" }]) {
+        await expect(dispatchAgentsRpc(method, { ...COORD, ...extra }, ctx)).rejects.toThrow(
+          /locally only/,
+        );
+      }
+    }
+    expect(sent).toBe(0);
+  });
+
+  test("the local { file } shape still accepts namespaces", async () => {
+    // The refusal is scoped to the forge shape. A terminal caller naming a local path
+    // may still ask for federation, exactly as before.
+    const db = freshDb();
+    const out = await dispatchAgentsRpc(
+      "agents.ghost",
+      { file: "src/foo.ts", namespaces: ["peer-1"] },
+      makeCtx(db),
+    );
+    expect(out.kind).toBe("hit");
+  });
+
+  test("the forge arm adds no namespaces of its own", async () => {
+    const db = freshDb();
+    seedCheckout(db);
+    let sent = 0;
+    const ctx = {
+      ...makeCtx(db),
+      sendOverWire: () => {
+        sent += 1;
+        return Promise.resolve(null);
+      },
+    } as unknown as Parameters<typeof dispatchAgentsRpc>[2];
+    await dispatchAgentsRpc("agents.ghost", COORD, ctx);
+    await dispatchAgentsRpc("agents.conflicts", COORD, ctx);
+    expect(sent).toBe(0);
   });
 });

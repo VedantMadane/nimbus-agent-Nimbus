@@ -63,6 +63,7 @@ CONNECTORS & INDEX
   nimbus watch …            List/pause/resume index watchers
   nimbus index reembed …    Selective re-embedding to a target model; --yes for non-dry runs
   nimbus index rebody …     Re-fetch indexed depth (real outbound traffic); --yes for non-dry runs
+  nimbus media understand …  Transcribe/caption indexed local media (local models only)
   nimbus session …          Session RAG memory (list, clear, recall — needs embeddings)
 
 METRICS & CI/CD
@@ -78,6 +79,10 @@ PRIVACY & AUDIT
   nimbus audit [--limit N]    Recent HITL audit rows
   nimbus exec --code <src> | --file <path>   Run code in the sandbox, behind an approval prompt
                               (off by default; enable with [code_execution] enabled = true)
+  nimbus computer browser --origin <o> [--script-origin <o>]   HITL-gated browser session
+                              (off by default; enable with [computer_use] enabled = true —
+                               browser driver not shipped yet, sessions refuse)
+  nimbus computer sessions | close <id>   List / close computer-use sessions
   nimbus security scan        Local security scan (secrets, vulnerable deps, risky IaC)
   nimbus data export|import|delete   Encrypted bundle export/import; per-service deletion
   nimbus vault set|get|delete|list   Secrets (OS keyring only — never config, never logs)
@@ -108,7 +113,7 @@ AUTOMATION & EXTENSIONS
 CONFIG & DIAGNOSTICS
   nimbus config validate | list [--json] | edit
   nimbus profile create|list|switch|delete
-  nimbus llm status [--json]   Selected LLM provider/model per task type, and availability
+  nimbus llm status [--json]   Every registered LLM route (provider/model) and its availability
   nimbus serve [--port 7474]   Start gateway with NIMBUS_HTTP_PORT (read-only HTTP sidecar)
   nimbus db verify | repair --yes | snapshot | snapshots list | backups list | restore <snap> --yes
   nimbus diag [--json] | diag slow-queries [--limit N] [--since 7d]

@@ -2,6 +2,244 @@
 
 All notable changes to the `nimbus` core (headless Gateway + CLI binary + first-party MCP connectors) are documented in this file. release-please appends new entries between this header and the most recent version below when a release PR merges.
 
+## [7.8.0](https://github.com/nimbus-agent/Nimbus/compare/v7.7.0...v7.8.0) (2026-09-03)
+
+
+### Features
+
+* **multimodal:** local audio/video understanding, indexed and searchable (S2 PR 1 of 4) ([#1429](https://github.com/nimbus-agent/Nimbus/issues/1429)) ([b995a96](https://github.com/nimbus-agent/Nimbus/commit/b995a96b2c135fa19614123df49c82033254065e))
+
+## [7.7.0](https://github.com/nimbus-agent/Nimbus/compare/v7.6.0...v7.7.0) (2026-09-03)
+
+
+### Features
+
+* **agents:** publish the gateway version on the roster response ([#1428](https://github.com/nimbus-agent/Nimbus/issues/1428)) ([d3ba71d](https://github.com/nimbus-agent/Nimbus/commit/d3ba71dd3d3513e828da301bd59472fdb2dfc456))
+
+## [7.6.0](https://github.com/nimbus-agent/Nimbus/compare/v7.5.0...v7.6.0) (2026-09-02)
+
+
+### Features
+
+* **agents:** resolve a forge file coordinate to the reader's checkout ([#1424](https://github.com/nimbus-agent/Nimbus/issues/1424)) ([4770bdf](https://github.com/nimbus-agent/Nimbus/commit/4770bdffbcff9b7962f209e890d3b96f324dbb9b))
+* **computer-use:** the terminal lane — a confined shell where nothing runs before the owner approves the whole line ([#1426](https://github.com/nimbus-agent/Nimbus/issues/1426)) ([9ad2be9](https://github.com/nimbus-agent/Nimbus/commit/9ad2be9c1d398c1eb1636115ae495e2869775d00))
+
+## [7.5.0](https://github.com/nimbus-agent/Nimbus/compare/v7.4.0...v7.5.0) (2026-09-01)
+
+
+### Features
+
+* **agents:** why, expert and ownership answer about an indexed item ([#1421](https://github.com/nimbus-agent/Nimbus/issues/1421)) ([b5fabb2](https://github.com/nimbus-agent/Nimbus/commit/b5fabb2d176f67b8286b8cdf237231ce565d9f49))
+* **computer-use:** raw-CDP browser lane driver; the browser egress class goes live ([#1418](https://github.com/nimbus-agent/Nimbus/issues/1418)) ([0c52e96](https://github.com/nimbus-agent/Nimbus/commit/0c52e9661282299c9927f0689c6a49bbeb0c56f6))
+
+## [7.4.0](https://github.com/nimbus-agent/Nimbus/compare/v7.3.0...v7.4.0) (2026-08-31)
+
+
+### Features
+
+* **computer-use:** I35 gate + D26 confinement for local computer-use actuation (browser lane, driver not yet wired) ([#1415](https://github.com/nimbus-agent/Nimbus/issues/1415)) ([461cebd](https://github.com/nimbus-agent/Nimbus/commit/461cebd634a96762b49270ba2dbb4b1d31d8aa9a))
+
+## [7.3.0](https://github.com/nimbus-agent/Nimbus/compare/v7.2.1...v7.3.0) (2026-08-30)
+
+
+### Features
+
+* **chatops:** invoke the built-in read-only agents from a Slack or Teams channel ([#1412](https://github.com/nimbus-agent/Nimbus/issues/1412)) ([a6a052e](https://github.com/nimbus-agent/Nimbus/commit/a6a052e2d019eb077a0b90d3a352c0d5d58cf590))
+
+## [7.2.1](https://github.com/nimbus-agent/Nimbus/compare/v7.2.0...v7.2.1) (2026-08-30)
+
+
+### Bug Fixes
+
+* **llm:** make llm.setDefault write the store the router actually reads ([#1410](https://github.com/nimbus-agent/Nimbus/issues/1410)) ([9f69790](https://github.com/nimbus-agent/Nimbus/commit/9f69790ca0e29795997e614732539dce5792bfae))
+
+## [7.2.0](https://github.com/nimbus-agent/Nimbus/compare/v7.1.2...v7.2.0) (2026-08-30)
+
+
+### Features
+
+* **doctor:** report embedding runtime state ([#1397](https://github.com/nimbus-agent/Nimbus/issues/1397)) ([9b3ed09](https://github.com/nimbus-agent/Nimbus/commit/9b3ed09d5e2f5677d812715234d8821b5de9eda2))
+* **egress:** ledger every outbound ChatOps post ([#1403](https://github.com/nimbus-agent/Nimbus/issues/1403)) ([fcef76f](https://github.com/nimbus-agent/Nimbus/commit/fcef76f46e0e6a07f6028e91fb3ba2e6d6c1953e))
+
+
+### Bug Fixes
+
+* **embedding:** embed the onnx addon so the compiled binary can load it ([#1402](https://github.com/nimbus-agent/Nimbus/issues/1402)) ([7ca8379](https://github.com/nimbus-agent/Nimbus/commit/7ca83798c1c2d40e91ab6839e5c94cf54646a88d))
+* **embedding:** embed the onnxruntime runtime library, not just the addon ([#1405](https://github.com/nimbus-agent/Nimbus/issues/1405)) ([7d38e79](https://github.com/nimbus-agent/Nimbus/commit/7d38e79f5bdcf68b9a58763cc7267ab34f1843b5))
+* **embedding:** ship the onnx binding and stub sharp so the worker can start ([#1399](https://github.com/nimbus-agent/Nimbus/issues/1399)) ([2356e6a](https://github.com/nimbus-agent/Nimbus/commit/2356e6a7e4d25aab4baf954ce8a2e1d17df604f6))
+
+## [7.1.2](https://github.com/nimbus-agent/Nimbus/compare/v7.1.1...v7.1.2) (2026-08-29)
+
+
+### Bug Fixes
+
+* **index:** extract `export default` symbols in the code indexer ([#1391](https://github.com/nimbus-agent/Nimbus/issues/1391)) ([78751d2](https://github.com/nimbus-agent/Nimbus/commit/78751d2f54ab9898f7e1a0fc77ec3df226003357))
+* **logging:** stop logging every Error as {} ([#1393](https://github.com/nimbus-agent/Nimbus/issues/1393)) ([7734ab1](https://github.com/nimbus-agent/Nimbus/commit/7734ab10b68ea5c221b56cfc8ccfabe555ef80ca))
+
+## [7.1.1](https://github.com/nimbus-agent/Nimbus/compare/v7.1.0...v7.1.1) (2026-08-29)
+
+
+### Bug Fixes
+
+* **cli:** refuse a nested-table key in nimbus config set/get ([#1387](https://github.com/nimbus-agent/Nimbus/issues/1387)) ([1a4338c](https://github.com/nimbus-agent/Nimbus/commit/1a4338c32582ae578dacc3babb34671b07b155f9))
+
+## [7.1.0](https://github.com/nimbus-agent/Nimbus/compare/v7.0.1...v7.1.0) (2026-08-29)
+
+
+### Features
+
+* **egress:** ledger remote embeddings and add per-task model routing ([#1384](https://github.com/nimbus-agent/Nimbus/issues/1384)) ([33273b2](https://github.com/nimbus-agent/Nimbus/commit/33273b27aa387d0fb8232847757b95d198efe602))
+
+## [7.0.1](https://github.com/nimbus-agent/Nimbus/compare/v7.0.0...v7.0.1) (2026-08-29)
+
+
+### Bug Fixes
+
+* **connectors:** align the aws sync interval with its AWS-CLI siblings ([#1377](https://github.com/nimbus-agent/Nimbus/issues/1377)) ([61173ae](https://github.com/nimbus-agent/Nimbus/commit/61173ae92dc87002d3bc844ce0c792257292d677))
+* **llm:** stop Ollama reasoning tokens truncating answers and costing ~16s per ask ([#1376](https://github.com/nimbus-agent/Nimbus/issues/1376)) ([abdbbdc](https://github.com/nimbus-agent/Nimbus/commit/abdbbdcf41ba91243f3d76e1b5ad301e01aba3a8))
+
+## [7.0.0](https://github.com/nimbus-agent/Nimbus/compare/v6.0.1...v7.0.0) (2026-08-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* **llm:** make LlmRegistryOptions.db required so an unledgered non-local route is a compile error ([#1372](https://github.com/nimbus-agent/Nimbus/issues/1372))
+
+### Bug Fixes
+
+* **perf:** drift-check must use each surface own noise floor, not a hardcoded 10% ([#1374](https://github.com/nimbus-agent/Nimbus/issues/1374)) ([8607743](https://github.com/nimbus-agent/Nimbus/commit/860774328ca64b358c1259b3ab29178f9b63375b))
+
+
+### Code Refactoring
+
+* **llm:** make LlmRegistryOptions.db required so an unledgered non-local route is a compile error ([#1372](https://github.com/nimbus-agent/Nimbus/issues/1372)) ([97ce904](https://github.com/nimbus-agent/Nimbus/commit/97ce9043cb6c08e9e7c5c06a3db5bf71f0bda1c0))
+
+## [6.0.1](https://github.com/nimbus-agent/Nimbus/compare/v6.0.0...v6.0.1) (2026-08-28)
+
+
+### Bug Fixes
+
+* **connectors:** stop connector CLI spawns flashing console windows on Windows ([#1370](https://github.com/nimbus-agent/Nimbus/issues/1370)) ([184dc42](https://github.com/nimbus-agent/Nimbus/commit/184dc42aed22b4156d1f8367f69e60118ebcffab))
+
+## [6.0.0](https://github.com/nimbus-agent/Nimbus/compare/v5.0.1...v6.0.0) (2026-08-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* **llm:** remove the inert remote_model key and document the vendor tables ([#1368](https://github.com/nimbus-agent/Nimbus/issues/1368))
+* **llm:** ledger the ask intent classifier, and three defects found on a live install ([#1366](https://github.com/nimbus-agent/Nimbus/issues/1366))
+
+### Bug Fixes
+
+* **llm:** ledger the ask intent classifier, and three defects found on a live install ([#1366](https://github.com/nimbus-agent/Nimbus/issues/1366)) ([8202ec6](https://github.com/nimbus-agent/Nimbus/commit/8202ec64199c524ff436f3d4d04822e9c9a8620c))
+* **llm:** remove the inert remote_model key and document the vendor tables ([#1368](https://github.com/nimbus-agent/Nimbus/issues/1368)) ([0ca8232](https://github.com/nimbus-agent/Nimbus/commit/0ca82323f26dbd10dc59efa28eab3c43ba9c593e))
+
+## [5.0.1](https://github.com/nimbus-agent/Nimbus/compare/v5.0.0...v5.0.1) (2026-08-28)
+
+
+### Bug Fixes
+
+* **connectors:** index a Confluence page under its browser URL ([#1364](https://github.com/nimbus-agent/Nimbus/issues/1364)) ([c7a9e1a](https://github.com/nimbus-agent/Nimbus/commit/c7a9e1a53fcc5fc22e2830e38ad25009b7e5d6e5))
+
+## [5.0.0](https://github.com/nimbus-agent/Nimbus/compare/v4.1.0...v5.0.0) (2026-08-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* **llm:** the Mastra engine agent no longer falls back to a vendor API key found in the environment. An install that today relies on `ANTHROPIC_API_KEY` alone, with no `[llm.remote.*]` configuration, will stop constructing the agent — `nimbus ask` then answers from the local router if one is configured, and workflows refuse with a message naming the fix. To restore the previous behaviour, add `[llm.remote.anthropic] enabled = true` with a `model`, and store `anthropic.api_key` in the Vault. This is the point of the change rather than a side effect: a capability that turns itself on because a credential happens to exist is the air-gap defect's shape, one level up.
+
+### Features
+
+* **llm:** register four cloud vendors behind a default-off per-vendor opt-in ([#1359](https://github.com/nimbus-agent/Nimbus/issues/1359)) ([1a59735](https://github.com/nimbus-agent/Nimbus/commit/1a59735f7ee5cf3fcfe2866d804e149b3bbc3c73))
+
+## [4.1.0](https://github.com/nimbus-agent/Nimbus/compare/v4.0.1...v4.1.0) (2026-08-28)
+
+
+### Features
+
+* **egress:** ledger every non-local LLM route at the provider chokepoint ([#1357](https://github.com/nimbus-agent/Nimbus/issues/1357)) ([278e6b2](https://github.com/nimbus-agent/Nimbus/commit/278e6b2412d80d4cd7aa064e250a9a2f406b129a))
+
+## [4.0.1](https://github.com/nimbus-agent/Nimbus/compare/v4.0.0...v4.0.1) (2026-08-28)
+
+
+### Bug Fixes
+
+* resolve the brief timeout from one definition, and make the ask context budget configurable ([#1354](https://github.com/nimbus-agent/Nimbus/issues/1354)) ([30c1ce6](https://github.com/nimbus-agent/Nimbus/commit/30c1ce61afedf459651a25dc1fb88cc32b1152f4))
+
+## [4.0.0](https://github.com/nimbus-agent/Nimbus/compare/v3.1.0...v4.0.0) (2026-08-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **llm:** route the LLM by (provider, model) instead of provider kind ([#1352](https://github.com/nimbus-agent/Nimbus/issues/1352))
+
+### Features
+
+* **llm:** route the LLM by (provider, model) instead of provider kind ([#1352](https://github.com/nimbus-agent/Nimbus/issues/1352)) ([5ac042c](https://github.com/nimbus-agent/Nimbus/commit/5ac042c04fda879fdfd943eaacb99a09ae022cae))
+
+## [3.1.0](https://github.com/nimbus-agent/Nimbus/compare/v3.0.0...v3.1.0) (2026-08-27)
+
+
+### Features
+
+* **ci:** gate on native dependencies reaching the gateway binary ([#1350](https://github.com/nimbus-agent/Nimbus/issues/1350)) ([b3ff071](https://github.com/nimbus-agent/Nimbus/commit/b3ff071c02caef844c0b8bf243e5c7b0fd4ea71b))
+
+## [3.0.0](https://github.com/nimbus-agent/Nimbus/compare/v2.21.0...v3.0.0) (2026-08-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **connectors:** delete packages/mcp-connectors — it ships from npm now ([#1347](https://github.com/nimbus-agent/Nimbus/issues/1347))
+
+### Features
+
+* **ci:** gate on connector version skew between the gateway and npm ([#1346](https://github.com/nimbus-agent/Nimbus/issues/1346)) ([1a2d38a](https://github.com/nimbus-agent/Nimbus/commit/1a2d38a42ab16d3d83a4a4d016944d2a74bc39d7))
+
+
+### Code Refactoring
+
+* **connectors:** delete packages/mcp-connectors — it ships from npm now ([#1347](https://github.com/nimbus-agent/Nimbus/issues/1347)) ([2118cdd](https://github.com/nimbus-agent/Nimbus/commit/2118cdd4ba4954d9617485973b753f47fcbed03c))
+
+## [2.21.0](https://github.com/nimbus-agent/Nimbus/compare/v2.20.0...v2.21.0) (2026-08-26)
+
+
+### Features
+
+* **connectors:** consume @nimbus-dev/connectors from npm ([#1343](https://github.com/nimbus-agent/Nimbus/issues/1343)) ([0b6ff53](https://github.com/nimbus-agent/Nimbus/commit/0b6ff53aac924d3f4251c74785d58fead450f9b8))
+
+## [2.20.0](https://github.com/nimbus-agent/Nimbus/compare/v2.19.1...v2.20.0) (2026-08-25)
+
+
+### Features
+
+* **build:** prove the connector registry can import from a package, before anything moves ([#1340](https://github.com/nimbus-agent/Nimbus/issues/1340)) ([3a1e813](https://github.com/nimbus-agent/Nimbus/commit/3a1e8138746f2f2b22ef49169ca920579d5a42b9))
+
+## [2.19.1](https://github.com/nimbus-agent/Nimbus/compare/v2.19.0...v2.19.1) (2026-08-25)
+
+
+### Bug Fixes
+
+* **jenkins:** build headers with Headers so a hostile crumb cannot reach a prototype ([#1336](https://github.com/nimbus-agent/Nimbus/issues/1336)) ([8edb94f](https://github.com/nimbus-agent/Nimbus/commit/8edb94f6d178cd7479ffc4ec71e59e6fbe5a4d6a))
+
+## [2.19.0](https://github.com/nimbus-agent/Nimbus/compare/v2.18.1...v2.19.0) (2026-08-25)
+
+
+### Features
+
+* **sync:** connectors reach credentials and the index only through scoped capabilities ([#1333](https://github.com/nimbus-agent/Nimbus/issues/1333)) ([23233d5](https://github.com/nimbus-agent/Nimbus/commit/23233d5b4ccecfcf92ab481d2e93a9315d5527f7))
+
+
+### Bug Fixes
+
+* **llm:** enforce_air_gap now refuses the remote classifier instead of doing nothing ([#1334](https://github.com/nimbus-agent/Nimbus/issues/1334)) ([be9841c](https://github.com/nimbus-agent/Nimbus/commit/be9841cbda3746e5c727caaf131b9013dfaec697))
+
+## [2.18.1](https://github.com/nimbus-agent/Nimbus/compare/v2.18.0...v2.18.1) (2026-08-25)
+
+
+### Bug Fixes
+
+* **quality:** clear 9 Sonar issues, two of them real security bugs ([#1327](https://github.com/nimbus-agent/Nimbus/issues/1327)) ([6d828c5](https://github.com/nimbus-agent/Nimbus/commit/6d828c5c273e5c01d8d2ac44281ce7ef2753284b))
+
 ## [2.18.0](https://github.com/nimbus-agent/Nimbus/compare/v2.17.0...v2.18.0) (2026-08-24)
 
 

@@ -1,14 +1,22 @@
+import type { Database } from "bun:sqlite";
+import type { ChatopsAgentInvoker } from "../agent-runs/agent-chatops-invoke.ts";
 import type { NimbusChatopsToml } from "../config/nimbus-toml.ts";
+import { buildLedgeredChatPosts } from "../egress/chatops-egress.ts";
 import type { EgressSink } from "../egress/egress-ledger.ts";
+import { EgressAppendFailedError } from "../egress/model-egress.ts";
 import { HITL_REQUIRED, ToolExecutor } from "../engine/executor.ts";
 import type { AuditSink, ConnectorDispatcher, ConsentChannel } from "../engine/types.ts";
+import { EXTERNAL_AGENT_NAMES } from "../ipc/agents-rpc.ts";
 import type { ChatopsRpcCtx } from "../ipc/chatops-rpc.ts";
 import { ConsentDisconnectedError } from "../ipc/consent.ts";
 import type { TeamsEventsSurface } from "../ipc/http-write-routes.ts";
 import { resolveChannelBinding, resolveOwner } from "../policy/chatops-policy.ts";
 import type { EnforcedPolicy } from "../policy/policy-gate.ts";
 import { isHitlRequiredByPolicy } from "../policy/quorum-override.ts";
+import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import { ApprovalPresenter } from "./approval-presenter.ts";
+import { truncateBrief } from "./brief-truncate.ts";
+import { ensureChannelSalt } from "./channel-salt.ts";
 import {
   getChatopsApprovalContext,
   runWithChatopsApprovalContext,
@@ -26,6 +34,63 @@ import { TeamsWebhookAdapter } from "./transport/teams-webhook-adapter.ts";
 import type { ChatTransport } from "./transport/transport.ts";
 import type { ChatMessage, ChatPlatform, ReplyTarget } from "./types.ts";
 
+/**
+ * A readability cap, conservatively under every platform ceiling — not a specific Slack/Teams
+ * limit asserted from this repo (the connector body that actually calls chat.postMessage lives
+ * in the separate nimbus-mcp-servers repo and is not installed here, so neither platform's real
+ * ceiling can be verified from this codebase). A multi-kilobyte wall of markdown in a shared
+ * channel is already past readable regardless of what either platform would technically accept,
+ * and bytes ≤ chars keeps the cap conservative rather than generous.
+ *
+ * FIX 2 (whole-branch review) corrected a claim this comment used to make: `truncateBrief` does
+ * NOT simply "never drop a disclosure regardless of the cap chosen". It still never drops a
+ * DISCLOSURE (I31's `## Gaps` and negotiate's two sections) — but this cap always binds. When
+ * even the disclosure-only reserved content alone cannot fit (rare, and rarer still now that the
+ * chat surface clamps `glossary`'s `limit`, see `CHATOPS_GLOSSARY_LIST_LIMIT_MAX` below), it is
+ * cut too, with an unambiguous "content was cut" notice — a truncated message is better than one
+ * the platform silently mangles server-side for exceeding its own limit. `## Terms`
+ * (`glossary` list mode's entry table) is shrunk FIRST, before any disclosure content is ever
+ * touched: it is reserved for SYNTHESIS integrity, not disclosure — see
+ * `agents/_lib/reserved-sections.ts`'s `SYNTHESIS_RESERVED_HEADINGS` (fail-closed: an unrecognised
+ * heading is never treated as droppable).
+ */
+export const CHATOPS_AGENT_BRIEF_MAX_BYTES = 3_000;
+
+/**
+ * FIX 2 (whole-branch review): clamps `agent glossary limit=<n>` on the CHAT surface only, so
+ * `truncateBrief`'s forced-fit path above is reached rarely rather than routinely — glossary is
+ * the agent most likely to exceed `CHATOPS_AGENT_BRIEF_MAX_BYTES`, since in list mode `## Terms`
+ * (a reserved, undroppable-by-default section) IS the entire brief.
+ *
+ * Deliberately NOT a change to `ipc/agents-rpc.ts`'s `requireGlossaryParams`, which enforces only
+ * "a positive integer" and is shared with the IPC and HTTP surfaces — `nimbus glossary
+ * limit=5000` from the CLI, or the identical call over `POST /v1/agents/glossary`, is untouched;
+ * only a chat-issued command is clamped.
+ */
+export const CHATOPS_GLOSSARY_LIST_LIMIT_MAX = 20;
+
+/**
+ * Clamp `params.limit` down to `CHATOPS_GLOSSARY_LIST_LIMIT_MAX` for a chat-issued `agent
+ * glossary ...` command — only when it is otherwise well-formed (a finite integer above the
+ * clamp). Any other shape (missing, non-numeric, non-integer, negative) passes through
+ * unchanged so `requireGlossaryParams`'s own validation still produces the real error for it;
+ * this function's job is narrowing an over-large but valid request, not validating one.
+ */
+function clampGlossaryLimitForChat(agent: string, params: unknown): unknown {
+  if (agent !== "glossary") return params;
+  if (params === null || typeof params !== "object" || Array.isArray(params)) return params;
+  const p = params as Record<string, unknown>;
+  const limit = p["limit"];
+  if (
+    typeof limit !== "number" ||
+    !Number.isInteger(limit) ||
+    limit <= CHATOPS_GLOSSARY_LIST_LIMIT_MAX
+  ) {
+    return params;
+  }
+  return { ...p, limit: CHATOPS_GLOSSARY_LIST_LIMIT_MAX };
+}
+
 export interface ChatopsBootDeps {
   readonly cfg: NimbusChatopsToml;
   /** I22: enforcement reads only the gate's EnforcedPolicy, never raw policy TOML. */
@@ -37,6 +102,11 @@ export interface ChatopsBootDeps {
   };
   /** Bot-credentialed connector tool invocation (chatops-tool-runner). */
   readonly runTool: RunChatopsTool;
+  /** I29 `chatops` class: the ledger every outbound post is appended to. REQUIRED — a chatops
+   *  boot that cannot ledger must not be constructible. */
+  readonly db: Database;
+  /** Holds the per-install channel-hash salt (`chatops.channel.salt`). */
+  readonly vault: NimbusVault;
   readonly audit: AuditSink;
   /** Dispatches an approved action to the live connector mesh (same seam as the engine). */
   readonly dispatcher: ConnectorDispatcher;
@@ -52,6 +122,15 @@ export interface ChatopsBootDeps {
    *  events surface is NOT exposed (fail-closed). */
   readonly validateTeamsJwt?: TeamsEventsSurface["validateBotJwt"];
   readonly log: (msg: string) => void;
+  /**
+   * Design §13.1: a failed egress-ledger append on an outbound post must be LOUD in the gateway
+   * log at `error` — nothing can be posted in-channel to say so (that would itself be an
+   * unledgerable post), and no `degraded` marker either (that is itself a row). Structured so the
+   * underlying `Error` survives intact (see #1393 — a bare string interpolation is exactly the
+   * "err":{} bug that fix closed). Optional so a caller that only cares about `log` need not
+   * change; falls back to it (at a lower apparent severity) when absent.
+   */
+  readonly logError?: (fields: Readonly<Record<string, unknown>>, msg: string) => void;
   readonly nowMs?: () => number;
   /** Test seams for the Slack Socket Mode adapter. */
   readonly socketFactory?: (url: string) => SocketLike;
@@ -74,6 +153,16 @@ export interface ChatopsBoot {
   readonly teamsSurface: TeamsEventsSurface | undefined;
   /** Late-bind the engine read path (the engine agent is wired after assembly in index.ts). */
   bindAskEngine(fn: (query: string, namespace: string) => Promise<string>): void;
+  /**
+   * Late-bind the `agents.*` invoker (`buildChatopsAgentInvoker`): `ChatopsBootDeps` does not
+   * carry the `LocalIndex`/`configDir`/`selfIdentity`/`SynthesisRouter` deps that invoker needs,
+   * so `platform/assemble.ts`'s `bootChatopsAgentInvoker` wires it right after this boot
+   * function returns — inside `assemblePlatformServices`, not (as it used to be) after it, in
+   * `gateway-main.ts`. That move is FIX 1 of the whole-branch review: the old post-assembly call
+   * site had no federation-identity field to read at all, so `selfIdentity` was always omitted.
+   * Unbound, `runAgent` falls back to a fail-closed stub (same shape as the pre-bind `askEngine`).
+   */
+  bindAgentInvoker(fn: ChatopsAgentInvoker): void;
   /** Late-bind the local-owner consent fallback (IPC consent exists after createIpcServer). */
   bindLocalConsent(fn: ConsentChannel["requestApproval"]): void;
   /**
@@ -145,13 +234,17 @@ export function emailFromUserInfo(platform: ChatPlatform, result: unknown): stri
  * intent router → HITL gate (I2/I20 via a ChatOps-configured ToolExecutor whose
  * `delegation.requestRemote` is the approval presenter) → bounded reply surface (I23).
  */
-export function buildChatopsBoot(deps: ChatopsBootDeps): ChatopsBoot {
+export async function buildChatopsBoot(deps: ChatopsBootDeps): Promise<ChatopsBoot> {
   const { cfg, policyGate, identity, runTool } = deps;
   const nowMs = deps.nowMs ?? ((): number => Date.now());
+  const logError =
+    deps.logError ?? ((fields, msg): void => deps.log(`${msg} ${JSON.stringify(fields)}`));
   const chatopsPolicy = (): EnforcedPolicy["chatops"] => policyGate.enforced().chatops;
 
   let askEngine: (query: string, namespace: string) => Promise<string> = () =>
     Promise.resolve("Nimbus engine is not available yet — try again shortly.");
+  let agentInvoker: ChatopsAgentInvoker = () =>
+    Promise.resolve({ ok: false as const, detail: "Agent commands are not available yet." });
   let localConsent: ConsentChannel["requestApproval"] | undefined;
 
   // Server-side routing state: which platform a channel speaks, the Bot Framework serviceUrl per
@@ -161,30 +254,57 @@ export function buildChatopsBoot(deps: ChatopsBootDeps): ChatopsBoot {
   const teamsServiceUrlByConversation = new Map<string, string>();
   const pendingCardByChannel = new Map<string, string>();
 
-  const post = buildConnectorPost(runTool, (conversationId) =>
-    teamsServiceUrlByConversation.get(conversationId),
+  // I29 `chatops` class: every outbound post is ledgered before it leaves the machine. The raw
+  // connector post is passed INLINE, never bound to a name — an unwrapped post in scope would be
+  // a bypass waiting for the next consumer to reach for it (static D17 extension).
+  const channelSalt = await ensureChannelSalt(deps.vault);
+  const posts = buildLedgeredChatPosts(
+    deps.db,
+    buildConnectorPost(runTool, (conversationId) =>
+      teamsServiceUrlByConversation.get(conversationId),
+    ),
+    channelSalt,
   );
 
-  const replyDispatcher = new ReplyDispatcher({
-    post,
-    notifyChannelsFor: (namespace) => {
-      const channels: string[] = [];
-      for (const binding of chatopsPolicy().channels.values()) {
-        if (binding.namespace !== namespace) continue;
-        for (const ch of binding.notify) {
-          if (!channels.includes(ch)) channels.push(ch);
-        }
+  // Shared by both operational (non-HITL) reply dispatchers below -- I23 names
+  // `ReplyDispatcher.send` as the SOLE post path for this class of post; an agent brief is
+  // operational too, so it gets its own `ReplyDispatcher` instance (same server-derived
+  // target-resolution rules) rather than a second, dispatcher-bypassing post helper.
+  const notifyChannelsFor = (namespace: string): string[] => {
+    const channels: string[] = [];
+    for (const binding of chatopsPolicy().channels.values()) {
+      if (binding.namespace !== namespace) continue;
+      for (const ch of binding.notify) {
+        if (!channels.includes(ch)) channels.push(ch);
       }
-      return channels;
-    },
-  });
+    }
+    return channels;
+  };
+  const replyDispatcher = new ReplyDispatcher({ post: posts.reply, notifyChannelsFor });
+  // I23: the agent-brief counterpart of `replyDispatcher` above -- posts through `posts.agentBrief`
+  // (ledgered `chatops.agentBrief`, I29) instead of `posts.reply`, but is otherwise the exact same
+  // dispatcher shape, so `routerFor`'s reply redirect (below) never has to bypass ReplyDispatcher
+  // to change which post kind a reply ledgers as.
+  const agentBriefDispatcher = new ReplyDispatcher({ post: posts.agentBrief, notifyChannelsFor });
 
   const presenter: ApprovalPresenter = new ApprovalPresenter({
     post: async (channelId, text) => {
       // `requestApproval` registers the pending resolver and sets lastRequestId BEFORE posting,
       // so recording the live card here is race-free (see the resolve-race note in the presenter).
-      pendingCardByChannel.set(channelId, presenter.lastRequestId());
-      await post(lastPlatformByChannel.get(channelId) ?? "slack", channelId, text);
+      const requestId = presenter.lastRequestId();
+      pendingCardByChannel.set(channelId, requestId);
+      try {
+        await posts.approvalCard(lastPlatformByChannel.get(channelId) ?? "slack", channelId, text);
+      } catch (err) {
+        // The append-before-post ledger (I29 `chatops` class) failed, so nothing was posted — the
+        // owner never saw a card. The pending entry must not outlive that failure, or a later
+        // "approve" in this channel would resolve an approval card that was never shown (fail-
+        // closed: only clear OUR entry, in case a newer request already replaced it).
+        if (pendingCardByChannel.get(channelId) === requestId) {
+          pendingCardByChannel.delete(channelId);
+        }
+        throw err;
+      }
     },
     // No DM surface in scope (design §3.1): the card lands in the server-derived originating
     // channel; only the owner's identity-valid click is honored (I20).
@@ -260,9 +380,36 @@ export function buildChatopsBoot(deps: ChatopsBootDeps): ChatopsBoot {
   );
   const knownActions = HITL_REQUIRED;
 
-  const routerFor = (msg: ChatMessage): IntentRouter =>
-    new IntentRouter({
+  const routerFor = (msg: ChatMessage): IntentRouter => {
+    // Set by `runAgent` below on a successful brief, consumed by `reply` immediately after —
+    // IntentRouter always calls `deps.reply(result.markdown)` for an ok agent result, and that
+    // single reply is what must go out through `agentBriefDispatcher` (→ `posts.agentBrief`)
+    // rather than the generic `replyDispatcher` (→ `posts.reply`) every other kind uses, so the
+    // ledger records ONE row with `method='chatops.agentBrief'` (never two: one 'chatops.reply'
+    // plus one 'chatops.agentBrief' for the same text). A bare boolean, not the markdown itself —
+    // `reply` posts its OWN `text` argument, never a value stashed here, so a future edit that
+    // decorates `result.markdown` before replying can never see the wrapper silently post a stale
+    // copy. Scoped to this `routerFor(msg)` closure, which is built fresh per inbound message, so
+    // concurrent messages never share this flag.
+    let isAgentBrief = false;
+
+    return new IntentRouter({
       knownActions,
+      // The eleven externally-exposed agents (`EXTERNAL_AGENT_NAMES`, derived — never hand-listed)
+      // are permitted for every mapped identity; the executor/HITL gate governs writes, not this
+      // set, and every agent here is read-only by construction (nimbus-agent-patterns).
+      permittedAgents: new Set(EXTERNAL_AGENT_NAMES),
+      runAgent: async (agent, params) => {
+        // FIX 2: clamp glossary's `limit` before dispatch, so the forced-fit path in
+        // `truncateBrief` below is the rare case, not the routine one.
+        const result = await agentInvoker(agent, clampGlossaryLimitForChat(agent, params));
+        if (!result.ok) return result;
+        // Truncation to a platform byte cap is boot wiring's job (Task 9), not the router's or
+        // the invoker's — see `IntentRouterDeps.runAgent`'s doc comment.
+        const markdown = truncateBrief(result.markdown, agent, CHATOPS_AGENT_BRIEF_MAX_BYTES);
+        isAgentBrief = true;
+        return { ok: true, markdown };
+      },
       resolveBinding: (channelId) => resolveChannelBinding(chatopsPolicy(), channelId),
       resolveIdentity: (platform, userId) => mapper.resolve(platform, userId),
       resolveOwner: (resource) => resolveOwner(chatopsPolicy(), resource),
@@ -286,11 +433,18 @@ export function buildChatopsBoot(deps: ChatopsBootDeps): ChatopsBoot {
             return { approved: result.status === "ok" };
           },
         ),
-      reply: (text) =>
-        replyDispatcher.send(
-          { kind: "originating", platform: msg.platform, channelId: msg.channelId },
-          text,
-        ),
+      reply: (text) => {
+        const target = {
+          kind: "originating" as const,
+          platform: msg.platform,
+          channelId: msg.channelId,
+        };
+        if (isAgentBrief) {
+          isAgentBrief = false;
+          return agentBriefDispatcher.send(target, text);
+        }
+        return replyDispatcher.send(target, text);
+      },
       auditRefusal: (reason, detail, channelId) =>
         deps.audit.recordAudit({
           actionType: "chatops.refusal",
@@ -299,8 +453,9 @@ export function buildChatopsBoot(deps: ChatopsBootDeps): ChatopsBoot {
           timestamp: nowMs(),
         }),
     });
+  };
 
-  const handleMessage = async (msg: ChatMessage): Promise<void> => {
+  const handleMessageInner = async (msg: ChatMessage): Promise<void> => {
     lastPlatformByChannel.set(msg.channelId, msg.platform);
     // Slice 6c fan-out: every inbound message (addressed or ambient) flows to the tribal
     // watcher first. It swallows its own errors, so this never breaks the command path.
@@ -329,6 +484,37 @@ export function buildChatopsBoot(deps: ChatopsBootDeps): ChatopsBoot {
     // Slice 6c: a special command (e.g. `tribal capture <id>`) is intercepted before the router.
     if (deps.interceptCommand !== undefined && (await deps.interceptCommand(msg))) return;
     await routerFor(msg).handle(msg);
+  };
+
+  /**
+   * Design §13.1: a failed egress-ledger append (e.g. the index DB is locked mid-reindex,
+   * read-only, or full) must not take the whole gateway down. Structurally nothing was posted —
+   * `buildLedgeredChatPosts` appends before it ever calls the raw post — so containing this here
+   * loses nothing that was going to be said in-channel; it only stops an unhandled rejection from
+   * reaching `platform/exit-diagnostics.ts`'s `unhandledRejection` handler and exiting the process
+   * (traced: `ReplyDispatcher.send` → `IntentRouter.handle` → here → `ChatopsService`'s
+   * `t.onMessage` callback → `SlackSocketAdapter`'s `void this.onFrame(...)` → `host.exit(1)`).
+   * ONLY `EgressAppendFailedError` is caught — every other error (a bad command parse, a connector
+   * failure, a bug) still propagates and still crashes loudly, which is correct: this seam
+   * contains one named, anticipated failure mode, not errors in general.
+   */
+  const handleMessage = async (msg: ChatMessage): Promise<void> => {
+    try {
+      await handleMessageInner(msg);
+    } catch (err) {
+      if (!(err instanceof EgressAppendFailedError)) throw err;
+      const postKind = err.context?.["chatopsPostKind"];
+      const channelId = err.context?.["chatopsChannelId"] ?? msg.channelId;
+      logError(
+        {
+          channelId, // unhashed on purpose — this is the log, not the ledger (§13.1)
+          postKind: typeof postKind === "string" ? postKind : "unknown",
+          platform: msg.platform,
+          err,
+        },
+        "chatops: outbound post blocked — egress ledger append failed, nothing was posted",
+      );
+    }
   };
 
   const transports: ChatTransport[] = [];
@@ -361,7 +547,7 @@ export function buildChatopsBoot(deps: ChatopsBootDeps): ChatopsBoot {
     transports,
     handleMessage,
     channelsForPlatform: () => chatopsPolicy().channels.size,
-    testParse: (text) => parseCommand(text, knownActions),
+    testParse: (text) => parseCommand(text, knownActions, new Set(EXTERNAL_AGENT_NAMES)),
     nowMs,
   });
 
@@ -396,6 +582,9 @@ export function buildChatopsBoot(deps: ChatopsBootDeps): ChatopsBoot {
     teamsSurface,
     bindAskEngine: (fn) => {
       askEngine = fn;
+    },
+    bindAgentInvoker: (fn) => {
+      agentInvoker = fn;
     },
     bindLocalConsent: (fn) => {
       localConsent = fn;

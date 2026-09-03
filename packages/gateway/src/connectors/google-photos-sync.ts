@@ -1,5 +1,3 @@
-import { getValidGoogleAccessToken } from "../auth/google-access-token.ts";
-import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import type { Syncable, SyncContext, SyncResult } from "../sync/types.ts";
 import { fetchGoogleJson } from "./google-sync-shared.ts";
 import { asUnknownObjectRecord } from "./json-unknown.ts";
@@ -81,7 +79,7 @@ function upsertPhoto(ctx: SyncContext, item: MediaItem, now: number): void {
     height: item.mediaMetadata?.height,
   };
 
-  upsertIndexedItemForSync(ctx, {
+  ctx.upsertItem({
     service: SERVICE_ID,
     type: "photo",
     externalId: id,
@@ -134,7 +132,7 @@ export function createGooglePhotosSyncable(options: GooglePhotosSyncableOptions)
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();
       await options.ensureGoogleMcpRunning();
-      const token = await getValidGoogleAccessToken(ctx.vault, "google_photos");
+      const token = await ctx.accessToken();
 
       let pageToken: string | null;
       if (cursor === null || cursor === "") {

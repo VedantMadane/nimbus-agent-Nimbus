@@ -1,5 +1,5 @@
 import { extensionProcessEnv } from "../extensions/spawn-env.ts";
-import { upsertIndexedItemForSync } from "../index/item-store.ts";
+import { spawnCapture } from "../platform/spawn-capture.ts";
 import {
   syncPassCursorHttpEmpty,
   syncPassCursorParseEmpty,
@@ -8,7 +8,6 @@ import {
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { connectorFetch } from "./_lib/fetch-outcome.ts";
 import { mapBigqueryTableToItem } from "./bigquery-table-mapping.ts";
-import { readConnectorSecret } from "./connector-vault.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, stringField } from "./unknown-record.ts";
 
@@ -39,16 +38,13 @@ function pass1Cursor(): string {
  */
 async function gcloudPrintAccessToken(credPath: string): Promise<string | null> {
   try {
-    const proc = Bun.spawn(["gcloud", "auth", "print-access-token"], {
+    const r = await spawnCapture(["gcloud", "auth", "print-access-token"], {
       env: extensionProcessEnv({ GOOGLE_APPLICATION_CREDENTIALS: credPath }),
-      stdout: "pipe",
-      stderr: "pipe",
     });
-    const code = await proc.exited;
-    if (code !== 0) {
+    if (!r.ok) {
       return null;
     }
-    const out = (await new Response(proc.stdout).text()).trim();
+    const out = r.stdout.trim();
     return out === "" ? null : out;
   } catch {
     return null;
@@ -70,9 +66,8 @@ interface BigqueryCreds {
 }
 
 async function loadCreds(ctx: SyncContext): Promise<BigqueryCreds | null> {
-  const credPath =
-    (await readConnectorSecret(ctx.vault, "gcp", "credentials_json_path"))?.trim() ?? "";
-  const project = (await readConnectorSecret(ctx.vault, "gcp", "project_id"))?.trim() ?? "";
+  const credPath = (await ctx.getSharedSecret("gcp", "credentials_json_path"))?.trim() ?? "";
+  const project = (await ctx.getSharedSecret("gcp", "project_id"))?.trim() ?? "";
   if (credPath === "" || project === "") {
     return null;
   }
@@ -251,7 +246,7 @@ async function upsertTablesPage(
     const source = await resolveTableSource(ctx, token, project, datasetId, entry, state);
     const mapped = mapBigqueryTableToItem(source, { project, syncedAt: now });
     if (mapped !== null) {
-      upsertIndexedItemForSync(ctx, mapped);
+      ctx.upsertItem(mapped);
       state.upserted += 1;
     }
   }

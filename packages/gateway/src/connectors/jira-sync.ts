@@ -1,5 +1,4 @@
-import { itemPrimaryKey, upsertIndexedItemForSync } from "../index/item-store.ts";
-import { resolvePersonForSync } from "../people/linker.ts";
+import { itemPrimaryKey } from "../index/item-store.ts";
 import {
   FETCH_ONE_TIMEOUT_MS,
   type FetchOneResult,
@@ -104,9 +103,9 @@ type SearchEnvelope = {
 type JiraVaultCreds = { token: string; email: string; baseUrl: string };
 
 async function loadJiraVaultCreds(ctx: SyncContext): Promise<JiraVaultCreds | null> {
-  const token = await readConnectorSecret(ctx.vault, "jira", "api_token");
-  const email = await readConnectorSecret(ctx.vault, "jira", "email");
-  const baseRaw = await readConnectorSecret(ctx.vault, "jira", "base_url");
+  const token = await ctx.getSecret("api_token");
+  const email = await ctx.getSecret("email");
+  const baseRaw = await ctx.getSecret("base_url");
   if (
     token === null ||
     token === "" ||
@@ -301,13 +300,13 @@ function resolveJiraIssueAuthorId(
     return null;
   }
   if (creatorEmail !== undefined && creatorEmail !== "") {
-    return resolvePersonForSync(ctx.db, {
+    return ctx.resolvePerson({
       jiraAccountId: accountId,
       canonicalEmail: creatorEmail,
       displayName: creatorName ?? creatorEmail,
     });
   }
-  return resolvePersonForSync(ctx.db, {
+  return ctx.resolvePerson({
     jiraAccountId: accountId,
     displayName: creatorName ?? accountId,
   });
@@ -440,7 +439,7 @@ function jiraIndexOneIssue(p: {
   const d = jiraIssueDerivedFromFields(fields, key, syncTime, maxUpdatedIso);
   const browseUrl = `${baseUrl}/browse/${key}`;
   const authorId = resolveJiraIssueAuthorId(ctx, d.accountId, d.creatorEmail, d.creatorName);
-  upsertIndexedItemForSync(ctx, {
+  ctx.upsertItem({
     service: SERVICE_ID,
     type: "issue",
     externalId: key,

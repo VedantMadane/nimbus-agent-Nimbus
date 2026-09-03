@@ -1,8 +1,10 @@
+import { join } from "node:path";
 import pino from "pino";
 import { buildAgentSynthesisRunner } from "../../agents/_lib/agent-synthesis-runner.ts";
 import {
   loadNimbusPreflightFromConfigDir,
   loadNimbusServiceConfigsFromConfigDir,
+  resolveNimbusTomlForProfile,
 } from "../../config/nimbus-toml.ts";
 import { asRecord } from "../../connectors/unknown-record.ts";
 import { makeEgressSink, NULL_EGRESS_SINK } from "../../egress/egress-ledger.ts";
@@ -14,6 +16,12 @@ import { appendPreflightAudit, defaultRunCommand } from "../../federation/prefli
 import { writeScimBearer } from "../../identity/identity-vault.ts";
 import { isOperatorValid } from "../../identity/verifier.ts";
 import { CURRENT_SCHEMA_VERSION } from "../../index/local-index.ts";
+import {
+  buildMediaPassDeps,
+  resolveMediaRoots,
+  resolveMultimodalEnabled,
+} from "../../multimodal/build-media-pass-deps.ts";
+import { runMediaPass } from "../../multimodal/media-pass.ts";
 import { GATEWAY_VERSION } from "../../version.ts";
 import { buildStatus } from "../admin-status-rpc.ts";
 import { AgentsRpcError, dispatchAgentsRpc } from "../agents-rpc.ts";
@@ -21,6 +29,7 @@ import { AuditRpcError, dispatchAuditRpc } from "../audit-rpc.ts";
 import { AutomationRpcError, dispatchAutomationRpc } from "../automation-rpc.ts";
 import { dispatchChatopsRpc } from "../chatops-rpc.ts";
 import { dispatchClipRpc } from "../clip-rpc.ts";
+import { ComputerRpcError, dispatchComputerRpc } from "../computer-rpc.ts";
 import { ConnectorRpcError, dispatchConnectorRpc } from "../connector-rpc.ts";
 import { DataRpcError, dispatchDataRpc } from "../data-rpc.ts";
 import { DecisionsRpcError, dispatchDecisionsRpc } from "../decisions-rpc.ts";
@@ -39,6 +48,7 @@ import { dispatchIndexReembedRpc, IndexReembedRpcError } from "../index-reembed-
 import { dispatchIndexRegraphRpc, IndexRegraphRpcError } from "../index-regraph-rpc.ts";
 import { generatePairingCode } from "../lan-pairing.ts";
 import { dispatchLlmRpc, LlmRpcError } from "../llm-rpc.ts";
+import { dispatchMediaRpc } from "../media-rpc.ts";
 import { dispatchMetricsRpc, MetricsRpcError } from "../metrics-rpc.ts";
 import { dispatchOwnershipRpc } from "../ownership-rpc.ts";
 import { dispatchPeopleRpc, PeopleRpcError } from "../people-rpc.ts";
@@ -111,6 +121,12 @@ export async function tryDispatchLlmRpc(
     const out = await dispatchLlmRpc(method, params, {
       registry: ctx.options.llmRegistry,
       notify: (m, p) => ctx.broadcastNotification(m, p as Record<string, unknown>),
+      // Only `llm.use` reads this (see `LlmRpcContext.tomlPath`'s doc) — resolved the same
+      // way `platform/assemble.ts` resolves the router's own `activeTomlPath`, so a pin
+      // written here lands in the exact file boot re-reads.
+      ...(ctx.options.configDir === undefined
+        ? {}
+        : { tomlPath: resolveNimbusTomlForProfile(ctx.options.configDir) }),
     });
     if (out.kind === "hit") return out.value;
   } catch (e) {
@@ -622,6 +638,46 @@ export async function tryDispatchIndexRebodyRpc(
   return phase4RpcSkipped;
 }
 
+/**
+ * `media.understand` (S2 multimodal I/O, PR 1). LAN-FORBIDDEN (`lan-rpc.ts`'s
+ * `FORBIDDEN_OVER_LAN`) and absent from the Tauri allowlist — see `media-rpc.ts`'s own doc
+ * comment; it reads local files and spawns subprocesses, the `exec.*` posture.
+ *
+ * `roots` and `enabled` are re-read from `nimbus.toml` on every call (matching `ownershipRoots`
+ * in `ownership/ownership-target.ts`), so a `[[filesystem.roots]]` or `[multimodal]` edit applies
+ * without a gateway restart. `capabilityDisabled` is hardcoded `false`: the org-policy half of
+ * this capability (`multimodal_input`, `policy/types.ts` `AI_V2_CAPABILITIES`) has no
+ * IPC-reachable `EnforcedPolicy` accessor yet — `code_execution`/`computer_use` each got their
+ * own `gateDeps.enforced` getter wired at boot (`platform/assemble.ts`); this slice ships only
+ * the local `[multimodal] enabled` kill switch (default off).
+ */
+export async function tryDispatchMediaRpc(
+  ctx: ServerCtx,
+  method: string,
+  params: unknown,
+): Promise<unknown> {
+  if (method !== "media.understand") {
+    return phase4RpcSkipped;
+  }
+  if (ctx.options.localIndex === undefined) {
+    throw new RpcMethodError(-32603, "media.understand requires LocalIndex");
+  }
+  if (ctx.options.dataDir === undefined) {
+    throw new RpcMethodError(-32603, "media.understand requires dataDir");
+  }
+  const deps = buildMediaPassDeps({
+    db: ctx.options.localIndex.getDatabase(),
+    roots: resolveMediaRoots(ctx.options.configDir),
+    enabled: resolveMultimodalEnabled(ctx.options.configDir),
+    capabilityDisabled: false,
+    scratchDir: join(ctx.options.dataDir, "multimodal-scratch"),
+  });
+  const out = await dispatchMediaRpc(method, params, {
+    runPass: (opts) => runMediaPass({ ...deps, ...opts }),
+  });
+  return out ?? phase4RpcSkipped;
+}
+
 export async function tryDispatchIndexDemoSymbolRpc(
   ctx: ServerCtx,
   method: string,
@@ -985,6 +1041,31 @@ export async function tryDispatchExecRpc(
   return phase4RpcSkipped;
 }
 
+/**
+ * Computer-use browser lane (Spine S2 slice 2, invariant I35). Same 3-arg shape as exec: the
+ * HITL here is the two broadcast consent brokers (envelope-open + per-action) answered by the
+ * local owner, not a per-client `ToolExecutor` channel. Present only when assembled at boot, so
+ * the dispatcher skips cleanly when the capability is not wired. The whole namespace is RCE-class
+ * and is NOT Tauri-exposed (I7).
+ */
+export async function tryDispatchComputerRpc(
+  ctx: ServerCtx,
+  method: string,
+  params: unknown,
+): Promise<unknown> {
+  if (!method.startsWith("computer.")) return phase4RpcSkipped;
+  const rpc = ctx.options.computerRpcCtx;
+  if (rpc === undefined) return phase4RpcSkipped;
+  try {
+    const out = await dispatchComputerRpc(method, params, rpc);
+    if (out.kind === "hit") return out.value;
+  } catch (e) {
+    if (e instanceof ComputerRpcError) throw new RpcMethodError(e.rpcCode, e.message);
+    throw e;
+  }
+  return phase4RpcSkipped;
+}
+
 export async function tryDispatchShareRpc(
   ctx: ServerCtx,
   method: string,
@@ -1256,6 +1337,8 @@ const PHASE4_PLATFORM_DISPATCHERS: ReadonlyArray<
   tryDispatchTribalRpc,
   tryDispatchShareRpc,
   tryDispatchExecRpc,
+  tryDispatchComputerRpc,
+  tryDispatchMediaRpc,
   tryDispatchEgressRpc,
   tryDispatchGlossaryRpc,
   tryDispatchDecisionsRpc,
@@ -1531,6 +1614,12 @@ export async function tryDispatchDiagnosticsRpc(
       ...(ctx.options.extensionsAutoUpdateDiag === undefined
         ? {}
         : { autoUpdateDiag: ctx.options.extensionsAutoUpdateDiag }),
+      // Forwarded so `diag.snapshot` can report embedding readiness and `nimbus doctor` can say
+      // when semantic search is dead. Omitted when the gateway has no embedding runtime, which
+      // the CLI renders as silence rather than a verdict (#1396).
+      ...(ctx.options.embeddingReadiness === undefined
+        ? {}
+        : { embeddingReadiness: ctx.options.embeddingReadiness }),
     };
     const diagCtx =
       ctx.options.localIndex === undefined

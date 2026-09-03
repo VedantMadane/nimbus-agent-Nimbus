@@ -4,25 +4,34 @@ import { CONNECTOR_VAULT_SECRET_KEYS } from "../../packages/gateway/src/connecto
 import { CO_OWNED_ENTITY_TYPES } from "../../packages/gateway/src/graph/relationship-graph.ts";
 import {
   assertScanIsMeaningful,
+  checkActuationConfinement,
   checkAgentEmitterImportConfinement,
+  checkChatopsUnwrappedPost,
+  checkConnectorSpawnIsHidden,
   checkConnectorWriteConfinement,
+  checkDriverImportConfinement,
   checkEgressChokepointConfinement,
+  checkEmbeddingAppenderConfinement,
+  checkEmbeddingConstructorConfinement,
   checkFlatUpsertGraphEntityCoOwnedTypes,
   checkForwardShareConfinement,
   checkRunConfinedConfinement,
   checkShareConsentBrokerConfinement,
   checkSharePublishConfinement,
   checkSpawnInvariant,
+  checkSyncContextNoRawHandles,
+  checkTribalKbWriteInvariant,
   checkVaultKeyAllowList,
   checkWrapServerSpecInvariant,
   collectDbRunCensus,
   DB_RUN_EXEC_ALLOW_LIST,
   type FileEntry,
   findDirectDbRunExec,
+  PLATFORM_VAULT_KEYS,
   RULE_ANCHORS,
   VAULT_KEY_ALLOW_LIST,
 } from "./check-nimbus-invariants.ts";
-import { REPO_ROOT, stripComments } from "./lib.ts";
+import { iterateSourceFiles, REPO_ROOT, stripComments } from "./lib.ts";
 
 describe("D10-wrap-spec — every ServerSpec literal reaches the sandbox (per SITE, not per file)", () => {
   const LM = "packages/gateway/src/connectors/lazy-mesh";
@@ -220,8 +229,31 @@ describe("D11 — checkVaultKeyAllowList", () => {
 });
 
 describe("D11 — VAULT_KEY_ALLOW_LIST is frozen at structural entries", () => {
-  test("VAULT_KEY_ALLOW_LIST has exactly 9 entries", () => {
-    expect(VAULT_KEY_ALLOW_LIST).toHaveLength(9);
+  test("VAULT_KEY_ALLOW_LIST has exactly 10 entries", () => {
+    // 9 → 10: slice 2b adds ONLY `llm/vendor-vault-keys.ts`, which owns the vendor keyspace. The
+    // `<vendor>.api_key` when resolving the credential per call. The count is frozen ON PURPOSE —
+    // a file gaining permission to construct a vault key is a decision, so it must be made
+    // deliberately in a commit that also explains it, never absorbed silently.
+    expect(VAULT_KEY_ALLOW_LIST).toHaveLength(10);
+  });
+});
+
+describe("platform keyspace — slice 2b cloud vendors", () => {
+  test("the four vendor api_key entries are registered", () => {
+    // Registration is what keeps the keyspace documented in ONE place. A key an adapter reads
+    // but that is absent here is a key nobody can audit.
+    //
+    // `openai.api_key` is DELIBERATELY REUSED from the embedding runtime rather than minted as a
+    // second OpenAI key: same credential, same vendor, and a second key for one vendor invites
+    // drift. It is also the sharpest available test of the per-vendor opt-in — an existing
+    // embeddings user already has this key present, and `[llm.remote.openai] enabled = false`
+    // must still produce zero chat calls.
+    // Spread to a widened `string[]`: `PLATFORM_VAULT_KEYS` is `as const`, so `toContain` would
+    // otherwise demand one of its own literal members and reject a plain `string`.
+    const keys: string[] = [...PLATFORM_VAULT_KEYS];
+    for (const k of ["anthropic.api_key", "openai.api_key", "gemini.api_key", "xai.api_key"]) {
+      expect(keys).toContain(k);
+    }
   });
 });
 
@@ -419,6 +451,76 @@ describe("D12 — direct db.run / db.exec outside allow-list", () => {
     const started = performance.now();
     findDirectDbRunExec([{ relPath: "packages/gateway/src/synthetic.ts", contents: pathological }]);
     expect(performance.now() - started).toBeLessThan(1_000);
+  });
+});
+
+describe("D19 — tribal KB write-id confinement", () => {
+  // D20's sibling rule shipped with a full describe block and this one shipped with none, so
+  // until now nothing proved D19 could fail at all. An allow-list guard that never fires is
+  // indistinguishable from one that is working.
+  test("flags a KB write tool id referenced outside the write-gate", () => {
+    const v = checkTribalKbWriteInvariant([
+      {
+        relPath: "packages/gateway/src/ipc/some-handler.ts",
+        contents: `dispatch("notion_kb_append")`,
+      },
+    ]);
+    expect(v).toHaveLength(1);
+    expect(v[0]?.rule).toBe("D19-tribal-kb-write");
+    expect(v[0]?.line).toBe(1);
+  });
+
+  test("flags the confluence id too", () => {
+    const v = checkTribalKbWriteInvariant([
+      {
+        relPath: "packages/gateway/src/tribal/somewhere-else.ts",
+        contents: `const id = "confluence_kb_append";`,
+      },
+    ]);
+    expect(v).toHaveLength(1);
+  });
+
+  test("allows the write-gate itself", () => {
+    const v = checkTribalKbWriteInvariant([
+      {
+        relPath: "packages/gateway/src/tribal/tribal-write-gate.ts",
+        contents: `const ids = ["notion_kb_append", "confluence_kb_append"];`,
+      },
+    ]);
+    expect(v).toEqual([]);
+  });
+
+  test("ignores a mention inside a comment", () => {
+    const v = checkTribalKbWriteInvariant([
+      {
+        relPath: "packages/gateway/src/ipc/some-handler.ts",
+        contents: `// notion_kb_append is gated elsewhere
+const x = 1;`,
+      },
+    ]);
+    expect(v).toEqual([]);
+  });
+
+  test("skips test files", () => {
+    const v = checkTribalKbWriteInvariant([
+      {
+        relPath: "packages/gateway/src/ipc/some-handler.test.ts",
+        contents: `dispatch("notion_kb_append")`,
+      },
+    ]);
+    expect(v).toEqual([]);
+  });
+
+  test("reports the offending line number, not just the file", () => {
+    const v = checkTribalKbWriteInvariant([
+      {
+        relPath: "packages/gateway/src/ipc/some-handler.ts",
+        contents: `const a = 1;
+const b = 2;
+dispatch("notion_kb_append")`,
+      },
+    ]);
+    expect(v[0]?.line).toBe(3);
   });
 });
 
@@ -819,6 +921,162 @@ describe("D22(d) — agent emitter import confinement", () => {
   });
 });
 
+describe("D22(f) — the embedding appender is confined", () => {
+  const file = (relPath: string, contents: string) => [{ relPath, contents }];
+
+  test("flags wrapLedgeredEmbedder called outside the allowed sites", () => {
+    const v = checkEmbeddingAppenderConfinement(
+      file("packages/gateway/src/agents/rogue.ts", "wrapLedgeredEmbedder(db, e);\n"),
+    );
+    expect(v.map((x) => x.rule)).toEqual(["embedding-appender-confined"]);
+  });
+
+  test("the three construction sites and the definition are allowed", () => {
+    const allowed = [
+      "packages/gateway/src/embedding/create-routing-runtime.ts",
+      "packages/gateway/src/embedding/create-embedding-runtime.ts",
+      "packages/gateway/src/ipc/index-reembed-rpc.ts",
+      "packages/gateway/src/egress/embedding-egress.ts",
+    ];
+    for (const relPath of allowed) {
+      expect(
+        checkEmbeddingAppenderConfinement(file(relPath, "wrapLedgeredEmbedder(db, e);\n")),
+      ).toEqual([]);
+    }
+  });
+
+  // No "split across lines" test here, unlike D25's checkConnectorSpawnIsHidden. D25's regex is
+  // /\bBun\s*\.\s*spawn\b/ -- the `\s*` legitimately spans a newline inserted between `Bun` and
+  // `.spawn`, so a naive per-line loop misses `Bun\n  .spawn(...)` and only a whole-source scan
+  // catches it; that is a real property to test. D22_EMBED_WRAP_RE is the bare identifier
+  // /\bwrapLedgeredEmbedder\b/: a JS/TS identifier token cannot itself contain a newline, so
+  // `wrapLedgeredEmbedder` always sits fully on one line even when the CALL that follows it is
+  // split (`wrapLedgeredEmbedder\n  (db, e)`) -- a naive per-line loop matches that line just as
+  // well as a whole-source scan does. There is no input on which the two implementations
+  // disagree, so no test can discriminate them; a test asserting they do would look like coverage
+  // of a gap it does not actually cover. The whole-source scan is kept anyway, for consistency
+  // with D25 and D22(e) and in case this regex ever grows a `\s*` of its own.
+});
+
+describe("D22(f) second allow-list — the embedding CONSTRUCTOR is confined", () => {
+  const file = (relPath: string, contents: string) => [{ relPath, contents }];
+
+  // The gap this closes: a bare `createOpenAIEmbedder(...)` call, with no mention of
+  // `wrapLedgeredEmbedder` anywhere in the file, spells nothing `checkEmbeddingAppenderConfinement`
+  // matches -- that rule only sees a file that ALREADY calls the decorator. A fourth construction
+  // site written without it is exactly the I29 regression both rules exist to prevent.
+  test("flags createOpenAIEmbedder constructed outside the allowed sites, even with no wrapLedgeredEmbedder mention", () => {
+    const v = checkEmbeddingConstructorConfinement(
+      file("packages/gateway/src/agents/rogue.ts", "const e = createOpenAIEmbedder({ apiKey });\n"),
+    );
+    expect(v.map((x) => x.rule)).toEqual(["embedding-constructor-confined"]);
+  });
+
+  // The definition site is exempt outright -- there is no wrapping to check on a declaration.
+  test("the definition site is allowed unconditionally", () => {
+    expect(
+      checkEmbeddingConstructorConfinement(
+        file(
+          "packages/gateway/src/embedding/openai-embedder.ts",
+          "export async function createOpenAIEmbedder(options) {}\n",
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  // The three real construction sites pass ONLY when the call is actually nested inside a
+  // wrapLedgeredEmbedder(...) argument list -- proving association, not mere file membership.
+  test("the three construction sites pass when the call is wrapped", () => {
+    const sites = [
+      "packages/gateway/src/embedding/create-routing-runtime.ts",
+      "packages/gateway/src/embedding/create-embedding-runtime.ts",
+      "packages/gateway/src/ipc/index-reembed-rpc.ts",
+    ];
+    for (const relPath of sites) {
+      expect(
+        checkEmbeddingConstructorConfinement(
+          file(relPath, "wrapLedgeredEmbedder(db, await createOpenAIEmbedder({ apiKey }));\n"),
+        ),
+      ).toEqual([]);
+    }
+  });
+
+  // The regression this rule now closes: being on the allow-list used to skip the whole file, so
+  // a SECOND, bare construction beside a real wrapped one was invisible. Same file, same allowed
+  // path, one wrapped call and one bare call -- only the bare one should be flagged.
+  test("an unwrapped createOpenAIEmbedder call inside an approved file is still flagged", () => {
+    for (const relPath of [
+      "packages/gateway/src/embedding/create-routing-runtime.ts",
+      "packages/gateway/src/embedding/create-embedding-runtime.ts",
+      "packages/gateway/src/ipc/index-reembed-rpc.ts",
+    ]) {
+      const contents = [
+        "wrapLedgeredEmbedder(db, await createOpenAIEmbedder({ apiKey }));",
+        "const rogue = await createOpenAIEmbedder({ apiKey: other });",
+      ].join("\n");
+      const v = checkEmbeddingConstructorConfinement(file(relPath, contents));
+      expect(v.map((x) => x.rule)).toEqual(["embedding-constructor-confined"]);
+      expect(v[0]?.snippet).toContain("rogue");
+    }
+  });
+
+  // A `${...}` substitution is executable code, and the embed request it issues is a real,
+  // unledgered outbound call no matter what the template does with the stringified result -- so a
+  // construction hidden in one is exactly the egress this rule exists to catch.
+  // `stripStringLiterals` used to blank substitution bodies along with the surrounding template
+  // text, which made this a one-line way to walk past the guard. Reported by CodeRabbit on #1384.
+  test("an unwrapped createOpenAIEmbedder inside a template substitution is flagged", () => {
+    const v = checkEmbeddingConstructorConfinement(
+      file(
+        "packages/gateway/src/agents/rogue.ts",
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: source-text fixture under audit
+        "const log = `vec=${await createOpenAIEmbedder({ apiKey }).embed(texts)}`;",
+      ),
+    );
+    expect(v.map((x) => x.rule)).toEqual(["embedding-constructor-confined"]);
+  });
+
+  test("an unwrapped construction inside a substitution in an APPROVED file is still flagged", () => {
+    const contents = [
+      "wrapLedgeredEmbedder(db, await createOpenAIEmbedder({ apiKey }));",
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: source-text fixture under audit
+      "const rogue = `vec=${await createOpenAIEmbedder({ apiKey: other }).embed(t)}`;",
+    ].join("\n");
+    const v = checkEmbeddingConstructorConfinement(
+      file("packages/gateway/src/embedding/create-routing-runtime.ts", contents),
+    );
+    expect(v.map((x) => x.rule)).toEqual(["embedding-constructor-confined"]);
+    expect(v[0]?.snippet).toContain("rogue");
+  });
+
+  // The counterpart bound: a construction WRAPPED inside a substitution is still association, not
+  // co-occurrence -- the paren match has to survive the substitution being preserved.
+  test("a wrapped construction inside a substitution passes", () => {
+    expect(
+      checkEmbeddingConstructorConfinement(
+        file(
+          "packages/gateway/src/embedding/create-routing-runtime.ts",
+          // biome-ignore lint/suspicious/noTemplateCurlyInString: source-text fixture under audit
+          "const e = `${wrapLedgeredEmbedder(db, await createOpenAIEmbedder({ apiKey }))}`;",
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  // Template PROSE must still be inert: the rule must not start matching a call-shaped sentence
+  // that merely sits in a message string.
+  test("the constructor named in template prose is NOT flagged", () => {
+    expect(
+      checkEmbeddingConstructorConfinement(
+        file(
+          "packages/gateway/src/agents/rogue.ts",
+          "throw new Error(`call createOpenAIEmbedder( only via the wrapper`);",
+        ),
+      ),
+    ).toEqual([]);
+  });
+});
+
 describe("graph-entity-flat-coowned — flat upsertGraphEntity pinned away from co-owned types", () => {
   const flagged = (files: FileEntry[]): boolean =>
     checkFlatUpsertGraphEntityCoOwnedTypes(files).some(
@@ -1114,5 +1372,462 @@ describe("D23 — runConfined confinement (I33)", () => {
       },
     ]);
     expect(v).toHaveLength(0);
+  });
+});
+
+describe("D24 — a syncable cannot reach a raw vault or db handle", () => {
+  const syncable = (contents: string) => [
+    { relPath: "packages/gateway/src/connectors/evil-sync.ts", contents },
+  ];
+
+  test("flags ctx.vault in a syncable", () => {
+    const v = checkSyncContextNoRawHandles(syncable('const t = ctx.vault.get("slack.token");\n'));
+    expect(v.map((x) => x.rule)).toEqual(["sync-context-no-raw-handles"]);
+  });
+
+  test("flags ctx.db in a syncable", () => {
+    expect(checkSyncContextNoRawHandles(syncable("ctx.db.query('SELECT 1');\n"))).toHaveLength(1);
+  });
+
+  test("a capability call is clean", () => {
+    expect(checkSyncContextNoRawHandles(syncable('await ctx.getSecret("api_token");\n'))).toEqual(
+      [],
+    );
+  });
+
+  test("lazy-mesh is out of scope — it holds a real vault by design", () => {
+    const v = checkSyncContextNoRawHandles([
+      {
+        relPath: "packages/gateway/src/connectors/lazy-mesh/credential-orchestration.ts",
+        contents: 'const t = ctx.vault.get("figma.team_id");\n',
+      },
+    ]);
+    expect(v).toEqual([]);
+  });
+
+  test("the capability factory itself is exempt — it is what holds the handles", () => {
+    const v = checkSyncContextNoRawHandles([
+      {
+        relPath: "packages/gateway/src/sync/sync-capabilities.ts",
+        contents: "readConnectorSecret(deps.vault, serviceId, keyName);\nctx.db;\n",
+      },
+    ]);
+    expect(v).toEqual([]);
+  });
+
+  test("no syncable in the real repository reaches a handle", async () => {
+    // The fixtures above prove the rule can fire; this proves the repository satisfies it.
+    const files: { relPath: string; contents: string }[] = [];
+    for await (const f of iterateSourceFiles()) {
+      files.push({ relPath: f.relPath, contents: f.contents });
+    }
+    expect(checkSyncContextNoRawHandles(files)).toEqual([]);
+  });
+});
+
+describe("D25 — a connector cannot spawn without windowsHide", () => {
+  const syncable = (contents: string) => [
+    { relPath: "packages/gateway/src/connectors/evil-sync.ts", contents },
+  ];
+
+  test("flags a plain Bun.spawn in a connector", () => {
+    const v = checkConnectorSpawnIsHidden(syncable('Bun.spawn(["aws", "s3", "ls"]);\n'));
+    expect(v.map((x) => x.rule)).toEqual(["connector-spawn-must-be-hidden"]);
+    expect(v[0]?.line).toBe(1);
+  });
+
+  test("flags a Bun.spawn SPLIT ACROSS LINES", () => {
+    // The rule scanned line by line at first. `Bun` on one line and `.spawn` on the next is
+    // valid TypeScript that matches NEITHER line, so an unhidden spawn slipped through while
+    // the audit stayed green — the failure mode a guard must not have.
+    const v = checkConnectorSpawnIsHidden(syncable('const p = Bun\n  .spawn(["aws"]);\n'));
+    expect(v).toHaveLength(1);
+    // Reported against the line the match STARTS on, derived from the offset.
+    expect(v[0]?.line).toBe(1);
+  });
+
+  test("reports the correct line for a spawn further down the file", () => {
+    const src = `${"const a = 1;\n".repeat(9)}Bun.spawn(["aws"]);\n`;
+    expect(checkConnectorSpawnIsHidden(syncable(src))[0]?.line).toBe(10);
+  });
+
+  test("a commented-out Bun.spawn is not flagged", () => {
+    // `stripComments` runs first, which is also what keeps this file's own explanatory
+    // comments about `Bun.spawn` from tripping the rule.
+    expect(
+      checkConnectorSpawnIsHidden(
+        syncable('// Bun.spawn is forbidden here\nspawnCapture(["aws"]);\n'),
+      ),
+    ).toEqual([]);
+  });
+
+  test("spawnCapture is clean", () => {
+    expect(checkConnectorSpawnIsHidden(syncable('await spawnCapture(["aws"]);\n'))).toEqual([]);
+  });
+
+  test("the two injected-seam files stay exempt, and lazy-mesh is out of scope", () => {
+    const files = [
+      {
+        relPath: "packages/gateway/src/connectors/blame-index-sync.ts",
+        contents: "Bun.spawn(x);\n",
+      },
+      {
+        relPath: "packages/gateway/src/connectors/filesystem-v2-sync.ts",
+        contents: "Bun.spawn(x);\n",
+      },
+      {
+        relPath: "packages/gateway/src/connectors/lazy-mesh/runner.ts",
+        contents: "Bun.spawn(x);\n",
+      },
+      { relPath: "packages/gateway/src/connectors/evil-sync.test.ts", contents: "Bun.spawn(x);\n" },
+    ];
+    expect(checkConnectorSpawnIsHidden(files)).toEqual([]);
+  });
+});
+
+describe("D17-chatops-unwrapped-post — buildConnectorPost may only appear as an argument to buildLedgeredChatPosts", () => {
+  test("D17 rejects a buildConnectorPost call that is not an argument to buildLedgeredChatPosts", () => {
+    const v = checkChatopsUnwrappedPost([
+      {
+        relPath: "packages/gateway/src/chatops/chatops-boot.ts",
+        contents: "const post = buildConnectorPost(runTool, fn);\n",
+      },
+    ]);
+    expect(v.map((x) => x.rule)).toEqual(["D17-chatops-unwrapped-post"]);
+  });
+
+  test("D17 accepts the inline form", () => {
+    const v = checkChatopsUnwrappedPost([
+      {
+        relPath: "packages/gateway/src/chatops/chatops-boot.ts",
+        contents:
+          "const posts = buildLedgeredChatPosts(db, buildConnectorPost(runTool, fn), salt);\n",
+      },
+    ]);
+    expect(v).toEqual([]);
+  });
+
+  // THE TEST THAT MATTERS. A file-level "does this file contain a wrapped call?" early-return
+  // skips the whole file when BOTH forms are present -- and the one file that legitimately
+  // contains a wrapped call is `chatops-boot.ts`, i.e. exactly the file where an added unwrapped
+  // call would be invisible. Counting the two tokens does not fix it either: a wrapped call whose
+  // argument is something else keeps the counts equal while the bypass survives.
+  // A `(` inside a REGEX body survives `stripStringLiterals` (its documented known limitation),
+  // so the wrapper's paren depth never closes. The span must then be DROPPED, not stretched to
+  // end-of-statement -- stretching it would swallow the later raw call and pass it as wrapped,
+  // which is a silent false negative in the one guard meant to catch an unledgered post.
+  test("D17 does not let an unclosed span (regex paren) launder a later raw call", () => {
+    const v = checkChatopsUnwrappedPost([
+      {
+        relPath: "packages/gateway/src/chatops/chatops-boot.ts",
+        contents:
+          "const posts = buildLedgeredChatPosts(db, /[(]/, buildConnectorPost(a, b), salt), " +
+          "sneaky = buildConnectorPost(c, d);\n",
+      },
+    ]);
+    expect(v.length).toBeGreaterThan(0);
+    expect(v[0]?.rule).toBe("D17-chatops-unwrapped-post");
+  });
+
+  test("D17 catches an unwrapped call in a file that ALSO has a wrapped one", () => {
+    const v = checkChatopsUnwrappedPost([
+      {
+        relPath: "packages/gateway/src/chatops/chatops-boot.ts",
+        contents:
+          "const posts = buildLedgeredChatPosts(db, buildConnectorPost(runTool, fn), salt);\n" +
+          "const sneaky = buildConnectorPost(runTool, fn);\n",
+      },
+    ]);
+    expect(v.length).toBe(1);
+    expect(v[0]?.line).toBe(2);
+  });
+
+  test("D17 catches a wrapper call whose argument is NOT buildConnectorPost", () => {
+    // Proves per-file token COUNTING is defeated here: both tokens appear once (1 wrapper, 1
+    // post), so a count-based check would see balanced totals and pass this. It does not exercise
+    // the within-statement positional-pairing logic above -- both calls here are separate
+    // `;`-terminated statements, so plain per-statement scoping already catches the second one on
+    // its own. A single statement that interleaves a wrapper and an unwrapped call in a passing
+    // order is the brief's explicitly accepted residual bound (a lexical guard, not a parser) and
+    // is deliberately not tested here.
+    const v = checkChatopsUnwrappedPost([
+      {
+        relPath: "packages/gateway/src/chatops/chatops-boot.ts",
+        contents:
+          "const posts = buildLedgeredChatPosts(db, somethingElse, salt);\n" +
+          "const post = buildConnectorPost(runTool, fn);\n",
+      },
+    ]);
+    expect(v.length).toBe(1);
+  });
+
+  // Regression: ordinal/positional pairing (the Nth post pairs with the Nth wrapper) let a
+  // comma-separated declaration with TWO wrapped calls plus ONE raw call through — the raw call's
+  // ordinal happened to line up with the SECOND wrapper, which had already closed its own
+  // parenthesis span earlier in the statement, so the raw call "paired" with a wrapper it sat
+  // entirely outside of. Direct containment must reject the raw call regardless of where it falls
+  // relative to an unrelated, already-closed wrapper call earlier in the same statement.
+  test("D17 rejects a raw call that ordinally lines up with an unrelated, already-closed wrapper (two wrapped + one raw in one statement)", () => {
+    const v = checkChatopsUnwrappedPost([
+      {
+        relPath: "packages/gateway/src/chatops/chatops-boot.ts",
+        contents:
+          "const a = buildLedgeredChatPosts(db, buildConnectorPost(runTool, fn), salt1)," +
+          " c = buildLedgeredChatPosts(db, somethingElse, salt2)," +
+          " sneaky = buildConnectorPost(runTool, fn);\n",
+      },
+    ]);
+    expect(v.map((x) => x.rule)).toEqual(["D17-chatops-unwrapped-post"]);
+  });
+
+  // Regression: a `;` INSIDE a string-literal argument must not fragment one statement into two.
+  // Before stripStringLiterals was composed in, `stripComments` alone left the `;def"` fragment
+  // live, so `.split(";")` cut this single correctly-wrapped call into two segments -- the wrapper
+  // token landed in the first segment and the buildConnectorPost( call landed in the second with
+  // no wrapper visible there, a false positive on code that is correct.
+  test("D17 does not fragment a statement on a semicolon inside a string literal", () => {
+    const v = checkChatopsUnwrappedPost([
+      {
+        relPath: "packages/gateway/src/chatops/chatops-boot.ts",
+        contents:
+          'const posts = buildLedgeredChatPosts(db, "abc;def", buildConnectorPost(runTool, fn), salt);\n',
+      },
+    ]);
+    expect(v).toEqual([]);
+  });
+});
+
+describe("D26 — computer-use actuation confinement", () => {
+  const file = (relPath: string, contents: string): FileEntry => ({ relPath, contents });
+
+  test("D26(a) flags performActuation called outside the gate", () => {
+    const v = checkActuationConfinement([
+      file("packages/gateway/src/agents/rogue.ts", "await performActuation(lane, req);"),
+    ]);
+    expect(v.length).toBe(1);
+    expect(v[0]?.rule).toBe("D26-actuation-callsite");
+  });
+
+  test("D26(a) allows the gate and the definition file", () => {
+    expect(
+      checkActuationConfinement([
+        file("packages/gateway/src/computer-use/cu-gate.ts", "await performActuation(lane, req);"),
+        file(
+          "packages/gateway/src/computer-use/cu-actuate.ts",
+          "export async function performActuation(",
+        ),
+      ]),
+    ).toEqual([]);
+  });
+
+  test("D26(a) flags an ALIASED import used to bypass the call-text scan", () => {
+    // Review finding: `import { performActuation as invoke }` followed by `invoke(lane, req)`
+    // contains no `performActuation(` call-shaped text anywhere -- a call-text-only scan stays
+    // silent while a second, unauthorized path to the host exists. Closed at the import: the
+    // symbol may not even ENTER SCOPE outside the gate, under any local name.
+    const v = checkActuationConfinement([
+      file(
+        "packages/gateway/src/agents/rogue.ts",
+        [
+          'import { performActuation as invoke } from "../computer-use/cu-actuate.ts";',
+          "await invoke(lane, req);",
+        ].join("\n"),
+      ),
+    ]);
+    expect(v.length).toBe(1);
+    expect(v[0]?.rule).toBe("D26-actuation-import");
+    expect(v[0]?.snippet).toContain("performActuation as invoke");
+  });
+
+  test("D26(a) still flags a direct INVOCATION inside cu-actuate.ts itself, not just its declaration", () => {
+    // Review finding: the earlier shape allow-listed the WHOLE `cu-actuate.ts` file, so a second,
+    // illegitimate direct call added anywhere in that file (below the real declaration) went
+    // undetected. Only the declaration line is exempt now — a call-shaped line elsewhere in the
+    // same file must still be flagged.
+    const v = checkActuationConfinement([
+      file(
+        "packages/gateway/src/computer-use/cu-actuate.ts",
+        [
+          "export async function performActuation(",
+          "  lane,",
+          "  req,",
+          ") {",
+          "  return null;",
+          "}",
+          "",
+          "// a second, illegitimate direct call bypassing the gate entirely",
+          "await performActuation(lane, req);",
+        ].join("\n"),
+      ),
+    ]);
+    expect(v.length).toBe(1);
+    expect(v[0]?.rule).toBe("D26-actuation-callsite");
+    expect(v[0]?.snippet).toContain("await performActuation(lane, req);");
+  });
+
+  test("D26(b) flags a driver import outside cu-lanes/", () => {
+    // (a) alone does NOT carry this: a new file could construct its own BrowserContext and call
+    // page.click() directly, bypassing the gate entirely. Same gap D22(d) closes for emitters.
+    const v = checkDriverImportConfinement([
+      file("packages/gateway/src/agents/rogue.ts", `import { chromium } from "playwright-core";`),
+    ]);
+    expect(v.length).toBe(1);
+    expect(v[0]?.rule).toBe("D26-driver-import");
+  });
+
+  test("D26(b) catches the DYNAMIC import form too", () => {
+    const v = checkDriverImportConfinement([
+      file("packages/gateway/src/agents/rogue.ts", `const p = await import("playwright-core");`),
+    ]);
+    expect(v.length).toBe(1);
+  });
+
+  test("D26(b) allows the lane driver", () => {
+    expect(
+      checkDriverImportConfinement([
+        file(
+          "packages/gateway/src/computer-use/cu-lanes/browser.ts",
+          `import { chromium } from "playwright-core";`,
+        ),
+      ]),
+    ).toEqual([]);
+  });
+
+  test("D26(b) covers automation libraries beyond the ONE this repo tried and rejected", () => {
+    // The rule matched `playwright`/`playwright-core` only. Narrowing a guard to the single library
+    // someone happened to evaluate means it has to be re-widened the day anyone adds another.
+    for (const lib of [
+      "puppeteer",
+      "puppeteer-core",
+      "chrome-remote-interface",
+      "chrome-launcher",
+    ]) {
+      const v = checkDriverImportConfinement([
+        file("packages/gateway/src/agents/rogue.ts", `import x from "${lib}";`),
+      ]);
+      expect(v.length).toBe(1);
+      expect(v[0]?.rule).toBe("D26-driver-import");
+    }
+  });
+
+  test("D26(b) catches a RAW CDP client, which the library-only check missed entirely", () => {
+    // The gap this closes, and it was a real one: the shipped driver is raw CDP over a WebSocket
+    // with no dependency at all, so a file opening its own socket and clicking passed the old rule
+    // SILENTLY -- disclosed in SECURITY-INVARIANTS.md rather than enforced. A CDP client cannot do
+    // anything without NAMING a protocol method, whatever transport it reaches the browser over.
+    for (const call of [
+      `ws.send(JSON.stringify({ id: 1, method: "Input.dispatchMouseEvent" }));`,
+      `await send("Page.navigate", { url });`,
+      `conn.send('Runtime.evaluate', { expression });`,
+      `const r = await cdp.send(\`Fetch.continueRequest\`, {});`,
+    ]) {
+      const v = checkDriverImportConfinement([file("packages/gateway/src/agents/rogue.ts", call)]);
+      expect(v.length).toBe(1);
+      expect(v[0]?.rule).toBe("D26-driver-import");
+    }
+  });
+
+  test("D26(b) does NOT flag ordinary dotted strings that merely look protocol-shaped", () => {
+    // Measured, not assumed: this pattern has zero matches across packages/gateway/src,
+    // packages/cli/src and scripts/ outside cu-lanes/. These are the near misses.
+    expect(
+      checkDriverImportConfinement([
+        file(
+          "packages/gateway/src/ipc/x.ts",
+          [
+            `const m = "computer.sessionOpen";`,
+            `const n = "agents.negotiate";`,
+            `const o = "browser.request";`,
+            `const q = "Page";`,
+            `log.info("DOM.");`,
+          ].join("\n"),
+        ),
+      ]),
+    ).toEqual([]);
+  });
+
+  test("D26(b) exempts the lane directory for the CDP form too", () => {
+    expect(
+      checkDriverImportConfinement([
+        file(
+          "packages/gateway/src/computer-use/cu-lanes/cdp-session.ts",
+          `conn.send("Target.attachToTarget", { targetId, flatten: true });`,
+        ),
+      ]),
+    ).toEqual([]);
+  });
+
+  test("D26(c) flags openBrowserLane named outside its definition and the wiring site", () => {
+    // The capability arrives as a FUNCTION VALUE, not as protocol text, so neither (a) nor (b) can
+    // see it: any file that can import the lane constructor gets a live BrowserLane and can click
+    // with no envelope, classification, consent or audit row.
+    const v = checkDriverImportConfinement([
+      file(
+        "packages/gateway/src/agents/rogue.ts",
+        `import { openBrowserLane } from "../computer-use/cu-lanes/browser.ts";`,
+      ),
+    ]);
+    expect(v.length).toBe(1);
+    expect(v[0]?.rule).toBe("D26-lane-constructor");
+  });
+
+  test("D26(c) allows the definition file and the single production wiring site", () => {
+    expect(
+      checkDriverImportConfinement([
+        file(
+          "packages/gateway/src/computer-use/cu-lanes/browser.ts",
+          `export async function openBrowserLane(opts) {}`,
+        ),
+        file(
+          "packages/gateway/src/platform/assemble.ts",
+          `import { openBrowserLane } from "../computer-use/cu-lanes/browser.ts";`,
+        ),
+      ]),
+    ).toEqual([]);
+  });
+
+  test("D26(c) flags openTerminalLane named outside its definition and the wiring site", () => {
+    // Same reasoning as the browser constructor, and the reason (c) had to be generalised rather
+    // than left browser-only: a file that can import `openTerminalLane` gets a live shell and can
+    // write to its stdin with no buffer, no consent and no audit row — while (a) sees no
+    // `performActuation(` and (b) has no pattern for it at all, because the terminal lane's
+    // capability is a plain child process rather than a named protocol.
+    const v = checkDriverImportConfinement([
+      file(
+        "packages/gateway/src/agents/rogue.ts",
+        `import { openTerminalLane } from "../computer-use/cu-lanes/terminal.ts";`,
+      ),
+    ]);
+    expect(v.length).toBe(1);
+    expect(v[0]?.rule).toBe("D26-lane-constructor");
+  });
+
+  test("D26(c) allows the terminal definition file and the same single wiring site", () => {
+    expect(
+      checkDriverImportConfinement([
+        file(
+          "packages/gateway/src/computer-use/cu-lanes/terminal.ts",
+          `export async function openTerminalLane(opts) {}`,
+        ),
+        file(
+          "packages/gateway/src/platform/assemble.ts",
+          `import { openTerminalLane } from "../computer-use/cu-lanes/terminal.ts";`,
+        ),
+      ]),
+    ).toEqual([]);
+  });
+
+  test("D26(c) does NOT let one lane's allow-list cover the other", () => {
+    // The allow-lists are per-constructor: `cu-lanes/browser.ts` is not a licence to name the
+    // TERMINAL constructor, and vice versa. A single shared allow-list would have made every file
+    // under `cu-lanes/` able to reach every other lane's driver.
+    const v = checkDriverImportConfinement([
+      file(
+        "packages/gateway/src/computer-use/cu-lanes/browser.ts",
+        `import { openTerminalLane } from "./terminal.ts";`,
+      ),
+    ]);
+    expect(v.length).toBe(1);
+    expect(v[0]?.rule).toBe("D26-lane-constructor");
   });
 });

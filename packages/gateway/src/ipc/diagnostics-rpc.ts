@@ -19,6 +19,7 @@ import { runReadOnlySelect, SqlGuardError } from "../db/query-guard.ts";
 import { formatRepairReport, repairIndex } from "../db/repair.ts";
 import { listSnapshots, previewRestore, pruneSnapshots, takeSnapshot } from "../db/snapshot.ts";
 import { formatVerifyResult, verifyIndex } from "../db/verify.ts";
+import type { EmbeddingReadiness } from "../embedding/embedding-readiness.ts";
 import { preT2DisabledCount, signatureDisabledRegistry } from "../extensions/hard-disable.ts";
 import { buildItemListSql } from "../index/item-list-query.ts";
 import type { LocalIndex } from "../index/local-index.ts";
@@ -50,6 +51,12 @@ export type DiagnosticsRpcContext = {
   readonly gatewayVersion: string;
   readonly startedAtMs: number;
   readonly sandboxRunner?: SandboxRunner;
+  /**
+   * Live embedding-runtime readiness, so `nimbus doctor` can report a dead semantic search.
+   * Optional because a gateway assembled without an embedding runtime has nothing to report —
+   * the CLI stays silent on a missing field rather than inventing a verdict (#1396).
+   */
+  readonly embeddingReadiness?: () => EmbeddingReadiness;
   readonly autoUpdateDiag?: {
     cachedUpdatesCount: () => number;
     intervalHours: number;
@@ -447,6 +454,21 @@ function negationResult<Row, Gaps>(
   };
 }
 
+/**
+ * The optional half of a query's time window. An absent bound is OMITTED from the object rather
+ * than passed as `undefined`, which is what the callee's optional properties expect. One
+ * definition for all three call sites below, which each built it inline before.
+ */
+function timeWindow(
+  sinceMs: number | undefined,
+  untilMs: number | undefined,
+): { sinceMs?: number; untilMs?: number } {
+  return {
+    ...(sinceMs === undefined ? {} : { sinceMs }),
+    ...(untilMs === undefined ? {} : { untilMs }),
+  };
+}
+
 function rpcIndexQueryItems(params: unknown, ctx: DiagnosticsRpcContext): DiagnosticsRpcOutcome {
   const { sinceMs, untilMs, limit, services, types, notTouching, noDownstreamIncident, explain } =
     parseQueryItemsParams(params);
@@ -455,8 +477,7 @@ function rpcIndexQueryItems(params: unknown, ctx: DiagnosticsRpcContext): Diagno
     services,
     types,
     limit,
-    ...(sinceMs === undefined ? {} : { sinceMs }),
-    ...(untilMs === undefined ? {} : { untilMs }),
+    ...timeWindow(sinceMs, untilMs),
   };
 
   const db = requireDb(ctx);
@@ -472,8 +493,7 @@ function rpcIndexQueryItems(params: unknown, ctx: DiagnosticsRpcContext): Diagno
       // The caller's own `types` filter, reproducing the pre-refactor composed SQL exactly —
       // ANDed with the predicate's own `i.type = 'pr'` restriction, never a replacement for it.
       types,
-      ...(sinceMs === undefined ? {} : { sinceMs }),
-      ...(untilMs === undefined ? {} : { untilMs }),
+      ...timeWindow(sinceMs, untilMs),
       limit,
       explain,
     });
@@ -486,8 +506,7 @@ function rpcIndexQueryItems(params: unknown, ctx: DiagnosticsRpcContext): Diagno
       ...(services.length > 0 ? { services } : {}),
       // Same reasoning as `runNotTouchingQuery`'s call above.
       types,
-      ...(sinceMs === undefined ? {} : { sinceMs }),
-      ...(untilMs === undefined ? {} : { untilMs }),
+      ...timeWindow(sinceMs, untilMs),
       limit,
       explain,
     });
@@ -599,6 +618,7 @@ function rpcDiagSnapshot(ctx: DiagnosticsRpcContext): DiagnosticsRpcOutcome {
       },
       connectorHealth: health,
       index: metrics,
+      embedding: ctx.embeddingReadiness?.(),
       hitl: { pendingConsentRequests: pendingConsent },
       watchers,
       auditLogTail: audit,

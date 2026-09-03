@@ -68,47 +68,15 @@ export function parseEmbeddingsEnabled(): boolean {
 
 const searchServicePriorityMap: ReadonlyMap<string, number> = parseSearchPriorityJson();
 
-const HARDCODED_AGENT_MODEL_DEFAULT = "claude-sonnet-4-6";
-const HARDCODED_CLASSIFIER_MODEL_DEFAULT = "claude-haiku-4-5-20251001";
-
-let tomlAgentModel: string | undefined;
-let tomlClassifierModel: string | undefined;
-
-export type LlmTomlOverrides = {
-  agentModel?: string;
-  classifierModel?: string;
-};
-
-export function applyLlmTomlOverrides(overrides: LlmTomlOverrides): void {
-  tomlAgentModel =
-    typeof overrides.agentModel === "string" && overrides.agentModel !== ""
-      ? overrides.agentModel
-      : undefined;
-  tomlClassifierModel =
-    typeof overrides.classifierModel === "string" && overrides.classifierModel !== ""
-      ? overrides.classifierModel
-      : undefined;
-}
-
-function envOrUndefined(name: string): string | undefined {
-  const v = processEnvGet(name);
-  return v !== undefined && v !== "" ? v : undefined;
-}
-
-export function getEffectiveAgentModel(): string {
-  return envOrUndefined("NIMBUS_AGENT_MODEL") ?? tomlAgentModel ?? HARDCODED_AGENT_MODEL_DEFAULT;
-}
-
-export function getEffectiveClassifierModel(): string {
-  return (
-    envOrUndefined("NIMBUS_CLASSIFIER_MODEL") ??
-    tomlClassifierModel ??
-    HARDCODED_CLASSIFIER_MODEL_DEFAULT
-  );
-}
+// `[llm] remote_model` / `NIMBUS_AGENT_MODEL` and their `getEffectiveAgentModel()` accessor were
+// REMOVED on 2026-08-28. Slice 2b moved the engine agent onto `[llm.remote.<vendor>] model` and
+// left this chain dead-ended: nothing called the accessor, so setting either key changed nothing
+// while `nimbus config list` still listed the key and `cli-reference.md` still documented
+// `nimbus config set llm.remote_model` as THE way to choose a cloud model. With four vendors the
+// key is also no longer well defined -- a bare `claude-sonnet-4-6` says nothing about which of
+// them is enabled -- which is why it is removed rather than rewired.
 
 export const Config = {
-  openaiClassifierModel: processEnvGet("NIMBUS_OPENAI_CLASSIFIER_MODEL") ?? "gpt-4o-mini",
   oauthGoogleClientId: processEnvGet("NIMBUS_OAUTH_GOOGLE_CLIENT_ID") ?? "",
   oauthGoogleClientSecret: processEnvGet("NIMBUS_OAUTH_GOOGLE_CLIENT_SECRET") ?? "",
   oauthMicrosoftClientId: processEnvGet("NIMBUS_OAUTH_MICROSOFT_CLIENT_ID") ?? "",

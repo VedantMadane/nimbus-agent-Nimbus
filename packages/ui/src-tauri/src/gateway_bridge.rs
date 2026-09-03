@@ -415,6 +415,15 @@ mod tests {
         assert!(is_method_allowed("llm.setDefault"));
     }
 
+    // `llm.use` (embedding-egress-and-task-routing Task 7) writes `[llm.tasks]` in
+    // nimbus.toml via a CLI-only path (`nimbus llm use`) — deliberately NOT exposed to the
+    // renderer, unlike the model-lifecycle writes above. A later bulk edit to the llm.*
+    // allowlist block must not add it silently.
+    #[test]
+    fn allowlist_rejects_llm_use() {
+        assert!(!is_method_allowed("llm.use"));
+    }
+
     #[test]
     fn allowlist_ws5c_connector_writes() {
         assert!(is_method_allowed("connector.setConfig"));
@@ -563,10 +572,11 @@ mod tests {
         // for some other method, since the count is unchanged by a one-for-one substitution.
         //
         // The exclusions this method DOES carry are enforced on the gateway side, not here:
-        // agents.negotiate is absent from both the HTTP agent surface
-        // (HTTP_EXCLUDED_AGENT_METHODS in ipc/agents-rpc.ts) and the MCP tool surface
+        // agents.negotiate is absent from every external agent surface
+        // (EXTERNAL_EXCLUDED_AGENT_METHODS in ipc/agents-rpc.ts) and the MCP tool surface
         // (packages/cli/src/mcp/agent-tools.ts) — not for side effects, which it has none of,
-        // but because --person makes it a dossier-builder for any bearer-token holder.
+        // but because --person makes it a dossier-builder for any bearer-token holder (or,
+        // once ChatOps consumes the same set, for anyone who can read the room).
         assert!(is_method_allowed("agents.negotiate"));
     }
 
@@ -587,6 +597,22 @@ mod tests {
         // for premortem.refresh, since the count is unchanged by a one-for-one substitution.
         assert!(is_method_allowed("agents.premortem"));
         assert!(!is_method_allowed("premortem.refresh"));
+    }
+
+    #[test]
+    fn allowlist_glossary_brief_only() {
+        // S1 glossary: the brief is renderer-callable; neither maintenance verb is (I7).
+        // glossary.refresh re-runs the extraction pass and glossary.rebuild clears and
+        // re-derives the whole table, so both stay CLI-only and LAN-forbidden.
+        //
+        // This test was MISSING while the sibling decisions/ownership/premortem tests
+        // existed, and docs/SECURITY-INVARIANTS.md asserted all four pairs were named.
+        // The gap was real: allowlist_exact_size is unchanged by a one-for-one
+        // substitution, so swapping agents.glossary out for glossary.rebuild would have
+        // kept the count at 105 with no named assertion left to catch it.
+        assert!(is_method_allowed("agents.glossary"));
+        assert!(!is_method_allowed("glossary.refresh"));
+        assert!(!is_method_allowed("glossary.rebuild"));
     }
 
     #[test]

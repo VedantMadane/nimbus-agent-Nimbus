@@ -1,9 +1,31 @@
 export type LlmTaskType = "classification" | "reasoning" | "summarisation" | "agent_step";
 
-export type LlmProviderKind = "ollama" | "llamacpp" | "remote";
+/**
+ * A provider VENDOR id — `"ollama"`, `"llamacpp"`, and (slice 2) `"gemini"`,
+ * `"bedrock"`, ... Deliberately an open string, not a union: the closed union it
+ * replaced capped `LlmRouter.providers` at one provider per kind, so registering a
+ * second vendor silently evicted the first.
+ *
+ * NOT unique across routes — two Ollama routes share `"ollama"`. Route identity is
+ * `ModelRoute.routeId`. This is the value that reaches the egress ledger as
+ * `destination`, so it names a place data can go.
+ */
+export type ProviderId = string;
+
+export type ModelRoute = {
+  readonly routeId: string;
+  readonly provider: LlmProvider;
+  readonly modelName: string;
+  readonly meta: ProviderMeta;
+};
+
+export type ProviderMeta = {
+  parameterCount?: number;
+  contextWindow?: number;
+};
 
 export type LlmModelInfo = {
-  provider: LlmProviderKind;
+  provider: ProviderId;
   modelName: string;
   parameterCount?: number;
   contextWindow?: number;
@@ -19,6 +41,19 @@ export type LlmGenerateOptions = {
   temperature?: number;
   stream?: boolean;
   onToken?: (token: string) => void;
+  /**
+   * The `method` this call records in `egress_ledger` when it reaches a NON-LOCAL route.
+   * Omitted, the wrapper derives `llm.generate.<task>`.
+   *
+   * It exists so a synthesized brief keeps naming ITS OWN kind
+   * (`agents.catchup.synthesis`) after the append moved off the synthesis call site and
+   * into `egress/model-egress.ts`. Without it every model row would read
+   * `llm.generate.reasoning` and `nimbus prove` could no longer say which brief sent what.
+   *
+   * It does NOT control WHETHER a row is appended -- that is derived from
+   * `provider.isLocal` inside the wrapper and is not something a caller can influence.
+   */
+  egressMethod?: string;
 };
 
 export type LlmGenerateResult = {
@@ -27,7 +62,7 @@ export type LlmGenerateResult = {
   tokensOut: number;
   modelUsed: string;
   isLocal: boolean;
-  provider: LlmProviderKind;
+  provider: ProviderId;
 };
 
 export type PullProgressChunk = {
@@ -37,7 +72,17 @@ export type PullProgressChunk = {
 };
 
 export interface LlmProvider {
-  readonly providerId: LlmProviderKind;
+  readonly providerId: ProviderId;
+  /**
+   * Whether this provider runs on this machine. REQUIRED, so omitting it is a
+   * compile error rather than a silent `undefined`.
+   *
+   * Declared by the provider rather than looked up in a module-private set,
+   * because that set existed in three places that had to agree. Note the failure
+   * direction is safe either way: an unset value is falsy, i.e. REMOTE — which
+   * air-gap refuses and the egress appender ledgers.
+   */
+  readonly isLocal: boolean;
   isAvailable(): Promise<boolean>;
   listModels(): Promise<LlmModelInfo[]>;
   generate(opts: LlmGenerateOptions): Promise<LlmGenerateResult>;

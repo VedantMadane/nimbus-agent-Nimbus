@@ -1,4 +1,4 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const SCOPE: readonly { path: string; tier: "public" | "internal" }[] = [
@@ -41,28 +41,13 @@ export function validatePackageReadme(
   return null;
 }
 
-async function discoverConnectors(
-  rootDir: string,
-): Promise<{ path: string; tier: "public" | "internal" }[]> {
-  const connectorsPath = join(rootDir, "packages", "mcp-connectors");
-  try {
-    const entries = await readdir(connectorsPath, { withFileTypes: true });
-    const connectors: { path: string; tier: "public" | "internal" }[] = [];
-    for (const entry of entries) {
-      if (entry.isDirectory() && entry.name !== "shared") {
-        connectors.push({ path: `packages/mcp-connectors/${entry.name}`, tier: "public" });
-      }
-    }
-    return connectors;
-  } catch {
-    return [];
-  }
-}
-
 async function main() {
   const rootDir = process.cwd();
-  const dynamicScope = await discoverConnectors(rootDir);
-  const fullScope = [...SCOPE, ...dynamicScope];
+  // The connector READMEs this used to discover moved to nimbus-agent/nimbus-mcp-servers, where
+  // that repo validates its own. Discovery is REMOVED rather than left pointing at a missing
+  // directory: it caught the error and returned [], so the gate would have gone on passing while
+  // checking nothing connector-shaped — a gate that cannot fail.
+  const fullScope = SCOPE;
   let failed = false;
 
   for (const pkg of fullScope) {

@@ -1,14 +1,18 @@
 import type { Database } from "bun:sqlite";
-
 import { Mastra } from "@mastra/core";
 import { Agent } from "@mastra/core/agent";
+import { ModelRouterLanguageModel } from "@mastra/core/llm";
 import { createTool } from "@mastra/core/tools";
 
 import { redactAuditPayload } from "../audit/format-audit-payload.ts";
-import { Config, getEffectiveAgentModel } from "../config.ts";
+import type { CuRunDeps } from "../computer-use/cu-gate.ts";
+import { buildComputerUseTools } from "../computer-use/cu-tools.ts";
+import type { CuLane } from "../config/nimbus-toml.ts";
+import { Config } from "../config.ts";
 import { CONNECTOR_SERVICE_IDS } from "../connectors/connector-catalog.ts";
 import { getConnectorHealth } from "../connectors/health.ts";
 import { writeToolCallLog } from "../db/tool-call-log.ts";
+import { wrapLedgeredMastraModel } from "../egress/mastra-model-egress.ts";
 import type { IndexSearchQuery, LocalIndex, TraverseGraphOptions } from "../index/local-index.ts";
 import type { SessionMemoryStore } from "../memory/session-memory-store.ts";
 import { searchPersons } from "../people/person-store.ts";
@@ -82,12 +86,22 @@ function clipToolString(s: string, max = MAX_TOOL_STRING_LEN): string {
   return s.length > max ? s.slice(0, max) : s;
 }
 
-function toMastraModelId(modelId: string): string {
+/**
+ * Builds the `"<provider>/<model>"` router id Mastra resolves against.
+ *
+ * The `includes("/")` branch is load-bearing and replaces the old `toMastraModelId`: an operator
+ * may set `[llm.remote.<vendor>] model` to EITHER a bare model name (`claude-sonnet-4-6`) or an
+ * already-qualified router id (`anthropic/claude-sonnet-4-6`).
+ * Unconditionally prefixing the vendor would turn the second form into
+ * `anthropic/anthropic/claude-sonnet-4-6`, which resolves to nothing.
+ *
+ * Unlike `toMastraModelId`, the vendor is no longer GUESSED from the model name's shape — it is
+ * whatever `[llm.remote.<vendor>]` was enabled, so a `gpt-`-prefixed override under an enabled
+ * Anthropic vendor no longer silently retargets OpenAI.
+ */
+export function toRouterModelId(providerId: string, modelId: string): string {
   const s = modelId.trim();
-  if (s.includes("/")) return s;
-  if (/^claude-/i.test(s)) return `anthropic/${s}`;
-  if (/^(gpt-|o1-|o3-|o4-)/i.test(s)) return `openai/${s}`;
-  return s;
+  return s.includes("/") ? s : `${providerId}/${s}`;
 }
 
 function isStringArray(xs: unknown): xs is string[] {
@@ -96,11 +110,44 @@ function isStringArray(xs: unknown): xs is string[] {
 
 export type NimbusEngineAgentDeps = {
   localIndex: LocalIndex;
+  /**
+   * The resolved cloud vendor this agent talks to. REQUIRED for the agent to exist at all: when
+   * no `[llm.remote.*]` vendor is enabled and keyed, `gateway-main.ts` does not construct the
+   * agent, and `resolveEngineAgent` returns `undefined`.
+   *
+   * This replaces `getEffectiveAgentModel()`. That read `[llm] remote_model` and let
+   * `@mastra/core` resolve `ANTHROPIC_API_KEY` from the ENVIRONMENT on its own — so the default
+   * `nimbus ask` was a hole exactly the size of the per-vendor opt-in: a capability that turned
+   * itself on because a credential happened to exist. That is the air-gap defect's shape, one
+   * level up.
+   */
+  vendor: { providerId: string; modelId: string; apiKey: string };
+  /** Where `wrapLedgeredMastraModel` appends this agent's `model`-class egress rows. */
+  egressDb: Database;
   agentModel?: string;
   contextWindowItems?: number;
   searchServicePriority?: ReadonlyMap<string, number>;
   sessionMemoryStore?: SessionMemoryStore;
   auditDb?: Database;
+  /**
+   * The live computer-use browser session (if any) this agent may drive, plus everything
+   * `runAction` (Task 10's gate) needs to act on it. Omitted in every caller today: the browser
+   * lane is DEFAULT OFF and opt-in per lane, so on a stock install no session can
+   * open and `buildComputerUseTools` is unreachable — undefined here reproduces exactly that,
+   * rather than a disabled tool that errors when called. When a caller DOES wire this, `sessionId`
+   * still gates per-call: it must name a session `runAction`'s own `deps.db`-backed session store
+   * currently has open, or every call refuses through the gate's own machinery.
+   */
+  computerUse?: {
+    /**
+     * The LANE travels with the id because the tool set is lane-specific: a terminal session must
+     * not put `browser_click` in front of the model, and a browser session must not offer
+     * `terminal_write`. The gate refuses a mismatched kind anyway, but a tool the model can see is
+     * a tool it will try, and every attempt is noise in an audit log a human has to read.
+     */
+    session: { sessionId: string; lane: CuLane } | undefined;
+    gateDeps: CuRunDeps;
+  };
 };
 
 export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
@@ -108,7 +155,25 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
   agent: Agent;
   agentsByName: { nimbus: Agent; devops: Agent; research: Agent };
 } {
-  const model = toMastraModelId(deps.agentModel ?? getEffectiveAgentModel());
+  // `deps.agentModel` is an INJECTION SEAM for tests, not a config path: nothing in production
+  // supplies it, so the model is `[llm.remote.<vendor>] model`. It is spelled out because the
+  // comment that stood here until 2026-08-28 claimed `NIMBUS_AGENT_MODEL` / `[llm] remote_model`
+  // "still override the MODEL NAME within the enabled vendor" — which was never wired. Slice 2b
+  // left `getEffectiveAgentModel()` without a caller, so both keys were inert while
+  // `cli-reference.md` still documented `nimbus config set llm.remote_model` as THE way to pick a
+  // cloud model; both are now removed rather than left claiming to work.
+  const modelId = deps.agentModel ?? deps.vendor.modelId;
+  // Wrapped at the AI-SDK seam: Mastra keeps its own client (which is what makes tool-calling
+  // work), and the decorator ledgers every doGenerate/doStream before it runs. See
+  // `egress/mastra-model-egress.ts` for why this is not built over `LlmProvider`.
+  const model = wrapLedgeredMastraModel(
+    deps.egressDb,
+    new ModelRouterLanguageModel({
+      id: toRouterModelId(deps.vendor.providerId, modelId) as `${string}/${string}`,
+      apiKey: deps.vendor.apiKey,
+    }),
+    { providerId: deps.vendor.providerId, modelId },
+  );
   const contextWindowItems = deps.contextWindowItems ?? Config.engineContextWindowItems;
   const searchPriority = deps.searchServicePriority ?? Config.searchServicePriorityMap;
 
@@ -464,6 +529,12 @@ export function createNimbusEngineAgent(deps: NimbusEngineAgentDeps): {
             deps.auditDb,
           ),
         }
+      : {}),
+    // Non-negotiable (spec § 3.3 step 7): `buildComputerUseTools` returns `{}` unless
+    // `deps.computerUse` names a live session, so outside an owner-approved envelope this spread
+    // contributes nothing — not a disabled tool that errors when called, no tool at all.
+    ...(deps.computerUse !== undefined
+      ? buildComputerUseTools(deps.computerUse.session, deps.computerUse.gateDeps)
       : {}),
   };
 

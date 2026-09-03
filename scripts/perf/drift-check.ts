@@ -11,7 +11,10 @@ import type {
 } from "../../packages/gateway/src/perf/history-line.ts";
 import type { SloThreshold } from "../../packages/gateway/src/perf/slo-thresholds.ts";
 import { SLO_THRESHOLDS } from "../../packages/gateway/src/perf/slo-thresholds.ts";
-import { isFloorMetric } from "../../packages/gateway/src/perf/threshold-comparator.ts";
+import {
+  effectiveNoiseFloorPct,
+  isFloorMetric,
+} from "../../packages/gateway/src/perf/threshold-comparator.ts";
 import type { BenchSurfaceId, RunnerKind } from "../../packages/gateway/src/perf/types.ts";
 import { parseLastHistoryLine } from "./history-jsonl.ts";
 
@@ -23,18 +26,51 @@ export interface DriftSample {
 }
 
 /**
+ * Why a surface tripped, carried out of the detector so the filed issue can state the number
+ * that ACTUALLY fired.
+ *
+ * The detector returns this rather than a boolean because the two were free to disagree: the
+ * issue body reported `slo.noiseFloorPct` while detection applied
+ * `effectiveNoiseFloorPct(slo, median)`, which is LARGER whenever the absolute floor binds. A
+ * reader chasing a drift alarm would then check the surface's declared 40 % against a sample
+ * that had cleared, say, 50 %, and conclude the detector was wrong. One value, one source.
+ */
+export interface DriftHit {
+  /** The rolling median the tripping sample was compared against. */
+  readonly median: number;
+  /** The sample that completed the consecutive run. */
+  readonly current: number;
+  /** The floor actually applied: `max(noiseFloorPct, noiseFloorAbs / median * 100)`. */
+  readonly effectiveFloorPct: number;
+}
+
+/**
  * Pure drift detector. Walks a rolling median of the last `k` samples and reports
  * drift only when the `n` most recent samples are EACH worse than that window's
- * median by more than `noiseFloorPct` percent. A lone spike never trips; a
+ * median by more than the surface's OWN noise floor. A lone spike never trips; a
  * sustained regression does. "Worse" == "larger" (smaller-is-better surfaces only).
+ *
+ * The floor is per-surface (`effectiveNoiseFloorPct`), not a global constant. It used to be a
+ * hardcoded 10 %, and that is what filed #1308 and #1309: S11-a/S11-b declare a 40 % floor
+ * precisely because their spawn-dominated latency is "a runner property, not a code signal"
+ * (see their entries in `slo-thresholds.ts`), so a detector four times more sensitive than the
+ * surface's own floor was guaranteed to alarm on runner noise.
+ *
+ * The failure is subtler than "too twitchy", and worth understanding before widening the floor
+ * again. A rolling MEDIAN moves with the data, so a cluster of unusually FAST runs drags it
+ * down — and the next ordinary samples then read as a regression against a depressed baseline.
+ * That is exactly what happened: the tripping window was `224, 249, 261, 253, 247, 333, 306`
+ * (median 253) against a series median of 311, so the "regression" was the runner RETURNING TO
+ * NORMAL at 316 and 333. Nothing got slower. Across all 495 recorded samples, this rule fires
+ * at 10 % and not once at 25 % or at the declared 40 %.
  */
 export function detectDrift(
   history: readonly DriftSample[],
-  noiseFloorPct: number,
+  slo: SloThreshold,
   k = 7,
   n = 3,
-): boolean {
-  if (history.length < k + n) return false;
+): DriftHit | null {
+  if (history.length < k + n) return null;
   let consecutive = 0;
   for (let i = k; i < history.length; i += 1) {
     const window = history.slice(i - k, i).map((s) => s.value);
@@ -44,20 +80,22 @@ export function detectDrift(
       consecutive = 0;
       continue;
     }
+    const floorPct = effectiveNoiseFloorPct(slo, med);
     const worsePct = ((current - med) / med) * 100;
-    if (worsePct > noiseFloorPct) {
+    if (worsePct > floorPct) {
       consecutive += 1;
-      if (consecutive >= n) return true;
+      if (consecutive >= n) {
+        return { median: med, current, effectiveFloorPct: floorPct };
+      }
     } else {
       consecutive = 0;
     }
   }
-  return false;
+  return null;
 }
 
 // ─── I/O wrapper ─────────────────────────────────────────────────────────────
 
-const DRIFT_NOISE_FLOOR_PCT = 10;
 const DRIFT_HISTORY_RUNS = 14;
 const DRIFT_ISSUE_LABEL = "perf-drift";
 const PERF_WORKFLOW = "_perf.yml";
@@ -77,12 +115,19 @@ function historyFieldFor(metric: TrendMetric): keyof HistoryLineSurface {
   }
 }
 
-/** Map from surfaceId → history field key, only for trend surfaces that are smaller-is-better. */
-const TREND_METRIC_BY_SURFACE: ReadonlyMap<BenchSurfaceId, keyof HistoryLineSurface> = new Map(
+/**
+ * Map from surfaceId → its history field key AND its SLO, for trend surfaces that are
+ * smaller-is-better. The SLO travels with the field because the drift floor is per-surface;
+ * carrying only the field is what forced the caller onto a global constant.
+ */
+const TREND_METRIC_BY_SURFACE: ReadonlyMap<
+  BenchSurfaceId,
+  { field: keyof HistoryLineSurface; slo: SloThreshold }
+> = new Map(
   SLO_THRESHOLDS.filter(
     (s): s is SloThreshold & { metric: TrendMetric } =>
       s.gateClass === "trend" && !isFloorMetric(s.metric),
-  ).map((s) => [s.surfaceId, historyFieldFor(s.metric)]),
+  ).map((s) => [s.surfaceId, { field: historyFieldFor(s.metric), slo: s }]),
 );
 
 interface GhIssue {
@@ -135,6 +180,8 @@ async function upsertDriftIssue(
   gh: GhCli,
   surfaceId: BenchSurfaceId,
   runner: RunnerKind,
+  slo: SloThreshold,
+  hit: DriftHit,
   existingIssues: GhIssue[],
   tmpRoot: string,
   stderr: (s: string) => void,
@@ -151,7 +198,11 @@ async function upsertDriftIssue(
   writeFileSync(
     bodyFile,
     `The rolling-median drift detector has flagged surface \`${surfaceId}\` on runner \`${runner}\`.\n\n` +
-      `The last 3+ consecutive \`main\` samples are each more than ${String(DRIFT_NOISE_FLOOR_PCT)}% worse than the rolling median of the preceding 7. This is a sustained regression, not a one-off spike.\n\n` +
+      `The last 3+ consecutive \`main\` samples are each more than **${hit.effectiveFloorPct.toFixed(1)}%** worse than the rolling median of the preceding 7 (${hit.median.toFixed(1)}); the sample that completed the run measured ${hit.current.toFixed(1)}.\n\n` +
+      // The EFFECTIVE floor, not `slo.noiseFloorPct`. They differ whenever the absolute floor
+      // binds, and reporting the declared relative floor alone understated the bar that fired --
+      // sending a reader to check 40 % against a sample that had actually cleared more.
+      `That floor is this surface's own, not a global constant: \`max(${String(slo.noiseFloorPct)}%, ${String(slo.noiseFloorAbs)}${slo.noiseFloorAbsUnit} / median)\`. A rolling median moves with the data, so before assuming a regression, check the dashboard for a cluster of unusually FAST runs just before the flagged samples -- that depresses the median and makes a return to normal look like a slowdown.\n\n` +
       `See the [/dev/bench dashboard](https://github.com/nimbus-agent/Nimbus/tree/perf-data/dev/bench) and investigate recent commits for a regression on this surface.\n`,
     "utf8",
   );
@@ -216,8 +267,8 @@ export async function runDriftCheckMain(deps: RunDriftCheckDeps): Promise<void> 
   }
 
   // First pass: which trend (smaller-is-better) surfaces are drifting?
-  const drifting: BenchSurfaceId[] = [];
-  for (const [surfaceId, field] of TREND_METRIC_BY_SURFACE) {
+  const drifting: Array<{ surfaceId: BenchSurfaceId; slo: SloThreshold; hit: DriftHit }> = [];
+  for (const [surfaceId, { field, slo }] of TREND_METRIC_BY_SURFACE) {
     const series: DriftSample[] = historyLines
       .map((line) => {
         const surface: HistoryLineSurface | undefined = line.surfaces[surfaceId];
@@ -226,7 +277,8 @@ export async function runDriftCheckMain(deps: RunDriftCheckDeps): Promise<void> 
         return typeof val === "number" ? { value: val } : null;
       })
       .filter((s): s is DriftSample => s !== null);
-    if (detectDrift(series, DRIFT_NOISE_FLOOR_PCT)) drifting.push(surfaceId);
+    const hit = detectDrift(series, slo);
+    if (hit !== null) drifting.push({ surfaceId, slo, hit });
   }
   if (drifting.length === 0) return; // no drift → no issue API calls at all
 
@@ -239,10 +291,10 @@ export async function runDriftCheckMain(deps: RunDriftCheckDeps): Promise<void> 
     stderr(`drift-check: gh issue list failed: ${errMsg(err)}; proceeding with none known`);
   }
 
-  for (const surfaceId of drifting) {
+  for (const { surfaceId, slo, hit } of drifting) {
     stderr(`drift-check: drift detected on ${surfaceId} (${runner}); upserting gh issue`);
     try {
-      await upsertDriftIssue(deps.gh, surfaceId, runner, existingIssues, tmpRoot, stderr);
+      await upsertDriftIssue(deps.gh, surfaceId, runner, slo, hit, existingIssues, tmpRoot, stderr);
     } catch (err) {
       stderr(`drift-check: upsert failed for ${surfaceId}: ${errMsg(err)}`);
     }

@@ -1,3 +1,4 @@
+import { isLoopbackBaseUrl } from "./base-url-locality.ts";
 import type {
   LlmGenerateOptions,
   LlmGenerateResult,
@@ -95,8 +96,35 @@ function parseOllamaModel(raw: OllamaTagsModel): LlmModelInfo | undefined {
  */
 export const DEFAULT_LOCAL_CONTEXT_TOKENS = 8192;
 
+/**
+ * Ollama's opt-out from a reasoning model's `<think>` phase.
+ *
+ * Sent on every generate, and the reason is CORRECTNESS before speed: thinking tokens are drawn
+ * from the SAME `num_predict` budget as the answer, so a reasoning model can spend the budget
+ * deliberating and return a TRUNCATED reply — or, at the classifier's 512-token cap, no parseable
+ * JSON at all. Measured on qwen3:14b against a live daemon:
+ *
+ *   summarise, thinking on  -> 17,974 ms, answer cut off mid-sentence
+ *   summarise, thinking off ->  1,497 ms, complete answer
+ *   classify,  thinking on  -> 19,416 ms
+ *   classify,  thinking off ->  3,103 ms
+ *
+ * Harmless on a model with no thinking mode: `llama3.2` returns HTTP 200 either way, so this
+ * needs no per-model branch. If a route ever wants deliberation back, the place to add it is a
+ * `[llm.local.<name>]` key, not a silent default — the default should not cost every `ask`
+ * ~16 s and risk a half-finished answer.
+ */
+const OLLAMA_DISABLE_THINKING = false;
+
 export class OllamaProvider implements LlmProvider {
   readonly providerId = "ollama" as const;
+  /**
+   * DERIVED from the resolved base URL, never hardcoded. An Ollama daemon is reachable over the
+   * network and `[llm.local.<name>] base_url` accepts a remote host, so "ollama" says nothing
+   * about where the weights run. Hardcoding `true` made `[llm] enforce_air_gap` skip its own
+   * exclusion for a LAN daemon. See `base-url-locality.ts`.
+   */
+  readonly isLocal: boolean;
   private readonly baseUrl: string;
   private readonly modelName: string;
   private readonly contextTokens: number;
@@ -109,6 +137,7 @@ export class OllamaProvider implements LlmProvider {
     this.baseUrl = baseUrl.replace(/\/$/, "");
     this.modelName = modelName;
     this.contextTokens = contextTokens;
+    this.isLocal = isLoopbackBaseUrl(this.baseUrl);
   }
 
   async isAvailable(): Promise<boolean> {
@@ -152,6 +181,7 @@ export class OllamaProvider implements LlmProvider {
       prompt: opts.prompt,
       system: opts.systemPrompt,
       stream: false,
+      think: OLLAMA_DISABLE_THINKING,
       options: {
         num_ctx: this.contextTokens,
         num_predict: opts.maxTokens ?? 2048,
@@ -171,7 +201,7 @@ export class OllamaProvider implements LlmProvider {
       tokensIn: data.prompt_eval_count ?? 0,
       tokensOut: data.eval_count ?? 0,
       modelUsed: this.modelName,
-      isLocal: true,
+      isLocal: this.isLocal,
       provider: "ollama",
     };
   }
@@ -182,6 +212,7 @@ export class OllamaProvider implements LlmProvider {
       prompt: opts.prompt,
       system: opts.systemPrompt,
       stream: true,
+      think: OLLAMA_DISABLE_THINKING,
       options: {
         num_ctx: this.contextTokens,
         num_predict: opts.maxTokens ?? 2048,
@@ -218,7 +249,7 @@ export class OllamaProvider implements LlmProvider {
       tokensIn: state.tokensIn,
       tokensOut: state.tokensOut,
       modelUsed: this.modelName,
-      isLocal: true,
+      isLocal: this.isLocal,
       provider: "ollama",
     };
   }

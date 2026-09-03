@@ -5,7 +5,15 @@ import { join, resolve } from "node:path";
 import { bundledConnectorIds } from "../gen-bundled-connector-registry.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "..", "..");
-export const CONNECTORS_DIR = join(REPO_ROOT, "packages", "mcp-connectors");
+/**
+ * The package whose exports decide which connectors exist.
+ *
+ * Was `packages/mcp-connectors` until the connectors were extracted. The comparison is now
+ * "registry vs. what the installed package EXPORTS" rather than "registry vs. directories on
+ * disk" — which is the stricter question: a connector present in the package but missing from its
+ * exports map is unreachable to the gateway, and a directory scan would have called it present.
+ */
+export const CONNECTOR_PACKAGE = "@nimbus-dev/connectors";
 export const REGISTRY_FILE = join(
   REPO_ROOT,
   "packages",
@@ -45,12 +53,22 @@ export type RegistryDriftCheck =
 // literal characters in the generator's template string, not the output of any path API, and
 // the interpolated id is a readdirSync entry NAME, which never contains a separator. The
 // generated file is byte-identical on Windows, macOS and Linux.
-const ENTRY_RE = /import\("\.\.\/\.\.\/\.\.\/mcp-connectors\/([^"/]+)\/src\/server\.ts"\)/g;
+// BOTH specifier forms the generator can emit — see `specifierFor` in
+// scripts/gen-bundled-connector-registry.ts. The relative form is what ships today; the package
+// form (`@nimbus-dev/connectors/<id>`) is what ships after the extraction.
+//
+// Matching only one of them does not fail loudly: `registryIds` returns [], the check reports
+// "indeterminate", and that is a WARNING rather than an error — so the drift gate would go quietly
+// inert at exactly the moment the extraction made it matter most.
+const ENTRY_RE =
+  /import\("(?:\.\.\/\.\.\/\.\.\/mcp-connectors\/([^"/]+)\/src\/server\.ts|@nimbus-dev\/connectors\/([^"/]+))"\)/g;
 
 export function registryIds(registryFile: string): string[] {
   if (!existsSync(registryFile)) return [];
   const src = readFileSync(registryFile, "utf8");
-  return [...src.matchAll(ENTRY_RE)].map((m) => m[1] as string).sort((a, b) => a.localeCompare(b));
+  return [...src.matchAll(ENTRY_RE)]
+    .map((m) => (m[1] ?? m[2]) as string)
+    .sort((a, b) => a.localeCompare(b));
 }
 
 function buildViolations(
@@ -100,10 +118,13 @@ function buildViolations(
  * yields zero matches.
  */
 export function checkConnectorRegistryDrift(
-  connectorsDir: string = CONNECTORS_DIR,
+  // The ids are INJECTED rather than discovered inside, so this stays a pure comparison. It used
+  // to take a directory to scan, which tied every test to a temp tree; discovery now goes through
+  // node resolution of an installed package, which a temp directory cannot stand in for at all.
+  exportedIds: readonly string[] = bundledConnectorIds(),
   registryFile: string = REGISTRY_FILE,
 ): RegistryDriftCheck {
-  const onDisk = new Set(bundledConnectorIds(connectorsDir));
+  const onDisk = new Set(exportedIds);
 
   if (!existsSync(registryFile)) {
     const violations = buildViolations(onDisk, new Set());
@@ -117,7 +138,7 @@ export function checkConnectorRegistryDrift(
       indeterminate: {
         reason:
           `${registryFile} exists but zero connector entries could be parsed from it, even ` +
-          `though ${onDisk.size} connector(s) exist on disk under ${connectorsDir}. The registry ` +
+          `though ${onDisk.size} connector(s) are exported by ${CONNECTOR_PACKAGE}. The registry ` +
           "could not be read as connector entries. The likely cause is that the registry " +
           "generator's emitted import format changed and this check's parser (the ENTRY_RE " +
           "regex in check-connector-registry-drift.ts) no longer matches it — NOT that every " +

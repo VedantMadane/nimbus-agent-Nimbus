@@ -334,11 +334,9 @@ bun test packages/gateway/src/engine/executor.test.ts
 # There is NO test:e2e:desktop script; CI runs the directory directly.
 bun test packages/ui/test/e2e/
 
-# Query latency benchmark (strict mode)
+# Query latency benchmark (strict mode) — the only opt-in benchmark env var
+# that exists. Read in packages/gateway/test/benchmark/item-query-latency.test.ts.
 NIMBUS_RUN_QUERY_BENCH=1 bun test
-
-# LLM local benchmark gate
-NIMBUS_RUN_LOCAL_BENCH=1 bun test
 ```
 
 ---
@@ -347,7 +345,7 @@ NIMBUS_RUN_LOCAL_BENCH=1 bun test
 
 | Trigger | Jobs |
 |---|---|
-| PR opened/updated | `pr-quality` on Ubuntu: lint (Biome), typecheck, unit + integration tests, `bun audit` — **plus** `pr-quality-cross-platform`: one `macos-15` leg and one `windows-2025` leg, each running the same whole-repo `bun test packages/gateway packages/cli packages/mcp-connectors scripts` as the push matrix, in one process |
+| PR opened/updated | `pr-quality` on Ubuntu: lint (Biome), typecheck, unit + integration tests, `bun audit` — **plus** `pr-quality-cross-platform`: one `macos-15` leg and one `windows-2025` leg, each running the same whole-repo `bun test packages/gateway packages/cli scripts` as the push matrix, in one process |
 | Push to `main` / `develop` | Full 3-platform matrix: `windows-2025`, `macos-15`, `ubuntu-24.04` |
 | Push to `main` + release tags | E2E Desktop (Playwright + Tauri WebDriver) on all three platforms |
 

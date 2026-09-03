@@ -9,7 +9,7 @@ import { EMPTY_NIMBUS_VAULT, syncTestContext } from "../connectors/connector-syn
 import { syncPagerdutyIncidentItems } from "../connectors/pagerduty-sync.ts";
 import { mapVercelDeploymentToItem } from "../connectors/vercel-deployment-mapping.ts";
 import { upsertGraphEntity, upsertGraphRelation } from "../graph/relationship-graph.ts";
-import { upsertIndexedItem, upsertIndexedItemForSync } from "../index/item-store.ts";
+import { upsertIndexedItem } from "../index/item-store.ts";
 import { LocalIndex } from "../index/local-index.ts";
 import type { ServiceConfig } from "../metrics/dora-config.ts";
 import { buildServiceIdentityResolver } from "../metrics/service-identity.ts";
@@ -22,7 +22,14 @@ const HOUR = 60 * 60 * 1000;
 const SHA = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678";
 const ROOT = path.resolve(path.join(path.sep, "work", "repo"));
 const roots: NimbusFilesystemRootToml[] = [
-  { path: ROOT, gitAware: true, codeIndex: true, dependencyGraph: true, exclude: [] },
+  {
+    path: ROOT,
+    gitAware: true,
+    codeIndex: true,
+    dependencyGraph: true,
+    mediaIndex: false,
+    exclude: [],
+  },
 ];
 
 function freshDb(): Database {
@@ -525,10 +532,13 @@ describe("runWhy", () => {
   };
 
   function ctxWithResolver(db: Database, configs: Map<string, ServiceConfig>): SyncContext {
-    return {
-      ...syncTestContext(db, EMPTY_NIMBUS_VAULT),
-      resolveServiceId: buildServiceIdentityResolver(configs),
-    };
+    return syncTestContext(
+      db,
+      EMPTY_NIMBUS_VAULT,
+      "pagerduty",
+      "full",
+      buildServiceIdentityResolver(configs),
+    );
   }
 
   test("driver lane: incident within 48h before the commit, enriched with its correlated deployment", async () => {
@@ -573,7 +583,7 @@ describe("runWhy", () => {
     };
     const mapped = mapVercelDeploymentToItem(deploymentRaw, { syncedAt: t });
     if (mapped === null) throw new Error("mapVercelDeploymentToItem returned null");
-    upsertIndexedItemForSync(ctx, mapped);
+    ctx.upsertItem(mapped);
 
     // Blame anchors the commit 1h after the incident — within the 48h driver window.
     upsertBlameLines(db, ROOT, "src/retry.ts", [
@@ -756,7 +766,14 @@ describe("runWhy", () => {
     const db = freshDb();
     const tmp = await makeTempGitDir();
     const tmpRoots: NimbusFilesystemRootToml[] = [
-      { path: tmp, gitAware: true, codeIndex: true, dependencyGraph: true, exclude: [] },
+      {
+        path: tmp,
+        gitAware: true,
+        codeIndex: true,
+        dependencyGraph: true,
+        mediaIndex: false,
+        exclude: [],
+      },
     ];
     const c = countingSpawn("");
 
@@ -849,5 +866,227 @@ describe("runWhy — the prUrl arm", () => {
           "No indexed code symbols for this file — enable code_index on the root and sync.",
       ),
     ).toBe(false);
+  });
+});
+
+describe("runWhy — the itemUrl arm", () => {
+  const ISSUE_URL = "https://acme.atlassian.net/browse/PLAT-9";
+
+  /** A Jira issue. `upsertIndexedItem` writes the graph entity for `type: "issue"` itself. */
+  function seedIssue(db: Database): void {
+    const t = Date.now();
+    upsertIndexedItem(db, {
+      service: "jira",
+      type: "issue",
+      externalId: "PLAT-9",
+      title: "Checkout times out",
+      bodyPreview: "",
+      url: ISSUE_URL,
+      modifiedAt: t,
+      syncedAt: t,
+      metadata: { number: 9 },
+    });
+  }
+
+  test("names the item, and leaves the other two subjects alone", async () => {
+    const db = freshDb();
+    seedIssue(db);
+
+    const brief = await runWhy(
+      { itemUrl: ISSUE_URL },
+      { db, roots: [], notify: () => {}, sessionId: "why-item-1" },
+    );
+
+    expect(brief.itemSubject?.title).toBe("Checkout times out");
+    expect(brief.itemSubject?.service).toBe("jira");
+    expect(brief.itemSubject?.type).toBe("issue");
+    expect(brief.itemSubject?.number).toBe(9);
+    expect(brief.itemSubject?.entityId).toBeTruthy();
+    expect(brief.subject).toBeNull();
+    expect("changeSubject" in brief).toBe(false);
+    expect(brief.query).toEqual({ ref: ISSUE_URL, line: null });
+  });
+
+  test("a miss returns a null itemSubject, not a failure", async () => {
+    const db = freshDb();
+    const brief = await runWhy(
+      { itemUrl: "https://acme.atlassian.net/browse/NOPE-1" },
+      { db, roots: [], notify: () => {}, sessionId: "why-item-2" },
+    );
+    expect(brief.kind).toBe("why");
+    expect(brief.itemSubject).toBeNull();
+    expect(brief.subject).toBeNull();
+  });
+
+  // The bound this arm is scoped by. A Confluence page is `type: "page"`, which appears in
+  // neither ITEM_LINKED_ENTITY_TYPES nor GRAPH_SYNC_BY_TYPE, so `syncGraphFromIndexedItem`
+  // writes no entity for it — and every lane here answers from graph edges. Recorded as a
+  // test so the exclusion reads as a decision rather than an omission someone later "fixes".
+  test("an indexed page resolves by URL but has no graph entity, so it is a miss", async () => {
+    const db = freshDb();
+    const t = Date.now();
+    const pageUrl = "https://acme.atlassian.net/wiki/spaces/ENG/pages/1/Runbook";
+    upsertIndexedItem(db, {
+      service: "confluence",
+      type: "page",
+      externalId: "1",
+      title: "Checkout runbook",
+      bodyPreview: "",
+      url: pageUrl,
+      modifiedAt: t,
+      syncedAt: t,
+      metadata: {},
+    });
+
+    // It really is indexed — the miss below is about the graph, not the index.
+    expect(
+      db.query("SELECT COUNT(*) AS n FROM item WHERE type = 'page'").get() as { n: number },
+    ).toEqual({ n: 1 });
+
+    const brief = await runWhy(
+      { itemUrl: pageUrl },
+      { db, roots: [], notify: () => {}, sessionId: "why-item-3" },
+    );
+    expect(brief.itemSubject).toBeNull();
+    expect(brief.findings).toEqual([]);
+  });
+
+  test("the file/line lanes are silent on an item, not gapped", async () => {
+    const db = freshDb();
+    seedIssue(db);
+
+    const brief = await runWhy(
+      { itemUrl: ISSUE_URL },
+      { db, roots: [], notify: () => {}, sessionId: "why-item-4" },
+    );
+
+    // Same suppression the prUrl arm gets, and for the same reason: neither question
+    // ever had a file subject, so reporting one as missing would invent a gap.
+    expect(
+      brief.gaps.some(
+        (g) =>
+          g.detail === "Cannot anchor authorship: no resolvable file/line subject for this ref.",
+      ),
+    ).toBe(false);
+    const lanes = new Set(brief.findings.map((f) => f.lane));
+    expect(lanes.has("authorship")).toBe(false);
+    expect(lanes.has("downstream")).toBe(false);
+  });
+
+  // The defect this arm exists to avoid. `ticketRowsForPr` joins `pe.type = 'pr'` on
+  // `from_id`, so handed an issue entity it returns zero rows — without the inverse
+  // traversal the item arm would ship a well-formed EMPTY brief for every issue.
+  test("finds the PR that resolved the issue, walking `resolves` inward", async () => {
+    const db = freshDb();
+    seedIssue(db);
+    const t = Date.now();
+    upsertIndexedItem(db, {
+      service: "github",
+      type: "pr",
+      externalId: "acme/web#482",
+      title: "Cache the checkout lookup",
+      bodyPreview: "closes PLAT-9",
+      url: "https://github.com/acme/web/pull/482",
+      modifiedAt: t,
+      syncedAt: t,
+      metadata: { number: 482, repo: "acme/web" },
+    });
+
+    const issueEntity = db
+      .query("SELECT id FROM graph_entity WHERE type = 'issue' AND external_id = ?")
+      .get("jira:PLAT-9") as { id: string } | null;
+    const prEntity = db
+      .query("SELECT id FROM graph_entity WHERE type = 'pr' AND external_id = ?")
+      .get("github:acme/web#482") as { id: string } | null;
+    expect(issueEntity).not.toBeNull();
+    expect(prEntity).not.toBeNull();
+    upsertGraphRelation(db, prEntity?.id ?? "", issueEntity?.id ?? "", "resolves", t);
+
+    const brief = await runWhy(
+      { itemUrl: ISSUE_URL },
+      { db, roots: [], notify: () => {}, sessionId: "why-item-6" },
+    );
+
+    const prFindings = brief.findings.filter((f) => f.lane === "pull_request");
+    expect(prFindings.length).toBeGreaterThan(0);
+    expect(JSON.stringify(prFindings)).toContain("482");
+  });
+
+  test("an issue is never listed as its own ticket", async () => {
+    const db = freshDb();
+    seedIssue(db);
+    const t = Date.now();
+    upsertIndexedItem(db, {
+      service: "github",
+      type: "pr",
+      externalId: "acme/web#482",
+      title: "Cache the checkout lookup",
+      bodyPreview: "closes PLAT-9",
+      url: "https://github.com/acme/web/pull/482",
+      modifiedAt: t,
+      syncedAt: t,
+      metadata: { number: 482, repo: "acme/web" },
+    });
+    const issueEntity = db
+      .query("SELECT id FROM graph_entity WHERE type = 'issue' AND external_id = ?")
+      .get("jira:PLAT-9") as { id: string } | null;
+    const prEntity = db
+      .query("SELECT id FROM graph_entity WHERE type = 'pr' AND external_id = ?")
+      .get("github:acme/web#482") as { id: string } | null;
+    upsertGraphRelation(db, prEntity?.id ?? "", issueEntity?.id ?? "", "resolves", t);
+
+    const brief = await runWhy(
+      { itemUrl: ISSUE_URL },
+      { db, roots: [], notify: () => {}, sessionId: "why-item-7" },
+    );
+
+    // The PR was found by walking `resolves` FROM this issue, so the issue is always in
+    // its own ticket list. Reporting it back would be circular.
+    const ticketFindings = brief.findings.filter((f) => f.lane === "ticket");
+    expect(ticketFindings.some((f) => f.entityId === issueEntity?.id)).toBe(false);
+  });
+
+  test("the ref and prUrl arms leave itemSubject absent", async () => {
+    const db = freshDb();
+    const refBrief = await runWhy({ ref: refAt(12) }, ctxFor(db));
+    // Absent, not present-and-undefined — the same distinction the changeSubject
+    // spread preserves, under `exactOptionalPropertyTypes`.
+    expect("itemSubject" in refBrief).toBe(false);
+
+    const prBrief = await runWhy(
+      { prUrl: "https://github.com/acme/web/pull/482" },
+      { db, roots: [], notify: () => {}, sessionId: "why-item-5" },
+    );
+    expect("itemSubject" in prBrief).toBe(false);
+  });
+});
+
+/**
+ * The regression fence for the defect this arm was designed around: a lane pinned to the
+ * PR-shaped traversal answers nothing on an item and reports nothing either, so the brief
+ * comes back well-formed and empty. Findings OR gaps — never neither.
+ */
+describe.each(["issue", "incident"] as const)("the item arm on %s", (itemType) => {
+  test("produces findings or gaps, never a well-formed empty brief", async () => {
+    const db = freshDb();
+    const t = Date.now();
+    const url = `https://example.test/${itemType}/1`;
+    upsertIndexedItem(db, {
+      service: itemType === "issue" ? "jira" : "pagerduty",
+      type: itemType,
+      externalId: `${itemType}-1`,
+      title: `A ${itemType}`,
+      bodyPreview: "",
+      url,
+      modifiedAt: t,
+      syncedAt: t,
+      metadata: {},
+    });
+
+    const brief = await runWhy(
+      { itemUrl: url },
+      { db, roots: [], notify: () => {}, sessionId: `why-matrix-${itemType}` },
+    );
+    expect(brief.findings.length + brief.gaps.length).toBeGreaterThan(0);
   });
 });

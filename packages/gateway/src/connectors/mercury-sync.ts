@@ -1,4 +1,3 @@
-import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import {
   syncPassCursorHttpEmpty,
   syncPassCursorParseEmpty,
@@ -6,7 +5,6 @@ import {
 } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { connectorFetch } from "./_lib/fetch-outcome.ts";
-import { readConnectorSecret } from "./connector-vault.ts";
 import { mapMercuryAccountToItem } from "./mercury-account-mapping.ts";
 import { mapMercuryTransactionToItem } from "./mercury-transaction-mapping.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
@@ -45,7 +43,7 @@ interface MercuryCreds {
 }
 
 async function loadCreds(ctx: SyncContext): Promise<MercuryCreds | null> {
-  const token = (await readConnectorSecret(ctx.vault, "mercury", "token"))?.trim() ?? "";
+  const token = (await ctx.getSecret("token"))?.trim() ?? "";
   if (token === "") {
     return null;
   }
@@ -89,7 +87,7 @@ function upsertAccounts(
     if (mapped === null) {
       continue;
     }
-    upsertIndexedItemForSync(ctx, mapped);
+    ctx.upsertItem(mapped);
     upserted += 1;
     accountIds.push(mapped.externalId);
   }
@@ -116,7 +114,7 @@ function upsertTransactions(
     if (mapped === null) {
       continue;
     }
-    upsertIndexedItemForSync(ctx, mapped);
+    ctx.upsertItem(mapped);
     upserted += 1;
   }
   return upserted;

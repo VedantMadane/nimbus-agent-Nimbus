@@ -32,6 +32,16 @@ const FAST: readonly Gate[] = [
   { name: "audit:openapi-drift", cmd: ["bun", "run", "audit:openapi-drift"], tier: "fast" },
   { name: "audit:boundaries", cmd: ["bun", "run", "audit:boundaries"], tier: "fast" },
   { name: "audit:invariants", cmd: ["bun", "run", "audit:invariants"], tier: "fast" },
+  {
+    // `agent-param-kinds.ts` is a hand-maintained coercion table living NEXT TO the validators in
+    // `agents-rpc.ts` on the strength of this gate: without it, a new/renamed validator param can
+    // drift from the map silently, and a `k=v` chat message would coerce it to the wrong
+    // primitive (or not report a bad value at all) with no test failing. Static, not a `bun test`
+    // target, so it needs its own gate the way `audit:invariants` does.
+    name: "audit:agent-param-kinds",
+    cmd: ["bun", "run", "audit:agent-param-kinds"],
+    tier: "fast",
+  },
   { name: "audit:worker-entries", cmd: ["bun", "run", "audit:worker-entries"], tier: "fast" },
   {
     // Advisory, never blocking. A test gated `skipIf(process.platform === "win32")` does not run
@@ -45,21 +55,6 @@ const FAST: readonly Gate[] = [
     soft: true,
   },
   {
-    // A connector that guards startup with `import.meta.main` is invisible to the bundled
-    // registry: the guard is false under an import, so it loads, starts nothing and exits 0.
-    // Ten connectors were in exactly that state before this gate existed.
-    name: "audit:connector-entrypoints",
-    cmd: ["bun", "run", "audit:connector-entrypoints"],
-    tier: "fast",
-  },
-  {
-    // Connectors are bundled into the gateway binary. A native dependency would break the
-    // compile or the runtime load, and the only symptom is a sync that never works.
-    name: "audit:connector-deps",
-    cmd: ["bun", "run", "audit:connector-deps"],
-    tier: "fast",
-  },
-  {
     // The bundled registry is GENERATED into a committed file and nothing else diffs it.
     // `test:connector-boot` cannot catch a connector missing FROM the registry — it boots what the
     // registry ships. A stale registry means a connector the shipped binary can never start.
@@ -68,12 +63,26 @@ const FAST: readonly Gate[] = [
     tier: "fast",
   },
   {
-    // "The connector mode comes from the entrypoint" is a convention until something enforces it:
-    // any other caller of `setConnectorMode` could re-gate a connector mid-process, which is what
-    // Non-Negotiable #2 forbids. Also reports, advisorily for now, connectors that mutate without
-    // declaring it through `registerWriteTool`.
-    name: "audit:connector-consent",
-    cmd: ["bun", "run", "audit:connector-consent"],
+    // The connectors ship from their own repo now, so the gateway can silently fall behind a
+    // capability that has already been published. A MINOR gap fails: a connector the shipped
+    // binary cannot load is indistinguishable, to a user, from a connector that does not work. A
+    // patch gap warns. An unreachable registry is INDETERMINATE, never a failure — offline
+    // development and a registry outage are not skew, and a gate that reds for them is one people
+    // learn to ignore.
+    name: "audit:connector-version-skew",
+    cmd: ["bun", "run", "audit:connector-version-skew"],
+    tier: "fast",
+  },
+  {
+    // The gateway ships as a `bun build --compile` binary, which cannot bundle a native module: it
+    // either fails the compile or produces a binary that cannot load its shared library, where the
+    // only symptom is a connector that never works. sqlite-vec is the one native dependency and is
+    // handled deliberately, as a sidecar the compile step copies.
+    //
+    // Declared dependencies only — see the scope bound in the script. The transitive case is
+    // covered empirically by `test:connector-boot`.
+    name: "audit:gateway-native-deps",
+    cmd: ["bun", "run", "audit:gateway-native-deps"],
     tier: "fast",
   },
   {

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-
+import { EventEmitter } from "node:events";
 import { createVertexAiSyncable, type RunGcloud } from "../../../src/connectors/vertex-ai-sync.ts";
+import { spawnCaptureInternals } from "../../../src/platform/spawn-capture.ts";
 import {
   type ConnectorSyncFixture,
   createConnectorSyncFixture,
@@ -47,7 +48,7 @@ describe("vertex-ai-sync — credential short-circuit", () => {
   test("no gcp vault keys → noop, runner never called, cursor preserved", async () => {
     const { run, calls } = makeRunner([]);
     const res = await createVertexAiSyncable({ ...ENSURE, runGcloud: run }).sync(
-      fx.createSyncContext(),
+      fx.createSyncContext("vertex_ai"),
       "prev",
     );
     expect(res.itemsUpserted).toBe(0);
@@ -58,7 +59,10 @@ describe("vertex-ai-sync — credential short-circuit", () => {
   test("cred path but no project id → noop", async () => {
     await fx.vault.set("gcp.credentials_json_path", "/etc/gcp.json");
     const { run, calls } = makeRunner([]);
-    await createVertexAiSyncable({ ...ENSURE, runGcloud: run }).sync(fx.createSyncContext(), null);
+    await createVertexAiSyncable({ ...ENSURE, runGcloud: run }).sync(
+      fx.createSyncContext("vertex_ai"),
+      null,
+    );
     expect(calls).toHaveLength(0);
   });
 });
@@ -90,7 +94,7 @@ describe("vertex-ai-sync — model metadata walk", () => {
       },
     ]);
     const res = await createVertexAiSyncable({ ...ENSURE, runGcloud: run }).sync(
-      fx.createSyncContext(),
+      fx.createSyncContext("vertex_ai"),
       null,
     );
     expect(res.itemsUpserted).toBe(2);
@@ -128,7 +132,10 @@ describe("vertex-ai-sync — model metadata walk", () => {
   test("uses the optional gcp.region when set", async () => {
     await fx.vault.set("gcp.region", "europe-west4");
     const { run, calls } = makeRunner([{ body: [{ displayName: "m" }] }]);
-    await createVertexAiSyncable({ ...ENSURE, runGcloud: run }).sync(fx.createSyncContext(), null);
+    await createVertexAiSyncable({ ...ENSURE, runGcloud: run }).sync(
+      fx.createSyncContext("vertex_ai"),
+      null,
+    );
     expect(calls[0]?.region).toBe("europe-west4");
   });
 
@@ -136,7 +143,7 @@ describe("vertex-ai-sync — model metadata walk", () => {
     await fx.vault.set("gcp.region", "--project=attacker");
     const { run, calls } = makeRunner([{ body: [] }]);
     const res = await createVertexAiSyncable({ ...ENSURE, runGcloud: run }).sync(
-      fx.createSyncContext(),
+      fx.createSyncContext("vertex_ai"),
       null,
     );
     // Unsafe region → noop (loadCreds returns null), runner never called.
@@ -147,7 +154,7 @@ describe("vertex-ai-sync — model metadata walk", () => {
   test("gcloud failure → parse-empty pass cursor, 0 upserts, no throw", async () => {
     const { run } = makeRunner([{ ok: false }]);
     const res = await createVertexAiSyncable({ ...ENSURE, runGcloud: run }).sync(
-      fx.createSyncContext(),
+      fx.createSyncContext("vertex_ai"),
       null,
     );
     expect(res.itemsUpserted).toBe(0);
@@ -157,7 +164,7 @@ describe("vertex-ai-sync — model metadata walk", () => {
   test("non-array gcloud output → 0 upserts, success cursor", async () => {
     const { run } = makeRunner([{ body: { error: "unexpected" } }]);
     const res = await createVertexAiSyncable({ ...ENSURE, runGcloud: run }).sync(
-      fx.createSyncContext(),
+      fx.createSyncContext("vertex_ai"),
       null,
     );
     expect(res.itemsUpserted).toBe(0);
@@ -167,7 +174,7 @@ describe("vertex-ai-sync — model metadata walk", () => {
   test("skips entries with no name and no displayName", async () => {
     const { run } = makeRunner([{ body: [{ versionId: "1" }, { displayName: "good-model" }] }]);
     const res = await createVertexAiSyncable({ ...ENSURE, runGcloud: run }).sync(
-      fx.createSyncContext(),
+      fx.createSyncContext("vertex_ai"),
       null,
     );
     expect(res.itemsUpserted).toBe(1);
@@ -176,7 +183,7 @@ describe("vertex-ai-sync — model metadata walk", () => {
   test("emits no notifications and reports bytesTransferred", async () => {
     const { run } = makeRunner([{ body: [{ displayName: "m" }] }]);
     const res = await createVertexAiSyncable({ ...ENSURE, runGcloud: run }).sync(
-      fx.createSyncContext(),
+      fx.createSyncContext("vertex_ai"),
       null,
     );
     expect(fx.notifications.emitted).toHaveLength(0);
@@ -190,7 +197,7 @@ describe("vertex-ai-sync — model metadata walk", () => {
     await fx.vault.set("gcp.region", regionWithControlChar);
     const { run: run2, calls: calls2 } = makeRunner([{ body: [] }]);
     const res = await createVertexAiSyncable({ ...ENSURE, runGcloud: run2 }).sync(
-      fx.createSyncContext(),
+      fx.createSyncContext("vertex_ai"),
       null,
     );
     expect(res.itemsUpserted).toBe(0);
@@ -208,7 +215,7 @@ describe("vertex-ai-sync — model metadata walk", () => {
       },
     ]);
     const res = await createVertexAiSyncable({ ...ENSURE, runGcloud: run }).sync(
-      fx.createSyncContext(),
+      fx.createSyncContext("vertex_ai"),
       null,
     );
     expect(res.itemsUpserted).toBe(3);
@@ -218,11 +225,8 @@ describe("vertex-ai-sync — model metadata walk", () => {
 // Exercise the real (non-DI) `gcloudAiModelsList` runner body without spawning
 // a real subprocess: mock Bun.spawn to return a fake process. `new Response(<string>)`
 // reads the canned stdout, so the spawn → exited → parse path is covered hermetically.
-function fakeProc(code: number, stdout: string): ReturnType<typeof Bun.spawn> {
-  return { exited: Promise.resolve(code), stdout } as unknown as ReturnType<typeof Bun.spawn>;
-}
 
-describe("vertex-ai-sync — default gcloud runner (hermetic Bun.spawn mock)", () => {
+describe("vertex-ai-sync — default gcloud runner (hermetic spawn mock)", () => {
   let fx: ConnectorSyncFixture;
   beforeEach(async () => {
     fx = createConnectorSyncFixture();
@@ -232,9 +236,13 @@ describe("vertex-ai-sync — default gcloud runner (hermetic Bun.spawn mock)", (
 
   test("spawn exits 0 with model JSON → models upserted", async () => {
     const models = [{ name: "projects/p/locations/us-central1/models/m1", displayName: "Model 1" }];
-    const spy = spyOn(Bun, "spawn").mockReturnValue(fakeProc(0, JSON.stringify(models)));
+    const spy = spyOn(spawnCaptureInternals, "spawn").mockImplementation((() =>
+      fakeChild(0, JSON.stringify(models))) as never);
     try {
-      const res = await createVertexAiSyncable(ENSURE).sync(fx.createSyncContext(), null);
+      const res = await createVertexAiSyncable(ENSURE).sync(
+        fx.createSyncContext("vertex_ai"),
+        null,
+      );
       expect(res.itemsUpserted).toBe(1);
       expect(spy).toHaveBeenCalled();
     } finally {
@@ -243,11 +251,14 @@ describe("vertex-ai-sync — default gcloud runner (hermetic Bun.spawn mock)", (
   });
 
   test("spawn throws (gcloud absent) → graceful empty pass, no throw", async () => {
-    const spy = spyOn(Bun, "spawn").mockImplementation(() => {
+    const spy = spyOn(spawnCaptureInternals, "spawn").mockImplementation((() => {
       throw new Error("ENOENT: gcloud not found");
-    });
+    }) as never);
     try {
-      const res = await createVertexAiSyncable(ENSURE).sync(fx.createSyncContext(), null);
+      const res = await createVertexAiSyncable(ENSURE).sync(
+        fx.createSyncContext("vertex_ai"),
+        null,
+      );
       expect(res.itemsUpserted).toBe(0);
       expect(res.cursor).toBe(PASS_1_CURSOR);
     } finally {
@@ -255,3 +266,25 @@ describe("vertex-ai-sync — default gcloud runner (hermetic Bun.spawn mock)", (
     }
   });
 });
+
+/**
+ * A `node:child_process` stand-in. The connector CLI runners moved off `Bun.spawn` to
+ * `platform/spawn-capture.ts`, which spawns with `windowsHide` — the Gateway runs detached, so an
+ * unhidden child pops a console window on every sync tick. These tests stub the seam that module
+ * exports rather than `Bun.spawn`, which it no longer uses.
+ */
+function fakeChild(exitCode: number, stdout: string): unknown {
+  const proc = new EventEmitter() as EventEmitter & {
+    stdout: EventEmitter;
+    stderr: EventEmitter;
+    kill: () => void;
+  };
+  proc.stdout = new EventEmitter();
+  proc.stderr = new EventEmitter();
+  proc.kill = (): void => {};
+  queueMicrotask(() => {
+    if (stdout !== "") proc.stdout.emit("data", Buffer.from(stdout));
+    proc.emit("close", exitCode);
+  });
+  return proc;
+}

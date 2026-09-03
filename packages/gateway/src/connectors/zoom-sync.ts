@@ -1,5 +1,4 @@
-import { getValidZoomAccessToken } from "../auth/zoom-access-token.ts";
-import { itemPrimaryKey, upsertIndexedItemForSync } from "../index/item-store.ts";
+import { itemPrimaryKey } from "../index/item-store.ts";
 import {
   syncPassCursorHttpEmpty,
   syncPassCursorParseEmpty,
@@ -7,7 +6,6 @@ import {
 } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { connectorFetch } from "./_lib/fetch-outcome.ts";
-import { readConnectorSecret } from "./connector-vault.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, stringField } from "./unknown-record.ts";
 import { mapZoomMeetingToItem } from "./zoom-meeting-mapping.ts";
@@ -109,7 +107,7 @@ function upsertMeetings(ctx: SyncContext, meetings: readonly unknown[], now: num
     if (mapped === null) {
       continue;
     }
-    upsertIndexedItemForSync(ctx, mapped);
+    ctx.upsertItem(mapped);
     upserted += 1;
   }
   return upserted;
@@ -148,8 +146,7 @@ function nextRecordingsWindow(
  */
 function transcriptAlreadyIndexed(ctx: SyncContext, meetingUuid: string, fileId: string): boolean {
   const id = itemPrimaryKey("zoom", `${meetingUuid}:${fileId}`);
-  const row = ctx.db.query("SELECT 1 AS one FROM item WHERE id = ? LIMIT 1").get(id);
-  return row !== null && row !== undefined;
+  return ctx.itemExists(id);
 }
 
 /**
@@ -256,7 +253,7 @@ async function processTranscriptFile(
   if (row === null) {
     return { kind: "done", bytes: text.length, upserted: 0 };
   }
-  upsertIndexedItemForSync(ctx, row);
+  ctx.upsertItem(row);
   return { kind: "done", bytes: text.length, upserted: 1 };
 }
 
@@ -318,7 +315,7 @@ async function processRecordingsMeeting(
   // same external_id = String(<meeting_id>), so a single row covers both.
   const meetingRow = mapZoomMeetingToItem(meeting, { syncedAt: nowMs });
   if (meetingRow !== null) {
-    upsertIndexedItemForSync(ctx, meetingRow);
+    ctx.upsertItem(meetingRow);
     upserted += 1;
   }
   const transcripts = await processTranscriptsForMeeting(ctx, token, meeting, nowMs);
@@ -458,13 +455,13 @@ export function createZoomSyncable(options: ZoomSyncableOptions): Syncable {
       const t0 = performance.now();
       await options.ensureZoomMcpRunning();
 
-      const raw = await readConnectorSecret(ctx.vault, "zoom", "oauth");
+      const raw = await ctx.getSecret("oauth");
       if (raw === null || raw === "") {
         return syncNoopResult(cursor, t0);
       }
       let token: string;
       try {
-        token = await getValidZoomAccessToken(ctx.vault);
+        token = await ctx.accessToken();
       } catch {
         return syncNoopResult(cursor, t0);
       }

@@ -1,10 +1,15 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_LOCAL_CONTEXT_TOKENS } from "../llm/ollama-provider.ts";
+import type { LlmTaskType } from "../llm/types.ts";
 
 import type { ServiceConfig } from "../metrics/dora-config.ts";
 import { processEnvGet } from "../platform/env-access.ts";
-import { parseNimbusCiServiceToml, parseNimbusDoraToml } from "./service-config-toml.ts";
+import {
+  parseNimbusCiServiceToml,
+  parseNimbusDoraToml,
+  resolveServiceTableId,
+} from "./service-config-toml.ts";
 import {
   hasUnterminatedString,
   isTableHeader,
@@ -194,10 +199,32 @@ export function loadNimbusEmbeddingFromConfigDir(configDir: string): NimbusEmbed
   return loadNimbusEmbeddingFromPath(join(configDir, "nimbus.toml"));
 }
 
+/** One `[llm.local.<name>]` sub-table: a named local model route. Spec §3.6. */
+export type NimbusLlmLocalRoute = {
+  runtime: string;
+  model: string;
+  baseUrl?: string;
+};
+
+/**
+ * One `[llm.remote.<vendor>]` sub-table: a cloud vendor opt-in. Slice 2b spec §7.1.
+ *
+ * `enabled` DEFAULTS TO FALSE and is never inferred from the presence of a key. Per-vendor rather
+ * than one global remote toggle, so enabling Gemini cannot silently enable another vendor because
+ * an unrelated credential happens to exist.
+ *
+ * `baseUrl` is a proxy override and does NOT affect locality — a cloud adapter hardcodes
+ * `isLocal = false` even on a loopback base URL, because the proxy forwards to the vendor
+ * (invariant I34).
+ */
+export type NimbusLlmRemoteVendor = {
+  enabled: boolean;
+  model: string;
+  baseUrl?: string;
+};
+
 export type NimbusLlmToml = {
   preferLocal: boolean;
-  remoteModel: string;
-  classifierModel: string;
   localModel: string;
   /**
    * `num_ctx` for the local provider, in tokens. See `DEFAULT_LOCAL_CONTEXT_TOKENS`: unset is
@@ -210,12 +237,46 @@ export type NimbusLlmToml = {
   enforceAirGap: boolean;
   maxAgentDepth: number;
   maxToolCallsPerSession: number;
+  /**
+   * Named `[llm.local.<name>]` sub-tables, keyed by name. Collected verbatim here —
+   * NO validation (resolving `route_priority` references, `base_url` collision
+   * checks) happens at this layer. See the module doc above `parseNimbusTomlLlmSection`
+   * for why: validation throws would be swallowed by `loadTomlSection`'s bare catch and
+   * silently revert the whole `[llm]` section to defaults. Validation lives in
+   * `platform/assemble.ts` (Task 9), against the loaded config, where a bad entry can be
+   * logged and dropped without discarding anything else.
+   */
+  localRoutes: ReadonlyMap<string, NimbusLlmLocalRoute>;
+  /**
+   * Named `[llm.remote.<vendor>]` sub-tables, keyed by vendor id VERBATIM from the header.
+   * Collected without validation, exactly like `localRoutes`: an unknown vendor id, an
+   * `enabled = true` with no resolvable key, and an empty model are all `platform/assemble.ts`'s
+   * to warn about BY NAME and drop. A throw here would be swallowed by `loadTomlSection`'s bare
+   * catch and revert the whole `[llm]` section to defaults, `enforce_air_gap` included.
+   */
+  remoteVendors: ReadonlyMap<string, NimbusLlmRemoteVendor>;
+  /**
+   * Verbatim `route_priority` entries — un-resolved route references, in file order.
+   * See `localRoutes` doc: resolving each entry against a registered route (built-in or
+   * `[llm.local.*]`) is Task 9's job, not this parser's.
+   */
+  routePriority: readonly string[];
+  /**
+   * The `[llm.tasks]` table: task type -> pinned route id, verbatim and un-resolved (same
+   * division of labour as `routePriority` — resolving a pin against the route table is the
+   * router's job, Task 6, not this parser's). Optional rather than defaulted to an empty map,
+   * matching the `localRoutes`/`remoteVendors` shape above: set only when at least one entry
+   * survived parsing. "No table configured" and "a table whose entries were all dropped as
+   * malformed" both leave this field `undefined` — that pair is NOT distinguishable here, and
+   * that is fine, because the router's fallback ("no usable pin for this task, fall back to
+   * `routePriority`") is the correct behaviour for both cases; there is no decision downstream
+   * that needs to tell them apart.
+   */
+  taskPins?: ReadonlyMap<LlmTaskType, string>;
 };
 
 export const DEFAULT_NIMBUS_LLM_TOML: NimbusLlmToml = {
   preferLocal: true,
-  remoteModel: "claude-sonnet-4-6",
-  classifierModel: "claude-haiku-4-5-20251001",
   localModel: "llama3.2",
   localContextTokens: DEFAULT_LOCAL_CONTEXT_TOKENS,
   llamacppServerPath: "",
@@ -223,6 +284,9 @@ export const DEFAULT_NIMBUS_LLM_TOML: NimbusLlmToml = {
   enforceAirGap: false,
   maxAgentDepth: 3,
   maxToolCallsPerSession: 20,
+  localRoutes: new Map(),
+  remoteVendors: new Map(),
+  routePriority: [],
 };
 
 function applyNimbusLlmKey(out: Partial<NimbusLlmToml>, key: string, valRaw: string): void {
@@ -232,12 +296,12 @@ function applyNimbusLlmKey(out: Partial<NimbusLlmToml>, key: string, valRaw: str
       if (b !== undefined) out.preferLocal = b;
       break;
     }
-    case "remote_model":
-      out.remoteModel = parseString(valRaw);
-      break;
-    case "classifier_model":
-      out.classifierModel = parseString(valRaw);
-      break;
+    // `remote_model` was removed on 2026-08-28 alongside `classifier_model`, for the same
+    // reason and with the same handling: a stale key in an existing nimbus.toml is ignored.
+    // `classifier_model` was removed on 2026-08-28 and is deliberately NOT parsed here: the
+    // intent classifier no longer owns an HTTP client that could take a model name, it asks
+    // `LlmRouter` for the `"classification"` task and takes whatever route answers. A stale key
+    // in an existing nimbus.toml is ignored, the same as any other unrecognised [llm] key.
     case "local_model":
       out.localModel = parseString(valRaw);
       break;
@@ -264,10 +328,207 @@ function applyNimbusLlmKey(out: Partial<NimbusLlmToml>, key: string, valRaw: str
       if (n !== undefined && n >= 1 && n <= 200) out.maxToolCallsPerSession = n;
       break;
     }
+    case "route_priority": {
+      // `parseStringArray` THROWS on a non-bracket-delimited value. Unguarded, that
+      // escapes into `loadTomlSection`'s catch and reverts the WHOLE [llm] section —
+      // see the doc above `NimbusLlmToml.routePriority`. Swallow it here instead:
+      // `routePriority` stays unset, every other key in the section survives. This is
+      // ALSO where the two superseded-by-the-brief "malformed entry throws" tests would
+      // have lived — they don't, on purpose: validating each entry (e.g. via
+      // `parseRouteRef`) is Task 9's job against the loaded config, not this parser's.
+      try {
+        out.routePriority = parseStringArray(valRaw);
+      } catch {
+        /* malformed: leave routePriority unset, fall back to the default (empty) */
+      }
+      break;
+    }
     default:
       applyNimbusLlmNumericKey(out, key, valRaw);
       break;
   }
+}
+
+const LLM_LOCAL_TABLE_PREFIX = "[llm.local.";
+const LLM_REMOTE_TABLE_PREFIX = "[llm.remote.";
+
+/** Records a `key = value` line into the current `[llm.local.<name>]` bucket, if any. */
+function applyLlmLocalTableLine(bucket: Record<string, string> | undefined, trimmed: string): void {
+  if (bucket === undefined) return;
+  const kv = splitKeyValue(trimmed);
+  if (kv !== undefined) bucket[kv.key] = kv.valRaw;
+}
+
+/**
+ * If `trimmed` is a `[llm.local.<name>]` header, resolves its id via the shared
+ * `resolveServiceTableId` helper (reused from `service-config-toml.ts` rather than a
+ * second copy of the same prefix-match-and-slice logic). That helper THROWS on an
+ * empty id (`[llm.local.]`) — correct for its own `[metrics.dora.*]`/`[ci.service.*]`
+ * callers, wrong here: this parser must never throw (see the doc above
+ * `NimbusLlmToml.localRoutes`). Catch it locally and treat it as "skip this one
+ * malformed block" — matching the `[ownership]`/`[hitl.quorum]` precedent elsewhere in
+ * this file, where one bad entry is dropped rather than discarding the section.
+ */
+function beginLlmTable(
+  accum: Map<string, Record<string, string>>,
+  trimmed: string,
+  prefix: string,
+  label: string,
+): string | undefined {
+  try {
+    return resolveServiceTableId(trimmed, prefix, label, accum);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Accumulates raw kv strings per `[llm.<kind>.<id>]` sub-table.
+ *
+ * `prefix`/`label` are the ONLY difference between the local-route and remote-vendor collectors,
+ * so they share this one function rather than each carrying a copy of the header-reset behaviour
+ * below — that reset fixed a real bug, and a second copy could regress it independently.
+ */
+function collectLlmKvSections(
+  source: string,
+  prefix: string,
+  label: string,
+): Map<string, Record<string, string>> {
+  const accum = new Map<string, Record<string, string>>();
+  let currentId: string | undefined;
+
+  for (const line of source.split(/\r?\n/)) {
+    const trimmed = stripComment(line).trim();
+    if (hasUnterminatedString(line)) continue;
+    if (trimmed === "") continue;
+    // Header-LIKE, not header-VALID: a line that opens with `[` is a table header the writer
+    // meant, whether or not it closes. Ending the current block on the OPENING bracket — before
+    // `isTableHeader` gets to reject `[llm.local.bad` for its missing `]` — is what makes a
+    // malformed header end the previous route instead of leaking into it. Without the reset,
+    // `currentId` stayed on the last VALID id, so every `runtime`/`model` line under the
+    // malformed header was written into the PREVIOUS route's bucket: `[llm.local.good]` followed
+    // by `[llm.local.bad` silently became `good` carrying `bad`'s runtime and model.
+    if (trimmed.startsWith("[")) {
+      currentId = isTableHeader(trimmed) ? beginLlmTable(accum, trimmed, prefix, label) : undefined;
+      continue;
+    }
+    if (currentId === undefined) continue;
+    applyLlmLocalTableLine(accum.get(currentId), trimmed);
+  }
+
+  return accum;
+}
+
+/** Accumulates raw kv strings per `[llm.local.<name>]` sub-table. */
+function collectLlmLocalKvSections(source: string): Map<string, Record<string, string>> {
+  return collectLlmKvSections(source, LLM_LOCAL_TABLE_PREFIX, "llm.local");
+}
+
+/**
+ * Validates one `[llm.remote.<vendor>]` sub-table's raw kv strings into a vendor, or `undefined`
+ * when structurally unusable (no `model`). An absent `enabled` and an explicit `enabled = false`
+ * mean the same thing, so no absent-versus-explicit discrimination is needed here or downstream —
+ * which is what lets `platform/assemble.ts` validate AFTER defaults are applied rather than
+ * closer to the parser, where a throw would trip `loadTomlSection`'s bare catch.
+ */
+function toLlmRemoteVendor(kv: Record<string, string>): NimbusLlmRemoteVendor | undefined {
+  const modelRaw = kv["model"];
+  if (modelRaw === undefined) return undefined;
+  const model = parseString(modelRaw);
+  if (model.length === 0) return undefined;
+  const enabledRaw = kv["enabled"];
+  const vendor: NimbusLlmRemoteVendor = {
+    enabled: enabledRaw === undefined ? false : (parseBool(enabledRaw) ?? false),
+    model,
+  };
+  const baseUrlRaw = kv["base_url"];
+  if (baseUrlRaw !== undefined) {
+    const baseUrl = parseString(baseUrlRaw);
+    if (baseUrl.length > 0) vendor.baseUrl = baseUrl;
+  }
+  return vendor;
+}
+
+/** Parses every `[llm.remote.<vendor>]` sub-table into a vendor → config map. Never throws. */
+function parseLlmRemoteVendors(source: string): Map<string, NimbusLlmRemoteVendor> {
+  const out = new Map<string, NimbusLlmRemoteVendor>();
+  for (const [id, kv] of collectLlmKvSections(source, LLM_REMOTE_TABLE_PREFIX, "llm.remote")) {
+    const vendor = toLlmRemoteVendor(kv);
+    if (vendor !== undefined) out.set(id, vendor);
+  }
+  return out;
+}
+
+/**
+ * Validates one `[llm.local.<name>]` sub-table's raw kv strings into a route, or
+ * `undefined` when structurally unusable (missing `runtime`/`model`). No OTHER
+ * validation happens here — a runtime/model value that doesn't name a real thing, or
+ * a `base_url` that collides with another route, is Task 9's problem against the
+ * loaded config, not this parser's.
+ */
+function toLlmLocalRoute(kv: Record<string, string>): NimbusLlmLocalRoute | undefined {
+  const runtimeRaw = kv["runtime"];
+  const modelRaw = kv["model"];
+  if (runtimeRaw === undefined || modelRaw === undefined) return undefined;
+  const runtime = parseString(runtimeRaw);
+  const model = parseString(modelRaw);
+  if (runtime.length === 0 || model.length === 0) return undefined;
+  const route: NimbusLlmLocalRoute = { runtime, model };
+  const baseUrlRaw = kv["base_url"];
+  if (baseUrlRaw !== undefined) {
+    const baseUrl = parseString(baseUrlRaw);
+    if (baseUrl.length > 0) route.baseUrl = baseUrl;
+  }
+  return route;
+}
+
+/** Parses every `[llm.local.<name>]` sub-table into a name → route map. Never throws. */
+function parseLlmLocalRoutes(source: string): Map<string, NimbusLlmLocalRoute> {
+  const out = new Map<string, NimbusLlmLocalRoute>();
+  for (const [id, kv] of collectLlmLocalKvSections(source).entries()) {
+    const route = toLlmLocalRoute(kv);
+    if (route !== undefined) out.set(id, route);
+  }
+  return out;
+}
+
+/**
+ * Totality-checked membership set for `LlmTaskType`, keyed as a `Record` rather than kept as a
+ * plain string array so that adding a fifth task type to the union without adding it here is a
+ * TYPE ERROR — the parser below cannot silently fall behind the type it validates `[llm.tasks]`
+ * keys against.
+ */
+const LLM_TASK_TYPE_MEMBERS: Record<LlmTaskType, true> = {
+  classification: true,
+  reasoning: true,
+  summarisation: true,
+  agent_step: true,
+};
+
+function isLlmTaskType(key: string): key is LlmTaskType {
+  return Object.hasOwn(LLM_TASK_TYPE_MEMBERS, key);
+}
+
+/**
+ * Parses the flat `[llm.tasks]` table into a task -> route-id map. Unlike `[llm.local.*]` /
+ * `[llm.remote.*]`, this is a single fixed-name table (no per-entry sub-header), so it reuses
+ * `forEachSectionEntry` directly rather than the `collectLlmKvSections` machinery built for
+ * dynamic sub-table ids.
+ *
+ * An unrecognised key (a typo, or a task type a newer build added that this one doesn't know)
+ * is DROPPED, never thrown: same reasoning as `route_priority` above — a throw here would
+ * escape into `loadTomlSection`'s bare catch and revert the WHOLE `[llm]` section,
+ * `enforce_air_gap` included. Resolving a pinned id against the route table is Task 6's job
+ * against the loaded config, not this parser's.
+ */
+function parseLlmTaskPins(source: string): Map<LlmTaskType, string> {
+  const out = new Map<LlmTaskType, string>();
+  forEachSectionEntry(source, "[llm.tasks]", (key, valRaw) => {
+    if (!isLlmTaskType(key)) return;
+    const routeId = parseString(valRaw);
+    if (routeId.length > 0) out.set(key, routeId);
+  });
+  return out;
 }
 
 /**
@@ -290,6 +551,23 @@ export function parseNimbusTomlLlmSection(source: string): Partial<NimbusLlmToml
   forEachSectionEntry(source, "[llm]", (key, valRaw) => {
     applyNimbusLlmKey(out, key, valRaw);
   });
+  // `forEachSectionEntry` matches `[llm]` by EXACT string equality, so it cannot see
+  // `[llm.local.*]` sub-tables — this is a second, independent scan over the same
+  // source. `Partial<>`: an absent `[llm.local.*]` block leaves `localRoutes` unset
+  // (not an empty map), matching every other optional field here.
+  const localRoutes = parseLlmLocalRoutes(source);
+  if (localRoutes.size > 0) out.localRoutes = localRoutes;
+  // Same second-scan reasoning and the same `Partial<>` contract as `localRoutes` above: an
+  // absent `[llm.remote.*]` block leaves `remoteVendors` UNSET rather than an empty map, so
+  // `assemble.ts` can tell "no vendor tables" from "vendor tables that all dropped".
+  const remoteVendors = parseLlmRemoteVendors(source);
+  if (remoteVendors.size > 0) out.remoteVendors = remoteVendors;
+  // Same second-scan reasoning as `localRoutes`/`remoteVendors` above: `taskPins` stays OPTIONAL
+  // on the full `NimbusLlmToml` (not defaulted to an empty map), set only when at least one entry
+  // survived parsing — see the doc above `NimbusLlmToml.taskPins` for why collapsing "no table"
+  // and "an all-dropped table" to the same `undefined` is fine here.
+  const taskPins = parseLlmTaskPins(source);
+  if (taskPins.size > 0) out.taskPins = taskPins;
   return out;
 }
 
@@ -636,6 +914,117 @@ export function loadNimbusCodeExecutionFromPath(tomlPath: string): NimbusCodeExe
 
 export function loadNimbusCodeExecutionFromConfigDir(configDir: string): NimbusCodeExecutionToml {
   return loadNimbusCodeExecutionFromPath(join(configDir, "nimbus.toml"));
+}
+
+export const KNOWN_CU_LANES = ["browser", "terminal", "screen"] as const;
+export type CuLane = (typeof KNOWN_CU_LANES)[number];
+
+export type NimbusComputerUseToml = {
+  enabled: boolean;
+  allowedLanes: CuLane[];
+  maxActions: number;
+  maxWallClockMs: number;
+  browserProfileDir: string;
+  snapshotMaxBytes: number;
+  snapshotRetentionDays: number;
+};
+
+/**
+ * DEFAULT OFF, and `allowedLanes` DEFAULT EMPTY — a deliberate SECOND lock, and a departure from
+ * `[code_execution]`'s non-empty `allowed_runtimes = ["bun"]`. `enabled = true` on its own actuates
+ * nothing; the operator must name each lane. The screen lane costs `nimbus prove` its verdict for
+ * any window containing one action, so opting into a lane should be an act rather than something
+ * inherited from flipping one boolean.
+ */
+export const DEFAULT_NIMBUS_COMPUTER_USE_TOML: NimbusComputerUseToml = {
+  enabled: false,
+  allowedLanes: [],
+  maxActions: 50,
+  maxWallClockMs: 300_000,
+  browserProfileDir: "",
+  snapshotMaxBytes: 262_144,
+  snapshotRetentionDays: 7,
+};
+
+/**
+ * Normalise to lowercase and drop unknown lanes. The lowercasing is load-bearing: the gate compares
+ * this array against the lane literal, so if this stopped normalising, `allowed_lanes = ["Browser"]`
+ * would silently refuse every session with a message about the lane not being allowed.
+ */
+function parseAllowedLanes(valRaw: string): CuLane[] {
+  const known = new Set<string>(KNOWN_CU_LANES);
+  const seen = new Set<string>();
+  const out: CuLane[] = [];
+  for (const v of parseStringArray(valRaw)) {
+    const id = v.trim().toLowerCase();
+    if (id === "" || seen.has(id) || !known.has(id)) continue;
+    seen.add(id);
+    out.push(id as CuLane);
+  }
+  return out;
+}
+
+function applyNimbusComputerUseKey(
+  out: Partial<NimbusComputerUseToml>,
+  key: string,
+  valRaw: string,
+): void {
+  const positive = (assign: (n: number) => void): void => {
+    const n = parseIntDec(valRaw);
+    if (n !== undefined && n > 0) assign(n);
+  };
+  switch (key) {
+    case "enabled":
+      out.enabled = valRaw.trim().toLowerCase() === "true";
+      break;
+    case "allowed_lanes":
+      out.allowedLanes = parseAllowedLanes(valRaw);
+      break;
+    case "max_actions":
+      positive((n) => {
+        out.maxActions = n;
+      });
+      break;
+    case "max_wall_clock_ms":
+      positive((n) => {
+        out.maxWallClockMs = n;
+      });
+      break;
+    case "browser_profile_dir":
+      out.browserProfileDir = parseString(valRaw);
+      break;
+    case "snapshot_max_bytes":
+      positive((n) => {
+        out.snapshotMaxBytes = n;
+      });
+      break;
+    case "snapshot_retention_days":
+      positive((n) => {
+        out.snapshotRetentionDays = n;
+      });
+      break;
+    default:
+      break;
+  }
+}
+
+export function parseNimbusComputerUseToml(
+  raw: string,
+  defaults: NimbusComputerUseToml = DEFAULT_NIMBUS_COMPUTER_USE_TOML,
+): NimbusComputerUseToml {
+  const out: Partial<NimbusComputerUseToml> = {};
+  forEachSectionEntry(raw, "[computer_use]", (key, valRaw) => {
+    applyNimbusComputerUseKey(out, key, valRaw);
+  });
+  return { ...defaults, ...out };
+}
+
+export function loadNimbusComputerUseFromConfigDir(configDir: string): NimbusComputerUseToml {
+  return loadTomlSection(
+    join(configDir, "nimbus.toml"),
+    DEFAULT_NIMBUS_COMPUTER_USE_TOML,
+    parseNimbusComputerUseToml,
+  );
 }
 
 export type NimbusFederationToml = {

@@ -14,7 +14,7 @@ import type { PlatformPaths } from "../platform/paths.ts";
 import { agentRequestContext } from "./agent-request-context.ts";
 import { GatewayAgentUnavailableError } from "./gateway-agent-error.ts";
 import { TONE_DIRECTIVES, VOICE_DIRECTIVES } from "./persona.ts";
-import { runAsk } from "./run-ask.ts";
+import { resolveLocalContextItemLimit, runAsk } from "./run-ask.ts";
 import type { ConnectorDispatcher } from "./types.ts";
 
 const stubBase = join(tmpdir(), "nimbus-run-ask-test");
@@ -62,9 +62,19 @@ function fakeConversationalAgent(reply = "agent reply"): Agent {
   } as unknown as Agent;
 }
 
-function fakeLocalRouter(calls: string[], reply = "local reply", preferLocal = true): LlmRouter {
+function fakeLocalRouter(
+  calls: string[],
+  reply = "local reply",
+  preferLocal = true,
+  enforceAirGap = false,
+): LlmRouter {
   return {
     prefersLocal: () => preferLocal,
+    // Added when `classifyIntent` grew a required egress policy. A double that omits a method the
+    // production caller invokes does not fail typecheck — this object reaches `LlmRouter` through
+    // an `as unknown as` cast — it fails at runtime, which is how 20 tests in this file went red
+    // at once. Keep this in step with LlmRouter.
+    enforcesAirGap: () => enforceAirGap,
     generate: async (opts: { prompt: string }) => {
       calls.push(opts.prompt);
       return {
@@ -190,6 +200,65 @@ describe("runAsk", () => {
 
     expect(appended).toHaveLength(0);
     localIndex.close();
+  });
+
+  test("air-gap ON answers locally and makes no remote call", async () => {
+    // `classify` is deliberately NOT injected, so the REAL classifyIntent runs and the policy has
+    // to travel router -> run-ask -> classifier for this to pass. Injecting a stub would test the
+    // stub.
+    //
+    // What the two guards below prove changed on 2026-08-28, and the weaker one is called out so
+    // nobody reads more into it than it carries:
+    //
+    //  - `reached` staying empty is now STRUCTURAL, not a property of air-gap: the classifier has
+    //    no HTTP client of its own any more, so nothing in `ask` can reach a vendor except through
+    //    `LlmRouter`. It is kept, with ANTHROPIC_API_KEY still set, as a regression guard against
+    //    someone re-adding a direct client keyed off the environment — which is exactly what was
+    //    deleted. It does NOT prove air-gap did anything.
+    //  - `isLocal` is the assertion that still tests air-gap: the answer came from a LOCAL route.
+    //
+    // This file has no lifecycle hooks, so the env and fetch are restored here.
+    const db = new Database(":memory:");
+    LocalIndex.ensureSchema(db);
+    db.run(
+      `INSERT INTO item (id, service, type, external_id, title, body_preview, url, modified_at, synced_at)
+       VALUES ('github:zaalgol/helpdesk#issue-1', 'github', 'issue', 'zaalgol/helpdesk#issue-1', 'add a smoke test', 'Create a basic smoke test for the helpdesk app.', 'https://github.com/zaalgol/helpdesk/issues/1', 1, 1)`,
+    );
+    const localIndex = new LocalIndex(db);
+    const prompts: string[] = [];
+    const reached: string[] = [];
+
+    const originalFetch = globalThis.fetch;
+    const originalKey = process.env["ANTHROPIC_API_KEY"];
+    process.env["ANTHROPIC_API_KEY"] = "sk-ant-not-real";
+    globalThis.fetch = (async (input: unknown) => {
+      reached.push(String(input));
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    try {
+      const out = await runAsk({
+        input: "What should I do for the smoke test issue?",
+        stream: false,
+        clientId: "test-client",
+        paths: stubPaths,
+        consentCoordinator: stubConsent,
+        localIndex,
+        dispatcher: stubDispatcher,
+        egressSink: NULL_EGRESS_SINK,
+        sendChunk: () => {},
+        llmRouter: fakeLocalRouter(prompts, "Answered from the local index.", true, true),
+      });
+
+      expect(out.reply).toBe("Answered from the local index.");
+      expect(out.modelMeta?.isLocal).toBe(true);
+      // Structural now — see the note above. Guards against a direct client coming back.
+      expect(reached).toEqual([]);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalKey === undefined) delete process.env["ANTHROPIC_API_KEY"];
+      else process.env["ANTHROPIC_API_KEY"] = originalKey;
+    }
   });
 
   test("uses local LLM router when remote classifier has no API key", async () => {
@@ -1917,5 +1986,45 @@ describe("a count question is answered from the index, not the model (F23)", () 
 
     expect(out.reply).not.toContain("Counted from the index");
     localIndex.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveLocalContextItemLimit
+//
+// `ask` fed the model 8 indexed items regardless of the model behind it. That
+// budget was sized for a 3B local model; a 14B-class model with a 128k window
+// can hold far more, and the 8-item cap — not the model — was what made `ask`
+// answer "no data available" while 71 items matched. Default stays 8 so no
+// existing deployment changes behaviour; the override is opt-in.
+// ---------------------------------------------------------------------------
+
+const ASK_ITEMS_ENV = "NIMBUS_ASK_CONTEXT_ITEMS";
+
+function withAskItemsEnv<T>(value: string | undefined, fn: () => T): T {
+  const prev = process.env[ASK_ITEMS_ENV];
+  if (value === undefined) delete process.env[ASK_ITEMS_ENV];
+  else process.env[ASK_ITEMS_ENV] = value;
+  try {
+    return fn();
+  } finally {
+    if (prev === undefined) delete process.env[ASK_ITEMS_ENV];
+    else process.env[ASK_ITEMS_ENV] = prev;
+  }
+}
+
+describe("resolveLocalContextItemLimit", () => {
+  test("defaults to 8, preserving the shipped context budget", () => {
+    expect(withAskItemsEnv(undefined, resolveLocalContextItemLimit)).toBe(8);
+  });
+
+  test("honours NIMBUS_ASK_CONTEXT_ITEMS when it is a positive integer", () => {
+    expect(withAskItemsEnv("40", resolveLocalContextItemLimit)).toBe(40);
+  });
+
+  test("falls back to the default when the override is not a positive integer", () => {
+    for (const bad of ["", "abc", "0", "-3", "40ms", "1.5", "12abc"]) {
+      expect(withAskItemsEnv(bad, resolveLocalContextItemLimit)).toBe(8);
+    }
   });
 });

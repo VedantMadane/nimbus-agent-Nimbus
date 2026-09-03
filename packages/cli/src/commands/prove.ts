@@ -36,7 +36,32 @@ type ProveResult = {
  * (`gateway/src/egress/egress-coverage.ts`) — the CLI cannot import it (cli→gateway source imports
  * are forbidden), so this map is a hand-maintained mirror and drifts silently if you forget.
  */
-const COVERAGE_CLASS_LABELS: Readonly<Record<string, string>> = {
+export const COVERAGE_CLASS_LABELS: Readonly<Record<string, string>> = {
+  // LIVE as of the raw-CDP browser driver landing -- no longer latent. The appender
+  // (`egress/browser-egress.ts`'s `wrapLedgeredBrowserContext`) decorates the CDP-backed context
+  // that `computer-use/cu-lanes/browser.ts` constructs, appending one row per (destination origin,
+  // verdict) BEFORE the request is allowed to proceed.
+  //
+  // "requests" plural against "per-run" granularity is deliberate and is why the label says
+  // "origins contacted" rather than a count of calls: one row stands for every request to that
+  // origin under that verdict, so this class NAMES where the browser went and does not measure how
+  // often. Read a zero as "no browser lane made a request" -- on a stock install that is because
+  // `[computer_use]` is off and no lane exists, which is the same claim, not a weaker one.
+  //
+  // TWO bounds, both narrower than the label alone would suggest. (1) Section 3.5.1's: `script`
+  // and `image` subresources load from ANY origin (blocking either breaks the real web), so a
+  // beacon built into a page's markup still leaves -- it just leaves with a row naming its origin,
+  // which is the whole mitigation. (2) The class covers the lane's PAGE traffic, where CDP `Fetch`
+  // interception is scoped; Chrome's OWN browser-process chatter (variations, Safe Browsing,
+  // reliability beacons) originates outside any page target and is neither gated nor rowed --
+  // observed on a CI runner, with the quieting flags already set. Hence "the page" in the label:
+  // a zero here means the lane's page contacted nobody, not that the browser process did.
+  browser: "origins the computer-use browser lane's page contacted",
+  // Unlike `mcp` and `http`, this class is NOT narrower than its name: it covers EVERY outbound
+  // post the gateway makes to Slack/Teams — operational replies, HITL approval cards, tribal
+  // suggestions and agent briefs — because the appender decorates the single post closure they all
+  // share. A zero here means the bot said nothing.
+  chatops: "Slack/Teams posts",
   task: "gated connector actions",
   mcp: "agents.* briefs served to MCP clients",
   // NOT "the HTTP API" — the class covers agent briefs only. The other HTTP reads append nothing:
@@ -57,9 +82,21 @@ const COVERAGE_CLASS_LABELS: Readonly<Record<string, string>> = {
   // loudly), it just makes no outbound call and ledgers no row — so a zero here means no
   // CONFIGURED connector's sync/fetch ran, not that no syncable on the scheduler executed at all.
   sync: "configured connector sync runs and targeted fetch-on-miss calls",
-  // NOT "model calls". Covers remote-provider brief synthesis only; embeddings append nothing,
-  // so a zero here is not a claim that no vector left the machine.
-  model: "remotely-synthesized agent briefs",
+  // NOT "model calls". Covers every non-local ROUTE in the router's table (all callers, via the
+  // provider wrapper `egress/model-egress.ts`), the Mastra engine agent (a second appender at the
+  // AI-SDK seam, since it resolves its model outside the route table entirely), and remote
+  // embeddings (a third appender at each embedding-pipeline construction site) -- wider than the
+  // brief-synthesis-only scope this label used to name. The class carries no NAMED exclusion: a
+  // LOCAL provider, a locally-run Mastra model, or a LOCAL embedder each append nothing by design,
+  // not as a gap, so a zero here is still not literally a claim that no vector or prompt left the
+  // machine. See the `model` entry in the gateway's `egress/egress-coverage.ts`.
+  model: "prompts and embedding batches sent to a non-local model",
+  // Latent — always "none" on this binary; no appender exists yet. Named here anyway so a class
+  // this vector already reserves never prints as a bare identifier once it does.
+  peer: "federated peer sends",
+  // Latent — always "none" on this binary; no appender exists yet. Gateway housekeeping egress:
+  // telemetry, the auto-updater, JWKS refresh.
+  session: "gateway housekeeping egress (telemetry, updater, JWKS)",
 };
 
 /**

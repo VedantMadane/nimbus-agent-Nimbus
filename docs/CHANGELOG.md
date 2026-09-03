@@ -8,6 +8,392 @@ Phase-level history before `v0.1.0` (Phases 1–4) lives in [`docs/roadmap.md` �
 
 ## Post-Phase-6 deliveries
 
+- **2026-09-02 — Multimodal I/O, PR 1 of 4: local audio/video transcription, indexed as searchable derived items.** `nimbus media understand` runs a budgeted, resumable pass (V58 `media_pass_cursor`) over media files under `[[filesystem.roots]]`, discovered behind a new per-root `media_index` toggle. Transcription is local `whisper-cli` over an `ffmpeg` transcode; the decoded WAV is one 0600 gateway-owned scratch file deleted in a `finally`, with a start-of-pass sweep for files a dead process left behind — `finally` does not survive a SIGINT, and on Windows a SIGTERM is `TerminateProcess`. Output is a derived `nimbus:video_understanding` item whose external id is STABLE (the version lives in metadata, so a better model later replaces rather than accumulates duplicate rows in FTS and agent context) and which carries `modelDerived: true` — a transcript is a model'"'"'s assertion, not an observation. The pass reports skips BY REASON rather than a bare total. **DEFAULT OFF twice over:** `[multimodal] enabled` and `media_index`, both false. **Two structural properties:** both understanding types sit in `LOCAL_ONLY_PROSE_TYPES`, so derived text is embedded locally even when a remote embedder is configured — without that, a fully local pass would keep the audio on the machine while shipping everything extracted from it to OpenAI; and the whole `media` namespace is LAN-denied alongside `exec` and `computer`, since the method reads local files and spawns subprocesses. **NOT shipped:** image understanding (no vision model), cloud byte-fetch, any remote model including remote STT, and diarization. **Phase 14 Core acceptance is NOT met** — it wants a frame caption, which needs PR 2. **Known bound:** org policy `multimodal_input` is currently INERT against this capability (no IPC-reachable `EnforcedPolicy` accessor); only the local kill switch is real. Schema **V58**; no new invariant.
+- **2026-09-02 — `GET /v1/agents` publishes the gateway's version alongside the names, because a
+  NAME does not imply an ARM.** One additive field, and it unblocks a client feature that is
+  already shipped and currently dark. `why`, `expert` and `ownership` have been published for
+  releases; the `itemUrl` arms added to them the day before have not — so a client deciding
+  whether to offer an item-scoped lane cannot learn what it needs from the name list, and nothing
+  on the HTTP surface answered a version question: `GET /v1/health` returns
+  `{ status, gateway: "read_only_http" }` and `HTTP_ROUTES` carried no version route at all.
+
+  **It rides on the roster response rather than taking a route of its own, or going on
+  `/v1/health`.** That is the request such a client already makes at the moment it needs the
+  answer, so both facts arrive in one round trip; and it is bearer-authed under the `agents` scope
+  the caller already holds, where `/v1/health` is tokenless. The alternative — read a version at
+  pair time and cache it — goes stale the first time an owner upgrades their gateway without
+  re-pairing, and the symptom is a client's lanes staying dark forever with nothing on screen to
+  explain it.
+
+  **The consumer is `nimbus-web-clipper` PR #96**, whose `meetsFloor` fails **closed** on an
+  absent version: until this ships in a release, that client's three item lanes are withheld on
+  every gateway, its own developers included — a local build reports no version rather than
+  `0.0.0`, so its development-build allowance never fires either. That is why an additive field is
+  worth its own delivery entry.
+
+  **The better long-run shape is for this route to publish each agent's ARMS** rather than a
+  version, retiring the question instead of proxying it through a release number. Not done here:
+  the arms live inside each handler's param types, so deriving them honestly is real work, and
+  hand-listing them is exactly the drift `EXTERNAL_AGENT_NAMES` is derived to prevent. Recorded in
+  the design's § 4.5 addendum so the next reader does not have to rediscover the trade.
+
+- **2026-09-01 — The computer-use TERMINAL lane shipped: a sandboxed, line-oriented shell in which no byte reaches the child process before the owner has approved the whole command.** Slice 2 of 3 per the design's own sequencing (§ 14). It reuses the browser lane's chokepoint entirely — `cu-gate.ts`'s `openSession`/`runAction` stay the only path to the host, and the fix rounds recorded in `runActionExclusive`'s comments were inherited rather than re-derived. What generalised is the gate's browser-shaped parts: `CuEnvelope` and `OpenSessionRequest` became discriminated unions on `lane`, `LiveSession` holds a tagged `CuLaneHandle`, and `performActuation` stays the ONE actuation primitive with a per-lane switch. `nimbus computer terminal --cwd <dir> [--shell <id>]`. **DEFAULT OFF**, with `allowed_lanes` still empty by default — `enabled = true` alone grants nothing. **No new config keys, no migration: V57 is reused as-is.**
+
+  **The security core is one sentence, and everything else serves it: no byte reaches the shell before the owner approved the COMPLETE line.** Model-supplied bytes accumulate in `computer-use/cu-terminal-buffer.ts` and nothing is written until a submit character arrives, the assembled line is shown in full, and the owner approves it. A per-keystroke write path violates that **even if every keystroke is individually classified** — the design's first shape, and a complete bypass rather than a rough edge, since inside vi or fzf a single character IS the destructive action and a model that never sent a newline would have driven the host with every action auto-satisfied. Four properties make it true rather than customary. Refusals are **wholesale** and leave the buffer untouched — asserted on every branch that can refuse, after an earlier draft cleared it on one of them, which made "a refusal changes nothing" unassertable as a single test. Control characters are **refused, not buffered**: a lane that cannot safely deliver `y` cannot safely deliver Ctrl-C, and buffering a control byte until a newline that never arrives is a silent hang rather than an honest refusal. The approved line is **read once** and not re-derived at write time — the TOCTOU that would defeat the gate, since here the human IS the boundary. And `classifyTerminalAction` returns `actuating` unconditionally and takes **exactly one parameter**, so the model's description cannot be passed to it: spec § 4.3.1's "the terminal lane has no `observing` class at all" is enforced by ARITY, not by convention. The lane gets no command allow-list, deliberately — an allow-list over shell text is defeated by quoting, substitution, aliasing and encoding, and a defense that can be quoted around is worse than none because it is believed.
+
+  **The buffer also refuses what the shell would ignore — Trojan Source (CVE-2021-42574).** `REFUSED_RANGES` carries two classes for opposite reasons: C0/DEL/C1 because DELIVERING them is the danger, and the bidirectional embeddings, overrides and isolates, the zero-width characters and marks, U+2028/U+2029 and the BOM because they are harmless to the shell and dangerous to the HUMAN. On this lane the approval prompt is the entire boundary, so a character that changes what the line RENDERS as attacks the only defense there is: a right-to-left override makes the displayed command differ from the bytes that run, a zero-width space between `rm` and `-rf` is visually identical to an ordinary one, and U+2028 renders as a line break in many terminals so one command displays as two. Refused rather than escaped for display, because a prompt the owner has to decode is not a consent gate. **Stated cost:** an emoji ZWJ sequence and a Persian ZWNJ cannot appear in a command line. **Stated bound:** this closes the FORMATTING channel, not the VISUAL one — homoglyphs render identically and are matched by no range table. Written as an explicit range TABLE rather than a character-class regex, so a reader can audit which code points are refused and why without decoding a literal.
+
+  **Unlike the browser, this lane DOES spawn through `SandboxRunner`, and its pre-consent assertion is real.** The browser could not, because no PAL runner can carry a CDP control channel; the terminal lane's only channel is stdio, so the objection does not apply. `assertTerminalLaunchable` calls `canConfine(policy)` on the very `SandboxPolicy` `openTerminalLane` then spawns with — never `degradedReason()` or `isFullyActive()`, for the reasons I33 records. **`ERR_CU_SANDBOX_DEGRADED` is therefore reachable again**, having been deleted from the CLI's refusal map when the browser lane dropped its placeholder assertion, with a note saying a later lane that does spawn through the PAL should restore it with its own wording. This is that lane.
+
+  **It adds NO egress class, and that claim is structural rather than an appender that happened not to fire.** `buildTerminalLaunchPolicy` builds `permissions.network` empty BY CONSTRUCTION and **rejects** a requested grant rather than dropping it — dropping would let a caller believe it had been granted something and would make § 6.2's zero-row claim a convention instead of a property. An empty network set drives `--unshare-net` on Linux, the absent `(allow network*)` block on macOS and the withheld `internetClient` on Windows, which is what makes "no network" include LOOPBACK — the half that matters, since the interesting target is the gateway's own IPC socket and `127.0.0.1` HTTP API, not the internet. Because that property holds via three unrelated mechanisms it is proven **per platform** by a new integration test that runs the same `curl` through an UNCONFINED shell first as a positive control — without which "zero server hits" would have passed for any reason at all, `curl` being absent included. `cwd` is the lane's only filesystem grant: every platform already admits ENOUGH of its own system tree for a shell to run — Linux bwrap binds `/usr`, `/etc`, `/lib` and `/lib64` and notably **not** `/bin`, which is why the POSIX shell entry prefers `/usr/bin/sh`: a shell resolved as `/bin/sh` exists on the host and then fails INSIDE the container, a defect only a real sandbox surfaced, and on Windows granting `%SystemRoot%` actively FAILS, since the helper writes an ACE per granted path and `SetNamedSecurityInfoW` on it returns 5.
+
+  **Two recorded deviations from the design spec, both stated rather than discovered later.** § 3.5 says "a PTY"; this ships a **pipe-backed shell**. A real PTY needs a native module in a binary that must `bun build --compile` and ship alone, and this repo has already shipped a defect where exactly that was silently dropped. Since § 4.3.1 narrows the lane to line-oriented only, the PTY buys nothing it would not immediately give back — and the absence of a tty is STRONGER than the classifier: `vi`, `less`, `top` and `fzf` refuse to start against a pipe on their own, so the scope bound holds at the OS level. Second, command completion is detected by output **quiescence**, never an injected sentinel: appending an `echo <nonce>` would give exact boundaries at the cost of writing bytes the owner never saw, which is precisely what the clause forbids. Quiescence is bounded and disclosed — `settled` reports `quiet` (the only silent case), `no_output`, `settle_cap`, `output_cap` or `exited`, because reporting a silent `mkdir` as `quiet` would assert it finished, the one thing this driver cannot know. Output arriving after a window closes is carried onto the next result behind an explicit notice: carrying it forward stops it being LOST, labelling it stops it being WRONG.
+
+  **The spec left the action surface unspecified; it ships as ONE kind.** `terminal_write` composes, and a submit promotes the whole line to a single `actuating` action whose result carries the command's output. There is deliberately no `terminal_read`: a separate read kind would either cost two owner prompts per command — fatigue, on the one surface this design leans on a human reading carefully — or make the terminal lane's `observing` class load-bearing, contradicting § 4.3.1. A write that composes without submitting records a new `buffered` outcome with a NULL classification and `hitl_status = not_required`, which is accurate (nothing reached the host) and can never form the forbidden `not_required` + `actuating` pair. Both non-actuating outcomes return something useful to the caller — the pending text for `buffered`, the refusal reason for a rejected write — because a model that sees a bare `refused_out_of_envelope` for four distinct conditions can only retry blindly, spending the owner's budget on attempts nobody can learn from.
+
+  **V57 column reuse, disclosed rather than left to be inferred:** on this lane `cu_action.dom_before` is always NULL and `dom_after` carries the command's OUTPUT. The replay body of a terminal action *is* its output, so it wants exactly what that column already provides — the `snapshot_max_bytes` cap, the truncation flags, and the 7-day retention prune, which is the right posture for text that routinely carries secrets. The names predate the second lane; renaming is a migration under a forward-only schema and is not worth one.
+
+  **Lane/kind agreement is checked before a budget slot is spent.** `KINDS_BY_LANE` is TOTAL over `CuLane` — `screen` is listed with an EMPTY set, because naming a lane that ships no actions is honest and omitting it would read as an oversight — so a third lane is a compile error rather than a silent gap. A `click` against a terminal session is `refused_out_of_envelope`, never prompted, and costs no budget.
+
+  **Static D26(c) now covers both lane constructors**, with PER-CONSTRUCTOR allow-lists: `cu-lanes/browser.ts` is not a licence to name the terminal constructor, and vice versa, since a single shared list would have let every file under `cu-lanes/` reach every other lane's driver. **D26(b) has no terminal analogue, and that is recorded rather than papered over with a weak rule:** the lane's capability is "spawn a process and write to its stdin", and `SandboxRunner.spawn` is used legitimately by every connector and by `exec/`, so any regex over it would be noise. What confines the lane is (a), (c) and capability removal — `CuRunDeps` carries no lane constructor, so the model-facing tool layer cannot name one.
+
+  **Known bounds, unchanged by anything here:** the lane is line-oriented ONLY, so full-screen TUIs do not work at all — the deliberate cost of § 4.3.1's buffering; and a single approved line can still do arbitrary damage, because the gate proves the owner SAW the command, never that they understood it. The **screen lane remains unimplemented** and is deferred as the honesty-costly lane the sequencing places last.
+
+- **2026-09-01 — `why`, `expert` and `ownership` answer about an indexed item, not just a PR.**
+  A third input arm, `itemUrl`, on all three — so the browser client can ask about a Jira or
+  Linear issue and a PagerDuty incident, not only a pull request. Requires `@nimbus-dev/sdk`
+  **1.31.0**, which publishes `WhyItemSubject`, `WhyBrief.itemSubject` and
+  `ExpertBrief.query.itemUrl` (all additive). **Deliberately not a Confluence page:** a page
+  indexes as `type: "page"`, which appears in neither `ITEM_LINKED_ENTITY_TYPES` nor
+  `GRAPH_SYNC_BY_TYPE`, so it has no `graph_entity` at all — and every lane here answers from
+  graph edges. `resolveItemArm` treats "resolved, but no entity" as a miss rather than naming an
+  item the lanes then say nothing about, and a test pins that bound. The arm is not a rewiring
+  of an existing path: `ticketRowsForPr` joins `pe.type = 'pr'` on `from_id`, so handed an issue
+  it returns zero rows, and `why` would otherwise have shipped a well-formed EMPTY brief for
+  every issue in the index. `prResolvingItem` walks `resolves` INWARD to the change that closed
+  the item and populates the lane input with it, so the four item-applicable lanes answer
+  unchanged; `subAuthorship` and `subDownstream` stay silent, as they already do on the `prUrl`
+  arm, because neither question ever had a file subject. `expert` gains two edge-backed
+  sub-agents (`person --opened--> item`, and the resolving PR's author) and does **not** run its
+  five `LIKE` lanes on this arm — mixing an edge-backed answer with a lexical one in one ranked
+  list would let a title coincidence outrank someone the graph actually links to the item.
+  `ownership` introduces no new target kind: the item is mapped to its service by
+  `item --belongs_to--> repo --belongs_to--> service` and answered by the same service lane a
+  `{ service }` request takes, so the two cannot disagree. Every guard's mutual exclusion is now
+  a **count** rather than a pairwise check — `why`'s `hasRef === hasPrUrl` expressed "exactly
+  one" only while there were two arms, and silently means "an odd number" at three.
+
+- **2026-08-31 — The computer-use browser lane can now actually drive a browser, and the `browser` egress class went live with it.** The driver deferred on 2026-08-30 landed as **raw CDP over a WebSocket** (`computer-use/cu-lanes/`), with **no dependency at all** — Bun has a native `WebSocket`, and `playwright-core`, which fails a `bun build --compile` gate, is not reintroduced in any form. `platform/assemble.ts` now supplies the four `CuGateDeps` driver seams instead of `resolveBrowserPath: () => null`, so `ERR_CU_NO_BROWSER` is no longer the terminus of every session on a machine that has Chrome, Chromium or Edge installed. The nine items the plan required to close **in the same commit as the driver** are closed here; each is below with what it actually prevents rather than a checkbox.
+
+  **Two defects the fixtures could never have caught, found the first time the observer ran against a real DOM.** (1) CDP reports `Fetch.requestPaused.resourceType` in **PascalCase** (`"Document"`, `"XHR"`, `"Image"`), while `CuResourceType` was written in `playwright-core`'s lowercase vocabulary — so the unguarded `req.resourceType() as CuResourceType` cast made **every** live type miss both `PASSIVE` and `SCRIPT_INITIATED`. Fail-closed, and a browser lane that could not render the origin its owner had just approved, because the page's own `Document` was gated too. Closed with a real guard (`cu-request-policy.ts`'s `toCuResourceType`, returning `null` — never a guess — for anything unrecognised, with the caller substituting `"other"`, which `decideRequest` places in the GATED branch). `Ping` (`navigator.sendBeacon` / `<a ping>`), `Preflight`, `Prefetch`, `Manifest`, `SignedExchange`, `CSPViolationReport`, `FedCM` and `TextTrack` are DELIBERATELY unmapped so they gate: `Ping` is a fire-and-forget outbound POST, i.e. exactly the channel § 3.5.1 exists to close, and folding it into a `PASSIVE` member "because it is a subresource" would reopen it. The RAW protocol string, not the substituted word, is what reaches `payload_summary`. (2) `new URL("javascript:…").origin` is the **string** `"null"` — the WHATWG opaque-origin serialization — which compares EQUAL to a `data:` page's own `location.origin`, so two opaque origins would have read as same-origin. Collapsed to JS `null` at the producer (`browser-observe.ts`'s `normalizeObservedOrigin`), which makes every downstream `!== null` guard fall to its actuating branch. Both are pinned by tests that run against a REAL Chrome when one is installed (`skipIf` otherwise), alongside the `closest()`-based `isSubmitControl` the contract was rewritten for — a `<span>` inside `<button type=submit>` reports `true`, verified live.
+
+  **The pre-consent sandbox assertion was proving the wrong thing, and is replaced rather than patched.** `cu-gate.ts`'s `browserLanePolicy` was, by its own in-file disclosure, a PLACEHOLDER: a `SandboxPolicy` asserted against `SandboxRunner.canConfine` and then never used to launch anything. It was worse than uninformative — it carried `permissions.network: []`, which `linux.ts`'s `decideNetworkMode` reads as `no-net` → `--unshare-net`, so had it ever reached a real spawn the browser would have had no network **and the gateway no route to its own CDP endpoint**. It is gone. The gate now builds ONE `CuBrowserLaunchPolicy` (`cu-lanes/browser-launch.ts`), asserts it before consent (`assertBrowserLaunchPolicy`), and hands the SAME binding to `openLane`, which spawns its `argv` VERBATIM — an identity a test pins by object reference, not by equality. The assertion is load-bearing rather than decorative: an empty or relative `profileDir` is refused because Chromium with no `--user-data-dir` runs against the **owner's real profile** — their cookies, sessions and history, one missing flag away; a duplicate or disagreeing `--user-data-dir` is refused (Chromium takes the first and ignores the rest); a fixed debugging port is refused (the CDP endpoint has no authentication of its own, so any local process could drive that browser); and any `--no-sandbox`-class flag is refused, matched by PREFIX so `--disable-features=IsolateOrigins,site-per-process` cannot ride in looking like a tuning flag.
+
+  **Deviation from the design spec, stated plainly rather than discovered later: the browser does NOT spawn through `SandboxRunner`.** Spec § 3.5 designed it to, with network granted. That is not achievable with today's PAL, and shipping it would have produced a lane that refuses or fails to launch nearly everywhere: a loopback debugging port needs `network-bind`, which macOS's `(deny default)` SBPL profile denies (it emits only `(remote …)` filters); the fd-pipe transport needs descriptors 3/4 forwarded, which the Windows AppContainer helper does not do; and Linux and Windows both additionally require `nimbus-sandbox-helper` for any network-bearing policy, a binary CI does not install. Making it work would mean widening the PAL profile for EVERY sandboxed connector, or passing Chromium `--no-sandbox` — disabling the renderer sandbox of the one process in this codebase that renders attacker-controlled content. The lane is instead confined by **Chromium's own multi-process sandbox** (kept intact, and the launch assertion is what keeps it intact), a **Nimbus-owned `--user-data-dir`**, the **§ 3.5.1 CDP request policy**, and **headless + `Browser.setDownloadBehavior: deny`** — the last so that "nothing this lane does puts a file on disk" does not rest on the gate refusing a `download` action kind, since a page can start a download on its own. Recorded in `docs/SECURITY-INVARIANTS.md` § I35 and in `cu-types.ts` beside the type itself.
+
+  **The `browser` egress class is LIVE — `THIS_BINARY_COVERAGE.browser` raised `"none"` → `"per-run"` in this commit, per `egress-coverage.ts`'s own rule.** `wrapLedgeredBrowserContext` finally has a production caller: `openBrowserLane` wraps the CDP-backed context it constructs and enables `Fetch` interception THROUGH the wrapper, so every request is decided and ledgered before it proceeds. An append failure fails that request closed **and tears the CDP transport down**, so no later request can proceed unrecorded either — the lane then reports `isAlive() === false` and the gate terminates the session on its next action. `per-run` is the honest granularity: one row per `(destination origin, verdict)` pair, which NAMES every host the browser contacted without measuring how often. `nimbus prove`'s `COVERAGE_CLASS_LABELS.browser` mirror was re-worded for the live appender ("origins contacted by the computer-use browser lane"). **§ 3.5.1's bound survives and is not closed by any of this:** `script` and `image` subresources load from ANY origin, so a `<script src>` or `<img src>` carrying a payload in its URL still exfiltrates — it is rowed by origin, which is the mitigation, not prevented.
+
+  **Six correctness gaps the plan flagged as becoming live the moment a driver existed, all closed.** (1) `CuGateDeps` was handed whole to the model-facing tool layer (`cu-tools.ts`, and through it `engine/agent.ts`), so any future file there could call `deps.openLane(...)` and click with no envelope, classification, consent or audit row — invisible to **both** D26 rules, since there is no `performActuation(` call and no driver import when the capability arrives as a function VALUE. Split into a `CuRunDeps` without any lane-construction seam; removing the capability, not adding a third rule over it. (2) `runAction` never re-checked liveness after an `await`, so a `closeSession` arriving while the owner read an approval prompt — an unbounded window — still actuated against a lane already torn down. Now `session.isOpen() && lane.isAlive()` is re-checked after the observation, after consent, and immediately before the host is touched. (3) There was no per-session serialisation, so two concurrent `computer.act` calls interleaved `dom_before`/actuate/`dom_after` on one lane — the damage is not the budget counter (`consumeAction` was always atomic) but the observation window: an interleaved pair records action A's `dom_after` from a page action B had already changed, making every `cu_action` replay body on that session a description of a state that never existed. A promise-chain `queue` on `LiveSession` serialises actions; `closeSession` deliberately does NOT queue behind one, since an owner closing a session must not wait on an action blocked on a prompt they are no longer going to answer — which is exactly what the re-checks make safe. (4) `terminated_target_lost` was declared and handled but **never assigned by anything**; the liveness re-checks now produce it, with its own termination reason, while an actuation that was ATTEMPTED and then failed still records `failed_after_approval` (the owner did approve, and downgrading it would resolve `hitl_status` to `rejected` and understate what happened) — the outcome recorded and the teardown owed are two different questions. (5) There was no boot-time reconciliation of orphaned `cu_session` rows: the durable table `computer.sessionStatus` reads survives a restart and the gate's in-memory `liveSessions` map does not, so after one they disagreed **permanently** — a session showed open forever, `sessionClose` answered `not_found`, and the CLI's watch loop polled until killed. `cu-boot-reconcile.ts` closes them at boot, before any session of the new process can open, with its own `close_reason` (`orphaned_by_gateway_restart`) rather than borrowing `terminated_target_lost`, which implies the gate observed the loss. (6) The two consent brokers were routed by probing `"seq" in input` — a structural property standing in for a tagged union, sound only because `seq` happened to exist on one shape and not the other. A `seq` added to the envelope input would have silently routed every session-open prompt to the ACTION broker, whose renderer draws a different prompt entirely: the owner would be asked to approve "a browser action" while the origin lists and budgets they were actually granting went unshown, with no compile error and no covering test. Now a `promptKind` literal discriminant with an exhaustive `switch`.
+
+  **Ctrl-C no longer leaves a browser running on the gateway.** `nimbus computer browser` handles SIGINT/SIGTERM: it asks the GATEWAY to close the session (the session belongs to the gateway, not to the CLI process) and exits **130**, the POSIX convention. Before this, an interrupt exited the CLI and left a live headless browser inside an approved envelope with nothing watching it until its wall-clock ceiling expired — five minutes on the shipped defaults — and the owner had no signal it was still there. A second interrupt stops waiting and names the recovery command (`nimbus computer close <id>`) rather than blocking the terminal on a close that is not landing.
+
+  **Static rule D26 grew a third rule and a much wider second one.** D26(b) matched `playwright`/`playwright-core` ONLY — and the driver that shipped is raw CDP with no dependency, so a file opening its own socket and clicking **passed it silently**; that gap was disclosed in `SECURITY-INVARIANTS.md` rather than enforced. It now also rejects any **CDP `Domain.method` string literal** (`"Page.navigate"`, `"Input.dispatchMouseEvent"`, …) outside `computer-use/cu-lanes/`, on the observation that a CDP client cannot do anything without naming a protocol method whatever transport it uses; the pattern has **zero** matches across `packages/gateway/src`, `packages/cli/src` and `scripts/` outside that directory — measured, not assumed. New **D26(c)** confines `openBrowserLane` to its own definition plus `platform/assemble.ts`, the same shape D22(f) uses for `wrapLedgeredEmbedder`: (b) confines the capability to a directory, but a wiring layer must reach into it once, and that one legitimate import is enough for a second to hide beside it.
+
+  **Two things the macOS CI leg found that a green Windows run could not.** (1) `close()` returned as soon as `child.kill()` had been CALLED, which made it mean "a signal was sent" rather than "the browser is gone" — and since Chromium holds a `SingletonLock` on the shared profile directory for the life of the process, closing a session and immediately opening another raced the dying process for that lock. The new session then died at launch with `Failed to create …/SingletonLock: File exists (17)`, surfacing to the owner as `ERR_CU_LAUNCH_FAILED` with nothing connecting it to the session they had just closed. `close()` now AWAITS the process exiting (SIGTERM, 5s, then SIGKILL, 2s, then returns anyway — bounded, because it is called from `bestEffortCloseLane` on paths that are already unwinding), and the same wait guards the failed-launch path. Windows won that race every time locally; the cross-platform leg is the only reason it was found before a user hit it. (2) harden-runner recorded a freshly-launched Chrome connecting to `www.google.com` and `accounts.google.com` **before any page had loaded**, with `--disable-background-networking`, `--disable-component-update`, `--disable-sync` and `--metrics-recording-only` already set. That traffic comes from the browser PROCESS, not the page target where `Fetch.enable` is scoped, so it is neither gated by § 3.5.1 nor ledgered — a real narrowing of the `browser` class that is now stated in `egress-coverage.ts`, in I35, and in `nimbus prove`'s label (which reads "origins the computer-use browser lane's PAGE contacted"). `--no-pings`, `--disable-breakpad` and `--disable-domain-reliability` cut what can be cut without disabling a safety feature; `--disable-client-side-phishing-detection` was deliberately NOT added, and nothing spelled `--disable-features=…` can be, since the launch assertion refuses it as the vehicle for turning off site isolation.
+
+  **Four fixes from review, three of them real defects.** The boot reconciliation closed the `cu_session` row and appended its audit entry as two writes, so a failed append left the row closed and unreturnable by `listOpenSessions` — no later boot could ever write its terminal entry, and the record lost it silently. Both writes are one transaction now; a failure rolls the closure back and the next boot retries. `toCuResourceType` indexed a plain object literal, so `("toString")` returned a function and `("constructor")` returned `Object` — values `?? null` does not catch, bypassing the caller's `?? "other"` fallback; not exploitable (CDP picks the string, and it still failed closed downstream) but a guard contracted to "never guess" must not have keys where that is false, so it is a `ReadonlyMap` now. `nimbus computer browser`'s second interrupt was a boolean read only between polls, so it printed its recovery guidance and then waited for an in-flight request that, on a wedged gateway, never settles — the loop now races both the request and the sleep against a cancellation promise. And the serialisation test named "a FAILING action still releases the lane" never made an action fail; the corrected version drives the one path that actually rejects (a failed audit append) and was red-proved by moving `releaseLane()` off the `finally`, where the broken build HANGS rather than fails.
+
+  **One browser-lane session at a time, disclosed rather than discovered.** `[computer_use] browser_profile_dir` is one directory shared by every session (spec § 9, so a login survives across them), and Chromium holds a singleton lock on it — so a second CONCURRENT session fails at launch (verified against a real Chrome: exit code 21, empty stderr) and is recorded `failed_after_approval` / `ERR_CU_LAUNCH_FAILED`. Fail-closed and honestly recorded, but post-consent: the owner approves an envelope that then cannot start. Left this way deliberately rather than closed with a concurrency check in `openSession`, which would make the colliding-id teardown path (`evictExistingSession`) unreachable and is a product decision about session concurrency, not a driver detail. The driver names the likely cause when stderr is empty, so nobody is left holding a bare exit code.
+
+  **Bound worth recording for whoever writes the next lane:** `type` is focus + select + `Input.insertText`, which synthesises **no key event** and therefore cannot press Enter — that is what keeps the classifier's `submitsForm` rule unreachable in the shipped surface, verified against a live page whose submit handler never fires. A `dispatchKeyEvent`-based implementation would make it live and would need a real producer wired to it. `isSubmitControl` resolves `closest("button, input[type=submit], input[type=image], form")` with a `FORM`-specific guard: the `form` in that selector catches the node BEING a form, and taking it literally would classify a click on any `<div>` or `<label>` inside any form as actuating — fail-closed, but so noisy it trains the owner to approve reflexively, which is the fatigue failure the design exists to avoid. **I11's screenshot bound remains anticipated, not live:** captures are still hashed and discarded, no vision-capable model is wired in, and the taint latch still taints by KIND rather than by content, in advance of a channel that does not exist yet.
+- **2026-08-30 — The local computer-use loop's gate shipped; nothing can drive it yet.** New
+  invariant **I35** + static rule **D26**, schema **V57** (`cu_session` / `cu_action`), new
+  subsystem `packages/gateway/src/computer-use/`, deliberately parallel to `exec/` in shape and
+  naming. An actuation reaches the host only through `cu-gate.ts`'s `openSession()`/`runAction()`,
+  inside a live session envelope the LOCAL owner approved up front: refuse **before consent** when
+  disabled by `[computer_use] enabled`/org policy (I22) or when the lane is not in `allowed_lanes`;
+  assert `SandboxRunner.canConfine(policy)` — never `degradedReason()`/`isFullyActive()`, I33's
+  identical reasoning; **refuse, never prompt**, an action outside the approved envelope; derive
+  the HITL class STRUCTURALLY from the gateway-observed target (`cu-classify.ts`), never the
+  model's own `modelDescription` field (I3 transplanted); obtain single-use owner approval for
+  every `actuating` verdict; append one `computer.action` audit row before every actuation,
+  fail-closed. The envelope's immutability is enforced at construction: `CuSession` deep-freezes
+  the approved envelope and both origin arrays when the session opens, so origins can never grow
+  and budgets can never rise — that holds from the first action, independent of any latch. The
+  taint latch (`tainted_at`) is a durable forensic record of the moment untrusted content first
+  enters a session, not an enforcement mechanism: nothing in production reads it today. Screenshot
+  bytes are BLAKE3-digested and discarded in the same expression that captures them; no pixel is
+  ever written to disk, on any lane, at any point. New IPC namespace `computer.*`
+  (`sessionOpen`/`act`/`sessionStatus`/`sessionClose`/`approvalRespond`), whole-namespace
+  LAN-forbidden (I5) and absent from the Tauri `ALLOWED_METHODS` (I7), exactly as `exec.*` is and
+  for the same reason. New CLI surface `nimbus computer browser|sessions|close`. Static **D26** has
+  two rules, because one does not carry the property: `performActuation` confinement to
+  `cu-gate.ts`/`cu-actuate.ts` (mirrors I33's D23), and driver-import confinement — no file outside
+  `computer-use/cu-lanes/` may import a browser driver, in either import form (mirrors D22(d)).
+  Design: [`docs/superpowers/specs/2026-08-30-s2-computer-use-design.md`](./superpowers/specs/2026-08-30-s2-computer-use-design.md).
+
+  **What did NOT ship, so this is not read as a working capability.** The browser **driver does
+  not exist**: `playwright-core@1.62.1` fails a `bun build --compile` gate — a statically-resolved,
+  unconditional `require("chromium-bidi/lib/cjs/...")` inside a lazy-init block for its unused
+  WebDriver-BiDi transport, which bun's bundler resolves eagerly at compile time and fails outright
+  — reproduced identically against both `packages/cli`'s and `packages/gateway`'s own
+  `bun build --compile` step, and not fixable by installing the published `chromium-bidi` package
+  (its public layout does not match the internal path Playwright's build vendors). It is re-planned
+  against raw CDP over a WebSocket. Consequently `platform/assemble.ts` wires
+  `resolveBrowserPath: () => null`, and `cu-gate.ts` refuses **every** session before consent with
+  `ERR_CU_NO_BROWSER` — the furthest a **fully-configured** user can get today, not the only
+  refusal a real user can reach: with the shipped defaults (`enabled = false`, `allowed_lanes =
+  []`) a real user hits `ERR_CU_DISABLED` first, then `ERR_CU_LANE_NOT_ALLOWED`, then
+  `ERR_CU_SANDBOX_DEGRADED`, before `ERR_CU_NO_BROWSER` is even reached — over a gate, classifier,
+  request policy, envelope, taint latch, IPC surface, agent-tool wiring, invariant and static rule
+  that are all wired and tested. `nimbus computer browser` is consequently a PASSIVE LISTENER, not
+  a driver: it opens a session and answers its two consent-prompt kinds, but `computer.act` has no
+  production caller anywhere in this build. The **terminal** and **screen** lanes did not ship at
+  all — deferred to slices 2 and 3 — nor did the screen lane's `opaque` egress marker or the
+  `nimbus prove` indeterminacy verdict it requires. The `browser` egress coverage class ships as
+  **`"none"`**, not `per-run`: `egress/browser-egress.ts`'s `wrapLedgeredBrowserContext` is a
+  decorator over a driven `BrowserContext` and has no production caller until the driver lands —
+  it returns to `per-run` in the same commit that gives it one. Invariant **I11**'s screenshot
+  bound is **anticipated, not live**: a capture hashes its bytes and discards them in the same
+  expression, the model receives only an outcome and a digest, and no vision-capable model is
+  wired into the agent — so there is currently nothing on this path for an envelope to protect;
+  the taint latch is nonetheless built to taint by KIND rather than by content, in advance of a
+  channel that does not exist yet. **Adding `browser` to `COVERAGE_CLASSES` invalidates every boot
+  marker written by a binary built before this landed** — `parseCoverage` requires every known
+  class to be present in a marker string, so an older binary's marker is missing the new key and a
+  window spanning the upgrade reads `indeterminate` rather than a clean count. Fail-safe, not a
+  soundness bug, but user-visible: it is called out here rather than left for a bug report.
+
+- **2026-08-30 — ChatOps agent intent: the deterministic agents were unreachable on the one surface that needs no install.** `@nimbus agent why ref=src/auth.ts line=42` in a bound Slack/Teams channel now runs one of eleven externally-permitted built-in agents and posts its brief — closing a dependency inversion standing since Phase 6 Slice 5: a channel `read` requires a configured LLM, while the built-in agents render deterministically with **no LLM at all**, and until now they were exactly the output a channel could not reach.
+
+  `agent <name> k=v …` is parsed ahead of the free-text `read` fallthrough (`chatops/command-parser.ts`'s `parseAgentCommand`); `agent`/`run` share a leading keyword with free text, so `@nimbus why is checkout slow?` still parses as a question. Params are **coerced, not validated** — `ipc/agent-param-kinds.ts` declares each field's primitive kind and `agent-commands/parse-agent-command.ts` converts a `k=v` token accordingly, but `ipc/agents-rpc.ts` keeps sole ownership of every bound and every `-32602` message; a non-finite number (the live, previously-unguarded `minConfidence` hole) is refused before dispatch. The permitted set is **eleven, not fourteen**: `EXTERNAL_EXCLUDED_AGENT_METHODS` (renamed from `HTTP_EXCLUDED_AGENT_METHODS`, generalized to every external surface) drops `preflight`/`premortem` for their side effects, `negotiate` because `--person` makes it a dossier-builder for anyone who can read the channel, and `whyPeek` as a companion to `why` rather than a fifteenth agent — ChatOps inherits this exclusion set from the already-shipped HTTP/MCP surfaces rather than re-deciding it, since every reason is stronger in a shared room. An agent command requires a **mapped identity**: `binding.unmapped === "public-read"` admits an unmapped user to `read` only, so the same person gets an answer to a plain question and a refusal for an agent command in the same channel — a real, disclosed inconsistency, not an oversight. The brief is truncated to a per-platform byte cap that **always binds**: ordinary body content — at ANY heading level, not only `##` — is dropped from the end first, and a reserved section is touched only once that is exhausted (glossary's synthesis-reserved `## Terms` table is shrunk, with an honest count, before an I31 disclosure section's own bytes are ever cut, which happens only as the absolute last resort, always with an unambiguous notice), reusing `agents/_lib/`'s own section machinery (`sectionBody`/`stripSections`/`joinReserved`/`topLevelSections`) rather than a second markdown parser. The reply goes out through a second `ReplyDispatcher` over `posts.agentBrief`, keeping I23's "sole operational post path" claim intact, and — riding the `chatops` I29 coverage class a preceding PR already shipped — appends exactly one `egress_ledger` row per brief with `method='chatops.agentBrief'`, from the post appender, never the invoker.
+
+  `docs/roadmap.md`'s messaging-surface block is corrected alongside this, not merely moved to shipped: its claim that "the channel↔namespace binding and the `I17` grant/role/consent filter are load-bearing here" was wrong. `I17` governs federated answering only and never sits on this path; `namespaces` selects which peers a federated agent (`ghost`/`conflicts`/`huddle` — three of the eleven) asks, not which local rows are visible — so a brief is not filtered by channel or namespace at all, and there was never a local filter to inherit. A fourth agent, `janitor`, is also a `federatedAgentBase` caller and fans out to peers the same way, but does not itself accept `namespaces`. All four of those agents (`ghost`/`conflicts`/`huddle`/`janitor`) fan out to paired peers carrying the **gateway owner's** federation identity, never the chat user's, and the peer sees no indication the request came from a channel — a mapped chat user borrows the owner's identity for the call, exactly as an `agents`-scoped HTTP bearer token already does.
+
+- **2026-08-29 — A `nimbus prove` zero over a ChatOps window now means the bot said nothing — before this, it meant nothing about ChatOps at all.** Every outbound Slack/Teams post — operational replies (I23), HITL approval cards, tribal repeat-question suggestions, and (once a caller exists) agent briefs posted into chat — now appends one `egress_ledger` row before it leaves the machine. This is a NEW `chatops` egress class, not a widened existing one: until today `COVERAGE_CLASSES` did not contain `chatops` at all, so a chat post left no trace and no disclaimer either — `nimbus prove` could report a clean `0` for a window in which a brief synthesized from the private index had actually been posted to Slack's servers. That is a stronger failure than the `mcp`/`http` classes' documented narrowness: those two always said, in the same commit that added them, exactly what they did not cover; chat egress was simply absent from the record.
+
+  The appender (`egress/chatops-egress.ts`'s `buildLedgeredChatPosts`) is a construction-bound FACTORY — one call returns three functions (`reply` / `approvalCard` / `agentBrief`), each closing over which consumer it serves — rather than a single wrapper, because the shared `ChatPost` signature carries no argument saying which consumer is calling; binding the kind at the one wiring site that already knows keeps the ledgered `method` (`chatops.reply` / `chatops.approvalCard` / `chatops.agentBrief`) server-derived instead of inferred from the text. `source_id` is a per-install-salted BLAKE3 hash of the channel id (the salt lives in the Vault under `chatops.channel.salt`), never the id itself; `payload_summary` records the message's byte length, never its text. Unlike `mcp`/`http`, the `chatops` class is NOT narrower than its name: it covers every outbound post on the one shared closure `chatops-boot.ts` builds, so a zero here means the bot said nothing.
+
+  Static confinement rides the existing `I23` rule rather than a new number: `D17-chatops-unwrapped-post` rejects any `buildConnectorPost(...)` call that is not itself the direct argument to `buildLedgeredChatPosts(...)`, checked PER OCCURRENCE (not per file, not by token count) so it stays alert inside `chatops-boot.ts` itself — the one file that legitimately contains a wrapped call, and so the one place a file-level or counting guard would have gone blind. `COVERAGE_CLASSES` now carries six non-`none` entries (`chatops`, `http`, `mcp`, `model`, `sync`, `task`); `nimbus prove` labels the class "Slack/Teams posts". See `docs/SECURITY-INVARIANTS.md` § I29 for the full scope statement.
+
+- **2026-08-29 — The `model` egress class closes its last named exclusion: remote embeddings.**
+  `egress/embedding-egress.ts`'s `wrapLedgeredEmbedder` is a THIRD I29 `model`-class appender,
+  the same DECORATOR shape as `wrapLedgeredProvider` and `wrapLedgeredMastraModel` — applied at
+  each of the embedding pipeline's three construction sites (`embedding/create-routing-
+  runtime.ts`, `embedding/create-embedding-runtime.ts`, `ipc/index-reembed-rpc.ts`, confined
+  there by new static rule **D22(f)**) rather than at one call site, so it covers every `embed()`
+  caller, including ones written later, without any of them cooperating. It appends ONE row per
+  embed BATCH — never per text — before the request leaves the machine (`method='embedding.embed'`,
+  `destination` the vendor half of the embedder's model id, e.g. `openai`), and an append failure
+  aborts the embed (fail-closed). Locality is DERIVED from `embedder.isLocal`, never a
+  caller-computed flag, mirroring `wrapLedgeredProvider`.
+
+  **What a `model: 0` window now means, and what it still does not.** Before this landed,
+  `PROSE_HEAVY_TYPES` routed prose straight to OpenAI's 1536-dim embedding table with no appender
+  at all, so `nimbus prove` could report `model: 0` over a window in which a real vector had left
+  the machine — true about generates, silent about embeddings. That gap is closed: a `model: 0`
+  window now means no non-local generate AND no non-local embed left the machine, across every
+  reachable caller of either. The bound that SURVIVES, and is correct rather than a residual
+  exclusion: a LOCAL embedder (MiniLM) is returned UNCHANGED by its own wrapper and still appends
+  nothing, by construction — exactly as a local LLM route or a locally-run Mastra model already
+  did. That is the `model` class working as designed, not a gap in it.
+
+- **2026-08-29 — `v7.0.0` is ABANDONED. Do not look for its artifacts; there are none.** The tag
+  exists and is immutable (the *Protected release tags* ruleset has no bypass actors), but the
+  Release workflow's **Build CLI — macos** job died in `Upload artifact` with
+  `Failed to CreateArtifact: Unable to make request: ENOTFOUND`, alongside harden-runner
+  reporting "The Internet connection appears to be offline" — a GitHub Actions network/DNS
+  outage on the macOS runner, not a defect in the code. No GitHub Release was published, so
+  `v6.0.1` remained the latest until **`v7.0.1`** superseded it. Same handling as `v1.11.0`
+  (#957 → superseded by 1.12.0): the failed version is left dead and the next one is cut.
+
+  Worth recording alongside it: `v7.0.0` should not have been a MAJOR at all. Its only breaking
+  entry was #1372, which made `LlmRegistryOptions.db` required — a `private: true` package with
+  no published surface, in a PR that said as much and carried a `!` anyway. The same mistake
+  produced `v3.0.0`, `v4.0.0` and `v6.0.0`; of the five majors between `v2.21.0` and `v7.0.0`,
+  only `v5.0.0` required a user to do anything. The rule that should have applied is now written
+  down in `CLAUDE.md` / `GEMINI.md` under *Development Workflow*.
+
+- **2026-08-28 — The `ask` intent classifier stops being the one path that egressed outside the
+  ledger, and `route_priority` learns to name a cloud vendor.** Four defects found on a live
+  v5.0.0 install, in severity order.
+
+  **The classifier (#1363).** `engine/router.ts` held its own HTTP client: it read
+  `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` straight from the process environment and POSTed the
+  user's question to Anthropic or OpenAI, appending **no `egress_ledger` row**. `nimbus prove`
+  reported `0` for a query that had made a real outbound request carrying user text. It also had
+  **no opt-in**: a user who had enabled Gemini alone still egressed to Anthropic if a stale key
+  sat in their environment — precisely the shape slice 2b's `[llm.remote.*]` design exists to
+  prevent, one path over. Observed live, and only a stale key stopped the send. Note that it
+  evaded static rule D22 as well: a raw `fetch` is not `connectors.dispatch`, and the file never
+  named `appendEgressEntry`. The classifier now asks `LlmRouter` for the `"classification"` task,
+  so `wrapLedgeredProvider` covers it like any other route (`method='engine.ask.classify'`) and
+  the per-vendor opt-in applies. Three consequences: **the `model` class's "one exclusion" claim
+  is now TRUE** where before it under-reported (embeddings remain the only one); classification
+  can run on a **local** model for the first time, so `enforce_air_gap = true` with a local route
+  now classifies instead of refusing; and an unparseable reply **degrades to `intent: "unknown"`**
+  rather than throwing, because small local models return prose often enough that a throw would
+  abort the `ask` on a routine event. Transport and auth failures still throw. `[llm]
+  classifier_model`, `NIMBUS_CLASSIFIER_MODEL` and `NIMBUS_OPENAI_CLASSIFIER_MODEL` are **removed**
+  — nothing reads a classifier model name any more, and a live config key that does nothing is
+  worse than no key. A stale entry in an existing `nimbus.toml` is ignored, as any unrecognised
+  `[llm]` key is.
+
+  **`[llm] remote_model` and `NIMBUS_AGENT_MODEL` were inert and are removed too.** Found while
+  verifying the Gemini adapter against the live API. Slice 2b moved the engine agent onto
+  `[llm.remote.<vendor>] model` and left `getEffectiveAgentModel()` **without a production
+  caller** — so both keys changed nothing, while `nimbus config list` still listed
+  `llm.remote_model` as a live env-overridable key and `cli-reference.md` still documented
+  `nimbus config set llm.remote_model claude-sonnet-4-6` as THE way to choose a cloud model. A
+  comment in `engine/agent.ts` asserted they "still override the MODEL NAME within the enabled
+  vendor"; nothing wired that. With four vendors the key is no longer well defined anyway — a
+  bare `claude-sonnet-4-6` says nothing about which vendor is enabled — so it is removed rather
+  than rewired, and `[llm.remote.*]` gained the reference documentation it shipped without.
+
+  **A live-API check of the Gemini adapter.** The wire format is correct — URL-path model,
+  query-string key, `systemInstruction`, `generationConfig`, multi-part concatenation and
+  `usageMetadata` all verified against the real endpoint. What is NOT correct is the model id
+  every internal document had been using: `gemini-2.5-pro` and `gemini-2.5-flash` still appear in
+  Google's `GET /v1beta/models` listing but return `404 NOT_FOUND … no longer available to new
+  users` on `generateContent` for a key issued after their retirement, so anyone following our
+  examples got a hard 404 from a model the listing said existed. The new `[llm.remote.*]` docs say
+  to check the vendor's current list rather than copy an id, and give this as the worked example.
+
+  **`route_priority` could not name a cloud vendor.** A defect introduced by slice 2b:
+  `routeIdsToRegister` was computed from LOCAL routes only, so
+  `dropUnresolvableRoutePriorityEntries` dropped every enabled vendor's route id as unresolvable
+  before the router was constructed — and under `prefer_local = true` that made the vendor
+  effectively unreachable. Local and remote ids are now resolved from one `resolveEnabledVendors`
+  call and validated together.
+
+  **`providerLabel` knew only `anthropic` and `openai`.** Gemini and xAI failures rendered as the
+  generic "the LLM provider", and on a Gemini-only install a classifier 401 read as an *Anthropic*
+  problem. The label map is now TOTAL over `AgentProviderName`, so a vendor added without a label
+  is a compile error.
+
+  **`nimbus llm status` ran two columns together (#1362).** `pad()` returned the value unchanged at
+  or over the column width, emitting no separator: `ollama/llama3.2:latest` is exactly 22, the
+  `routeId` width, and slice 2b's own documented `anthropic/claude-sonnet-4-6` is 27. The gap is
+  now unconditional rather than a function of the value's length — widening the column would only
+  move the cliff to the first longer model name.
+
+- **2026-08-28 — Four cloud vendors ship behind a default-off, per-vendor opt-in, and the `model`
+  egress class becomes live for the first time.** Slice 2b of the LLM model routes work, landing
+  directly on 2a's chokepoint (#1357). `[llm.remote.<vendor>]` tables configure **Anthropic,
+  OpenAI, Gemini and xAI** — three wire formats, since xAI is OpenAI-compatible. **`enabled`
+  defaults to FALSE and is never inferred from the presence of a key**, which is the single
+  property the slice exists to preserve: `openai.api_key` is deliberately REUSED from the
+  embedding runtime rather than minted fresh, so an existing embeddings user already has that
+  credential — and a capability that turned itself on because a credential exists would light up
+  for them without their asking. Keys are read from the **Vault and never the environment**, per
+  call, so a key added after boot works with no restart and no env var can satisfy a vendor
+  nobody opted into. **Cloud adapters hardcode `isLocal = false`** and do NOT derive it from
+  `base_url` — the inverse of slice 1's rule for local runtimes, because a LiteLLM-style proxy on
+  `127.0.0.1` forwards to the vendor; invariant **I34** now pins both directions. Availability is
+  answered **offline** (enabled-and-keyed, no `/models` probe), because probing four vendors on
+  every `nimbus llm status` would be real un-ledgered egress before the user ever opted into
+  sending a prompt; the accepted cost is a named fail-open, and a new `not_configured` reason
+  keeps "add a key" distinguishable from "start the daemon" and "pull the model".
+  **`LlmRouter.generate` now walks the priority order**, continuing past a TRANSPORT-class failure
+  only — that is what makes the roadmap row's "with local fallback" true rather than claimed. An
+  auth- or request-class failure does not retry, because it would fail identically at the next
+  vendor and would only send the same prompt to a second destination. A consequence to expect
+  rather than discover: **one prompt can now produce N ledger rows across N destinations**, which
+  is correct and must not be deduplicated. **The Mastra engine agent** moved onto the same opt-in:
+  it no longer reads `getEffectiveAgentModel()`, it is ledgered at the AI-SDK seam by
+  `egress/mastra-model-egress.ts` (not over `LlmProvider`, which has no `tools` field and would
+  silently kill tool-calling, the three negation tools included), and it is **not constructed at
+  all** when no vendor is enabled — because `@mastra/core` resolves a vendor key from the
+  environment on its own once an agent exists. **Net effect on I29:** the `model` class was wired
+  but appended zero rows in production from 2a; it is now exercised, with **one exclusion left** —
+  embeddings, which still append nothing. Two supporting changes worth knowing: vault-key
+  construction for vendors lives in the new four-line `llm/vendor-vault-keys.ts` rather than
+  allow-listing the 3,000-line `platform/assemble.ts` under D11, and `nimbus llm status`'s CLI-side
+  route-status type is now pinned field-for-field to the gateway's by a structural parity test,
+  closing a drift that had broken that command once with the whole suite green.
+
+- **2026-08-28 — Every non-local model route now ledgers by construction; the `LlmRouter.generate()`
+  hole recorded on 2026-08-27 is closed, and the Mastra air-gap bypass with it.** Slice 2a of the
+  LLM model routes work; no cloud vendor is registered by it. Three things shipped.
+  **(1) The `model`-class appender moved off the call site and onto the provider.**
+  `egress/model-egress.ts`'s `wrapLedgeredProvider` is a decorator applied at
+  `LlmRegistry.addRoute`, so a non-local provider appends one `egress_ledger` row BEFORE every
+  `generate()` and an append failure aborts the call (`EgressAppendFailedError`, fail-closed). That
+  covers `LlmRouter.generate()`, `generateMarkdown()` and every `selectProvider()` caller —
+  `briefs/brief-llm-adapter.ts` among them, which resolved a provider and called it directly, so it
+  was never covered before — without any of them cooperating. The previous appender
+  (`egress/synthesis-egress.ts`'s `recordSynthesisEgress`) saw only the synthesis path and is
+  **deleted**, along with the `SynthesisLlmDeps.recordEgress` DI seam and the
+  `SynthesisEgressRecorder` type; there is now exactly ONE `model` appender in the tree. Locality is
+  still derived INSIDE the appender from `provider.isLocal` — a local provider is returned
+  UNCHANGED and appends nothing, not even a blocked row — so no caller can write a false zero into
+  the ledger `nimbus prove` reports on. A new `LlmGenerateOptions.egressMethod` names the row (a
+  synthesized brief still records `agents.<briefKind>.synthesis`) but cannot suppress one.
+  **(2) Static rule D22(e)** confines `LlmRouter.registerRoute` to `llm/registry.ts` plus its own
+  definition, so no future code can enter the route table unwrapped. The wrap deliberately sits at
+  `addRoute` and NOT at `registerRoute`, because `refreshProviderMeta` re-registers an
+  already-wrapped provider to update its meta and wrapping there would append twice per generate —
+  a hazard now pinned by its own test rather than by a `__ledgered` marker, which was proposed and
+  rejected (it would be read off the very provider whose egress is being recorded, so any provider
+  could suppress its own row). **(3) Invariant I34** — locality is declared once per adapter, and a
+  cloud adapter can never claim to be local. `isLocal` is the single field read by two independent
+  defenses (air-gap refusal and the I29 appender), neither of which can detect the other's failure,
+  so a wrong `true` is one word and silent in both directions. The wiring shipped in slice 1
+  (`llm/base-url-locality.ts`); this adds the enforcement test and the docs row.
+  **Also fixed, a live bug on `main`:** under `enforce_air_gap = true`, a local router that threw
+  mid-turn fell through to the Mastra agent — which talks to a cloud vendor — with no air-gap check
+  and no ledger row, because `engine/agent.ts` resolves its model through `@mastra/core`, outside
+  the route table entirely. `enforce_air_gap` is a REFUSAL setting, so that fallback now rethrows
+  instead (`engine/run-conversational-agent.ts`). **What did NOT ship, and remains named:** no cloud
+  vendor — `packages/gateway/src/llm/` still registers only `OllamaProvider` and `LlamaCppProvider`,
+  so every remote behaviour here is proven against a fake `isLocal: false` provider and the `model`
+  class still appends zero rows in production until slice 2b lands one. Two exclusions keep `model`
+  narrower than "all inference": **embeddings** append nothing (`PROSE_HEAVY_TYPES` routes to
+  OpenAI's 1536-dim table with no appender), and the **Mastra engine agent** appends nothing —
+  refused under air-gap as of this slice, but with air-gap off it is an open gap that 2b closes at
+  the AI-SDK seam. `nimbus prove`'s `model` scope label widens accordingly, from
+  "remotely-synthesized agent briefs" to "prompts sent to a non-local model route".
+
+- **2026-08-27 — The router's unit becomes a `(provider, model)` route, not a provider kind, and
+  ships zero cloud vendors.** `LlmRouter` used to key on a closed `LlmProviderKind` union
+  (`"ollama" | "llamacpp" | "remote"`), so registering a second provider under an already-used kind
+  silently evicted the first — "qwen3 for reasoning, gemma for classification" on one Ollama daemon
+  was unrepresentable. It now keys on `routeId` (`"<providerId>/<modelName>"`), an open `ProviderId`
+  vendor string, and a live per-route availability probe that checks the daemon **and** that the
+  route's specific model is among what it reports — a shared daemon missing one of two configured
+  models now fails only that route, not its sibling. `[llm.local.<name>]` config entries register N
+  local routes at once; `[llm].route_priority` names an explicit try-first order. The migration
+  shims this landed with — the `LlmProviderKind` alias and `LlmRouter.registerProvider` — are now
+  deleted; every call site is on `registerRoute`/`addRoute`. **What did not ship:** no cloud vendor
+  — `packages/gateway/src/llm/` still registers only `OllamaProvider` and `LlamaCppProvider` in
+  production, so the open `ProviderId` string and the route-keyed registry are the precondition for
+  a remote provider, not the provider itself, and the `[agents] synthesis = "allow-remote"` path and
+  I29's `model` egress class remain reachable by exactly nothing. Two correctness fixes shipped
+  alongside the key change, and they are NOT symmetric: the egress destination now names the vendor
+  (`providerId`) instead of the literal string `"model"` — that gap is closed outright. The
+  context-overflow fallback (`LlmRouter.generate()`, on context overflow, when the preferred route's
+  prompt does not fit) was rewritten to walk routes in priority order instead of looking up a
+  literal `"remote"` key that nothing ever registered under — but `generate()` still calls the
+  resolved route's provider directly, with **no egress append and no `[agents] synthesis` check**.
+  That is a narrower key with a **wider reachable blast radius**: before this slice the fallback was
+  reachable in code but unreachable in practice (the `"remote"` slot was never filled); after it, any
+  registered non-local route satisfies the key, so the day a remote route is registered this path
+  goes live with no further code change. It is now a named, hard blocker on the next slice — a
+  remote provider may not be registered in production until `LlmRouter.generate()` either gets I29
+  `model`-class coverage or `docs/SECURITY-INVARIANTS.md` states precisely which calls it excludes,
+  with the standard wiring + docs + test triple either way. Both fixes are **unit-proven only**: no
+  remote route exists yet to exercise either one against a real outbound call, so "unit-tested" is
+  the honest ceiling on this claim until a vendor lands. **A known bound, left open rather than
+  silently closed:** `packages/cli`'s `nimbus llm status` keeps a hand-maintained private copy of
+  the route-status type (`RouteStatus` in `packages/cli/src/commands/llm.ts`) — `packages/cli` has
+  no source dependency on the gateway (IPC-only, per the dependency rules), so there is no shared
+  type to import, and the CLI's own tests mock the IPC client wholesale rather than dispatching
+  against a real handler. This already broke once in this branch: a caller kept reading
+  `res.decisions.classification` after `llm.status` became a route list, and the whole suite stayed
+  green. A gateway-side test now pins the exact `llm.status` payload shape (`llm-rpc.test.ts`), which
+  catches a reshape on the gateway half; an end-to-end CLI-against-gateway test that would catch it
+  on the CLI half too is out of scope for this slice.
+
 - **2026-08-24 — What a standalone connector actually gives you, measured per client rather than
   assumed.** Off-gateway consent rests entirely on the MCP `elicitation` capability, and whether a
   client implements it had never been checked against a real client. It is now, and the answer is a

@@ -36,6 +36,7 @@ import { recordAgentBriefEgress } from "../egress/agent-brief-egress.ts";
 import { egressSourceTypeForClientKind } from "../egress/egress-bearing-kinds.ts";
 import { KnownNamespaceStore } from "../index/known-namespace-store.ts";
 import { LocalIndex } from "../index/local-index.ts";
+import { resolveFileByRemote } from "../index/resolve-file-by-remote.ts";
 import { buildServiceIdentityResolver } from "../metrics/service-identity.ts";
 import { ownershipRoots } from "../ownership/ownership-target.ts";
 import { codeUnitCompare } from "../util/code-unit-compare.ts";
@@ -80,22 +81,45 @@ const MAX_IMPACT_DEPTH = 5;
 const MAX_SERVICE_LEN = 64;
 
 const MAX_SINCE_MS = 90 * 24 * 60 * 60 * 1000;
-function requireExpertParams(params: unknown): { topicOrFile: string; limit?: number } {
+function requireExpertParams(params: unknown): {
+  topicOrFile?: string;
+  itemUrl?: string;
+  limit?: number;
+} {
   if (params === null || typeof params !== "object" || Array.isArray(params)) {
-    throw new AgentsRpcError(-32602, "agents.expert requires { topicOrFile: string }");
-  }
-  const p = params as { topicOrFile?: unknown; limit?: unknown };
-  if (typeof p.topicOrFile !== "string") {
-    throw new AgentsRpcError(-32602, "topicOrFile must be a string");
-  }
-  const trimmed = p.topicOrFile.trim();
-  if (trimmed.length < MIN_TOPIC_LEN || trimmed.length > MAX_TOPIC_LEN) {
     throw new AgentsRpcError(
       -32602,
-      `topicOrFile must be ${MIN_TOPIC_LEN}..${MAX_TOPIC_LEN} chars after trim`,
+      "agents.expert requires exactly one of { topicOrFile } or { itemUrl }",
     );
   }
-  const out: { topicOrFile: string; limit?: number } = { topicOrFile: trimmed };
+  const p = params as { topicOrFile?: unknown; itemUrl?: unknown; limit?: unknown };
+  // Counted, not an equality: the same shape `agents.why` uses, and for the same reason —
+  // it keeps meaning "exactly one" if a third arm is ever added.
+  const supplied = [p.topicOrFile, p.itemUrl].filter((v) => v !== undefined).length;
+  if (supplied !== 1) {
+    throw new AgentsRpcError(
+      -32602,
+      "agents.expert requires exactly one of { topicOrFile } or { itemUrl }",
+    );
+  }
+
+  const out: { topicOrFile?: string; itemUrl?: string; limit?: number } = {};
+  if (p.itemUrl !== undefined) {
+    // The same guards `why`'s URL arms get: both values come off a browser address bar.
+    out.itemUrl = requireUrlArm(p.itemUrl, "itemUrl");
+  } else {
+    if (typeof p.topicOrFile !== "string") {
+      throw new AgentsRpcError(-32602, "topicOrFile must be a string");
+    }
+    const trimmed = p.topicOrFile.trim();
+    if (trimmed.length < MIN_TOPIC_LEN || trimmed.length > MAX_TOPIC_LEN) {
+      throw new AgentsRpcError(
+        -32602,
+        `topicOrFile must be ${MIN_TOPIC_LEN}..${MAX_TOPIC_LEN} chars after trim`,
+      );
+    }
+    out.topicOrFile = trimmed;
+  }
   if (p.limit !== undefined) {
     if (
       typeof p.limit !== "number" ||
@@ -245,19 +269,88 @@ function parseNamespaces(p: { namespace?: unknown; namespaces?: unknown }): stri
   return out;
 }
 
-function requireFileParam(params: unknown): { file: string; namespaces: string[] } {
+/**
+ * A file subject, from either shape a caller can name one in.
+ *
+ * `{ file }` is a LOCAL path and stays exactly as it was — the terminal surface knows the
+ * reader's filesystem. `{ service, repo, refAndPath }` is a FORGE coordinate, which is all
+ * a browser has, and is resolved against the reader's checkout by
+ * `resolveFileByRemote` before any agent sees it. The five agents therefore keep taking a
+ * local path and are unchanged.
+ */
+function requireFileParam(db: Database, params: unknown): { file: string; namespaces: string[] } {
   if (params === null || typeof params !== "object" || Array.isArray(params)) {
-    throw new AgentsRpcError(-32602, "requires { file: string }");
+    throw new AgentsRpcError(-32602, "requires { file: string } or { service, repo, refAndPath }");
   }
-  const p = params as { file?: unknown; namespace?: unknown; namespaces?: unknown };
+  const p = params as {
+    file?: unknown;
+    service?: unknown;
+    repo?: unknown;
+    refAndPath?: unknown;
+    namespace?: unknown;
+    namespaces?: unknown;
+  };
+
+  const namespaces = parseNamespaces(p);
+
+  if (p.refAndPath !== undefined || p.repo !== undefined || p.service !== undefined) {
+    // The forge shape is LOCAL-ONLY, and refuses rather than ignores.
+    //
+    // `ghost` and `conflicts` fan out to federation peers whenever `namespaces` is
+    // non-empty. This shape exists for the browser — a client reachable over HTTP under
+    // the `agents` scope — so admitting namespaces would let any holder of that token
+    // turn a question about one file into peer network calls. Reading them from the
+    // original params and passing them through, as this did, was exactly that hole.
+    //
+    // REFUSED, not silently emptied: a caller who asked for fan-out and received a local
+    // answer would believe they had searched the federation. The local `{ file }` shape
+    // is unaffected and still fans out when asked.
+    if (namespaces.length > 0) {
+      throw new AgentsRpcError(
+        -32602,
+        "namespaces are not accepted with a forge coordinate — that shape answers locally only",
+      );
+    }
+    if (p.file !== undefined) {
+      throw new AgentsRpcError(
+        -32602,
+        "{ file } and { service, repo, refAndPath } are mutually exclusive — pass one",
+      );
+    }
+    const service = requireForgeField(p.service, "service");
+    const repo = requireForgeField(p.repo, "repo");
+    const refAndPath = requireForgeField(p.refAndPath, "refAndPath");
+    const resolved = resolveFileByRemote(db, { service, repo, refAndPath });
+    if (!resolved.ok) {
+      // The typed reason reaches the caller in the message, because the client renders a
+      // different sentence for each: "no local checkout of this repo" is permanent and
+      // unactionable from the page, "that path is not indexed" is neither.
+      throw new AgentsRpcError(-32602, `${resolved.reason}: \`${repo}\` — no file to answer about`);
+    }
+    return { file: resolved.path, namespaces };
+  }
+
   if (typeof p.file !== "string") {
-    throw new AgentsRpcError(-32602, "requires { file: string }");
+    throw new AgentsRpcError(-32602, "requires { file: string } or { service, repo, refAndPath }");
   }
   const trimmed = p.file.trim();
   if (trimmed.length < MIN_FILE_LEN || trimmed.length > MAX_FILE_LEN) {
     throw new AgentsRpcError(-32602, `file must be ${MIN_FILE_LEN}..${MAX_FILE_LEN} chars`);
   }
-  return { file: trimmed, namespaces: parseNamespaces(p) };
+  return { file: trimmed, namespaces };
+}
+
+/** One forge-coordinate field: a non-empty string within the same bounds a path gets. */
+function requireForgeField(value: unknown, name: string): string {
+  if (typeof value !== "string") {
+    throw new AgentsRpcError(-32602, `${name} must be a string`);
+  }
+  // Measured AFTER trim, on the normalised value — never on the caller's raw string.
+  const trimmed = value.trim();
+  if (trimmed.length < MIN_FILE_LEN || trimmed.length > MAX_FILE_LEN) {
+    throw new AgentsRpcError(-32602, `${name} must be ${MIN_FILE_LEN}..${MAX_FILE_LEN} chars`);
+  }
+  return trimmed;
 }
 
 function requireHuddleParams(params: unknown): { sinceMs?: number; namespaces: string[] } {
@@ -339,12 +432,12 @@ async function handleCatchup(params: unknown, ctx: AgentsRpcContext): Promise<un
 }
 
 async function handleGhost(params: unknown, ctx: AgentsRpcContext): Promise<unknown> {
-  const input = requireFileParam(params);
+  const input = requireFileParam(ctx.db, params);
   return await emitGhostBrief(input, federatedAgentBase(ctx, newSessionId("ghost")));
 }
 
 async function handleConflicts(params: unknown, ctx: AgentsRpcContext): Promise<unknown> {
-  const input = requireFileParam(params);
+  const input = requireFileParam(ctx.db, params);
   return await emitConflictsBrief(input, federatedAgentBase(ctx, newSessionId("conflicts")));
 }
 
@@ -460,28 +553,46 @@ function prUrlHasCredentials(value: string): boolean {
   }
 }
 
+/**
+ * One URL-shaped arm's value, validated.
+ *
+ * Extracted so `prUrl` and `itemUrl` cannot drift apart: both come off a browser address
+ * bar, so both need the same length bound and the same userinfo rejection. A second copy
+ * of these three checks is a second thing to remember to update.
+ */
+function requireUrlArm(value: unknown, name: "prUrl" | "itemUrl"): string {
+  if (typeof value !== "string") {
+    throw new AgentsRpcError(-32602, `${name} must be a string`);
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > MAX_PR_URL_LEN) {
+    throw new AgentsRpcError(-32602, `${name} must be 1..${MAX_PR_URL_LEN} chars after trim`);
+  }
+  if (prUrlHasCredentials(trimmed)) {
+    throw new AgentsRpcError(-32602, `${name} must not contain userinfo (user:pass@) credentials`);
+  }
+  return trimmed;
+}
+
+const WHY_ARMS_MESSAGE = "agents.why requires exactly one of { ref }, { prUrl } or { itemUrl }";
+
 function requireWhyParams(params: unknown): WhyInput {
   if (params === null || typeof params !== "object" || Array.isArray(params)) {
-    throw new AgentsRpcError(-32602, "agents.why requires { ref: string } or { prUrl: string }");
+    throw new AgentsRpcError(-32602, WHY_ARMS_MESSAGE);
   }
-  const p = params as { ref?: unknown; prUrl?: unknown };
-  const hasRef = p.ref !== undefined;
-  const hasPrUrl = p.prUrl !== undefined;
-  if (hasRef === hasPrUrl) {
-    throw new AgentsRpcError(-32602, "agents.why requires exactly one of { ref } or { prUrl }");
+  const p = params as { ref?: unknown; prUrl?: unknown; itemUrl?: unknown };
+  // A COUNT, not the `hasRef === hasPrUrl` equality this replaced: that trick reads
+  // "exactly one" only while there are exactly two arms, and silently starts meaning
+  // "an odd number" at three. Counting says what it means at any arity.
+  const supplied = [p.ref, p.prUrl, p.itemUrl].filter((v) => v !== undefined).length;
+  if (supplied !== 1) {
+    throw new AgentsRpcError(-32602, WHY_ARMS_MESSAGE);
   }
-  if (hasPrUrl) {
-    if (typeof p.prUrl !== "string") {
-      throw new AgentsRpcError(-32602, "prUrl must be a string");
-    }
-    const trimmed = p.prUrl.trim();
-    if (trimmed.length === 0 || trimmed.length > MAX_PR_URL_LEN) {
-      throw new AgentsRpcError(-32602, `prUrl must be 1..${MAX_PR_URL_LEN} chars after trim`);
-    }
-    if (prUrlHasCredentials(trimmed)) {
-      throw new AgentsRpcError(-32602, "prUrl must not contain userinfo (user:pass@) credentials");
-    }
-    return { prUrl: trimmed };
+  if (p.itemUrl !== undefined) {
+    return { itemUrl: requireUrlArm(p.itemUrl, "itemUrl") };
+  }
+  if (p.prUrl !== undefined) {
+    return { prUrl: requireUrlArm(p.prUrl, "prUrl") };
   }
   return requireWhyRefParams(params);
 }
@@ -701,14 +812,21 @@ function requireOwnershipParams(params: unknown): OwnershipInput {
   if (typeof params !== "object" || Array.isArray(params)) {
     throw new AgentsRpcError(-32602, "agents.ownership requires an object payload");
   }
-  const p = params as { path?: unknown; service?: unknown };
-  if (p.path !== undefined && p.service !== undefined) {
+  const p = params as { path?: unknown; service?: unknown; itemUrl?: unknown };
+  // A count, not a pairwise check: with three scopes the old `path && service` form would
+  // have let `{ path, itemUrl }` through, and lane 1 would silently answer only one of them.
+  const scopes = [p.path, p.service, p.itemUrl].filter((v) => v !== undefined).length;
+  if (scopes > 1) {
     throw new AgentsRpcError(
       -32602,
-      "path and service are mutually exclusive — pass one, or neither for a coverage summary",
+      "path, service and itemUrl are mutually exclusive — pass one, or none for a coverage summary",
     );
   }
-  const out: { path?: string; service?: string } = {};
+  const out: { path?: string; service?: string; itemUrl?: string } = {};
+  if (p.itemUrl !== undefined) {
+    // The same guards `why`'s URL arms get — this value comes off a browser address bar too.
+    out.itemUrl = requireUrlArm(p.itemUrl, "itemUrl");
+  }
   if (p.path !== undefined) {
     if (typeof p.path !== "string") {
       throw new AgentsRpcError(-32602, "path must be a string");
@@ -931,11 +1049,18 @@ const AGENTS_RPC_HANDLERS = {
 const AGENTS_METHOD_PREFIX = "agents.";
 
 /**
- * Methods served on the socket but deliberately NOT exposed on the HTTP API.
+ * Methods served on the socket but deliberately NOT exposed on any EXTERNAL surface — today the
+ * HTTP API (`POST /v1/agents/{agent}` / `GET /v1/agents`); ChatOps is the next surface to consume
+ * this same set, via `resolveExternalAgentMethod`/`EXTERNAL_AGENT_NAMES` below. This exclusion set
+ * is not HTTP-specific reasoning re-applied by coincidence — it is INHERITED, not re-decided, by
+ * every external surface that reaches this map: every reason below is *stronger*, not weaker, in a
+ * shared channel like ChatOps, where a prompt is typed by one person and read by everyone in the
+ * room.
  *
  * `agents.preflight` — the I24 federated-action path. A caller that can invoke it can queue consent
  * prompts on the owner's machine; an external caller must never originate one. Carried over
- * unchanged from the MCP tool surface, for the same reason.
+ * unchanged from the MCP tool surface, for the same reason. In a shared channel this is WORSE, not
+ * better: anyone who can type in the channel could queue a consent prompt on the owner's machine.
  *
  * `agents.whyPeek` — the namespace's one SYNCHRONOUS method. It returns a WhyPeek payload directly
  * and never calls `notify`, so it cannot be represented on the HTTP `{runId}` + poll contract: the
@@ -951,22 +1076,25 @@ const AGENTS_METHOD_PREFIX = "agents.";
  * because the watcher is created paused rather than armed. `repropose: true` goes further and
  * DELETES this epic's tombstones outright. Those writes were reviewed and accepted for a
  * same-machine caller (CLI socket, Tauri renderer — I7's XSS threat model, not "arbitrary
- * network caller"), but an external HTTP caller reaching them unprompted is the same shape of
+ * network caller"), but an external caller reaching them unprompted is the same shape of
  * concern `agents.preflight` is excluded for: side effects on the owner's machine an external
- * caller can trigger without the owner initiating them. Keep this out of the HTTP surface until
- * that gets its own deliberate review — carried over from the MCP tool surface, which also does
- * not define a premortem tool.
+ * caller can trigger without the owner initiating them. In a shared channel, anyone able to post a
+ * command could trigger these writes — worse than a single bearer-token holder. Keep this out of
+ * every external surface until that gets its own deliberate review — carried over from the MCP
+ * tool surface, which also does not define a premortem tool.
  *
  * `agents.negotiate` — excluded for a DIFFERENT reason than the three above: it has no side
  * effects (it writes nothing) and its response shape fits the runId+poll contract fine, so
  * neither the `preflight`/`premortem` nor the `whyPeek` criterion applies. Combined with
- * `--person`, HTTP exposure would let any holder of the `agents` token assemble a contribution
- * dossier on any indexed person without the owner initiating it. The CLI and Tauri renderer are
- * same-machine, owner-initiated surfaces (I7's XSS threat model, not "arbitrary network caller");
- * the local HTTP API is not — a bearer token can be held and replayed by anything on the
- * loopback/LAN boundary that surface trusts.
+ * `--person`, external exposure would let any holder of the `agents` token/scope assemble a
+ * contribution dossier on any indexed person without the owner initiating it. The CLI and Tauri
+ * renderer are same-machine, owner-initiated surfaces (I7's XSS threat model, not "arbitrary
+ * network caller"); the local HTTP API is not — a bearer token can be held and replayed by
+ * anything on the loopback/LAN boundary that surface trusts. A shared ChatOps channel makes this
+ * exclusion's reasoning *stronger*, not weaker: `negotiate --person` is a dossier-builder for
+ * anyone who can read the room, not just a single token holder.
  */
-const HTTP_EXCLUDED_AGENT_METHODS: ReadonlySet<string> = new Set([
+const EXTERNAL_EXCLUDED_AGENT_METHODS: ReadonlySet<string> = new Set([
   "agents.preflight",
   "agents.premortem",
   "agents.whyPeek",
@@ -974,15 +1102,17 @@ const HTTP_EXCLUDED_AGENT_METHODS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The agent names `POST /v1/agents/{agent}` accepts and `GET /v1/agents` publishes.
+ * The agent names every external surface accepts — today `POST /v1/agents/{agent}` and
+ * `GET /v1/agents` publish exactly this set; ChatOps consumes the same names rather than deciding
+ * its own.
  *
  * DERIVED from AGENTS_RPC_HANDLERS so it cannot drift from the served set — a hand-maintained
  * second list of the same names is the defect shape that cost the most on the MCP work. Sorted for
  * a stable wire response.
  */
-export const HTTP_AGENT_NAMES: readonly string[] = Object.freeze(
+export const EXTERNAL_AGENT_NAMES: readonly string[] = Object.freeze(
   Object.keys(AGENTS_RPC_HANDLERS)
-    .filter((m) => !HTTP_EXCLUDED_AGENT_METHODS.has(m))
+    .filter((m) => !EXTERNAL_EXCLUDED_AGENT_METHODS.has(m))
     .map((m) => m.slice(AGENTS_METHOD_PREFIX.length))
     // The SHARED `codeUnitCompare` (`util/code-unit-compare.ts`), not an inline
     // `(a, b) => a < b ? -1 : a > b ? 1 : 0` — that nested ternary was S3358, and the same ordering
@@ -996,20 +1126,20 @@ export const HTTP_AGENT_NAMES: readonly string[] = Object.freeze(
 );
 
 /**
- * The `agents.*` method for an HTTP path segment, or null when that segment names nothing this
- * surface serves.
+ * The `agents.*` method for a caller-supplied agent name (an HTTP path segment, a ChatOps command
+ * argument, …), or null when that name names nothing this — any — external surface serves.
  *
- * `Object.hasOwn`, never `in`: the segment is caller-supplied, and `in` would resolve
+ * `Object.hasOwn`, never `in`: the name is caller-supplied, and `in` would resolve
  * `"constructor"` / `"toString"` against the object prototype. Same reasoning as the egress
  * append's membership gate.
  *
  * AGENTS_RPC_HANDLERS itself is NOT exported. Handing the map out would let another file invoke an
  * agent directly — a bypass D22(d) cannot see, since it is not an `agents/<name>.ts` import.
  */
-export function resolveHttpAgentMethod(agent: string): string | null {
+export function resolveExternalAgentMethod(agent: string): string | null {
   const method = `${AGENTS_METHOD_PREFIX}${agent}`;
   if (!Object.hasOwn(AGENTS_RPC_HANDLERS, method)) return null;
-  if (HTTP_EXCLUDED_AGENT_METHODS.has(method)) return null;
+  if (EXTERNAL_EXCLUDED_AGENT_METHODS.has(method)) return null;
   return method;
 }
 

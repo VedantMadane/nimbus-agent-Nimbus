@@ -1,6 +1,4 @@
-import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
-import { readConnectorSecret } from "./connector-vault.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 
 const SERVICE_ID = "iac";
@@ -25,17 +23,14 @@ export function createIacSyncable(options: IacSyncableOptions): Syncable {
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();
       await options.ensureIacMcpRunning();
-      const en = await readConnectorSecret(ctx.vault, "iac", "enabled");
+      const en = await ctx.getSecret("enabled");
       if (en !== "1") {
         return syncNoopResult(cursor, t0);
       }
       await ctx.rateLimiter.acquire("iac");
       const now = Date.now();
-      const lambdaRow = ctx.db
-        .query(`SELECT COUNT(*) as c FROM item WHERE service = 'aws' AND type = 'lambda_function'`)
-        .get() as { c: number } | undefined;
-      const lambdaCount = lambdaRow?.c ?? 0;
-      upsertIndexedItemForSync(ctx, {
+      const lambdaCount = ctx.countItems("aws", "lambda_function");
+      ctx.upsertItem({
         service: SERVICE_ID,
         type: "sync_heartbeat",
         externalId: "drift_baseline",

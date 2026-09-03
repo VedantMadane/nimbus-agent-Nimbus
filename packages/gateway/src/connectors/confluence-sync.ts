@@ -1,5 +1,4 @@
-import { type IndexedItemBodyInput, upsertIndexedItemForSync } from "../index/item-store.ts";
-import { resolvePersonForSync } from "../people/linker.ts";
+import type { IndexedItemBodyInput } from "../index/item-store.ts";
 import { plainTextFromHtml } from "../string/html-plain-text.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import {
@@ -8,7 +7,6 @@ import {
   normalizeAtlassianSiteBaseUrl,
   stringField,
 } from "./atlassian-api-sync-helpers.ts";
-import { readConnectorSecret } from "./connector-vault.ts";
 import { isoMs, maxIso } from "./sync-iso-helpers.ts";
 import {
   decodeWatermarkCursorV1,
@@ -75,13 +73,13 @@ function resolveConfluenceAuthorId(ctx: SyncContext, by: Record<string, unknown>
   const email = stringField(by, "email");
   const displayName = stringField(by, "displayName");
   if (email !== undefined && email !== "" && email.includes("@")) {
-    return resolvePersonForSync(ctx.db, {
+    return ctx.resolvePerson({
       jiraAccountId: accountId,
       canonicalEmail: email,
       displayName: displayName ?? email,
     });
   }
-  return resolvePersonForSync(ctx.db, {
+  return ctx.resolvePerson({
     jiraAccountId: accountId,
     displayName: displayName ?? accountId,
   });
@@ -141,14 +139,27 @@ function confluenceUpsertOneSearchHit(
     return true;
   }
   const site = normalizeAtlassianSiteBaseUrl(opts.baseRaw);
-  const webUi = `${site}/wiki/pages/viewpage.action?pageId=${encodeURIComponent(id)}`;
+  // The URL a browser is actually on. `_links.webui` is site-relative and omits
+  // the `/wiki` context (`/spaces/ENG/pages/123/Title`). The constructed
+  // viewpage.action URL below is a valid Confluence address but not one any
+  // browser shows, so indexing it made `resolveItemByUrl` miss every real page:
+  // its ladder is resolve-key based (exact, query-stripped, up to three trimmed
+  // trailing segments) and cannot bridge the two shapes.
+  //
+  // The leading-slash check is load-bearing: a `webui` that did not start with
+  // "/" would concatenate into a URL on another host.
+  const links = asRecord(row["_links"]);
+  const webui = links === undefined ? undefined : stringField(links, "webui");
+  const webUi = webui?.startsWith("/")
+    ? `${site}/wiki${webui}`
+    : `${site}/wiki/pages/viewpage.action?pageId=${encodeURIComponent(id)}`;
   const modified = when !== undefined && when !== "" ? isoMs(when) : opts.syncTime;
   acc.upserted += 1;
   const by = confluenceLastUpdatedBy(row);
   const authorId = by === null ? null : resolveConfluenceAuthorId(ctx, by);
   const text = confluenceBodyText(row);
   const bodyInput: IndexedItemBodyInput = text === null ? { bodyPreview: "" } : { body: text };
-  upsertIndexedItemForSync(ctx, {
+  ctx.upsertItem({
     service: SERVICE_ID,
     type: "page",
     externalId: id,
@@ -274,9 +285,9 @@ export function createConfluenceSyncable(options: ConfluenceSyncableOptions): Sy
     async sync(ctx: SyncContext, cursor: string | null): Promise<SyncResult> {
       const t0 = performance.now();
       await options.ensureConfluenceMcpRunning();
-      const token = await readConnectorSecret(ctx.vault, "confluence", "api_token");
-      const email = await readConnectorSecret(ctx.vault, "confluence", "email");
-      const baseRaw = await readConnectorSecret(ctx.vault, "confluence", "base_url");
+      const token = await ctx.getSecret("api_token");
+      const email = await ctx.getSecret("email");
+      const baseRaw = await ctx.getSecret("base_url");
       if (
         token === null ||
         token === "" ||

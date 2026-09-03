@@ -71,6 +71,11 @@ import {
   tryDispatchVoiceRpc,
 } from "./dispatchers.ts";
 import { RpcMethodError } from "./rpc-error.ts";
+import { rpcVaultOrMethodNotFound } from "./vault-dispatch.ts";
+
+// A stand-in remote model name. Was `LlmRouterConfig.remoteModel`, removed on 2026-08-28
+// along with `[llm] remote_model`; these tests only ever needed an arbitrary non-local id.
+const REMOTE_MODEL = "claude-sonnet-4-6";
 
 function makePolicyRpcCtx(overrides: Partial<PolicyRpcCtx> = {}): PolicyRpcCtx {
   return {
@@ -185,7 +190,6 @@ function trackedDb(): Database {
 
 const FAKE_LLM_ROUTER_CONFIG = {
   preferLocal: true,
-  remoteModel: "remote-model",
   localModel: "local-model",
   minReasoningParams: 0,
   enforceAirGap: false,
@@ -195,8 +199,14 @@ const FAKE_LLM_ROUTER_CONFIG = {
 function fakeLocalOllamaProvider(markdown: string): LlmProvider {
   return {
     providerId: "ollama",
+    isLocal: true,
     isAvailable: async () => true,
-    listModels: async () => [],
+    // Must report the model it is registered under (`FAKE_LLM_ROUTER_CONFIG.localModel`,
+    // "local-model", matching the `addRoute` call in `makeLlmRegistry` below) — route
+    // availability (Task 5) requires the daemon reachable AND the route's own modelName
+    // among the models it reports, so an empty listing here makes every route
+    // `model_absent` regardless of `isAvailable()`.
+    listModels: async () => [{ provider: "ollama", modelName: "local-model" }],
     generate: async () => ({
       text: markdown,
       tokensIn: 0,
@@ -212,8 +222,14 @@ function fakeLocalOllamaProvider(markdown: string): LlmProvider {
 function fakeRemoteProvider(): LlmProvider {
   return {
     providerId: "remote",
+    isLocal: false,
     isAvailable: async () => true,
-    listModels: async () => [],
+    // Must report the model it registers under (REMOTE_MODEL,
+    // "remote-model") so the route genuinely RESOLVES as available — otherwise it reads
+    // model_absent, resolveForSynthesis() returns undefined, and the test below passes via
+    // no_eligible_provider from the EARLY branch rather than exercising the "local"-mode
+    // refusal (synthesis-llm.ts) it exists to guard.
+    listModels: async () => [{ provider: "remote", modelName: "remote-model" }],
     generate: async () => ({
       text: "SHOULD-NEVER-BE-USED",
       tokensIn: 0,
@@ -225,9 +241,20 @@ function fakeRemoteProvider(): LlmProvider {
   };
 }
 
-function makeLlmRegistry(provider: LlmProvider): LlmRegistry {
-  const registry = new LlmRegistry({ config: FAKE_LLM_ROUTER_CONFIG });
-  registry.addProvider(provider);
+/**
+ * `db` is REQUIRED (#1356), so an unledgered non-local route is now a COMPILE error rather than
+ * the runtime refusal this comment used to describe. Callers that do not track their own db get
+ * a bare in-memory one: `wrapLedgeredProvider` returns a LOCAL provider unchanged without
+ * touching the handle, and a caller registering a REMOTE provider passes its own tracked db so
+ * the egress assertions below stay sharp — the remote route is wrapped, so had synthesis
+ * actually proceeded, a `model` row would be there to find.
+ */
+function makeLlmRegistry(provider: LlmProvider, db?: Database): LlmRegistry {
+  const registry = new LlmRegistry({
+    config: FAKE_LLM_ROUTER_CONFIG,
+    db: db ?? new Database(":memory:"),
+  });
+  registry.addRoute(provider, provider.isLocal ? FAKE_LLM_ROUTER_CONFIG.localModel : REMOTE_MODEL);
   return registry;
 }
 
@@ -340,7 +367,7 @@ describe("tryDispatchAgentsRpc", () => {
   test('wiring the socket runner causes NO remote egress on a default install ([agents].synthesis defaults to "local"; a REMOTE-only registry is refused)', async () => {
     const db = trackedDb();
     const localIndex = new LocalIndex(db);
-    const llmRegistry = makeLlmRegistry(fakeRemoteProvider());
+    const llmRegistry = makeLlmRegistry(fakeRemoteProvider(), db);
     // No configDir on this ctx → DEFAULT_NIMBUS_AGENTS_TOML (`synthesis: "local"`) — the exact
     // config a fresh `nimbus init` install has, before anyone touches nimbus.toml.
     const { ctx, notifications } = makeCtx({ localIndex, llmRegistry });
@@ -1084,6 +1111,37 @@ describe("tryDispatchPhase4Rpc", () => {
       "c1",
     )) as Record<string, unknown>;
     expect(Array.isArray(out["entries"])).toBe(true);
+  });
+  test("media.understand hit through chain (returns a MediaPassSummary, not a skip)", async () => {
+    const db = trackedDb();
+    const localIndex = new LocalIndex(db);
+    const dataDir = mkdtempSync(join(tmpdir(), "disp-media-data-"));
+    const { ctx } = makeCtx({ localIndex, dataDir });
+    const out = await tryDispatchPhase4Rpc(ctx, "media.understand", {}, "c1");
+    // The regression this guards against: deleting the PHASE4_PLATFORM_DISPATCHERS entry makes
+    // this come back `phase4RpcSkipped` instead of a real MediaPassSummary — every other suite
+    // stays green, because nothing else drives `media.understand` through the real dispatch path.
+    expect(out).not.toBe(phase4RpcSkipped);
+    expect(out).toMatchObject({
+      understood: 0,
+      skipped: 0,
+      lastItemId: null,
+      skippedByReason: expect.any(Object),
+    });
+  });
+  test("an unregistered method through the same path still 404s (negative control)", async () => {
+    const { ctx } = makeCtx();
+    const phase4Out = await tryDispatchPhase4Rpc(ctx, "definitely.notAMethod", {}, "c1");
+    // Proves the chain can actually discriminate: `media.understand` above did NOT come back
+    // this way, so the positive assertion cannot be passing because everything comes back a hit.
+    expect(phase4Out).toBe(phase4RpcSkipped);
+    // The literal `-32601` the caller sees: `dispatchMethod` (server.ts) falls through to this
+    // exact function once phase4 has declined, so this is the real next stage of the same path,
+    // not a different one — see `rpcVaultOrMethodNotFound`'s own "unknown non-vault method ->
+    // -32601" test in vault-dispatch.test.ts for the same assertion on that function alone.
+    await expect(rpcVaultOrMethodNotFound(ctx, "definitely.notAMethod", {}, "c1")).rejects.toThrow(
+      /Method not found/,
+    );
   });
 });
 

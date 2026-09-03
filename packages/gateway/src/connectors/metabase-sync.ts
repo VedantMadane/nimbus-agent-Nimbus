@@ -1,4 +1,3 @@
-import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import {
   syncPassCursorHttpEmpty,
   syncPassCursorParseEmpty,
@@ -6,7 +5,6 @@ import {
 } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { connectorFetch } from "./_lib/fetch-outcome.ts";
-import { readConnectorSecret } from "./connector-vault.ts";
 import { mapMetabaseDashboardToItem } from "./metabase-dashboard-mapping.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, numberField, stringField } from "./unknown-record.ts";
@@ -34,8 +32,8 @@ function trimTrailingSlash(s: string): string {
 }
 
 async function loadCreds(ctx: SyncContext): Promise<MetabaseCreds | null> {
-  const url = (await readConnectorSecret(ctx.vault, "metabase", "url"))?.trim() ?? "";
-  const apiKey = (await readConnectorSecret(ctx.vault, "metabase", "api_key"))?.trim() ?? "";
+  const url = (await ctx.getSecret("url"))?.trim() ?? "";
+  const apiKey = (await ctx.getSecret("api_key"))?.trim() ?? "";
   if (url === "" || apiKey === "") {
     return null;
   }
@@ -91,7 +89,7 @@ function upsertDashboards(
     if (mapped === null) {
       continue;
     }
-    upsertIndexedItemForSync(ctx, mapped);
+    ctx.upsertItem(mapped);
     upserted += 1;
   }
   return upserted;

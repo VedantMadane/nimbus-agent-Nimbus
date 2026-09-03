@@ -303,6 +303,53 @@ describe("OllamaProvider", () => {
     expect(body.options.temperature).toBe(0.7);
   });
 
+  test("BOTH generate paths send the complete expected request body", async () => {
+    // Thinking tokens come out of the SAME `num_predict` budget as the answer, so a reasoning
+    // model can spend the budget deliberating and return a truncated reply -- or, at the
+    // classifier's 512-token cap, no parseable JSON at all. Measured on qwen3:14b: a summary
+    // was cut off mid-sentence at 17,974 ms with thinking on, and complete at 1,497 ms with it
+    // off. `think: false` is the fix, and missing it on EITHER path is the regression.
+    //
+    // Asserted as WHOLE-BODY equality rather than field-by-field, which is wider than the
+    // change that prompted it: before this, `prompt` and `system` were asserted nowhere in
+    // this file, so a change that dropped the system prompt passed the entire suite. Equality
+    // also means a newly added field fails here and has to be acknowledged, rather than
+    // arriving unnoticed on the wire.
+    const bodies: string[] = [];
+    const capture = (res: string) =>
+      mock(async (_url: string, opts?: RequestInit) => {
+        if (typeof opts?.body === "string") bodies.push(opts.body);
+        return new Response(res, { status: 200 });
+      }) as unknown as typeof fetch;
+
+    const p = new OllamaProvider("http://127.0.0.1:11434");
+    const call = {
+      task: "classification",
+      prompt: "find my notes",
+      systemPrompt: "reply with JSON",
+      maxTokens: 512,
+      temperature: 0,
+    } as const;
+
+    globalThis.fetch = capture(JSON.stringify(FAKE_GENERATE_RESPONSE));
+    await p.generate({ ...call });
+    globalThis.fetch = capture(`${JSON.stringify({ response: "hi", done: true })}
+`);
+    await p.generate({ ...call, stream: true });
+
+    expect(bodies).toHaveLength(2);
+    const expected = (stream: boolean) => ({
+      model: "llama3.2",
+      prompt: "find my notes",
+      system: "reply with JSON",
+      stream,
+      think: false,
+      options: { num_ctx: 8192, num_predict: 512, temperature: 0 },
+    });
+    expect(JSON.parse(bodies[0] ?? "{}")).toEqual(expected(false));
+    expect(JSON.parse(bodies[1] ?? "{}")).toEqual(expected(true));
+  });
+
   test("generate (stream) throws on HTTP error", async () => {
     globalThis.fetch = mock(async () => {
       return new Response("Forbidden", { status: 403 });

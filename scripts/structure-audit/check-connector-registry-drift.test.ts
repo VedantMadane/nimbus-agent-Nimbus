@@ -1,20 +1,15 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { checkConnectorRegistryDrift } from "./check-connector-registry-drift.ts";
+import { checkConnectorRegistryDrift, registryIds } from "./check-connector-registry-drift.ts";
 
 const ROOT = mkdtempSync(join(tmpdir(), "nimbus-registry-drift-"));
 
 afterAll(() => {
   rmSync(ROOT, { recursive: true, force: true });
 });
-
-function connector(name: string): void {
-  mkdirSync(join(ROOT, "connectors", name, "src"), { recursive: true });
-  writeFileSync(join(ROOT, "connectors", name, "src", "server.ts"), "export {};\n");
-}
 
 function registry(ids: readonly string[]): string {
   const path = join(ROOT, `registry-${ids.join("-") || "empty"}.ts`);
@@ -28,12 +23,10 @@ function registry(ids: readonly string[]): string {
   return path;
 }
 
-connector("airflow");
-connector("monte-carlo");
-
-const CONNECTORS = join(ROOT, "connectors");
-const EMPTY_CONNECTORS = join(ROOT, "connectors-empty");
-mkdirSync(EMPTY_CONNECTORS, { recursive: true });
+// The ids the installed connector package would export. Plain data: the check is a comparison,
+// and discovery is the caller's job.
+const CONNECTORS = ["airflow", "monte-carlo"];
+const EMPTY_CONNECTORS: readonly string[] = [];
 
 describe("checkConnectorRegistryDrift", () => {
   test("passes when the registry lists exactly the connectors on disk", () => {
@@ -112,5 +105,39 @@ describe("checkConnectorRegistryDrift", () => {
     writeFileSync(path, "export const BUNDLED_CONNECTORS = {};\n");
 
     expect(checkConnectorRegistryDrift(EMPTY_CONNECTORS, path)).toEqual({ status: "ok" });
+  });
+});
+
+describe("both specifier forms the generator can emit are parsed", () => {
+  // `specifierFor` in gen-bundled-connector-registry.ts emits a relative path today and
+  // `@nimbus-dev/connectors/<id>` after the extraction. A parser that knows only one form does not
+  // fail loudly: registryIds() returns [], the check reports "indeterminate", and indeterminate is
+  // a WARNING — so the drift gate goes quietly inert exactly when the extraction makes it matter.
+  function packageRegistry(ids: readonly string[]): string {
+    const path = join(ROOT, `pkg-registry-${ids.join("-") || "empty"}.ts`);
+    const entries = ids
+      .map((id) => `  ${JSON.stringify(id)}: () => import("@nimbus-dev/connectors/${id}"),`)
+      .join("\n");
+    writeFileSync(path, `export const BUNDLED_CONNECTORS = {\n${entries}\n};\n`);
+    return path;
+  }
+
+  test("a package-mode registry parses its ids", () => {
+    expect(registryIds(packageRegistry(["airflow", "monte-carlo"]))).toEqual([
+      "airflow",
+      "monte-carlo",
+    ]);
+  });
+
+  test("a package-mode registry still DETECTS drift rather than reporting indeterminate", () => {
+    // The regression that matters: a missing connector must be found, not masked by an
+    // unparseable registry.
+    const v = checkConnectorRegistryDrift(CONNECTORS, packageRegistry(["airflow"]));
+    expect(JSON.stringify(v)).toMatch(/monte-carlo/);
+    expect(JSON.stringify(v)).not.toMatch(/indeterminate/i);
+  });
+
+  test("relative-mode parsing is unchanged", () => {
+    expect(registryIds(registry(["airflow", "monte-carlo"]))).toEqual(["airflow", "monte-carlo"]);
   });
 });

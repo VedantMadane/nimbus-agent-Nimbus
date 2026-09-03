@@ -1,12 +1,25 @@
 import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
 
+import type { ConnectorServiceId } from "../connectors/connector-catalog.ts";
 import type { NimbusVault } from "../vault/nimbus-vault.ts";
 import type { ProviderRateLimiter } from "./rate-limiter.ts";
+import type { SyncCapabilities } from "./sync-capabilities.ts";
 
-export interface SyncContext {
+/**
+ * What the GATEWAY holds: a sync context plus the raw handles needed to BUILD capabilities.
+ *
+ * Only `platform/assemble.ts` and `sync/scheduler.ts` see this. Connectors see `SyncContext`, which
+ * has no handles at all — that asymmetry is the narrowing: the gateway can mint a capability, a
+ * connector can only use one.
+ */
+export interface SyncRuntimeContext extends SyncContext {
   vault: NimbusVault;
   db: Database;
+}
+
+export interface SyncContext<S extends ConnectorServiceId = ConnectorServiceId>
+  extends SyncCapabilities<S> {
   logger: Logger;
   rateLimiter: ProviderRateLimiter;
   scheduleItemEmbedding?: (itemId: string) => void;

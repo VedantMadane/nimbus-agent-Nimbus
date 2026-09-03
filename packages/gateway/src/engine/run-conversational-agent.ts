@@ -78,7 +78,17 @@ function shouldUseLocalRouter(p: RunConversationalAgentParams): boolean {
   if (p.agent === undefined) {
     return true;
   }
-  return p.llmRouter.prefersLocal();
+  // `enforce_air_gap` FORCES the local router, independent of `prefer_local`. It is a
+  // REFUSAL, not a preference, so it must not be conditional on a preference being set a
+  // particular way: with `prefer_local = false` this returned false, `runTurn` never
+  // consulted the router at all, and the prompt went straight to the Mastra agent -- a
+  // cloud-backed model resolved through `@mastra/core`, outside the route table and
+  // therefore outside the I29 wrapper, so not even a ledger row recorded it.
+  //
+  // This is the pair to the guard in `runTurn`'s catch: that one refuses the fallback AFTER
+  // the router fails, this one refuses to skip the router in the first place. Closing only
+  // one leaves the other reachable.
+  return p.llmRouter.prefersLocal() || p.llmRouter.enforcesAirGap();
 }
 
 // @mastra/core ≥1.40 types agent.generate/stream via MessageListInput, which only
@@ -210,6 +220,13 @@ async function runTurn(
       return { ...(await runViaLocalRouter(llmRouter, promptArg, p)), toolless: true };
     } catch (e) {
       if (p.agent === undefined) {
+        throw e;
+      }
+      // `enforce_air_gap` is a REFUSAL, not a preference (see `LlmRouter.enforcesAirGap`).
+      // Falling back to the Mastra agent here would send the prompt to a cloud vendor --
+      // outside the route table, so outside the I29 wrapper too, meaning not even a ledger
+      // row would record it. Surface the local failure instead.
+      if (llmRouter.enforcesAirGap()) {
         throw e;
       }
       conversationalLog.warn({ err: e }, "local LLM router failed; falling back to agent");

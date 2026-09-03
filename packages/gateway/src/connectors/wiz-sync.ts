@@ -1,4 +1,3 @@
-import { upsertIndexedItemForSync } from "../index/item-store.ts";
 import {
   syncPassCursorHttpEmpty,
   syncPassCursorParseEmpty,
@@ -6,7 +5,6 @@ import {
 } from "../sync/pass-cursor-sync-result.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { connectorFetch, type FetchOutcome } from "./_lib/fetch-outcome.ts";
-import { readConnectorSecret } from "./connector-vault.ts";
 import { encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
 import { asRecord, stringField } from "./unknown-record.ts";
 import { mapWizIssueToItem } from "./wiz-issue-mapping.ts";
@@ -62,13 +60,13 @@ interface WizCreds {
 }
 
 async function loadWizCreds(ctx: SyncContext): Promise<WizCreds | null> {
-  const clientId = (await readConnectorSecret(ctx.vault, "wiz", "client_id"))?.trim() ?? "";
-  const clientSecret = (await readConnectorSecret(ctx.vault, "wiz", "client_secret"))?.trim() ?? "";
+  const clientId = (await ctx.getSecret("client_id"))?.trim() ?? "";
+  const clientSecret = (await ctx.getSecret("client_secret"))?.trim() ?? "";
   if (clientId === "" || clientSecret === "") {
     return null;
   }
-  const apiUrlRaw = (await readConnectorSecret(ctx.vault, "wiz", "api_url"))?.trim() ?? "";
-  const authUrlRaw = (await readConnectorSecret(ctx.vault, "wiz", "auth_url"))?.trim() ?? "";
+  const apiUrlRaw = (await ctx.getSecret("api_url"))?.trim() ?? "";
+  const authUrlRaw = (await ctx.getSecret("auth_url"))?.trim() ?? "";
   return {
     clientId,
     clientSecret,
@@ -161,7 +159,7 @@ function upsertWizIssues(
     if (mapped === null) {
       continue;
     }
-    upsertIndexedItemForSync(ctx, mapped);
+    ctx.upsertItem(mapped);
     upserted += 1;
   }
   return upserted;

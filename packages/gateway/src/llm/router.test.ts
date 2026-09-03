@@ -1,12 +1,43 @@
 import { describe, expect, test } from "bun:test";
-import { isLocalProviderKind, LlmRouter, type LlmRouterConfig, midTruncate } from "./router.ts";
+import { LlmProviderError } from "./provider-error.ts";
+import { LlmRouter, type LlmRouterConfig, midTruncate } from "./router.ts";
 import type { LlmProvider } from "./types.ts";
 
-function makeFakeProvider(id: "ollama" | "llamacpp" | "remote", available: boolean): LlmProvider {
+// A stand-in remote model name. Was `LlmRouterConfig.remoteModel`, removed on 2026-08-28
+// along with `[llm] remote_model`; these tests only ever needed an arbitrary non-local id.
+const REMOTE_MODEL = "claude-sonnet-4-6";
+
+function makeFakeProvider(
+  id: "ollama" | "llamacpp" | "remote" | "anthropic",
+  available: boolean,
+): LlmProvider {
   return {
     providerId: id,
+    // "anthropic" stands in for a real cloud vendor id in the task-pin air-gap test below,
+    // where the point is that a non-local route stays excluded under enforce_air_gap however
+    // it got to the front of the ordering — it must derive to non-local exactly like "remote".
+    isLocal: id !== "remote" && id !== "anthropic",
     isAvailable: async () => available,
-    listModels: async () => [],
+    // Matches the model callers register this fake under below (localModel for a
+    // local id, remoteModel for "remote"), so the model-aware availability probe
+    // wired in Task 5 does not fail these route-selection-focused fakes on a model
+    // mismatch they were never testing for. The task-pin tests below register two
+    // routes on ONE provider id under short literal names ("big"/"small"/"up") so the
+    // routes are trivially distinguishable at the routeId level (`ollama/big` vs
+    // `ollama/small`) — this fake has no way to know at construction time which model
+    // name a given `registerRoute` call will use, so those literals are listed
+    // unconditionally alongside the id-derived default rather than threaded through as
+    // a parameter (`makeFakeProvider` deliberately stays two-arg; see makeCaptureProvider
+    // below for the helper that DOES take an explicit models list).
+    listModels: async () => [
+      {
+        provider: id,
+        modelName: id === "remote" ? REMOTE_MODEL : DEFAULT_CONFIG.localModel,
+      },
+      { provider: id, modelName: "big" },
+      { provider: id, modelName: "small" },
+      { provider: id, modelName: "up" },
+    ],
     generate: async (_opts) => ({
       text: `response from ${id}`,
       tokensIn: 1,
@@ -20,7 +51,6 @@ function makeFakeProvider(id: "ollama" | "llamacpp" | "remote", available: boole
 
 const DEFAULT_CONFIG: LlmRouterConfig = {
   preferLocal: true,
-  remoteModel: "claude-sonnet-4-6",
   localModel: "llama3.2",
   minReasoningParams: 7,
   enforceAirGap: false,
@@ -29,23 +59,23 @@ const DEFAULT_CONFIG: LlmRouterConfig = {
 describe("LlmRouter.selectProvider", () => {
   test("returns ollama when preferLocal=true and ollama is available", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
-    router.registerProvider(makeFakeProvider("ollama", true));
-    router.registerProvider(makeFakeProvider("remote", true));
+    router.registerRoute(makeFakeProvider("ollama", true), DEFAULT_CONFIG.localModel);
+    router.registerRoute(makeFakeProvider("remote", true), REMOTE_MODEL);
     const provider = await router.selectProvider("agent_step");
     expect(provider?.providerId).toBe("ollama");
   });
 
   test("falls back to remote when local unavailable and enforceAirGap=false", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
-    router.registerProvider(makeFakeProvider("ollama", false));
-    router.registerProvider(makeFakeProvider("remote", true));
+    router.registerRoute(makeFakeProvider("ollama", false), DEFAULT_CONFIG.localModel);
+    router.registerRoute(makeFakeProvider("remote", true), REMOTE_MODEL);
     const provider = await router.selectProvider("agent_step");
     expect(provider?.providerId).toBe("remote");
   });
 
   test("returns undefined when all providers unavailable", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
-    router.registerProvider(makeFakeProvider("ollama", false));
+    router.registerRoute(makeFakeProvider("ollama", false), DEFAULT_CONFIG.localModel);
     const provider = await router.selectProvider("classification");
     expect(provider).toBeUndefined();
   });
@@ -53,8 +83,8 @@ describe("LlmRouter.selectProvider", () => {
   test("enforceAirGap=true never returns remote provider", async () => {
     const config: LlmRouterConfig = { ...DEFAULT_CONFIG, enforceAirGap: true };
     const router = new LlmRouter(config);
-    router.registerProvider(makeFakeProvider("ollama", false));
-    router.registerProvider(makeFakeProvider("remote", true));
+    router.registerRoute(makeFakeProvider("ollama", false), DEFAULT_CONFIG.localModel);
+    router.registerRoute(makeFakeProvider("remote", true), REMOTE_MODEL);
     const provider = await router.selectProvider("reasoning");
     expect(provider).toBeUndefined();
   });
@@ -62,7 +92,7 @@ describe("LlmRouter.selectProvider", () => {
   test("enforceAirGap=true returns local when available", async () => {
     const config: LlmRouterConfig = { ...DEFAULT_CONFIG, enforceAirGap: true };
     const router = new LlmRouter(config);
-    router.registerProvider(makeFakeProvider("llamacpp", true));
+    router.registerRoute(makeFakeProvider("llamacpp", true), DEFAULT_CONFIG.localModel);
     const provider = await router.selectProvider("reasoning");
     expect(provider?.providerId).toBe("llamacpp");
   });
@@ -70,8 +100,8 @@ describe("LlmRouter.selectProvider", () => {
   test("preferLocal=false prefers remote over local", async () => {
     const config: LlmRouterConfig = { ...DEFAULT_CONFIG, preferLocal: false };
     const router = new LlmRouter(config);
-    router.registerProvider(makeFakeProvider("ollama", true));
-    router.registerProvider(makeFakeProvider("remote", true));
+    router.registerRoute(makeFakeProvider("ollama", true), DEFAULT_CONFIG.localModel);
+    router.registerRoute(makeFakeProvider("remote", true), REMOTE_MODEL);
     const provider = await router.selectProvider("classification");
     expect(provider?.providerId).toBe("remote");
   });
@@ -79,8 +109,8 @@ describe("LlmRouter.selectProvider", () => {
   test("per-call preferLocal override prefers local even when config prefers remote", async () => {
     const config: LlmRouterConfig = { ...DEFAULT_CONFIG, preferLocal: false };
     const router = new LlmRouter(config);
-    router.registerProvider(makeFakeProvider("ollama", true));
-    router.registerProvider(makeFakeProvider("remote", true));
+    router.registerRoute(makeFakeProvider("ollama", true), DEFAULT_CONFIG.localModel);
+    router.registerRoute(makeFakeProvider("remote", true), REMOTE_MODEL);
     const overridden = await router.selectProvider("reasoning", { preferLocal: true });
     expect(overridden?.providerId).toBe("ollama");
     // No override: falls back to config, which prefers remote — proves the override is per-call.
@@ -91,7 +121,7 @@ describe("LlmRouter.selectProvider", () => {
   test("per-call preferLocal override falls back to remote when no local provider is available", async () => {
     const config: LlmRouterConfig = { ...DEFAULT_CONFIG, preferLocal: false };
     const router = new LlmRouter(config);
-    router.registerProvider(makeFakeProvider("remote", true));
+    router.registerRoute(makeFakeProvider("remote", true), REMOTE_MODEL);
     const provider = await router.selectProvider("reasoning", { preferLocal: true });
     expect(provider?.providerId).toBe("remote");
   });
@@ -100,7 +130,7 @@ describe("LlmRouter.selectProvider", () => {
 describe("LlmRouter.generate", () => {
   test("delegates to selected provider and returns result", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
-    router.registerProvider(makeFakeProvider("ollama", true));
+    router.registerRoute(makeFakeProvider("ollama", true), DEFAULT_CONFIG.localModel);
     const result = await router.generate({ task: "agent_step", prompt: "hello" });
     expect(result.provider).toBe("ollama");
     expect(result.text).toBe("response from ollama");
@@ -117,30 +147,38 @@ describe("LlmRouter.generate", () => {
 describe("LlmRouter capability floor", () => {
   test("skips provider below minReasoningParams for reasoning task", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
-    router.registerProvider(makeFakeProvider("ollama", true), { parameterCount: 3 });
-    router.registerProvider(makeFakeProvider("remote", true));
+    router.registerRoute(makeFakeProvider("ollama", true), DEFAULT_CONFIG.localModel, {
+      parameterCount: 3,
+    });
+    router.registerRoute(makeFakeProvider("remote", true), REMOTE_MODEL);
     const provider = await router.selectProvider("reasoning");
     expect(provider?.providerId).toBe("remote");
   });
 
   test("selects provider at or above minReasoningParams for reasoning task", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
-    router.registerProvider(makeFakeProvider("ollama", true), { parameterCount: 13 });
+    router.registerRoute(makeFakeProvider("ollama", true), DEFAULT_CONFIG.localModel, {
+      parameterCount: 13,
+    });
     const provider = await router.selectProvider("reasoning");
     expect(provider?.providerId).toBe("ollama");
   });
 
   test("does not apply capability floor to classification task", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
-    router.registerProvider(makeFakeProvider("ollama", true), { parameterCount: 1 });
+    router.registerRoute(makeFakeProvider("ollama", true), DEFAULT_CONFIG.localModel, {
+      parameterCount: 1,
+    });
     const provider = await router.selectProvider("classification");
     expect(provider?.providerId).toBe("ollama");
   });
 
   test("skips small provider for agent_step, falls back to remote", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
-    router.registerProvider(makeFakeProvider("ollama", true), { parameterCount: 3 });
-    router.registerProvider(makeFakeProvider("remote", true));
+    router.registerRoute(makeFakeProvider("ollama", true), DEFAULT_CONFIG.localModel, {
+      parameterCount: 3,
+    });
+    router.registerRoute(makeFakeProvider("remote", true), REMOTE_MODEL);
     const provider = await router.selectProvider("agent_step");
     expect(provider?.providerId).toBe("remote");
   });
@@ -150,11 +188,17 @@ function makeCaptureProvider(
   id: "ollama" | "llamacpp" | "remote",
   available: boolean,
   captured: { prompt: string },
+  // Defaults to the model callers register this id under via `registerRoute` below
+  // (localModel/remoteModel); a caller using an explicit model name (e.g. "small"/"big"
+  // below) passes it here too, so the model-aware availability probe matches what was
+  // registered.
+  models: string[] = [id === "remote" ? REMOTE_MODEL : DEFAULT_CONFIG.localModel],
 ): LlmProvider {
   return {
     providerId: id,
+    isLocal: id !== "remote",
     isAvailable: async () => available,
-    listModels: async () => [],
+    listModels: async () => models.map((m) => ({ provider: id, modelName: m })),
     generate: async (opts) => {
       captured.prompt = opts.prompt;
       return {
@@ -173,7 +217,9 @@ describe("LlmRouter context window overflow", () => {
   test("mid-truncates prompt for summarisation when it exceeds context window", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
     const captured = { prompt: "" };
-    router.registerProvider(makeCaptureProvider("ollama", true, captured), { contextWindow: 100 });
+    router.registerRoute(makeCaptureProvider("ollama", true, captured), DEFAULT_CONFIG.localModel, {
+      contextWindow: 100,
+    });
     const longPrompt = "x".repeat(500);
     await router.generate({ task: "summarisation", prompt: longPrompt });
     expect(captured.prompt).toContain("[...truncated...]");
@@ -183,29 +229,78 @@ describe("LlmRouter context window overflow", () => {
   test("falls back to remote for reasoning when local context window overflows", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
     const captured = { prompt: "" };
-    router.registerProvider(makeCaptureProvider("ollama", true, { prompt: "" }), {
-      contextWindow: 100,
-    });
-    router.registerProvider(makeCaptureProvider("remote", true, captured));
+    router.registerRoute(
+      makeCaptureProvider("ollama", true, { prompt: "" }),
+      DEFAULT_CONFIG.localModel,
+      {
+        contextWindow: 100,
+      },
+    );
+    router.registerRoute(makeCaptureProvider("remote", true, captured), REMOTE_MODEL);
     const longPrompt = "x".repeat(500);
     await router.generate({ task: "reasoning", prompt: longPrompt });
     expect(captured.prompt).toBe(longPrompt);
   });
 
-  test("throws for reasoning overflow when air-gap is enforced", async () => {
+  test("truncates onto the local route for reasoning overflow when air-gap is enforced and no fallback route fits", async () => {
+    // Old behavior (pre-route-walk) threw unconditionally here, even though there was no
+    // remote route registered to "prevent" reaching. The route walk correctly finds no
+    // fitting fallback (the only route IS the overflowing one) and truncates, same as the
+    // non-air-gapped case would with no other route registered.
     const config: LlmRouterConfig = { ...DEFAULT_CONFIG, enforceAirGap: true };
     const router = new LlmRouter(config);
-    router.registerProvider(makeFakeProvider("ollama", true), { contextWindow: 100 });
+    const captured = { prompt: "" };
+    router.registerRoute(makeCaptureProvider("ollama", true, captured), DEFAULT_CONFIG.localModel, {
+      contextWindow: 100,
+    });
     const longPrompt = "x".repeat(500);
-    await expect(router.generate({ task: "reasoning", prompt: longPrompt })).rejects.toThrow(
-      "air-gap mode prevents remote fallback",
-    );
+    const result = await router.generate({ task: "reasoning", prompt: longPrompt });
+    expect(captured.prompt).toContain("[...truncated...]");
+    expect(result.provider).toBe("ollama");
+  });
+
+  test("falls through to a route whose context window fits", async () => {
+    // Each route gets a DISTINCT provider instance with its own capture object.
+    // `makeFakeRouteProvider`'s generate() ignores its input and always returns fixed text
+    // keyed on provider id, so with two same-id routes it cannot tell "walked to the fitting
+    // route" apart from "truncated on the original" — only asserting on what each instance
+    // actually received can.
+    // Both routes share providerId "ollama" but are DISTINCT provider instances, which is
+    // what `RouteAvailabilityProbe` keys its cache on — so each is probed against its own
+    // model list and the default (production) TTLs are what run here. No zero-TTL probe is
+    // injected: a guarantee verified only under a TTL production never uses is not verified.
+    const router = new LlmRouter({ ...DEFAULT_CONFIG, preferLocal: true });
+    const smallCaptured = { prompt: "" };
+    const bigCaptured = { prompt: "" };
+    router.registerRoute(makeCaptureProvider("ollama", true, smallCaptured, ["small"]), "small", {
+      contextWindow: 100,
+    });
+    router.registerRoute(makeCaptureProvider("ollama", true, bigCaptured, ["big"]), "big", {
+      contextWindow: 100_000,
+    });
+    const longPrompt = "x".repeat(40_000); // ~10k tokens: overflows "small", fits "big"
+    await router.generate({ task: "reasoning", prompt: longPrompt });
+    expect(bigCaptured.prompt).toBe(longPrompt); // walked to the fitting route, untruncated
+    expect(smallCaptured.prompt).toBe(""); // the small route was never invoked
+  });
+
+  test("air-gap still refuses a non-local route on overflow", async () => {
+    const router = new LlmRouter({ ...DEFAULT_CONFIG, enforceAirGap: true });
+    router.registerRoute(makeFakeRouteProvider("ollama", true, true, ["small"]), "small", {
+      contextWindow: 100,
+    });
+    router.registerRoute(makeFakeRouteProvider("gemini", false, true, ["big"]), "big", {
+      contextWindow: 100_000,
+    });
+    // Must truncate onto the local route, never reach the remote one.
+    const result = await router.generate({ task: "reasoning", prompt: "x".repeat(40_000) });
+    expect(result.provider).toBe("ollama");
   });
 
   test("short prompt within context window is not truncated", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
     const captured = { prompt: "" };
-    router.registerProvider(makeCaptureProvider("ollama", true, captured), {
+    router.registerRoute(makeCaptureProvider("ollama", true, captured), DEFAULT_CONFIG.localModel, {
       contextWindow: 1000,
     });
     const shortPrompt = "hello world";
@@ -217,7 +312,7 @@ describe("LlmRouter context window overflow", () => {
 describe("LlmRouter.getStatus", () => {
   test("populates modelName from localModel for ollama", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
-    router.registerProvider(makeFakeProvider("ollama", true));
+    router.registerRoute(makeFakeProvider("ollama", true), DEFAULT_CONFIG.localModel);
     const status = await router.getStatus();
     expect(status.classification?.modelName).toBe(DEFAULT_CONFIG.localModel);
   });
@@ -225,21 +320,21 @@ describe("LlmRouter.getStatus", () => {
   test("populates modelName from remoteModel for remote", async () => {
     const config: LlmRouterConfig = { ...DEFAULT_CONFIG, preferLocal: false };
     const router = new LlmRouter(config);
-    router.registerProvider(makeFakeProvider("remote", true));
+    router.registerRoute(makeFakeProvider("remote", true), REMOTE_MODEL);
     const status = await router.getStatus();
-    expect(status.classification?.modelName).toBe(DEFAULT_CONFIG.remoteModel);
+    expect(status.classification?.modelName).toBe(REMOTE_MODEL);
   });
 
   test("isAvailable is true when provider is reachable", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
-    router.registerProvider(makeFakeProvider("ollama", true));
+    router.registerRoute(makeFakeProvider("ollama", true), DEFAULT_CONFIG.localModel);
     const status = await router.getStatus();
     expect(status.agent_step?.isAvailable).toBe(true);
   });
 
   test("isAvailable is false when preferred provider is registered but unreachable", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
-    router.registerProvider(makeFakeProvider("ollama", false));
+    router.registerRoute(makeFakeProvider("ollama", false), DEFAULT_CONFIG.localModel);
     const status = await router.getStatus();
     expect(status.classification?.isAvailable).toBe(false);
     expect(status.classification?.providerId).toBe("ollama");
@@ -253,7 +348,7 @@ describe("LlmRouter.getStatus", () => {
 
   test("reason is prefer-local when preferLocal=true and local provider selected", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
-    router.registerProvider(makeFakeProvider("ollama", true));
+    router.registerRoute(makeFakeProvider("ollama", true), DEFAULT_CONFIG.localModel);
     const status = await router.getStatus();
     expect(status.classification?.reason).toBe("prefer-local");
   });
@@ -261,7 +356,7 @@ describe("LlmRouter.getStatus", () => {
   test("reason is prefer-remote when preferLocal=false and remote provider selected", async () => {
     const config: LlmRouterConfig = { ...DEFAULT_CONFIG, preferLocal: false };
     const router = new LlmRouter(config);
-    router.registerProvider(makeFakeProvider("remote", true));
+    router.registerRoute(makeFakeProvider("remote", true), REMOTE_MODEL);
     const status = await router.getStatus();
     expect(status.classification?.reason).toBe("prefer-remote");
   });
@@ -273,14 +368,14 @@ describe("LlmRouter.getStatus", () => {
       preferLocal: true,
     };
     const router = new LlmRouter(config);
-    router.registerProvider(makeFakeProvider("ollama", true));
+    router.registerRoute(makeFakeProvider("ollama", true), DEFAULT_CONFIG.localModel);
     const status = await router.getStatus();
     expect(status.classification?.reason).toBe("air-gap");
   });
 
   test("reason is no-local-provider when preferLocal=true but only remote is registered", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
-    router.registerProvider(makeFakeProvider("remote", true));
+    router.registerRoute(makeFakeProvider("remote", true), REMOTE_MODEL);
     const status = await router.getStatus();
     expect(status.classification?.reason).toBe("no-local-provider");
   });
@@ -288,14 +383,14 @@ describe("LlmRouter.getStatus", () => {
   test("reason is no-remote-provider when preferLocal=false but only local is registered", async () => {
     const config: LlmRouterConfig = { ...DEFAULT_CONFIG, preferLocal: false };
     const router = new LlmRouter(config);
-    router.registerProvider(makeFakeProvider("ollama", true));
+    router.registerRoute(makeFakeProvider("ollama", true), DEFAULT_CONFIG.localModel);
     const status = await router.getStatus();
     expect(status.classification?.reason).toBe("no-remote-provider");
   });
 
   test("returns all four task types", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
-    router.registerProvider(makeFakeProvider("ollama", true));
+    router.registerRoute(makeFakeProvider("ollama", true), DEFAULT_CONFIG.localModel);
     const status = await router.getStatus();
     expect(Object.keys(status).sort((a, b) => a.localeCompare(b))).toEqual([
       "agent_step",
@@ -307,21 +402,56 @@ describe("LlmRouter.getStatus", () => {
 
   test("reports the fallback generate() would use when the preferred provider is down", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
-    router.registerProvider(makeFakeProvider("ollama", false));
-    router.registerProvider(makeFakeProvider("remote", true));
+    router.registerRoute(makeFakeProvider("ollama", false), DEFAULT_CONFIG.localModel);
+    router.registerRoute(makeFakeProvider("remote", true), REMOTE_MODEL);
     const status = await router.getStatus();
     expect(status.classification?.providerId).toBe("ollama");
     expect(status.classification?.isAvailable).toBe(false);
     expect(status.classification?.fallback).toEqual({
       providerId: "remote",
-      modelName: DEFAULT_CONFIG.remoteModel,
+      modelName: REMOTE_MODEL,
+    });
+  });
+
+  test("reports a SAME-provider fallback — two routes on one provider is the normal case", async () => {
+    // The bug this pins: the fallback was suppressed whenever it shared a `providerId` with
+    // the preferred route. Once the key became `(provider, model)`, that describes the most
+    // ordinary setup there is — two models on one Ollama daemon — so `ollama/qwen3:8b` down
+    // and `ollama/gemma3:12b` answering in its place was never reported at all. The status
+    // said "unavailable" and stopped, while `generate()` was quietly succeeding elsewhere.
+    const daemon: LlmProvider = {
+      providerId: "ollama",
+      isLocal: true,
+      isAvailable: async () => true,
+      // The daemon is UP but has only ever pulled gemma3:12b, so `qwen3:8b` is
+      // `model_absent` — a same-provider, different-model failure, which is precisely the
+      // case a providerId comparison cannot express.
+      listModels: async () => [{ provider: "ollama", modelName: "gemma3:12b" }],
+      generate: async () => ({
+        text: "x",
+        tokensIn: 1,
+        tokensOut: 1,
+        modelUsed: "gemma3:12b",
+        isLocal: true,
+        provider: "ollama",
+      }),
+    };
+    const router = new LlmRouter(DEFAULT_CONFIG);
+    router.registerRoute(daemon, "qwen3:8b");
+    router.registerRoute(daemon, "gemma3:12b");
+    const status = await router.getStatus();
+    expect(status.classification?.modelName).toBe("qwen3:8b");
+    expect(status.classification?.isAvailable).toBe(false);
+    expect(status.classification?.fallback).toEqual({
+      providerId: "ollama",
+      modelName: "gemma3:12b",
     });
   });
 
   test("no fallback when the preferred provider is available", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
-    router.registerProvider(makeFakeProvider("ollama", true));
-    router.registerProvider(makeFakeProvider("remote", true));
+    router.registerRoute(makeFakeProvider("ollama", true), DEFAULT_CONFIG.localModel);
+    router.registerRoute(makeFakeProvider("remote", true), REMOTE_MODEL);
     const status = await router.getStatus();
     expect(status.classification?.isAvailable).toBe(true);
     expect(status.classification?.fallback).toBeUndefined();
@@ -329,7 +459,7 @@ describe("LlmRouter.getStatus", () => {
 
   test("no fallback when the preferred is down and nothing else is available", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
-    router.registerProvider(makeFakeProvider("ollama", false));
+    router.registerRoute(makeFakeProvider("ollama", false), DEFAULT_CONFIG.localModel);
     const status = await router.getStatus();
     expect(status.classification?.isAvailable).toBe(false);
     expect(status.classification?.fallback).toBeUndefined();
@@ -337,8 +467,10 @@ describe("LlmRouter.getStatus", () => {
 
   test("reason is local-below-reasoning-floor when local exists but misses the floor", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
-    router.registerProvider(makeFakeProvider("ollama", true), { parameterCount: 1 });
-    router.registerProvider(makeFakeProvider("remote", true));
+    router.registerRoute(makeFakeProvider("ollama", true), DEFAULT_CONFIG.localModel, {
+      parameterCount: 1,
+    });
+    router.registerRoute(makeFakeProvider("remote", true), REMOTE_MODEL);
     const status = await router.getStatus();
     // reasoning carries a capability floor; ollama (1B < minReasoningParams) is skipped → remote.
     expect(status.reasoning?.providerId).toBe("remote");
@@ -358,7 +490,7 @@ describe("LlmRouter.getStatus", () => {
       },
     };
     const router = new LlmRouter(DEFAULT_CONFIG);
-    router.registerProvider(ollama);
+    router.registerRoute(ollama, DEFAULT_CONFIG.localModel);
     await router.getStatus();
     expect(ollamaProbes).toBe(1);
   });
@@ -383,22 +515,14 @@ describe("midTruncate", () => {
   });
 });
 
-describe("isLocalProviderKind", () => {
-  test("classifies ollama and llamacpp as local, remote as not", () => {
-    expect(isLocalProviderKind("ollama")).toBe(true);
-    expect(isLocalProviderKind("llamacpp")).toBe(true);
-    expect(isLocalProviderKind("remote")).toBe(false);
-  });
-});
-
 describe("LlmRouter.resolveForSynthesis", () => {
-  test("a LOCAL provider kind resolves isLocal: true — via the REAL LOCAL_PROVIDER_IDS membership, not a stub", async () => {
+  test("a LOCAL provider kind resolves isLocal: true — via the REAL provider.isLocal, not a stub", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
-    router.registerProvider(makeFakeProvider("ollama", true));
+    router.registerRoute(makeFakeProvider("ollama", true), DEFAULT_CONFIG.localModel);
     const resolved = await router.resolveForSynthesis();
-    // This is the security-relevant assertion: `isLocal` comes from `isLocalProviderKind`
-    // classifying the REAL resolved `providerId` ("ollama"), never from a caller-supplied flag —
-    // a caller deciding `[agents].synthesis = "local"` vs egress-ledgering trusts THIS value.
+    // This is the security-relevant assertion: `isLocal` comes from the resolved route's
+    // REAL `provider.isLocal`, never from a caller-supplied flag — a caller deciding
+    // `[agents].synthesis = "local"` vs egress-ledgering trusts THIS value.
     expect(resolved).toEqual({
       providerId: "ollama",
       modelName: DEFAULT_CONFIG.localModel,
@@ -409,11 +533,11 @@ describe("LlmRouter.resolveForSynthesis", () => {
   test("a REMOTE provider kind resolves isLocal: false", async () => {
     const config: LlmRouterConfig = { ...DEFAULT_CONFIG, preferLocal: false };
     const router = new LlmRouter(config);
-    router.registerProvider(makeFakeProvider("remote", true));
+    router.registerRoute(makeFakeProvider("remote", true), REMOTE_MODEL);
     const resolved = await router.resolveForSynthesis();
     expect(resolved).toEqual({
       providerId: "remote",
-      modelName: DEFAULT_CONFIG.remoteModel,
+      modelName: REMOTE_MODEL,
       isLocal: false,
     });
   });
@@ -421,22 +545,24 @@ describe("LlmRouter.resolveForSynthesis", () => {
   test("llamacpp (the second local provider kind) also resolves isLocal: true", async () => {
     const config: LlmRouterConfig = { ...DEFAULT_CONFIG, enforceAirGap: true };
     const router = new LlmRouter(config);
-    router.registerProvider(makeFakeProvider("llamacpp", true));
+    router.registerRoute(makeFakeProvider("llamacpp", true), DEFAULT_CONFIG.localModel);
     const resolved = await router.resolveForSynthesis();
     expect(resolved?.isLocal).toBe(true);
   });
 
   test("returns undefined when no provider is available, exactly like selectProvider", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
-    router.registerProvider(makeFakeProvider("ollama", false));
+    router.registerRoute(makeFakeProvider("ollama", false), DEFAULT_CONFIG.localModel);
     const resolved = await router.resolveForSynthesis();
     expect(resolved).toBeUndefined();
   });
 
   test("honors the reasoning capability floor, same as selectProvider('reasoning')", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
-    router.registerProvider(makeFakeProvider("ollama", true), { parameterCount: 1 });
-    router.registerProvider(makeFakeProvider("remote", true));
+    router.registerRoute(makeFakeProvider("ollama", true), DEFAULT_CONFIG.localModel, {
+      parameterCount: 1,
+    });
+    router.registerRoute(makeFakeProvider("remote", true), REMOTE_MODEL);
     const resolved = await router.resolveForSynthesis();
     expect(resolved?.providerId).toBe("remote");
   });
@@ -450,13 +576,13 @@ describe("LlmRouter.resolveForSynthesis", () => {
     // is picked.
     const config: LlmRouterConfig = { ...DEFAULT_CONFIG, preferLocal: false };
     const router = new LlmRouter(config);
-    router.registerProvider(makeFakeProvider("ollama", true));
-    router.registerProvider(makeFakeProvider("remote", true));
+    router.registerRoute(makeFakeProvider("ollama", true), DEFAULT_CONFIG.localModel);
+    router.registerRoute(makeFakeProvider("remote", true), REMOTE_MODEL);
 
     const viaConfigDefault = await router.resolveForSynthesis();
     expect(viaConfigDefault).toEqual({
       providerId: "remote",
-      modelName: DEFAULT_CONFIG.remoteModel,
+      modelName: REMOTE_MODEL,
       isLocal: false,
     });
 
@@ -472,7 +598,7 @@ describe("LlmRouter.resolveForSynthesis", () => {
 describe("LlmRouter.generateMarkdown", () => {
   test("invokes the EXACT resolved provider and returns its generated text", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
-    router.registerProvider(makeFakeProvider("ollama", true));
+    router.registerRoute(makeFakeProvider("ollama", true), DEFAULT_CONFIG.localModel);
     const resolved = await router.resolveForSynthesis();
     if (resolved === undefined) throw new Error("expected a resolved provider");
     const markdown = await router.generateMarkdown("write a brief", resolved);
@@ -481,7 +607,7 @@ describe("LlmRouter.generateMarkdown", () => {
 
   test("throws when the resolved provider is no longer registered", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
-    router.registerProvider(makeFakeProvider("ollama", true));
+    router.registerRoute(makeFakeProvider("ollama", true), DEFAULT_CONFIG.localModel);
     const resolved = await router.resolveForSynthesis();
     if (resolved === undefined) throw new Error("expected a resolved provider");
     // The provider that answered resolveForSynthesis() is no longer registered by the time
@@ -495,10 +621,429 @@ describe("LlmRouter.generateMarkdown", () => {
   test("passes the prompt through to the underlying provider's generate() call", async () => {
     const router = new LlmRouter(DEFAULT_CONFIG);
     const captured = { prompt: "" };
-    router.registerProvider(makeCaptureProvider("ollama", true, captured));
+    router.registerRoute(makeCaptureProvider("ollama", true, captured), DEFAULT_CONFIG.localModel);
     const resolved = await router.resolveForSynthesis();
     if (resolved === undefined) throw new Error("expected a resolved provider");
     await router.generateMarkdown("the exact prompt text", resolved);
     expect(captured.prompt).toBe("the exact prompt text");
+  });
+});
+
+function makeFakeRouteProvider(
+  id: string,
+  isLocal: boolean,
+  available: boolean,
+  // The models this fake's daemon reports — must include whatever model name the
+  // caller then registers this provider under, or the model-aware availability
+  // probe (Task 5) reports `model_absent` regardless of `available`.
+  models: string[] = [],
+): LlmProvider {
+  return {
+    providerId: id,
+    isLocal,
+    isAvailable: async () => available,
+    listModels: async () => models.map((m) => ({ provider: id, modelName: m })),
+    generate: async () => ({
+      text: `response from ${id}`,
+      tokensIn: 1,
+      tokensOut: 1,
+      modelUsed: id,
+      isLocal,
+      provider: id,
+    }),
+  };
+}
+
+describe("LlmRouter route registration", () => {
+  test("two models on ONE runtime both survive registration", async () => {
+    // RED-PROVE: on the pre-refactor Map<LlmProviderKind, LlmProvider> the second
+    // register overwrote the first, so this asserted 1 where it should assert 2.
+    const router = new LlmRouter(DEFAULT_CONFIG);
+    router.registerRoute(makeFakeRouteProvider("ollama", true, true), "qwen3:8b");
+    router.registerRoute(makeFakeRouteProvider("ollama", true, true), "gemma3:12b");
+
+    const ids = router
+      .routes()
+      .map((r) => r.routeId)
+      .sort();
+    expect(ids).toEqual(["ollama/gemma3:12b", "ollama/qwen3:8b"]);
+  });
+
+  test("a route is addressable by its id", () => {
+    const router = new LlmRouter(DEFAULT_CONFIG);
+    router.registerRoute(makeFakeRouteProvider("ollama", true, true), "qwen3:8b");
+    expect(router.routeFor("ollama/qwen3:8b")?.modelName).toBe("qwen3:8b");
+    expect(router.routeFor("ollama/nope")).toBeUndefined();
+  });
+
+  test("re-registering the SAME routeId replaces it rather than duplicating", () => {
+    const router = new LlmRouter(DEFAULT_CONFIG);
+    router.registerRoute(makeFakeRouteProvider("ollama", true, true), "qwen3:8b");
+    router.registerRoute(makeFakeRouteProvider("ollama", true, true), "qwen3:8b", {
+      parameterCount: 8,
+    });
+    expect(router.routes()).toHaveLength(1);
+    expect(router.routes()[0]?.meta.parameterCount).toBe(8);
+  });
+
+  test("selectProvider prefers a local route when preferLocal=true", async () => {
+    const router = new LlmRouter(DEFAULT_CONFIG);
+    router.registerRoute(
+      makeFakeRouteProvider("gemini", false, true, ["gemini-2.5-pro"]),
+      "gemini-2.5-pro",
+    );
+    router.registerRoute(makeFakeRouteProvider("ollama", true, true, ["qwen3:8b"]), "qwen3:8b");
+    const provider = await router.selectProvider("agent_step");
+    expect(provider?.providerId).toBe("ollama");
+  });
+
+  test("enforceAirGap skips every non-local route, whatever its id", async () => {
+    const router = new LlmRouter({ ...DEFAULT_CONFIG, enforceAirGap: true });
+    // The model list is supplied and matches, so the ONLY thing that can make this
+    // route unavailable is the air-gap skip itself — without this the route would
+    // read as model_absent regardless of enforceAirGap, and the test would pass for
+    // the wrong reason.
+    router.registerRoute(
+      makeFakeRouteProvider("gemini", false, true, ["gemini-2.5-pro"]),
+      "gemini-2.5-pro",
+    );
+    // A vendor id this code has never seen must still be refused, because isLocal
+    // is declared false — not because "gemini" is on a list somewhere.
+    const provider = await router.selectProvider("agent_step");
+    expect(provider).toBeUndefined();
+  });
+
+  test("the unnamed tail after route_priority still honours preferLocal", async () => {
+    const router = new LlmRouter({
+      ...DEFAULT_CONFIG,
+      preferLocal: true,
+      routePriority: ["gemini/gemini-2.5-pro"], // an explicit remote FIRST choice
+    });
+    router.registerRoute(makeFakeRouteProvider("gemini", false, true), "gemini-2.5-pro");
+    router.registerRoute(makeFakeRouteProvider("xai", false, true), "grok-4");
+    router.registerRoute(makeFakeRouteProvider("ollama", true, true), "qwen3:8b");
+    // Registration order puts xai (remote) before ollama (local); preferLocal must
+    // reorder the tail so the local route is tried before the unranked remote one.
+    const ids = (router as unknown as { orderedRoutes(p?: boolean): { routeId: string }[] })
+      .orderedRoutes(true)
+      .map((r) => r.routeId);
+    expect(ids).toEqual(["gemini/gemini-2.5-pro", "ollama/qwen3:8b", "xai/grok-4"]);
+  });
+
+  test("selectRoute returns the full ModelRoute, not just the provider", async () => {
+    const router = new LlmRouter(DEFAULT_CONFIG);
+    router.registerRoute(makeFakeRouteProvider("ollama", true, true, ["qwen3:8b"]), "qwen3:8b");
+    const route = await router.selectRoute("reasoning");
+    expect(route?.modelName).toBe("qwen3:8b");
+    expect(route?.routeId).toBe("ollama/qwen3:8b");
+    expect(route?.provider.providerId).toBe("ollama");
+  });
+
+  test("the walk falls THROUGH a route whose model is not pulled", async () => {
+    // Without per-route (model-aware) availability this stops at the first route and
+    // returns it, because the daemon is up even though the configured model was never
+    // pulled. That is the whole defect this task fixes.
+    //
+    // Both routes share providerId "ollama" but are DISTINCT provider instances — which is
+    // what the availability probe keys its cache on — so each check re-lists against its
+    // OWN fake, exactly as two real daemons would answer. Deliberately runs on the default
+    // (production) TTLs rather than an injected zero-TTL probe.
+    const absent = makeFakeRouteProvider("ollama", true, true, ["other"]);
+    const present = makeFakeRouteProvider("ollama", true, true, ["present"]);
+    const router = new LlmRouter({
+      ...DEFAULT_CONFIG,
+      routePriority: ["ollama/missing", "ollama/present"],
+    });
+    router.registerRoute(absent, "missing");
+    router.registerRoute(present, "present");
+    const chosen = await router.selectRoute("reasoning");
+    expect(chosen?.modelName).toBe("present");
+  });
+});
+
+describe("generate-time route fallback", () => {
+  // Slice 2b §6.4. Cloud adapters answer availability OFFLINE, so a remote route reports
+  // available whatever the network is doing. Without a walk, `route_priority = [remote, local]`
+  // with no internet becomes a hard failure even with a healthy local model next in line -- while
+  // the roadmap row this serves promises "with local fallback".
+  const CFG: LlmRouterConfig = {
+    preferLocal: false,
+    localModel: "local-model",
+    minReasoningParams: 0,
+    enforceAirGap: false,
+    routePriority: ["remote/remote-model", "ollama/local-model"],
+  };
+
+  function provider(
+    id: "ollama" | "remote",
+    modelName: string,
+    generate: () => Promise<never> | Promise<{ text: string }>,
+  ): LlmProvider {
+    return {
+      providerId: id,
+      isLocal: id !== "remote",
+      isAvailable: async () => true,
+      listModels: async () => [{ provider: id, modelName }],
+      generate: generate as LlmProvider["generate"],
+    };
+  }
+
+  const ok = (text: string) => async () => ({
+    text,
+    tokensIn: 1,
+    tokensOut: 1,
+    modelUsed: "m",
+    isLocal: false,
+    provider: "x",
+  });
+  const boom = (kind: "transport" | "auth" | "request", status: number) => async () => {
+    throw new LlmProviderError(`x: HTTP ${String(status)}`, kind, status);
+  };
+
+  function routerWith(
+    remoteGen: () => Promise<never> | Promise<{ text: string }>,
+    localGen: () => Promise<never> | Promise<{ text: string }>,
+    cfg: LlmRouterConfig = CFG,
+  ) {
+    const r = new LlmRouter(cfg);
+    r.registerRoute(provider("remote", "remote-model", remoteGen), "remote-model");
+    r.registerRoute(provider("ollama", "local-model", localGen), "local-model");
+    return r;
+  }
+
+  test("a TRANSPORT failure falls through to the next route and succeeds", async () => {
+    let localCalls = 0;
+    const r = routerWith(boom("transport", 503), async () => {
+      localCalls += 1;
+      return (await ok("local answer")()) as never;
+    });
+    expect((await r.generate({ task: "reasoning", prompt: "hi" })).text).toBe("local answer");
+    expect(localCalls).toBe(1);
+  });
+
+  test("an AUTH failure does NOT fall through -- it fails at the first route", async () => {
+    // A bad key fails identically at the next vendor, so retrying only sends the same prompt to a
+    // second destination: one more real outbound request and one more ledger row, no better
+    // answer.
+    let localCalls = 0;
+    const r = routerWith(boom("auth", 401), async () => {
+      localCalls += 1;
+      return (await ok("local answer")()) as never;
+    });
+    await expect(r.generate({ task: "reasoning", prompt: "hi" })).rejects.toBeInstanceOf(
+      LlmProviderError,
+    );
+    expect(localCalls).toBe(0);
+  });
+
+  test("a REQUEST failure does NOT fall through either", async () => {
+    let localCalls = 0;
+    const r = routerWith(boom("request", 400), async () => {
+      localCalls += 1;
+      return (await ok("local answer")()) as never;
+    });
+    await expect(r.generate({ task: "reasoning", prompt: "hi" })).rejects.toThrow();
+    expect(localCalls).toBe(0);
+  });
+
+  test("an UNCLASSIFIED error does not fall through", async () => {
+    // A plain Error carries no `kind`. Fail-closed on the RETRY decision: only an explicitly
+    // transport-classified failure earns a second destination.
+    let localCalls = 0;
+    const r = routerWith(
+      async () => {
+        throw new Error("something else");
+      },
+      async () => {
+        localCalls += 1;
+        return (await ok("local answer")()) as never;
+      },
+    );
+    await expect(r.generate({ task: "reasoning", prompt: "hi" })).rejects.toThrow("something else");
+    expect(localCalls).toBe(0);
+  });
+
+  test("when EVERY route fails on transport, the LAST error is thrown", async () => {
+    const r = routerWith(boom("transport", 503), async () => {
+      throw new LlmProviderError("second", "transport", 500);
+    });
+    await expect(r.generate({ task: "reasoning", prompt: "hi" })).rejects.toThrow("second");
+  });
+
+  test("under air-gap the walk never reaches a non-local route", async () => {
+    let remoteCalls = 0;
+    const r = routerWith(
+      async () => {
+        remoteCalls += 1;
+        return (await ok("cloud")()) as never;
+      },
+      ok("local") as () => Promise<{ text: string }>,
+      { ...CFG, enforceAirGap: true },
+    );
+    expect((await r.generate({ task: "reasoning", prompt: "hi" })).text).toBe("local");
+    expect(remoteCalls).toBe(0);
+  });
+});
+
+describe("generate-time walk — no destination is invoked twice", () => {
+  test("an overflow redirect does not let the walk revisit the same route", async () => {
+    // `fitPromptOrFallback` can redirect an overflowing prompt onto a DIFFERENT route, and that
+    // route is still ahead in the walk. Without a guard the same destination is called twice for
+    // one prompt -- two real outbound requests and two ledger rows, the second buying nothing.
+    let remoteCalls = 0;
+    const cfg: LlmRouterConfig = {
+      preferLocal: true,
+      localModel: "local-model",
+      minReasoningParams: 0,
+      enforceAirGap: false,
+      routePriority: ["ollama/local-model", "remote/remote-model"],
+    };
+    const mk = (id: "ollama" | "remote", model: string, onGen: () => void): LlmProvider => ({
+      providerId: id,
+      isLocal: id !== "remote",
+      isAvailable: async () => true,
+      listModels: async () => [{ provider: id, modelName: model }],
+      generate: async () => {
+        onGen();
+        throw new LlmProviderError("down", "transport", 503);
+      },
+    });
+
+    const r = new LlmRouter(cfg);
+    // A tiny context window on the local route forces the overflow redirect onto the remote one.
+    r.registerRoute(
+      mk("ollama", "local-model", () => undefined),
+      "local-model",
+      {
+        contextWindow: 10,
+      },
+    );
+    r.registerRoute(
+      mk("remote", "remote-model", () => {
+        remoteCalls += 1;
+      }),
+      "remote-model",
+      { contextWindow: 100000 },
+    );
+
+    await r.generate({ task: "reasoning", prompt: "x".repeat(5000) }).catch(() => undefined);
+    expect(remoteCalls).toBe(1);
+  });
+});
+
+describe("LlmRouter task pins ([llm.tasks])", () => {
+  test("a pinned task uses its route even when preferLocal would order differently", async () => {
+    const router = new LlmRouter({
+      ...DEFAULT_CONFIG,
+      preferLocal: true,
+      taskPins: new Map([["classification", "ollama/small"]]),
+    });
+    router.registerRoute(makeFakeProvider("ollama", true), "big");
+    router.registerRoute(makeFakeProvider("ollama", true), "small");
+    const route = await router.selectRoute("classification");
+    expect(route?.routeId).toBe("ollama/small");
+  });
+
+  test("a pin that names an UNREGISTERED route falls back to normal ordering", async () => {
+    // Fail-OPEN here, deliberately, and this is the one place in the egress work where that is
+    // right: a stale pin must degrade to a working answer, not an outage. The pin selects among
+    // routes that are already registered and already ledgered -- it cannot widen egress.
+    const router = new LlmRouter({
+      ...DEFAULT_CONFIG,
+      taskPins: new Map([["classification", "ollama/gone"]]),
+    });
+    router.registerRoute(makeFakeProvider("ollama", true), "big");
+    expect((await router.selectRoute("classification"))?.routeId).toBe("ollama/big");
+  });
+
+  test("a pinned route that is UNAVAILABLE falls through to the next eligible route", async () => {
+    const router = new LlmRouter({
+      ...DEFAULT_CONFIG,
+      taskPins: new Map([["reasoning", "ollama/down"]]),
+    });
+    // `makeFakeProvider(id, available)` -- two args; the fake derives `isLocal` from `id`.
+    router.registerRoute(makeFakeProvider("ollama", false), "down");
+    router.registerRoute(makeFakeProvider("ollama", true), "up");
+    expect((await router.selectRoute("reasoning"))?.routeId).toBe("ollama/up");
+  });
+
+  test("a pin does NOT override air-gap", async () => {
+    // enforce_air_gap is a refusal, not a preference. A pin naming a remote route under air-gap
+    // must not resurrect it -- even when that route is otherwise fully eligible: AVAILABLE
+    // (`makeFakeProvider("anthropic", true)`) and naming a model the fake actually advertises
+    // ("up", in its `listModels`). Both of those are load-bearing: an unavailable route or an
+    // unadvertised model would be rejected by the availability probe regardless of air-gap, which
+    // is exactly how this test previously passed for two reasons that had nothing to do with the
+    // air-gap check -- deleting `if (this.config.enforceAirGap && !route.provider.isLocal)
+    // continue;` from `router.ts` left it green. With an eligible-but-for-air-gap route pinned,
+    // only the air-gap check can produce `undefined` here.
+    const router = new LlmRouter({
+      ...DEFAULT_CONFIG,
+      enforceAirGap: true,
+      taskPins: new Map([["reasoning", "anthropic/up"]]),
+    });
+    router.registerRoute(makeFakeProvider("anthropic", true), "up");
+    expect(await router.selectRoute("reasoning")).toBeUndefined();
+  });
+
+  // `reasonFor` (feeding `nimbus llm status`) used to ignore pins entirely, deriving a reason
+  // from `preferLocal` alone -- so a pin overriding `preferLocal`'s normal choice produced a
+  // reason that CONTRADICTED the route it was attached to: both routes below are registered and
+  // available, so the "no-*-provider" reasons the buggy code reported were false, not just
+  // imprecise.
+  test("reason is task-pin, not no-remote-provider, when preferLocal=false pins a LOCAL route", async () => {
+    const router = new LlmRouter({
+      ...DEFAULT_CONFIG,
+      preferLocal: false,
+      taskPins: new Map([["classification", `ollama/${DEFAULT_CONFIG.localModel}`]]),
+    });
+    router.registerRoute(makeFakeProvider("ollama", true), DEFAULT_CONFIG.localModel);
+    router.registerRoute(makeFakeProvider("remote", true), REMOTE_MODEL);
+    const status = await router.getStatus();
+    expect(status.classification?.providerId).toBe("ollama");
+    expect(status.classification?.reason).toBe("task-pin");
+  });
+
+  test("reason is task-pin, not no-local-provider, when preferLocal=true pins a REMOTE route", async () => {
+    const router = new LlmRouter({
+      ...DEFAULT_CONFIG,
+      preferLocal: true,
+      taskPins: new Map([["classification", `remote/${REMOTE_MODEL}`]]),
+    });
+    router.registerRoute(makeFakeProvider("ollama", true), DEFAULT_CONFIG.localModel);
+    router.registerRoute(makeFakeProvider("remote", true), REMOTE_MODEL);
+    const status = await router.getStatus();
+    expect(status.classification?.providerId).toBe("remote");
+    expect(status.classification?.reason).toBe("task-pin");
+  });
+});
+
+describe("LlmRouter.setTaskPin", () => {
+  test("re-pins a task at runtime without touching the config object it was constructed with", async () => {
+    const config: LlmRouterConfig = { ...DEFAULT_CONFIG, preferLocal: true };
+    const router = new LlmRouter(config);
+    router.registerRoute(makeFakeProvider("ollama", true), "big");
+    router.registerRoute(makeFakeProvider("ollama", true), "small");
+    // No pin yet: normal preferLocal ordering picks registration order among locals.
+    expect((await router.selectRoute("classification"))?.routeId).toBe("ollama/big");
+
+    router.setTaskPin("classification", "ollama/small");
+    expect((await router.selectRoute("classification"))?.routeId).toBe("ollama/small");
+
+    // The immutable config snapshot this router was built with is untouched.
+    expect(config.taskPins).toBeUndefined();
+  });
+
+  test("overrides a pin that came from [llm.tasks] config at construction", async () => {
+    const router = new LlmRouter({
+      ...DEFAULT_CONFIG,
+      taskPins: new Map([["reasoning", "ollama/big"]]),
+    });
+    router.registerRoute(makeFakeProvider("ollama", true), "big");
+    router.registerRoute(makeFakeProvider("ollama", true), "small");
+    expect((await router.selectRoute("reasoning"))?.routeId).toBe("ollama/big");
+
+    router.setTaskPin("reasoning", "ollama/small");
+    expect((await router.selectRoute("reasoning"))?.routeId).toBe("ollama/small");
   });
 });
