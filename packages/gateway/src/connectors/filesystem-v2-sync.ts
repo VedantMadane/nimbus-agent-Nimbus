@@ -5,6 +5,8 @@ import { join, relative } from "node:path";
 
 import type { NimbusFilesystemRootToml } from "../config/filesystem-toml.ts";
 import { extensionProcessEnv } from "../extensions/spawn-env.ts";
+import { MEDIA_EXTENSIONS, mediaExtensionModality } from "../multimodal/media-source-registry.ts";
+import type { MediaModality } from "../multimodal/media-types.ts";
 import { type BlameRow, parseBlamePorcelain } from "../security/blame-store.ts";
 import { type Syncable, type SyncContext, type SyncResult, syncNoopResult } from "../sync/types.ts";
 import { decodeNimbusJsonCursorPayload, encodeNimbusJsonCursor } from "./nimbus-json-cursor.ts";
@@ -426,6 +428,172 @@ function listCodeFiles(root: string, exclude: readonly string[], maxFiles: numbe
   return found;
 }
 
+export interface FoundMediaFile {
+  readonly path: string;
+  readonly modality: MediaModality;
+}
+
+/**
+ * `sourceMime` on a derived understanding item comes from here.
+ *
+ * Returns null rather than `application/octet-stream` for an unknown extension: a wrong MIME is
+ * worse than an absent one, because a reader cannot tell a guess from a fact.
+ */
+const MEDIA_MIME_TYPES: ReadonlyMap<string, string> = new Map([
+  [".mp4", "video/mp4"],
+  [".mov", "video/quicktime"],
+  [".m4v", "video/x-m4v"],
+  [".webm", "video/webm"],
+  [".mkv", "video/x-matroska"],
+  [".mp3", "audio/mpeg"],
+  [".m4a", "audio/mp4"],
+  [".wav", "audio/wav"],
+  [".flac", "audio/flac"],
+  [".ogg", "audio/ogg"],
+  [".png", "image/png"],
+  [".jpg", "image/jpeg"],
+  [".jpeg", "image/jpeg"],
+  [".gif", "image/gif"],
+  [".webp", "image/webp"],
+  [".bmp", "image/bmp"],
+  [".tiff", "image/tiff"],
+]);
+
+export function mimeTypeForMediaExtension(ext: string): string | null {
+  return MEDIA_MIME_TYPES.get(ext.toLowerCase()) ?? null;
+}
+
+/**
+ * Media files under a root, capped and exclude-aware.
+ *
+ * Separate from the code walk because the two answer different questions: the code walk indexes
+ * SYMBOLS inside a file, this indexes the file ITSELF as an artifact whose body arrives later from
+ * the understanding pass. `maxFiles` is load-bearing — a root pointed at a photo library is
+ * otherwise unbounded (spec § 12.4).
+ *
+ * Exclusion applies BOTH checks the code walk applies, so the two stay one behaviour.
+ */
+export function collectMediaFiles(
+  root: string,
+  exclude: readonly string[],
+  maxFiles: number,
+): FoundMediaFile[] {
+  const found: FoundMediaFile[] = [];
+  walkMediaFilesRecursive(root, exclude, maxFiles, found, root, 0);
+  return found;
+}
+
+function walkMediaFilesRecursive(
+  root: string,
+  exclude: readonly string[],
+  maxFiles: number,
+  found: FoundMediaFile[],
+  dir: string,
+  depth: number,
+): void {
+  if (found.length >= maxFiles || depth > 10) {
+    return;
+  }
+  const entries = readDirectoryDirentsOrUndefined(dir);
+  if (entries === undefined) {
+    return;
+  }
+  for (const ent of entries) {
+    if (found.length >= maxFiles) {
+      return;
+    }
+    const name = String(ent.name);
+    if (exclude.includes(name)) {
+      continue;
+    }
+    const full = join(dir, name);
+    const rel = relative(root, full);
+    if (isExcluded(rel, exclude)) {
+      continue;
+    }
+    if (ent.isDirectory()) {
+      walkMediaFilesRecursive(root, exclude, maxFiles, found, full, depth + 1);
+      continue;
+    }
+    if (!ent.isFile()) {
+      continue;
+    }
+    const dot = name.lastIndexOf(".");
+    const ext = dot >= 0 ? name.slice(dot) : "";
+    if (!MEDIA_EXTENSIONS.has(ext.toLowerCase())) {
+      continue;
+    }
+    const modality = mediaExtensionModality(ext);
+    if (modality !== undefined) {
+      found.push({ path: full, modality });
+    }
+  }
+}
+
+/** Cap per root. A home directory full of photos is otherwise unbounded (spec § 12.4). */
+const MEDIA_MAX_FILES_PER_ROOT = 5_000;
+
+/**
+ * Indexes each media file under `root` as a BODYLESS item.
+ *
+ * The body arrives later as a separate derived `nimbus:*_understanding` item (spec § 4) — this row
+ * is the artifact's existence and location, and deliberately carries no transcript of its own.
+ *
+ * Writes through `ctx.upsertItem`, never a raw `Database`: `SyncContext` exposes no handles and
+ * static rule D24 enforces that, so a `ctx.db` here fails the structure audit.
+ */
+export function syncFilesystemMediaForRoot(
+  ctx: SyncContext,
+  root: string,
+  exclude: readonly string[],
+  maxFiles: number,
+  now: number,
+): { upserted: number; bytes: number } {
+  const files = collectMediaFiles(root, exclude, maxFiles);
+  let upserted = 0;
+
+  for (const file of files) {
+    let sizeBytes: number | null = null;
+    let modifiedAt = now;
+    try {
+      const st = statSync(file.path);
+      sizeBytes = st.size;
+      modifiedAt = Math.floor(st.mtimeMs);
+    } catch {
+      // Vanished between walk and stat — simply not indexed this run.
+      continue;
+    }
+    const dot = file.path.lastIndexOf(".");
+    const ext = dot >= 0 ? file.path.slice(dot) : "";
+    const name = file.path.split(/[\\/]/).pop() ?? file.path;
+
+    ctx.upsertItem({
+      service: SERVICE_ID,
+      type: file.modality === "av" ? "media_av" : "media_image",
+      externalId: file.path,
+      title: name.length > 512 ? name.slice(0, 512) : name,
+      bodyPreview: "",
+      url: null,
+      canonicalUrl: null,
+      modifiedAt,
+      authorId: null,
+      metadata: {
+        path: file.path,
+        sizeBytes,
+        mimeType: mimeTypeForMediaExtension(ext),
+        mediaKind: file.modality,
+      },
+      pinned: false,
+      syncedAt: now,
+    });
+    upserted += 1;
+  }
+
+  // `bytes` is 0 because no file is READ here — only `stat`ed. Counting file sizes would inflate
+  // the connector's reported transfer total with data that never moved.
+  return { upserted, bytes: 0 };
+}
+
 const BLAME_TIMEOUT_MS = 20_000;
 const MAX_BLAME_LINES = 5000;
 // Windows CreateProcess caps the command line at 32_767 chars; each "-L a,b" pair
@@ -620,6 +788,18 @@ export function createFilesystemV2Syncable(options: FilesystemV2SyncableOptions)
           const c = await syncFilesystemCodeSymbolsForRoot(ctx, root, rootCfg.exclude, rk, now);
           upserted += c.upserted;
           bytes += c.bytes;
+        }
+
+        if (rootCfg.mediaIndex) {
+          const m = syncFilesystemMediaForRoot(
+            ctx,
+            root,
+            rootCfg.exclude,
+            MEDIA_MAX_FILES_PER_ROOT,
+            now,
+          );
+          upserted += m.upserted;
+          bytes += m.bytes;
         }
       }
 
