@@ -93,7 +93,8 @@ function truncateUtf8Bytes(text: string, maxBytes: number): string {
  * because this function exists specifically to shrink that one block; it is not a generic
  * markdown-entry heuristic applied blind.
  */
-const GLOSSARY_ENTRY_START_RE = /^- \*\*/;
+/** The literal an entry line opens with. Anchored, so `startsWith` says it directly. */
+const GLOSSARY_ENTRY_START = "- **";
 
 /** Line indices where a glossary entry starts within an already-extracted `## Terms` block's
  *  markdown. Found dynamically rather than an assumed line offset, so this stays correct even if
@@ -103,7 +104,7 @@ function glossaryEntryStarts(blockMarkdown: string): number[] {
   const lines = blockMarkdown.split("\n");
   const starts: number[] = [];
   for (let i = 0; i < lines.length; i++) {
-    if (GLOSSARY_ENTRY_START_RE.test(lines[i] ?? "")) starts.push(i);
+    if ((lines[i] ?? "").startsWith(GLOSSARY_ENTRY_START)) starts.push(i);
   }
   return starts;
 }
@@ -112,9 +113,7 @@ function glossaryEntryStarts(blockMarkdown: string): number[] {
  *  both narrowed and handled inside this one function so a caller never needs its own
  *  `x !== undefined && x.heading === ...` guard just to satisfy the type checker. */
 function glossaryEntryStartsOf(block: ReservedBlock | undefined): number[] {
-  return block !== undefined && block.heading === GLOSSARY_TERMS_HEADING
-    ? glossaryEntryStarts(block.markdown)
-    : [];
+  return block?.heading === GLOSSARY_TERMS_HEADING ? glossaryEntryStarts(block.markdown) : [];
 }
 
 /** The glossary `## Terms` block's own preamble plus its first `kept` entries (never a byte cut
@@ -173,11 +172,12 @@ function assembleReservedForcedFit(
   // `SYNTHESIS_RESERVED_HEADINGS` — and, until it is, it stays correctly classified as disclosure
   // rather than silently becoming droppable.
   const synthBlock = reservedBlocks.find((b) => !isDisclosureOnlyHeading(b.heading));
-  const isGlossaryTerms = synthBlock !== undefined && synthBlock.heading === GLOSSARY_TERMS_HEADING;
+  const isGlossaryTerms = synthBlock?.heading === GLOSSARY_TERMS_HEADING;
   const entryStarts = glossaryEntryStartsOf(synthBlock);
   // A recognised (glossary) synthesis block shrinks per-entry; an unrecognised one — none exist
   // today — is opaque and can only be present (1) or fully dropped (0).
-  const maxKept = isGlossaryTerms ? entryStarts.length : synthBlock === undefined ? 0 : 1;
+  const opaqueKept = synthBlock === undefined ? 0 : 1;
+  const maxKept = isGlossaryTerms ? entryStarts.length : opaqueKept;
 
   // D3: every notice built in this function carries the omitted-body-sections count FIRST (when
   // there is one), then whatever else applies (the glossary shrink count) — never just the latter.
@@ -188,11 +188,9 @@ function assembleReservedForcedFit(
     const parts = reservedBlocks
       .map((b) => {
         if (b !== synthBlock) return b.markdown;
-        return isGlossaryTerms
-          ? glossaryTermsBlockKeeping(b, entryStarts, kept)
-          : kept > 0
-            ? b.markdown
-            : "";
+        if (isGlossaryTerms) return glossaryTermsBlockKeeping(b, entryStarts, kept);
+        // Opaque block: present in full, or gone entirely. There is no middle state.
+        return kept > 0 ? b.markdown : "";
       })
       .filter((text) => text !== "");
     const extras = [

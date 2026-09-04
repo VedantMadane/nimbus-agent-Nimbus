@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 import { join } from "node:path";
 import pino from "pino";
 import { buildAgentSynthesisRunner } from "../../agents/_lib/agent-synthesis-runner.ts";
@@ -17,11 +18,13 @@ import { writeScimBearer } from "../../identity/identity-vault.ts";
 import { isOperatorValid } from "../../identity/verifier.ts";
 import { CURRENT_SCHEMA_VERSION } from "../../index/local-index.ts";
 import {
+  type BuildMediaPassDepsInput,
   buildMediaPassDeps,
   resolveMediaRoots,
-  resolveMultimodalEnabled,
 } from "../../multimodal/build-media-pass-deps.ts";
 import { runMediaPass } from "../../multimodal/media-pass.ts";
+import { MULTIMODAL_CAPABILITY } from "../../multimodal/media-types.ts";
+import { loadMultimodalConfig, type MultimodalConfig } from "../../multimodal/multimodal-config.ts";
 import { GATEWAY_VERSION } from "../../version.ts";
 import { buildStatus } from "../admin-status-rpc.ts";
 import { AgentsRpcError, dispatchAgentsRpc } from "../agents-rpc.ts";
@@ -639,17 +642,49 @@ export async function tryDispatchIndexRebodyRpc(
 }
 
 /**
+ * The pure mapping from the loaded `[multimodal]` config + the resolved capability verdict to the
+ * exact `BuildMediaPassDepsInput` the `media.understand` dispatcher below passes to
+ * `buildMediaPassDeps`.
+ *
+ * Extracted and exported for ONE reason: `vlmBaseUrl`/`vlmModel`/`maxFrames` are OPTIONAL on
+ * `BuildMediaPassDepsInput` and default internally, so a caller that forgets to forward them fails
+ * NOTHING at the type level and NOTHING at the `media.understand` result level (the pass still
+ * runs, still returns a summary) — the exact "parses, validates, silently ignored" shape this
+ * whole task exists to close for the org-policy flag, now closed for these three keys too. A
+ * source-text grep for the forwarding lines cannot catch a field SWAP (`vlmModel`'s value forwarded
+ * into `vlmBaseUrl`); a unit test asserting on this function's return VALUES can. See
+ * `media-policy-wiring.test.ts` / `dispatchers.test.ts`.
+ */
+export function buildMediaPassDepsInput(input: {
+  readonly db: Database;
+  readonly configDir: string | undefined;
+  readonly dataDir: string;
+  readonly config: MultimodalConfig;
+  readonly capabilityDisabled: boolean;
+}): BuildMediaPassDepsInput {
+  return {
+    db: input.db,
+    roots: resolveMediaRoots(input.configDir),
+    enabled: input.config.enabled,
+    capabilityDisabled: input.capabilityDisabled,
+    scratchDir: join(input.dataDir, "multimodal-scratch"),
+    vlmBaseUrl: input.config.vlmBaseUrl,
+    vlmModel: input.config.vlmModel,
+    maxFrames: input.config.maxFrames,
+  };
+}
+
+/**
  * `media.understand` (S2 multimodal I/O, PR 1). LAN-FORBIDDEN (`lan-rpc.ts`'s
  * `FORBIDDEN_OVER_LAN`) and absent from the Tauri allowlist — see `media-rpc.ts`'s own doc
  * comment; it reads local files and spawns subprocesses, the `exec.*` posture.
  *
- * `roots` and `enabled` are re-read from `nimbus.toml` on every call (matching `ownershipRoots`
- * in `ownership/ownership-target.ts`), so a `[[filesystem.roots]]` or `[multimodal]` edit applies
- * without a gateway restart. `capabilityDisabled` is hardcoded `false`: the org-policy half of
- * this capability (`multimodal_input`, `policy/types.ts` `AI_V2_CAPABILITIES`) has no
- * IPC-reachable `EnforcedPolicy` accessor yet — `code_execution`/`computer_use` each got their
- * own `gateDeps.enforced` getter wired at boot (`platform/assemble.ts`); this slice ships only
- * the local `[multimodal] enabled` kill switch (default off).
+ * `roots`, `enabled` and `capabilityDisabled` are all re-read on every call, so a
+ * `[[filesystem.roots]]` edit, a `[multimodal]` edit, or a newly installed org policy applies
+ * without a gateway restart. The org-policy half reads `ctx.options.mediaRpcCtx.enforced`
+ * (invariant I22) — the same live accessor `code_execution` and `computer_use` use. When that ctx
+ * is absent the method REFUSES: defaulting to `false` is what made this capability's policy
+ * lockoff inert through PR 1.
  */
 export async function tryDispatchMediaRpc(
   ctx: ServerCtx,
@@ -665,13 +700,28 @@ export async function tryDispatchMediaRpc(
   if (ctx.options.dataDir === undefined) {
     throw new RpcMethodError(-32603, "media.understand requires dataDir");
   }
-  const deps = buildMediaPassDeps({
-    db: ctx.options.localIndex.getDatabase(),
-    roots: resolveMediaRoots(ctx.options.configDir),
-    enabled: resolveMultimodalEnabled(ctx.options.configDir),
-    capabilityDisabled: false,
-    scratchDir: join(ctx.options.dataDir, "multimodal-scratch"),
-  });
+  const mediaCtx = ctx.options.mediaRpcCtx;
+  if (mediaCtx === undefined) {
+    throw new RpcMethodError(
+      -32603,
+      "media.understand requires mediaRpcCtx (the org-policy accessor)",
+    );
+  }
+  // `loadMultimodalConfig` throws `MultimodalConfigError` for a well-formed but non-loopback
+  // `vlm_base_url` (this slice has no per-artifact remote grant). Deliberately uncaught here,
+  // same shape as `runExecution`'s `ExecGateError` (`tryDispatchExecRpc`, below): it propagates
+  // to `server.ts`'s generic top-level catch and surfaces as JSON-RPC `-32603` carrying that
+  // error's own actionable message — never a silent substitution of the loopback default.
+  const mmConfig = loadMultimodalConfig(ctx.options.configDir);
+  const deps = buildMediaPassDeps(
+    buildMediaPassDepsInput({
+      db: ctx.options.localIndex.getDatabase(),
+      configDir: ctx.options.configDir,
+      dataDir: ctx.options.dataDir,
+      config: mmConfig,
+      capabilityDisabled: mediaCtx.enforced.capabilitiesDisabled.has(MULTIMODAL_CAPABILITY),
+    }),
+  );
   const out = await dispatchMediaRpc(method, params, {
     runPass: (opts) => runMediaPass({ ...deps, ...opts }),
   });

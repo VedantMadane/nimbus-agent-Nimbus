@@ -42,13 +42,49 @@ export interface UnderstandOutcome {
    * Recorded on the derived item so a reader can tell where the understanding came from.
    */
   readonly isLocal: boolean;
+  /**
+   * Present only for a video that reached frame sampling. Recorded so a reader can tell a video
+   * whose frames all failed (`framesCaptioned: 0`) from one that was never sampled at all (both
+   * absent) — the body states the same thing in prose (spec § 12.8), and these are the
+   * machine-readable half.
+   */
+  readonly framesSampled?: number;
+  readonly framesCaptioned?: number;
+}
+
+/**
+ * What an understander RETURNS, as opposed to {@link UnderstandOutcome} which is what the gate
+ * RECORDS. The gate adds `model` and `isLocal` from the provider — those are derived, never
+ * reported by the understander (I34) — and carries the rest through.
+ *
+ * A structured type rather than `string | UnderstandDetail`: a union leaves a `typeof` narrow at
+ * the gate forever, and it makes "this understander forgot to report its counts" and "this
+ * understander has no counts to report" the same value. Total, the compiler names every implementer
+ * when a field is added. There are three implementers and one caller, all inside `multimodal/`, so
+ * there is no compatibility argument for the looser type.
+ */
+export interface UnderstandDetail {
+  readonly text: string;
+  readonly framesSampled?: number;
+  readonly framesCaptioned?: number;
 }
 
 /**
  * Bumped when a better model or a changed prompt means existing understanding should be redone.
  *
+ * V2 (PR 2): `video_understanding` now carries sampled frame captions alongside the transcript,
+ * and `image_understanding` rows exist for the first time. `media-discovery.ts` re-offers any row
+ * below this number, so the bump is what makes a PR 1 transcript gain captions on the next pass.
+ *
  * It lives in item METADATA and never in an `externalId`: `item` is UNIQUE(service, external_id),
  * so a version in the id would create a second row per artifact per version rather than replacing
  * the first — duplicate FTS hits and duplicate agent context (spec § 4.1).
  */
-export const UNDERSTANDING_VERSION = 1;
+export const UNDERSTANDING_VERSION = 2;
+
+/**
+ * The `AI_V2_CAPABILITIES` member (`policy/types.ts`) an org policy disables to turn this
+ * capability off gateway-wide (invariant I22). Exported so a test can pin it against that frozen
+ * list rather than repeating the string — a typo here would read as "never disabled".
+ */
+export const MULTIMODAL_CAPABILITY = "multimodal_input";

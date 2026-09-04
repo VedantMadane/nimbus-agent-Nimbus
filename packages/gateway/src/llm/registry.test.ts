@@ -11,7 +11,7 @@ import { CURRENT_SCHEMA_VERSION } from "../index/local-index.ts";
 import { runIndexedSchemaMigrations } from "../index/migrations/runner.ts";
 import { LlmRegistry } from "./registry.ts";
 import type { LlmRouterConfig } from "./router.ts";
-import type { LlmModelInfo, LlmProvider, ProviderId, PullProgressChunk } from "./types.ts";
+import type { LlmModelInfo, LlmProvider, PullProgressChunk } from "./types.ts";
 
 // A stand-in remote model name. Was `LlmRouterConfig.remoteModel`, removed on 2026-08-28
 // along with `[llm] remote_model`; these tests only ever needed an arbitrary non-local id.
@@ -37,7 +37,7 @@ type ProviderOpts = {
   throwOnList?: boolean;
 };
 
-function makeProvider(id: ProviderId, opts: ProviderOpts): LlmProvider {
+function makeProvider(id: string, opts: ProviderOpts): LlmProvider {
   const base = {
     providerId: id,
     isLocal: id !== "remote",
@@ -282,6 +282,36 @@ describe("LlmRegistry.checkAvailability", () => {
     );
     const out = await reg.checkAvailability();
     expect(out["ollama"]).toBe(false);
+  });
+
+  // `providerId` is an open string: `makeRouteId` rejects only "/" and the empty string, so
+  // `__proto__` is a legal id. On a plain `{}` that key hits `Object.prototype`'s setter — the
+  // write silently does nothing, `Object.keys` omits it, `JSON.stringify` omits it — and
+  // `llm.getStatus` would answer as though the route did not exist. Asserted on the KEY's
+  // presence and on the serialized payload, because that is what crosses the RPC boundary; a
+  // bare `expect(out["__proto__"]).toBe(true)` would read back the prototype object and fail
+  // confusingly rather than describing the defect.
+  test("a provider named __proto__ is reported, not silently swallowed", async () => {
+    const reg = new LlmRegistry({ config: DEFAULT_CONFIG, db: ROUTING_DB });
+    reg.addRoute(makeProvider("__proto__", { available: true }), DEFAULT_CONFIG.localModel);
+    const out = await reg.checkAvailability();
+    expect(Object.keys(out)).toContain("__proto__");
+    expect(Object.hasOwn(out, "__proto__")).toBe(true);
+    // Read back through `Object.entries` rather than an `out["__proto__"]` index: on a plain
+    // object that index expression returns the PROTOTYPE, so it would fail for a reason unrelated
+    // to the defect — and Biome's `noProto` rejects the literal accessor anyway.
+    const roundTripped = JSON.parse(JSON.stringify(out)) as Record<string, unknown>;
+    expect(Object.entries(roundTripped)).toContainEqual(["__proto__", true]);
+  });
+
+  // The other half of the same property: a legitimately-named provider must not pick up
+  // inherited keys now that the map has no prototype.
+  test("the availability map carries only real providers, with no inherited keys", async () => {
+    const reg = new LlmRegistry({ config: DEFAULT_CONFIG, db: ROUTING_DB });
+    reg.addRoute(makeProvider("ollama", { available: true }), DEFAULT_CONFIG.localModel);
+    const out = await reg.checkAvailability();
+    expect(Object.keys(out)).toEqual(["ollama"]);
+    expect((out as Record<string, unknown>)["toString"]).toBeUndefined();
   });
 });
 

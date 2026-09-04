@@ -5,21 +5,29 @@
  * be tested without a whisper binary, an arbiter or a config. This is the one place that knows
  * what the real implementations are.
  *
- * `sttFor("image")` returns undefined DELIBERATELY: PR 1 ships no VLM, so an image candidate is
- * skipped as `unresolvable_modality` rather than mis-handed to the STT path. PR 2 adds that arm.
+ * `understanderFor` resolves BOTH modalities: PR 2 adds the vision arm alongside PR 1's transcript
+ * arm, so an image or video candidate no longer falls through to `unresolvable_modality` here.
  */
 import type { Database } from "bun:sqlite";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { loadNimbusFilesystemRootsFromConfigDir } from "../config/filesystem-toml.ts";
-import { stripComment } from "../config/toml-primitives.ts";
+import { wrapLedgeredVlm } from "../egress/vlm-egress.ts";
 import { GpuArbiter } from "../llm/gpu-arbiter.ts";
 import { WhisperSttProvider } from "../voice/stt.ts";
+import { createAvUnderstander } from "./frames/av-understander.ts";
+import { resolveFfprobeBin } from "./frames/frame-extract.ts";
 import type { LocalUnderstander } from "./media-gate.ts";
 import type { MediaPassDeps } from "./media-pass.ts";
 import type { MediaModality } from "./media-types.ts";
+import {
+  DEFAULT_MAX_FRAMES,
+  DEFAULT_VLM_BASE_URL,
+  DEFAULT_VLM_MODEL,
+} from "./multimodal-config.ts";
 import { resolveFfmpegBin } from "./stt/ffmpeg-bin.ts";
 import { createLongFormStt } from "./stt/long-form-stt.ts";
+import { createImageUnderstander } from "./vlm/image-understander.ts";
+import type { FetchLike } from "./vlm/ollama-vlm.ts";
+import { createOllamaVlm } from "./vlm/ollama-vlm.ts";
 
 export interface BuildMediaPassDepsInput {
   readonly db: Database;
@@ -34,6 +42,19 @@ export interface BuildMediaPassDepsInput {
   readonly ffmpegBin?: string;
   /** Wall-clock bound on the whisper call itself. See {@link DEFAULT_TRANSCRIBE_TIMEOUT_MS}. */
   readonly transcribeTimeoutMs?: number;
+  readonly vlmBaseUrl?: string;
+  readonly vlmModel?: string;
+  readonly maxFrames?: number;
+  readonly ffprobeBin?: string;
+  /**
+   * Injected only by tests; production uses the global `fetch`.
+   *
+   * Typed as `FetchLike` (STRUCTURAL), never `typeof fetch` — Bun's `fetch` carries static
+   * members (`preconnect`), so `typeof fetch` rejects a plain test lambda and forces every test
+   * double through an `as unknown as` cast that routes around the type checker (see
+   * `ollama-vlm.ts`'s `FetchLike`, which exists precisely to avoid that).
+   */
+  readonly vlmFetch?: FetchLike;
 }
 
 /** 250 MB (spec § 5.3 `max_media_bytes`). */
@@ -107,6 +128,27 @@ export function buildMediaPassDeps(input: BuildMediaPassDepsInput): BuiltMediaPa
 
   const arbiter = input.gpu ?? new GpuArbiter();
 
+  // THE ONLY production site that may name `createOllamaVlm` or `wrapLedgeredVlm` (static rule
+  // D22(g)). The constructor sits INSIDE the wrapper's argument list so an unwrapped provider is
+  // not representable here: the audit checks that association, not merely that both names appear.
+  const vlm = wrapLedgeredVlm(
+    input.db,
+    createOllamaVlm({
+      baseUrl: input.vlmBaseUrl ?? DEFAULT_VLM_BASE_URL,
+      model: input.vlmModel ?? DEFAULT_VLM_MODEL,
+      ...(input.vlmFetch === undefined ? {} : { fetchImpl: input.vlmFetch }),
+    }),
+  );
+
+  const imageUnderstander = createImageUnderstander({ vlm });
+  const avUnderstander = createAvUnderstander({
+    stt,
+    vlm,
+    maxFrames: input.maxFrames ?? DEFAULT_MAX_FRAMES,
+    ffmpegBin: resolveFfmpegBin(input.ffmpegBin),
+    ffprobeBin: resolveFfprobeBin(input.ffprobeBin),
+  });
+
   return {
     db: input.db,
     roots: input.roots,
@@ -117,8 +159,8 @@ export function buildMediaPassDeps(input: BuildMediaPassDepsInput): BuiltMediaPa
     gate: {
       enabled: input.enabled,
       capabilityDisabled: input.capabilityDisabled,
-      sttFor: (modality: MediaModality): LocalUnderstander | undefined =>
-        modality === "av" ? stt : undefined,
+      understanderFor: (modality: MediaModality): LocalUnderstander | undefined =>
+        modality === "av" ? avUnderstander : imageUnderstander,
       gpu: {
         acquire: (id: string) => arbiter.acquire(id),
         // Load-bearing: a multi-minute transcription without a heartbeat is evicted by the
@@ -147,62 +189,4 @@ export function resolveMediaRoots(configDir: string | undefined): string[] {
   return loadNimbusFilesystemRootsFromConfigDir(configDir)
     .filter((r) => r.mediaIndex)
     .map((r) => r.path);
-}
-
-/**
- * `[multimodal] enabled` — DEFAULT OFF, matching every other S2 capability toggle
- * (`[code_execution] enabled`, `[computer_use] enabled`). Absent section, absent key, absent
- * `nimbus.toml`, or no `configDir` at all (the test/embedded shape) all read as `false` — a
- * missing or malformed config must never read as "on".
- *
- * Hand-rolled rather than routed through `nimbus-toml.ts`, mirroring
- * `connectors/openapi-indexer-config.ts`'s standalone section reader: one boolean key does not
- * warrant a shared parser's full section-table machinery. Reuses `stripComment` from the
- * dependency-free `toml-primitives.ts` so a value like `enabled = true # turn on locally` is
- * read correctly.
- */
-export function resolveMultimodalEnabled(configDir: string | undefined): boolean {
-  if (configDir === undefined) {
-    return false;
-  }
-  const tomlPath = join(configDir, "nimbus.toml");
-  if (!existsSync(tomlPath)) {
-    return false;
-  }
-  try {
-    return parseMultimodalEnabled(readFileSync(tomlPath, "utf8"));
-  } catch {
-    return false;
-  }
-}
-
-function parseMultimodalEnabled(raw: string): boolean {
-  let inSection = false;
-  for (const rawLine of raw.split(/\r?\n/)) {
-    const line = stripComment(rawLine).trim();
-    if (line === "") {
-      continue;
-    }
-    if (line.startsWith("[")) {
-      inSection = line === "[multimodal]";
-      continue;
-    }
-    if (!inSection) {
-      continue;
-    }
-    const eq = line.indexOf("=");
-    if (eq <= 0) {
-      continue;
-    }
-    if (line.slice(0, eq).trim() !== "enabled") {
-      continue;
-    }
-    const val = line
-      .slice(eq + 1)
-      .trim()
-      .toLowerCase();
-    if (val === "true") return true;
-    if (val === "false") return false;
-  }
-  return false;
 }

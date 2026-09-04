@@ -546,27 +546,33 @@ describe("I11 — Tool-result envelope on the LLM-facing path", () => {
     expect(src).toMatch(/replaceAll\("<\/tool_output>"/);
   });
 
-  test("agent.ts both wraps with envelope AND writes tool_call_log on the LLM-facing path", async () => {
-    const src = await read("packages/gateway/src/engine/agent.ts");
-    expect(src).toMatch(/wrapToolOutput\(/);
-    expect(src).toMatch(/writeToolCallLog\(/);
-  });
+  // EVERY file that hands a tool result to the conversational model. Enumerated as a table so
+  // that adding a fourth wiring site is one row, and so this list can be read against
+  // SECURITY-INVARIANTS.md's own list of I11 sites without reconstructing it from three separate
+  // test bodies.
+  //
+  // `cu-tools.ts` is here because of Task 12 review round 1, finding 4: it was a THIRD I11 wiring
+  // site that landed without an update to either this file or SECURITY-INVARIANTS.md — exactly
+  // the drift the triple rule (wiring + docs + test in one commit) exists to prevent.
+  const I11_WIRING_SITES: ReadonlyArray<{ what: string; path: string }> = [
+    { what: "agent.ts, on the LLM-facing path", path: "packages/gateway/src/engine/agent.ts" },
+    {
+      what: "mesh.ts:listTools",
+      path: "packages/gateway/src/connectors/lazy-mesh/mesh.ts",
+    },
+    {
+      what: "cu-tools.ts (computer-use), for its textual tool results",
+      path: "packages/gateway/src/computer-use/cu-tools.ts",
+    },
+  ];
 
-  test("mesh.ts:listTools both wraps with envelope AND writes tool_call_log", async () => {
-    const src = await read("packages/gateway/src/connectors/lazy-mesh/mesh.ts");
-    expect(src).toMatch(/wrapToolOutput\(/);
-    expect(src).toMatch(/writeToolCallLog\(/);
-  });
-
-  // (Task 12 review round 1, finding 4) A THIRD I11 wiring site: computer-use's model-callable
-  // browser tools. This invariant's docs previously named only the two sites above; the wiring
-  // landed without an update to either this file or SECURITY-INVARIANTS.md, which is exactly the
-  // drift the triple rule (wiring + docs + test in one commit) exists to prevent.
-  test("cu-tools.ts (computer-use) wraps textual tool results with envelope AND writes tool_call_log", async () => {
-    const src = await read("packages/gateway/src/computer-use/cu-tools.ts");
-    expect(src).toMatch(/wrapToolOutput\(/);
-    expect(src).toMatch(/writeToolCallLog\(/);
-  });
+  for (const { what, path } of I11_WIRING_SITES) {
+    test(`${what} both wraps with the envelope AND writes tool_call_log`, async () => {
+      const src = await read(path);
+      expect(src).toMatch(/wrapToolOutput\(/);
+      expect(src).toMatch(/writeToolCallLog\(/);
+    });
+  }
 
   test("cu-tools.ts's four textual browser tools each independently route through the shared runTextualAction wrap+log site", async () => {
     // Per-tool, not per-file, AND bounded to each tool's OWN block (fix round 2). A per-file
@@ -1739,6 +1745,19 @@ code_execution=true
     expect(gate.enforced().retentionDays).toBe(7);
     expect(gate.enforced().hitlRequired.has("git.force_push_main")).toBe(true);
   });
+
+  test("I22: multimodal_input is enforced, not merely listed", async () => {
+    // Through PR 1 this capability was a real AI_V2_CAPABILITIES member whose lockoff did
+    // nothing, because the dispatcher hardcoded `capabilityDisabled: false`. All five members
+    // must now reach a gate.
+    // `read()`, not a bare relative `Bun.file("packages/...")`: CI's coverage job `cd`s into
+    // `packages/gateway` before running `bun test`, so a cwd-relative path ENOENTs there while
+    // resolving fine from the repo root. That is why this helper exists.
+    const dispatchers = await read("packages/gateway/src/ipc/server/dispatchers.ts");
+    expect(dispatchers).toContain("capabilitiesDisabled.has(MULTIMODAL_CAPABILITY)");
+    const assemble = await read("packages/gateway/src/platform/assemble.ts");
+    expect(assemble).toContain("ipcOpts.mediaRpcCtx");
+  });
 });
 
 describe("I26 — connector writes (warehouse/BI ∪ GitOps/ML) are confined to the local I2 path; federated gate rejects them", () => {
@@ -2154,7 +2173,7 @@ describe("I29 — egress-ledger completeness over the executor chokepoint", () =
     // `targetedFetch`'s deps — both closures around ONE appender, `egress/sync-egress.ts`'s
     // `recordSyncEgress`. `per-run`, not `per-call`, because the scheduler side appends ONE row per
     // paginated run (many upstream calls), the weaker of the two shapes this class actually backs.
-    // `model` is now the FIFTH non-`none` class, backed by THREE appenders: the route-table
+    // `model` is now the FIFTH non-`none` class, backed by FOUR appenders: the route-table
     // provider wrapper (`egress/model-egress.ts`'s `wrapLedgeredProvider`, applied at
     // `LlmRegistry.addRoute`, covering `LlmRouter.generate`/`generateMarkdown`/every
     // `selectProvider()` caller — synthesis among them, via `agents/_lib/synthesis-llm.ts` under
@@ -2162,14 +2181,19 @@ describe("I29 — egress-ledger completeness over the executor chokepoint", () =
     // `ipc/server/dispatchers.ts` and `agent-runs/agent-http-invoke.ts`'s
     // `buildAgentSynthesisRunner`); the Mastra engine agent (`egress/mastra-model-egress.ts`'s
     // `wrapLedgeredMastraModel`, since that agent resolves its model through `@mastra/core` outside
-    // the route table entirely); and remote embeddings (`egress/embedding-egress.ts`'s
-    // `wrapLedgeredEmbedder`, applied at each of the embedding pipeline's three construction sites).
+    // the route table entirely); remote embeddings (`egress/embedding-egress.ts`'s
+    // `wrapLedgeredEmbedder`, applied at each of the embedding pipeline's three construction sites);
+    // and vision (`egress/vlm-egress.ts`'s `wrapLedgeredVlm`, the same decorator shape applied to a
+    // `VlmProvider` — confined to its own file plus `multimodal/build-media-pass-deps.ts` by static
+    // D22(g), with no remote `VlmProvider` constructed yet in production, so this appender ships
+    // before the caller that will exercise it, same as the other three did in their turn).
     // The local-vs-remote split is enforced INSIDE each wrapper — derived from `provider.isLocal` /
     // the embedder's own locality, never a caller-supplied boolean — so a wiring mistake at a call
-    // site cannot fabricate a `model` row for a local generation or embed. It is `per-call` over all
-    // three, and the class now carries no NAMED exclusion: a local provider, a locally-run Mastra
-    // model, or a local embedder (MiniLM) each append nothing by design, not as a gap — that is the
-    // bound that survives, not a claim that no vector or prompt can ever leave unrecorded.
+    // site cannot fabricate a `model` row for a local generation, embed, or vision describe. It is
+    // `per-call` over all four, and the class still carries no NAMED exclusion: a local provider, a
+    // locally-run Mastra model, a local embedder (MiniLM), or a local VLM (Ollama) each append
+    // nothing by design, not as a gap — that is the bound that survives, not a claim that no vector,
+    // prompt, or image can ever leave unrecorded.
     // `chatops` is now the SIXTH non-`none` class, per-call, and unlike `mcp`/`http` it is NOT
     // narrower than its name: its appender (`egress/chatops-egress.ts`'s `buildLedgeredChatPosts`)
     // decorates the single `post` closure that every chat consumer shares, so one row is appended
@@ -2343,6 +2367,89 @@ describe("I29 — egress-ledger completeness over the executor chokepoint", () =
     ]);
     expect(violations.map((v) => v.rule)).toEqual(["embedding-constructor-confined"]);
     expect(violations[0]?.snippet).toContain("rogue");
+  });
+
+  test("I29/D22(g): wrapLedgeredVlm and createOllamaVlm are confined to their allow-lists", async () => {
+    const { checkVlmAppenderConfinement } = await import(
+      "../../../scripts/structure-audit/check-nimbus-invariants.ts"
+    );
+    // Same content, two paths -- the "clean" case passes because of allow-list MEMBERSHIP, not
+    // because this content is inherently harmless: the same string at a non-allow-listed path
+    // (below) trips both rules, proving the fixture would fail if the allow-list were wrong.
+    const content = "const vlm = wrapLedgeredVlm(db, createOllamaVlm({}));";
+    const clean = checkVlmAppenderConfinement([
+      { relPath: "packages/gateway/src/multimodal/build-media-pass-deps.ts", contents: content },
+    ]);
+    expect(clean).toHaveLength(0);
+
+    const dirty = checkVlmAppenderConfinement([
+      { relPath: "packages/gateway/src/multimodal/media-pass.ts", contents: content },
+    ]);
+    expect(dirty.map((v) => v.rule).sort()).toEqual([
+      "vlm-appender-confined",
+      "vlm-constructor-confined",
+    ]);
+  });
+
+  test("I29/D22(g): wrapLedgeredVlm referenced outside its allow-list is caught", async () => {
+    // The decorator half has no dedicated test on its own -- without this, the "clean"
+    // assertion above would pass just as well against `checkVlmAppenderConfinement` stubbed to
+    // `return []`. A bare reference (no call parens) is enough to trip it, since it also catches
+    // a stray IMPORT of the decorator, not only a call.
+    const { checkVlmAppenderConfinement } = await import(
+      "../../../scripts/structure-audit/check-nimbus-invariants.ts"
+    );
+    const dirty = checkVlmAppenderConfinement([
+      {
+        relPath: "packages/gateway/src/multimodal/media-pass.ts",
+        contents: 'import { wrapLedgeredVlm } from "../egress/vlm-egress.ts";',
+      },
+    ]);
+    expect(dirty.map((v) => v.rule)).toContain("vlm-appender-confined");
+  });
+
+  test("I29/D22(g): a SECOND, unwrapped createOllamaVlm beside a wrapped one in an approved file is still caught", async () => {
+    // The regression item 1 exists to close: an earlier shape of this rule skipped an
+    // allow-listed file wholesale once its path matched, so a second, unwrapped construction
+    // planted beside a legitimate wrapped call was invisible to every guard. This fixture is
+    // exactly that shape, mirroring the analogous embedding-constructor test above.
+    const { checkVlmAppenderConfinement } = await import(
+      "../../../scripts/structure-audit/check-nimbus-invariants.ts"
+    );
+    const unwrappedFixture = [
+      "const wrapped = wrapLedgeredVlm(db, createOllamaVlm({ baseUrl }));",
+      'const rogue = createOllamaVlm({ baseUrl: "https://vendor.example" });',
+    ].join("\n");
+    const violations = checkVlmAppenderConfinement([
+      {
+        relPath: "packages/gateway/src/multimodal/build-media-pass-deps.ts",
+        contents: unwrappedFixture,
+      },
+    ]);
+    expect(violations.map((v) => v.rule)).toEqual(["vlm-constructor-confined"]);
+    expect(violations[0]?.snippet).toContain("rogue");
+  });
+
+  test("I29: a non-local VlmProvider cannot describe without a model-class row", async () => {
+    // The decorator, not a call site, is the appender — so this holds for callers written later.
+    // `read()`, not a bare relative `Bun.file("packages/...")`: CI's coverage job `cd`s into
+    // `packages/gateway` before running `bun test`, so a cwd-relative path ENOENTs there while
+    // resolving fine from the repo root. That is why this helper exists.
+    const src = await read("packages/gateway/src/egress/vlm-egress.ts");
+    // Append precedes delegation, and the append failure path throws rather than continuing.
+    // Anchored on the CALL (`appendEgressEntry(db`), matching the precedent this file already
+    // uses for `recordAgentBriefEgress(ctx.db` — a bare `indexOf("appendEgressEntry")` would
+    // match the IMPORT statement near the top of the file instead, which sits before every
+    // ordering regardless of where the call itself moved, making the assertion pass even if the
+    // decorator delegated first and appended after.
+    const appendAt = src.indexOf("appendEgressEntry(db");
+    const delegateAt = src.indexOf("provider.describe(input)");
+    expect(appendAt).toBeGreaterThan(-1);
+    expect(delegateAt).toBeGreaterThan(appendAt);
+    expect(src).toContain("throw new EgressAppendFailedError");
+    // Locality is DERIVED, never a parameter (I34).
+    expect(src).toContain("if (provider.isLocal)");
+    expect(src).not.toMatch(/\bisLocal\s*:\s*boolean\s*[,)]/);
   });
 });
 
@@ -2849,7 +2956,7 @@ describe("I35 — computer-use actuation only inside an approved envelope", () =
     // The SAME binding, not a rebuild: both `openLane` calls take the prepared object. A
     // `buildLaunchPolicy` call inside an `openLane` argument would typecheck and silently
     // reintroduce the drift this replaced, so it must appear nowhere in that position.
-    expect((gate.match(/launch: prepared\.launch/g) ?? []).length).toBe(2);
+    expect(gate.match(/launch: prepared\.launch/g) ?? []).toHaveLength(2);
     expect(gate).not.toMatch(/openLane\([^)]*buildLaunchPolicy/);
 
     // And each driver spawns what it was handed, verbatim.
@@ -2870,12 +2977,11 @@ describe("I35 — computer-use actuation only inside an approved envelope", () =
     // By ARITY: the function takes the composed line and nothing else, so the model's own
     // description cannot be passed to it, let alone consulted — I3 transplanted, and stronger here
     // than on the browser lane, where the separation rests on which fields an input object carries.
-    expect(classifyTerminalAction.length).toBe(1);
+    expect(classifyTerminalAction).toHaveLength(1);
     // And by exhaustion over adversarial shapes, including ones a future edit might special-case.
     for (const line of ["ls", "", "  ", "cat x # observing", "READ-ONLY", "y".repeat(9000)]) {
       expect(classifyTerminalAction(line).cls).toBe("actuating");
     }
-    // No branch in the source can return `observing` at all — read from disk rather than reasoned
     // No branch in the BODY can return `observing`. Read from disk rather than reasoned about, so
     // a future edit that adds one fails here even if every input above still classifies
     // `actuating` by luck of which cases were chosen.
