@@ -1,7 +1,7 @@
 // packages/gateway/src/multimodal/build-media-pass-deps.test.ts
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { CURRENT_SCHEMA_VERSION } from "../index/local-index.ts";
@@ -10,9 +10,9 @@ import { GpuArbiter } from "../llm/gpu-arbiter.ts";
 import {
   buildMediaPassDeps,
   resolveMediaRoots,
-  resolveMultimodalEnabled,
   withTranscribeTimeout,
 } from "./build-media-pass-deps.ts";
+import { loadMultimodalConfig } from "./multimodal-config.ts";
 
 /**
  * Run `body` against a fresh, isolated config directory and always remove it afterwards.
@@ -47,7 +47,7 @@ describe("buildMediaPassDeps", () => {
     expect(deps.roots).toEqual(["/a", "/b"]);
   });
 
-  test("supplies an AV understander and none for image — PR 1 has no VLM", () => {
+  test("understanderFor resolves BOTH modalities now that a VLM exists", () => {
     const deps = buildMediaPassDeps({
       db: db(),
       roots: [],
@@ -55,8 +55,23 @@ describe("buildMediaPassDeps", () => {
       capabilityDisabled: false,
       scratchDir: "/scratch",
     });
-    expect(deps.gate.sttFor("av")).toBeDefined();
-    expect(deps.gate.sttFor("image")).toBeUndefined();
+    expect(deps.gate.understanderFor("av")).toBeDefined();
+    expect(deps.gate.understanderFor("image")).toBeDefined();
+  });
+
+  test("the image understander is the LEDGERED provider, not a bare one", () => {
+    // A loopback default makes the wrapper an identity, so this asserts the WIRING is present
+    // rather than the row: D22(g) is what proves the wrap cannot be dropped.
+    //
+    // Resolved relative to THIS FILE, never to the process working directory: CI's coverage job
+    // `cd`s into `packages/gateway` before running `bun test`, where a CWD-relative
+    // `"packages/gateway/src/..."` throws ENOENT. Same reasoning as `llm/local-definition.test.ts`.
+    const src = readFileSync(join(import.meta.dir, "build-media-pass-deps.ts"), "utf8");
+    const wrapAt = src.indexOf("wrapLedgeredVlm(");
+    const ctorAt = src.indexOf("createOllamaVlm(");
+    expect(wrapAt).toBeGreaterThan(-1);
+    // The constructor call is textually INSIDE the wrapper's argument list.
+    expect(ctorAt).toBeGreaterThan(wrapAt);
   });
 
   test("the AV understander declares itself LOCAL", () => {
@@ -67,7 +82,7 @@ describe("buildMediaPassDeps", () => {
       capabilityDisabled: false,
       scratchDir: "/scratch",
     });
-    expect(deps.gate.sttFor("av")?.isLocal).toBe(true);
+    expect(deps.gate.understanderFor("av")?.isLocal).toBe(true);
   });
 
   test("propagates the disabled flags into the gate, so the gate refuses", () => {
@@ -165,6 +180,59 @@ describe("buildMediaPassDeps — optional overrides", () => {
   });
 });
 
+describe("buildMediaPassDeps — the input->provider hop (second-hop wiring)", () => {
+  // A prior round pinned the DISPATCHER->INPUT hop by value. Nothing pinned INPUT->PROVIDER: a
+  // refactor that quietly dropped `input.vlmBaseUrl ?? DEFAULT_VLM_BASE_URL` /
+  // `input.vlmModel ?? DEFAULT_VLM_MODEL` / `input.maxFrames ?? DEFAULT_MAX_FRAMES` in favor of the
+  // bare defaults left the FULL suite green — a user's `vlm_model = "llava:13b"` would be parsed,
+  // validated, clamped, and then silently ignored. Each assertion below is RED-PROVEN by reverting
+  // its `input.X ??` read to the bare default one at a time (see the fix report for the exact
+  // observations); this is not merely a green assertion that happens to pass either way.
+  test("input.vlmModel reaches the constructed VLM, observed via the AV understander's composite model id", () => {
+    const deps = buildMediaPassDeps({
+      db: db(),
+      roots: [],
+      enabled: true,
+      capabilityDisabled: false,
+      scratchDir: "/scratch",
+      vlmModel: "custom-vision:9b",
+    });
+    // `av-understander.ts`'s `model` field is `${stt.model}+${vlm.model}` — "whisper-cli" is the
+    // STT leg's fixed model id, so a non-default suffix here can only have come from `input.vlmModel`.
+    expect(deps.gate.understanderFor("av")?.model).toBe("whisper-cli+custom-vision:9b");
+  });
+
+  test("input.vlmBaseUrl reaches the constructed VLM, observed via non-loopback flipping isLocal false", () => {
+    const deps = buildMediaPassDeps({
+      db: db(),
+      roots: [],
+      enabled: true,
+      capabilityDisabled: false,
+      scratchDir: "/scratch",
+      vlmBaseUrl: "http://gpu-box.lan:11434",
+    });
+    // `isLocal` is DERIVED (I34) from the provider's resolved base URL via `isLoopbackBaseUrl`, so
+    // a non-loopback `input.vlmBaseUrl` can only surface here if it actually reached
+    // `createOllamaVlm`'s `baseUrl` option. Checked on both understanders: the image understander
+    // mirrors the VLM's `isLocal` directly, and the AV understander ANDs it with the STT leg's (see
+    // `av-understander.ts`), so a dropped `input.vlmBaseUrl` read would leave BOTH `true`.
+    expect(deps.gate.understanderFor("image")?.isLocal).toBe(false);
+    expect(deps.gate.understanderFor("av")?.isLocal).toBe(false);
+  });
+
+  // `input.maxFrames` has NO observable assertion at this seam without adding new production
+  // surface. `AvUnderstanderDeps.maxFrames` is consumed only inside `av-understander.ts`'s private
+  // `understand()` closure (`frameTimestamps(duration, deps.maxFrames)`) — it is never exposed on
+  // the constructed `LocalUnderstander`, and `buildMediaPassDeps` wires the AV understander to the
+  // REAL `probeDurationSeconds`/`extractFrameJpeg` (no injection hooks), so exercising `understand()`
+  // here would need a real ffprobe/ffmpeg and a real video file, which is exactly the kind of
+  // production-surface widening this fix is not meant to introduce. `av-understander.test.ts`
+  // already pins that `createAvUnderstander` itself honors `deps.maxFrames`; what is NOT pinned
+  // anywhere is that `buildMediaPassDeps` forwards `input.maxFrames` into that `deps.maxFrames`
+  // rather than silently using `DEFAULT_MAX_FRAMES`. Stated here rather than covered with an
+  // assertion that cannot actually fail.
+});
+
 describe("withTranscribeTimeout", () => {
   test("forwards the result when transcribe settles before the bound", async () => {
     const bounded = withTranscribeTimeout(async (wavPath) => ({ text: `heard:${wavPath}` }), 5000);
@@ -243,14 +311,14 @@ describe("resolveMediaRoots", () => {
   });
 });
 
-describe("resolveMultimodalEnabled", () => {
+describe("loadMultimodalConfig(...).enabled", () => {
   test("reads false with no configDir — the test/embedded shape", () => {
-    expect(resolveMultimodalEnabled(undefined)).toBe(false);
+    expect(loadMultimodalConfig(undefined).enabled).toBe(false);
   });
 
   test("reads false when nimbus.toml is absent", () => {
     withTempConfigDir((dir) => {
-      expect(resolveMultimodalEnabled(dir)).toBe(false);
+      expect(loadMultimodalConfig(dir).enabled).toBe(false);
     });
   });
 
@@ -287,7 +355,7 @@ describe("resolveMultimodalEnabled", () => {
     test(`reads ${String(expected)} for ${what}`, () => {
       withTempConfigDir((dir) => {
         writeFileSync(join(dir, "nimbus.toml"), toml);
-        expect(resolveMultimodalEnabled(dir)).toBe(expected);
+        expect(loadMultimodalConfig(dir).enabled).toBe(expected);
       });
     });
   }
@@ -297,7 +365,7 @@ describe("resolveMultimodalEnabled", () => {
     // existsSync() is true but readFileSync() throws — the catch-arm around parseMultimodalEnabled.
     withTempConfigDir((dir) => {
       mkdirSync(join(dir, "nimbus.toml"));
-      expect(resolveMultimodalEnabled(dir)).toBe(false);
+      expect(loadMultimodalConfig(dir).enabled).toBe(false);
     });
   });
 });
