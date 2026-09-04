@@ -1,7 +1,7 @@
-import { afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
+import { afterEach } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -13,11 +13,16 @@ import { runIndexedSchemaMigrations } from "../../src/index/migrations/runner.ts
 const __nimbusTestDirs: string[] = [];
 function __cleanupNimbusTestDirs() {
   for (const d of __nimbusTestDirs.splice(0)) {
-    try { rmSync(d, { recursive: true, force: true }); } catch { /* best-effort */ }
+    try {
+      rmSync(d, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
   }
 }
-afterEach(() => { __cleanupNimbusTestDirs(); });
-
+afterEach(() => {
+  __cleanupNimbusTestDirs();
+});
 
 function sha256HexOfBytes(buf: Buffer): string {
   return createHash("sha256").update(buf).digest("hex");

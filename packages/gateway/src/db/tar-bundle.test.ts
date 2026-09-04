@@ -1,5 +1,5 @@
-import { describe, expect, test, afterEach } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { packBundle, unpackBundle } from "./tar-bundle.ts";
@@ -7,7 +7,11 @@ import { packBundle, unpackBundle } from "./tar-bundle.ts";
 const tempDirs: string[] = [];
 afterEach(() => {
   for (const d of tempDirs.splice(0)) {
-    try { rmSync(d, { recursive: true, force: true }); } catch { /* best-effort */ }
+    try {
+      rmSync(d, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
   }
 });
 
