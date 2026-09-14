@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 
 import { dbRun } from "../db/write.ts";
+import { emitConnectorHealthChanged } from "../ipc/gateway-events.ts";
 
 function jitterBelowMs(maxExclusive: number): number {
   const word = new Uint32Array(1);
@@ -194,6 +195,7 @@ function appendHistory(
  * `buildSnapshot` already reads as `not_configured` — creating ~90 rows on a fresh install to
  * record the absence of news would be its own noise.
  */
+/** Returns the state it RECORDED, or `null` when nothing changed (the no-op guard). */
 function applyConfiguredFlag(
   db: Database,
   connectorId: string,
@@ -201,9 +203,9 @@ function applyConfiguredFlag(
   fromState: string | null,
   nowConfigured: boolean,
   now: number,
-): void {
-  if (current === null) return;
-  if ((current.configured !== 0) === nowConfigured) return;
+): ConnectorHealthState | null {
+  if (current === null) return null;
+  if ((current.configured !== 0) === nowConfigured) return null;
   dbRun(db, "UPDATE sync_state SET configured = ? WHERE connector_id = ?", [
     nowConfigured ? 1 : 0,
     connectorId,
@@ -211,14 +213,20 @@ function applyConfiguredFlag(
   // History carries the DERIVED state, which is what a human reading the log needs. Logging the
   // untouched `health_state` would record "healthy" for the moment a connector stopped being
   // configured at all.
+  // ONE derivation, reused by both the history row and the event — a second copy of this ternary
+  // is a second place for them to disagree about what the state became.
+  const recorded: ConnectorHealthState = nowConfigured
+    ? ((fromState as ConnectorHealthState | null) ?? "healthy")
+    : "not_configured";
   appendHistory(
     db,
     connectorId,
     fromState,
-    nowConfigured ? (fromState ?? "healthy") : "not_configured",
+    recorded,
     nowConfigured ? "credential configured" : "no credential configured",
     now,
   );
+  return recorded;
 }
 
 export const DEFAULT_MAX_BACKOFF_ATTEMPTS = 10;
@@ -239,7 +247,49 @@ export function transitionHealth(
   }
 
   if (event.type === "not_configured" || event.type === "configured") {
-    applyConfiguredFlag(db, connectorId, current, fromState, event.type === "configured", now);
+    const recorded = applyConfiguredFlag(
+      db,
+      connectorId,
+      current,
+      fromState,
+      event.type === "configured",
+      now,
+    );
+    if (recorded !== null) {
+      // The EXTERNALLY VISIBLE previous state, not the raw `health_state` column — that column
+      // doesn't move when only `configured` flips, so using it here would print `healthy ->
+      // healthy` for exactly the `nimbus connector auth` round trip this event exists to surface.
+      // `applyConfiguredFlag` returned non-null, so the flag genuinely changed: for a `configured`
+      // event it was previously 0 (visible state was `not_configured`); for `not_configured` it
+      // was previously 1 (visible state was whatever `health_state` already said).
+      const visibleFromState: ConnectorHealthState | null =
+        event.type === "configured"
+          ? "not_configured"
+          : ((fromState as ConnectorHealthState | null) ?? null);
+      const configReason =
+        event.type === "configured" ? "credential configured" : "no credential configured";
+      emitConnectorHealthChanged({
+        name: connectorId,
+        health: recorded,
+        // Only on the `not_configured` arm, and unconditionally there (`recorded` is ALWAYS
+        // `"not_configured"` on that arm — `applyConfiguredFlag` forces it — so this is never
+        // "healthy" and needs no extra check). `reason`/`degradationReason` mean different things
+        // (see the main switch below) and must not collapse into the same value.
+        //
+        // A `configured` event's `recorded` is the connector's PRIOR stored `health_state`
+        // (`applyConfiguredFlag`'s `fromState ?? "healthy"`), which is not always "healthy" — a
+        // row can hold `error`/`degraded`/`rate_limited` while `configured` was `0`. Attaching
+        // `configReason` ("credential configured") there would explain an error state with a
+        // success message: `recorded === "healthy" ? {} : ...` let exactly that through, since
+        // `recorded === "error"` took the `degradationReason` branch too. `configured` never
+        // attaches `degradationReason` at all — matching the main switch below, which likewise
+        // omits it once the destination state is healthy.
+        ...(event.type === "not_configured" ? { degradationReason: configReason } : {}),
+        fromState: visibleFromState,
+        reason: configReason,
+        occurredAt: now,
+      });
+    }
     return buildSnapshot(connectorId, readHealthRow(db, connectorId));
   }
 
@@ -323,6 +373,49 @@ export function transitionHealth(
     });
     appendHistory(db, connectorId, fromState, effectiveState, reason, now);
   })();
+
+  // AFTER the transaction, deliberately. Emitting from inside `appendHistory` would publish before
+  // commit — a rollback would leave clients told of a transition that never happened — and would
+  // let a throwing subscriber roll the transaction back. `appendHistory` stays the single place
+  // every transition is RECORDED; this is the single place one is ANNOUNCED.
+  //
+  // EXCEPT for one shape: a transition that leaves an already-healthy connector healthy (most
+  // commonly a `sync_success` heartbeat) is recorded above like any other transition — history is
+  // unaffected — but NOT announced. "A sync ran" is already carried by the separate
+  // `sync.completed` gateway event, with item counts and duration; `connector.healthChanged` is
+  // for STATE CHANGES. With ~90 registered syncables, an unconfigured connector's every no-op
+  // sync still calls `transitionHealth(..., { type: "sync_success" })` (see
+  // `sync/scheduler.ts`'s `runJob` comment on `isConnectorConfigured` gating only the egress
+  // append, never the run), so without this a fresh install's `nimbus tail` would scroll a burst
+  // of `healthy -> healthy` lines every sync interval, drowning the transitions it exists to
+  // surface, and the desktop `ConnectorGrid` would `patchConnector` repeatedly with values it
+  // already holds.
+  //
+  // The check is on the STATE PAIR, not the event name — `fromState === effectiveState ===
+  // "healthy"` — never on `event.type === "sync_success"` alone. That keeps a genuine `null ->
+  // healthy` first observation announced (fromState is `null`, not `"healthy"`), and keeps a
+  // REPEATED FAILURE announced too: `degraded -> degraded` from a second `transient_error` does
+  // not match this condition (effectiveState is `"degraded"`), because a repeated failure while
+  // already failing is information a repeated success while already healthy is not.
+  const isNoOpHealthyHeartbeat = fromState === "healthy" && effectiveState === "healthy";
+  if (!isNoOpHealthyHeartbeat) {
+    emitConnectorHealthChanged({
+      name: connectorId,
+      health: effectiveState,
+      // `reason` is the TRANSITION reason (unconditional, below) and `degradationReason` is the
+      // desktop's degradation explanation — they must not collapse into the same value. Every
+      // non-heartbeat transition sets `reason` (including a success like "sync succeeded" or
+      // "connector resumed"), so gating this on `reason !== null` alone put amber
+      // "sync succeeded"/"connector resumed"/"credential re-verified" text under a GREEN tile
+      // (`ConnectorTile.tsx` renders `degradationReason` unconditionally as amber). Only emit it
+      // when the resulting state is actually not healthy.
+      ...(reason === null || effectiveState === "healthy" ? {} : { degradationReason: reason }),
+      // `string | null` -> the payload's union; same cast idiom as this file's snapshot builder.
+      fromState: (fromState as ConnectorHealthState | null) ?? null,
+      reason,
+      occurredAt: now,
+    });
+  }
 
   const updated = readHealthRow(db, connectorId);
   return buildSnapshot(connectorId, updated);

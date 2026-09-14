@@ -11,7 +11,8 @@ export type ConnectorHealth =
   | "error"
   | "rate_limited"
   | "unauthenticated"
-  | "paused";
+  | "paused"
+  | "not_configured";
 
 export interface ConnectorSummary {
   readonly name: string;
@@ -54,7 +55,11 @@ export type ConnectorStatus = {
   name: string;
   health: ConnectorHealth;
   lastSyncAt?: string;
-  degradationReason?: string;
+  // `| undefined`, not just `?:` — `ConnectorGrid`'s `onHealth` needs to explicitly CLEAR a stale
+  // reason on a `degraded -> healthy` recovery, which under `exactOptionalPropertyTypes` requires
+  // the property's own type to admit `undefined`, not merely allow omission.
+  degradationReason?: string | undefined;
+  lastError?: string;
   itemCount?: number;
   intervalMs?: number;
   depth?: "metadata_only" | "summary" | "full";

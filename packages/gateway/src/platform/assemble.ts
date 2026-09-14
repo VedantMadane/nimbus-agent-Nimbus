@@ -210,6 +210,11 @@ import {
 import type { StatusReaders } from "../ipc/admin-status-rpc.ts";
 import { resumePendingRemovals } from "../ipc/connector-rpc-handlers/index.ts";
 import type { EgressRpcCtx } from "../ipc/egress-rpc.ts";
+import {
+  emitGatewayEvent,
+  setGatewayEventBroadcast,
+  type WatcherFiredPayload,
+} from "../ipc/gateway-events.ts";
 import { HTTP_API_DEPLOYMENT_TOKEN_VAULT_KEY } from "../ipc/http-auth.ts";
 import { type ReadOnlyHttpServerOptions, startReadOnlyHttpServer } from "../ipc/http-server.ts";
 import type { TeamsEventsSurface } from "../ipc/http-write-routes.ts";
@@ -628,7 +633,13 @@ async function createSchedulerWithMesh(opts: SchedulerWithMeshOpts): Promise<{
   });
 
   const automation = loadNimbusAutomationFromConfigDir(paths.configDir);
-  const watcherOpts = { graphConditionsEnabled: automation.graphConditions };
+  const watcherOpts = {
+    graphConditionsEnabled: automation.graphConditions,
+    // Both `evaluateWatchersAfterSync` and `evaluateWatchersStartupCatchUp` share this object, so
+    // wiring it here covers both fire paths — a per-call-site wiring is one place for the second
+    // to be forgotten.
+    onFired: (p: WatcherFiredPayload) => emitGatewayEvent("watcher.fired", { ...p }),
+  };
 
   const glossaryCfg = loadNimbusGlossaryFromConfigDir(paths.configDir);
   // Gate at the point of use, so the single config read stays single.
@@ -777,6 +788,17 @@ async function createSchedulerWithMesh(opts: SchedulerWithMeshOpts): Promise<{
       const at = Date.now();
       syncAnomaly.recordSample(`sync:duration_ms:${serviceId}`, durationMs, at);
       syncAnomaly.recordSample(`sync:items_upserted:${serviceId}`, result.itemsUpserted, at);
+      // The hook already existed and already carries every field this event needs.
+      emitGatewayEvent("sync.completed", {
+        serviceId,
+        itemsUpserted: result.itemsUpserted,
+        itemsDeleted: result.itemsDeleted,
+        durationMs,
+        ...(result.bytesTransferred === undefined
+          ? {}
+          : { bytesTransferred: result.bytesTransferred }),
+        hasMore: result.hasMore,
+      });
       evaluateWatchersAfterSync(db, serviceId, at, (t, b) => notifications.show(t, b), watcherOpts);
       glossaryRefresher.trigger();
       decisionsRefresher?.trigger();
@@ -4110,6 +4132,10 @@ export async function assemblePlatformServices(
   }
   // Bind the live broadcast so identity.loginProgress/Done/Error reach subscribers (see identity-boot.ts).
   identityBoot?.bindLoginNotify((method, payload) => ipc.broadcast(method, payload));
+  // Same seam, same reason: the emitters are constructed during assemble, which runs before
+  // `createIpcServer(...)` exists. Until this line runs, every operational emit is dropped
+  // harmlessly — which is also what makes unit tests that never bind safe.
+  setGatewayEventBroadcast((method, params) => ipc.broadcast(method, params));
 
   if (chatopsBoot !== undefined) {
     // I20 fallback leg: when the chat-routed approval is not honored (timeout / non-owner /

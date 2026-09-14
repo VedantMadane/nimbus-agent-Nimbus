@@ -1,3 +1,4 @@
+import { emitGatewayEvent } from "./gateway-events.ts";
 import type { JsonRpcNotification } from "./jsonrpc.ts";
 
 export class ConsentDisconnectedError extends Error {
@@ -13,7 +14,12 @@ export class ConsentDisconnectedError extends Error {
 export interface ConsentCoordinator {
   requestConsent(
     clientId: string,
-    params: { requestId: string; prompt: string; details?: unknown },
+    params: {
+      requestId: string;
+      prompt: string;
+      details?: unknown;
+      actionType?: string | undefined;
+    },
   ): Promise<boolean>;
   rejectAllPending(message: string, hitlAuditReason: string): void;
   pendingCount(): number;
@@ -34,7 +40,12 @@ export class ConsentCoordinatorImpl implements ConsentCoordinator {
 
   requestConsent(
     clientId: string,
-    params: { requestId: string; prompt: string; details?: unknown },
+    params: {
+      requestId: string;
+      prompt: string;
+      details?: unknown;
+      actionType?: string | undefined;
+    },
   ): Promise<boolean> {
     return new Promise<boolean>((resolve, reject) => {
       const write = this.getWriter(clientId);
@@ -42,7 +53,7 @@ export class ConsentCoordinatorImpl implements ConsentCoordinator {
         reject(new ConsentDisconnectedError("No active IPC session for client"));
         return;
       }
-      const { requestId, prompt, details } = params;
+      const { requestId, prompt, details, actionType } = params;
       this.pending.set(requestId, { resolve, reject, clientId });
       const notif: JsonRpcNotification = {
         jsonrpc: "2.0",
@@ -50,6 +61,20 @@ export class ConsentCoordinatorImpl implements ConsentCoordinator {
         params: details === undefined ? { requestId, prompt } : { requestId, prompt, details },
       };
       write(notif);
+      // OBSERVATION ONLY, and additive: `consent.request` above stays unicast to the acting
+      // client, UNCHANGED — same fields, same one recipient — so consent semantics (who is
+      // asked, who may answer, and what they see) are untouched.
+      //
+      // The broadcast below carries `{requestId, actionType}`, never `prompt`. `prompt` is built
+      // by `engine/executor.ts`'s `formatConsentPrompt`, which stringifies the redacted `details`
+      // object straight into its text (channel names, message bodies, recipients, file paths —
+      // whatever the action payload carries); `redactPayloadForConsentDisplay` masks only
+      // secret-LOOKING key names (token/key/secret/password/credential/bearer/auth), so
+      // everything else survives verbatim. Broadcasting `prompt` would hand every connected
+      // session — not only the one the gateway is asking — the argument values of an action
+      // nobody has approved yet. `actionType` gives a passive observer (`nimbus tail`) what KIND
+      // of action is pending without any of that riding along.
+      emitGatewayEvent("hitl.requested", { requestId, actionType: actionType ?? "unknown" });
     });
   }
 
@@ -67,6 +92,7 @@ export class ConsentCoordinatorImpl implements ConsentCoordinator {
     }
     this.pending.delete(o["requestId"]);
     entry.resolve(o["approved"]);
+    emitGatewayEvent("hitl.resolved", { requestId: o["requestId"], approved: o["approved"] });
     return null;
   }
 
@@ -82,6 +108,11 @@ export class ConsentCoordinatorImpl implements ConsentCoordinator {
       if (entry !== undefined) {
         this.pending.delete(requestId);
         entry.reject(new ConsentDisconnectedError());
+        emitGatewayEvent("hitl.resolved", {
+          requestId,
+          approved: false,
+          reason: "client disconnected",
+        });
       }
     }
   }
@@ -90,8 +121,11 @@ export class ConsentCoordinatorImpl implements ConsentCoordinator {
     const err = new ConsentDisconnectedError(message, hitlAuditReason);
     const snapshot = new Map(this.pending);
     this.pending.clear();
-    for (const entry of snapshot.values()) {
+    // `.entries()`, not `.values()`: the key IS the requestId, and `hitl.resolved` is useless
+    // without it. The existing loop discarded it because nothing needed it before.
+    for (const [requestId, entry] of snapshot.entries()) {
       entry.reject(err);
+      emitGatewayEvent("hitl.resolved", { requestId, approved: false, reason: message });
     }
   }
 
