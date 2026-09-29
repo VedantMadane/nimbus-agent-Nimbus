@@ -11,6 +11,10 @@ import { runIndexedSchemaMigrations } from "../../src/index/migrations/runner.ts
 
 const extensionTestDirs: string[] = [];
 
+export function registerExtensionTestDir(dir: string): void {
+  extensionTestDirs.push(dir);
+}
+
 export function cleanupExtensionTestDirs(): void {
   for (const dir of extensionTestDirs.splice(0)) {
     try {

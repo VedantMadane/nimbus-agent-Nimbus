@@ -8,6 +8,7 @@ import pino, { type Logger } from "pino";
 
 import {
   cleanupExtensionTestDirs,
+  registerExtensionTestDir,
   setupFreshExtensionDb,
   stageSignedExtensionOnDisk,
 } from "../../test/fixtures/extension.ts";
@@ -45,6 +46,7 @@ function makeExtensionDir(
   entryContent: string,
 ): { dir: string; manifestHex: string; entryPath: string } {
   const dir = mkdtempSync(join(tmpdir(), prefix));
+  registerExtensionTestDir(dir);
   const manifestPath = join(dir, "nimbus.extension.json");
   writeFileSync(manifestPath, JSON.stringify({ id, version: "1.0.0", name: id }), "utf8");
   mkdirSync(join(dir, "dist"), { recursive: true });
